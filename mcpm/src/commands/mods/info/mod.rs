@@ -35,6 +35,7 @@ pub(super) fn run(args: InfoArgs) -> Result<()> {
     let loaders = args.loaders.select()?;
     let mut stdout = io::stdout().lock();
     let mut failed = 0;
+    let mut ignored = 0;
     let mut written = false;
 
     for path in args.files {
@@ -51,6 +52,9 @@ pub(super) fn run(args: InfoArgs) -> Result<()> {
             failed += 1;
         }
         if file.metadata.is_empty() {
+            if filtered && !had_error {
+                ignored += 1;
+            }
             continue;
         }
         if written {
@@ -60,6 +64,10 @@ pub(super) fn run(args: InfoArgs) -> Result<()> {
         stdout.flush().context("failed to flush mod information")?;
         written = true;
     }
+
+    super::ignored_output::write_loader_filtered(&mut stdout, ignored, &[])
+        .context("failed to write ignored mod files summary")?;
+    stdout.flush().context("failed to flush mod information")?;
 
     if failed > 0 {
         return Err(InfoError::FailedFiles { count: failed }.into());
