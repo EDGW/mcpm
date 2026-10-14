@@ -1,3 +1,5 @@
+mod dependency_output;
+mod deps;
 mod info;
 mod list;
 mod loaders;
@@ -13,6 +15,8 @@ pub(crate) struct ModArgs {
 
 #[derive(Subcommand)]
 enum ModCommand {
+    /// Show direct dependency declarations from local mod files.
+    Deps(deps::DepsArgs),
     /// Show metadata and dependencies from a local mod file.
     Info(info::InfoArgs),
     /// List local mod files with loader colors.
@@ -21,6 +25,7 @@ enum ModCommand {
 
 pub(crate) fn run(args: ModArgs) -> Result<()> {
     match args.command {
+        ModCommand::Deps(args) => deps::run(args),
         ModCommand::Info(args) => info::run(args),
         ModCommand::List(args) => list::run(args),
     }

@@ -29,6 +29,17 @@ pub(super) fn optional_string<'a>(
         .transpose()
 }
 
+pub(super) fn optional_bool(value: &Value, key: &str, document: &str) -> Result<Option<bool>> {
+    value
+        .get(key)
+        .map(|field| {
+            field
+                .as_bool()
+                .ok_or_else(|| invalid(document, key, "a boolean"))
+        })
+        .transpose()
+}
+
 pub(super) fn object<'a>(
     value: &'a Value,
     document: &str,

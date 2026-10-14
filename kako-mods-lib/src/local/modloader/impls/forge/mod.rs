@@ -96,11 +96,14 @@ fn read_archive(archive: &mut archive::Archive, path: &Path) -> Result<archive::
         return Ok(archive::ArchiveNode { mods: vec![], jars });
     }
 
-    let mut mods = fml::parse(&contents, document).map_err(|source| ForgeError::ParseMetadata {
-        path: path.to_owned(),
-        document,
-        source,
-    })?;
+    let mut mods =
+        fml::parse(&contents, document, fml::DependencyFormat::Forge).map_err(|source| {
+            ForgeError::ParseMetadata {
+                path: path.to_owned(),
+                document,
+                source,
+            }
+        })?;
     for info in &mut mods {
         info.version = version::resolve(&info.version, &contents, || {
             archive::read(archive, "META-INF/MANIFEST.MF").map_err(|source| {

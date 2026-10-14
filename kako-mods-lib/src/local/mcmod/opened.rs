@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 
 use crate::local::{
-    mcmod::{DependencyConstraint, ModEntry},
+    mcmod::{Dependency, ModEntry},
     modloader::{ModLoaderMeta, ModLoaderSet},
 };
 
@@ -43,7 +43,7 @@ pub struct ModInfo {
     /// A loader may supply its format's default when the property is absent.
     pub version: String,
     /// Dependencies reported by the loader; empty when there are none.
-    pub dependencies: Vec<DependencyConstraint>,
+    pub dependencies: Vec<Dependency>,
 }
 
 /// The caller's decision after a loader identification attempt fails.

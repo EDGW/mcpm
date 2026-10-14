@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 
-use kako_mods_lib::local::mcmod::{
-    DependencyConstraint, ModFile, ModStatus, VersionConstraint, VersionOperator,
-};
+use super::super::dependency_output::{format_dependency, text};
+
+use kako_mods_lib::local::mcmod::{ModFile, ModStatus};
 
 pub(super) fn write_info(output: &mut impl Write, file: &ModFile) -> io::Result<()> {
     writeln!(output, "File: {}", file.entry.path().display())?;
@@ -32,72 +32,4 @@ pub(super) fn write_info(output: &mut impl Write, file: &ModFile) -> io::Result<
         }
     }
     Ok(())
-}
-
-fn format_dependency(constraint: &DependencyConstraint) -> String {
-    match constraint {
-        DependencyConstraint::Mod(dependency) => format!(
-            "{}: {}",
-            text(&dependency.modid),
-            format_version(&dependency.version_requirement)
-        ),
-        DependencyConstraint::All(conditions) => {
-            group(conditions.iter().map(format_dependency), " && ", "true")
-        }
-        DependencyConstraint::AnyOf(conditions) => {
-            group(conditions.iter().map(format_dependency), " || ", "false")
-        }
-    }
-}
-
-fn format_version(constraint: &VersionConstraint) -> String {
-    match constraint {
-        VersionConstraint::Any => "*".into(),
-        VersionConstraint::Compare { operator, version } => {
-            let operator = match operator {
-                VersionOperator::Equal => "=",
-                VersionOperator::NotEqual => "!=",
-                VersionOperator::Greater => ">",
-                VersionOperator::GreaterOrEqual => ">=",
-                VersionOperator::Less => "<",
-                VersionOperator::LessOrEqual => "<=",
-            };
-            format!("{operator}{}", text(version))
-        }
-        VersionConstraint::Wildcard(pattern) => text(pattern),
-        VersionConstraint::Caret(version) => format!("^{}", text(version)),
-        VersionConstraint::Tilde(version) => format!("~{}", text(version)),
-        VersionConstraint::Recommended(version) => format!("recommended({})", text(version)),
-        VersionConstraint::All(conditions) => {
-            group(conditions.iter().map(format_version), " && ", "*")
-        }
-        VersionConstraint::AnyOf(conditions) => group(
-            conditions.iter().map(format_version),
-            " || ",
-            "<no version>",
-        ),
-    }
-}
-
-fn group(parts: impl Iterator<Item = String>, separator: &str, empty: &str) -> String {
-    let parts: Vec<_> = parts.collect();
-    match parts.len() {
-        0 => empty.into(),
-        1 => parts.into_iter().next().unwrap(),
-        _ => format!("({})", parts.join(separator)),
-    }
-}
-
-// Keep metadata on its own line, including when it contains terminal controls.
-fn text(value: &str) -> String {
-    value
-        .chars()
-        .map(|character| {
-            if character.is_control() {
-                character.escape_default().to_string()
-            } else {
-                character.to_string()
-            }
-        })
-        .collect()
 }

@@ -5,7 +5,10 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::local::{
-    mcmod::{DependencyConstraint, ModDependency, ModEntry, ModInfo, ModMeta, VersionConstraint},
+    mcmod::{
+        Dependency, DependencyConstraint, DependencyKind, DependencyQualifiers,
+        DependencyReference, DependencySide, ModEntry, ModInfo, ModMeta, VersionConstraint,
+    },
     modloader::{ModLoader, ModLoaderMeta},
 };
 
@@ -139,9 +142,17 @@ fn parse(contents: &str) -> Result<ModInfo> {
         None => modid.clone(),
     };
     let mut dependencies = Vec::new();
-    if let Some(clauses) = loader.get("depends") {
-        for clause in metadata::array(clauses, document, "quilt_loader.depends")? {
-            dependencies.push(dependency(clause, document)?);
+    for (key, kind) in [
+        ("depends", DependencyKind::Required),
+        ("breaks", DependencyKind::Breaks),
+    ] {
+        if let Some(clauses) = loader.get(key) {
+            for clause in metadata::array(clauses, document, key)? {
+                dependencies.push(Dependency {
+                    kind,
+                    constraint: dependency(clause, document, kind == DependencyKind::Breaks)?,
+                });
+            }
         }
     }
     Ok(ModInfo {
@@ -153,18 +164,24 @@ fn parse(contents: &str) -> Result<ModInfo> {
     })
 }
 
-fn dependency(clause: &Value, document: &str) -> Result<DependencyConstraint> {
+fn dependency(clause: &Value, document: &str, all: bool) -> Result<DependencyConstraint> {
     match clause {
-        Value::String(target) => Ok(DependencyConstraint::Mod(ModDependency {
-            modid: target.clone(),
+        Value::String(target) => Ok(DependencyConstraint::Reference(DependencyReference {
+            id: target.clone(),
             version_requirement: VersionConstraint::Any,
+            qualifiers: Default::default(),
         })),
-        Value::Array(clauses) => Ok(DependencyConstraint::AnyOf(
-            clauses
+        Value::Array(clauses) => {
+            let conditions = clauses
                 .iter()
-                .map(|clause| dependency(clause, document))
-                .collect::<Result<_>>()?,
-        )),
+                .map(|clause| dependency(clause, document, all))
+                .collect::<Result<_>>()?;
+            Ok(if all {
+                DependencyConstraint::All(conditions)
+            } else {
+                DependencyConstraint::AnyOf(conditions)
+            })
+        }
         Value::Object(_) => {
             let modid = metadata::required_string(clause, "id", document)?.to_owned();
             let constraint = clause.get("versions").or_else(|| clause.get("version"));
@@ -173,9 +190,33 @@ fn dependency(clause: &Value, document: &str) -> Result<DependencyConstraint> {
                 .transpose()
                 .with_context(|| format!("{document}: invalid dependency constraint for {modid}"))?
                 .unwrap_or(VersionConstraint::Any);
-            Ok(DependencyConstraint::Mod(ModDependency {
-                modid,
+            let side = metadata::optional_string(clause, "environment", document)?
+                .map(|side| match side {
+                    "client" => Ok(DependencySide::Client),
+                    "server" => Ok(DependencySide::Server),
+                    "*" => Ok(DependencySide::Both),
+                    _ => Err(metadata::invalid(
+                        document,
+                        "environment",
+                        "client, server, or *",
+                    )),
+                })
+                .transpose()?;
+            Ok(DependencyConstraint::Reference(DependencyReference {
+                id: modid,
                 version_requirement,
+                qualifiers: DependencyQualifiers {
+                    optional: metadata::optional_bool(clause, "optional", document)?
+                        .unwrap_or(false),
+                    unless: clause
+                        .get("unless")
+                        .map(|value| dependency(value, document, false).map(Box::new))
+                        .transpose()?,
+                    side,
+                    reason: metadata::optional_string(clause, "reason", document)?
+                        .map(str::to_owned),
+                    ..Default::default()
+                },
             }))
         }
         _ => Err(metadata::invalid(

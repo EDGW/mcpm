@@ -14,12 +14,13 @@ mod opened;
 pub use opened::*;
 
 mod dependency;
-mod dependency_constraint;
 mod version_constraint;
 mod version_operator;
 
-pub use dependency::ModDependency;
-pub use dependency_constraint::DependencyConstraint;
+pub use dependency::{
+    Dependency, DependencyConstraint, DependencyKind, DependencyOrdering, DependencyQualifiers,
+    DependencyReference, DependencySide,
+};
 pub use version_constraint::VersionConstraint;
 pub use version_operator::VersionOperator;
 

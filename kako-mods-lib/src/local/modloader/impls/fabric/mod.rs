@@ -5,7 +5,10 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::local::{
-    mcmod::{DependencyConstraint, ModDependency, ModEntry, ModInfo, ModMeta},
+    mcmod::{
+        Dependency, DependencyConstraint, DependencyKind, DependencyReference, ModEntry, ModInfo,
+        ModMeta,
+    },
     modloader::{ModLoader, ModLoaderMeta},
 };
 
@@ -107,25 +110,39 @@ pub(super) fn parse(contents: &str) -> Result<ModInfo> {
         .unwrap_or(&modid)
         .to_owned();
     let mut dependencies = Vec::new();
-    let keys: &[&str] = if data
+    let schema = data
         .get("schemaVersion")
         .and_then(Value::as_u64)
-        .unwrap_or(0)
-        == 0
-    {
-        &["requires", "recommends", "suggests"]
+        .unwrap_or(0);
+    // Fabric v0 conflicts are hard incompatibilities and recommends are suggestions.
+    let keys: &[(&str, DependencyKind)] = if schema == 0 {
+        &[
+            ("requires", DependencyKind::Required),
+            ("recommends", DependencyKind::Suggested),
+            ("conflicts", DependencyKind::Breaks),
+        ]
     } else {
-        &["depends", "recommends", "suggests"]
+        &[
+            ("depends", DependencyKind::Required),
+            ("recommends", DependencyKind::Recommended),
+            ("suggests", DependencyKind::Suggested),
+            ("breaks", DependencyKind::Breaks),
+            ("conflicts", DependencyKind::Conflicts),
+        ]
     };
-    for key in keys {
+    for &(key, kind) in keys {
         if let Some(clauses) = data.get(key) {
             for (target, constraint) in metadata::object(clauses, document, key)? {
-                dependencies.push(DependencyConstraint::Mod(ModDependency {
-                    modid: target.clone(),
-                    version_requirement: constraints::fabric_json(constraint).with_context(
-                        || format!("{document}: invalid {key} constraint for {target}"),
-                    )?,
-                }));
+                dependencies.push(Dependency {
+                    kind,
+                    constraint: DependencyConstraint::Reference(DependencyReference {
+                        id: target.clone(),
+                        version_requirement: constraints::fabric_json(constraint).with_context(
+                            || format!("{document}: invalid {key} constraint for {target}"),
+                        )?,
+                        qualifiers: Default::default(),
+                    }),
+                });
             }
         }
     }

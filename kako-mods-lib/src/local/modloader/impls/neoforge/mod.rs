@@ -107,8 +107,13 @@ fn read_archive(archive: &mut archive::Archive, path: &Path) -> Result<archive::
         contents
     };
 
+    let format = if document == "META-INF/mods.toml" {
+        fml::DependencyFormat::NeoForgeLegacy
+    } else {
+        fml::DependencyFormat::NeoForge
+    };
     let mut mods =
-        fml::parse(&contents, document).map_err(|source| NeoForgeError::ParseMetadata {
+        fml::parse(&contents, document, format).map_err(|source| NeoForgeError::ParseMetadata {
             path: path.to_owned(),
             document,
             source,
