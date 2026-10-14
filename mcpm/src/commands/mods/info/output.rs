@@ -1,32 +1,61 @@
 use std::io::{self, Write};
 
 use super::super::dependency_output::{format_dependency, text};
+use super::super::output_style::OutputStyle;
 
 use kako_mods_lib::local::mcmod::{ModFile, ModStatus};
 
 pub(super) fn write_info(output: &mut impl Write, file: &ModFile) -> io::Result<()> {
-    writeln!(output, "File: {}", file.entry.path().display())?;
+    let style = OutputStyle::new();
+    writeln!(
+        output,
+        "{}",
+        style.secondary(format!(
+            "File: {}",
+            text(&file.entry.path().display().to_string())
+        ))
+    )?;
     let status = match file.entry.status() {
         ModStatus::Enabled => "enabled",
         ModStatus::Disabled => "disabled",
     };
-    writeln!(output, "Status: {status}")?;
+    writeln!(output, "{}", style.secondary(format!("Status: {status}")))?;
 
     for metadata in &file.metadata {
-        writeln!(output, "\nLoader: {}", text(&metadata.loader.name))?;
+        writeln!(
+            output,
+            "\n{}{}",
+            style.secondary("Loader: "),
+            style.loader(&metadata.loader.id, &text(&metadata.loader.name))
+        )?;
         for (index, info) in metadata.mods.iter().enumerate() {
             if index > 0 {
                 writeln!(output)?;
             }
-            writeln!(output, "  Name: {}", text(&info.name))?;
-            writeln!(output, "  ID: {}", text(&info.modid))?;
-            writeln!(output, "  Version: {}", text(&info.version))?;
+            writeln!(
+                output,
+                "{}{}",
+                style.secondary("  Name: "),
+                style.important(text(&info.name))
+            )?;
+            writeln!(
+                output,
+                "{}{}",
+                style.secondary("  ID: "),
+                style.important(text(&info.modid))
+            )?;
+            writeln!(
+                output,
+                "{}{}",
+                style.secondary("  Version: "),
+                style.important(text(&info.version))
+            )?;
             if info.dependencies.is_empty() {
-                writeln!(output, "  Dependencies: none")?;
+                writeln!(output, "{}", style.secondary("  Dependencies: none"))?;
             } else {
-                writeln!(output, "  Dependencies:")?;
+                writeln!(output, "{}", style.important("  Dependencies:"))?;
                 for dependency in &info.dependencies {
-                    writeln!(output, "    {}", format_dependency(dependency))?;
+                    writeln!(output, "    {}", format_dependency(dependency, &style))?;
                 }
             }
         }

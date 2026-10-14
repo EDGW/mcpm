@@ -4,6 +4,7 @@ mod ignored_output;
 mod info;
 mod list;
 mod loaders;
+mod output_style;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};

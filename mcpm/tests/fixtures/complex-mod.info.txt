@@ -1,0 +1,110 @@
+File: complex-mod.jar
+Status: enabled
+
+Loader: Forge
+  Name: Complex Mod / Forge
+  ID: omnibus
+  Version: 3.2.1+forge
+  Dependencies:
+    required: forge: >=52 [side=both; ordering=none]
+    required: minecraft: (>=1.21 && <1.22) [side=both; ordering=none]
+    optional: client_api: (<=1.0 || (>=2.0 && <3.0)) [side=client; ordering=after target; reason=optional client integration]
+    required: server_api: =2.0 [side=server; ordering=before target]
+
+  Name: Forge Tools
+  ID: forge_tools
+  Version: 3.2.1
+  Dependencies:
+    optional: preferred_api: recommended(2.0) [side=both; ordering=none]
+
+  Name: Nested Module
+  ID: omnibus_nested
+  Version: 1.0.0
+  Dependencies:
+    required: omnibus_leaf: >=1 [side=both; ordering=none]
+
+  Name: Leaf with no dependencies
+  ID: omnibus_leaf
+  Version: 1.0.0
+  Dependencies: none
+
+Loader: NeoForge
+  Name: Complex Mod / NeoForge
+  ID: omnibus
+  Version: 3.2.1
+  Dependencies:
+    required: neoforge: >=21.1 [side=both; ordering=none]
+    required: minecraft: (>=1.21.1 && <1.22) [side=both; ordering=none]
+    optional: client_api: (<=1.0 || >=2.0) [side=client; ordering=after target; reason=optional API]
+    breaks: broken_api: (>=0 && <1) [side=server; ordering=none; reason=broken server integration]
+    conflicts: conflicting_api: =2.0 [side=both; ordering=before target; reason=known conflict]
+
+  Name: NeoForge Tools
+  ID: neo_tools
+  Version: 1.0.0
+  Dependencies: none
+
+  Name: Nested Module
+  ID: omnibus_nested
+  Version: 1.0.0
+  Dependencies:
+    required: omnibus_leaf: >=1 [side=both; ordering=none]
+
+  Name: Leaf with no dependencies
+  ID: omnibus_leaf
+  Version: 1.0.0
+  Dependencies: none
+
+Loader: Fabric
+  Name: Complex Mod / Fabric
+  ID: omnibus
+  Version: 3.2.1+fabric
+  Dependencies:
+    required: api: ((>=1.0 && <2.0) || ^3.0)
+    required: bounded_api: (>1.0 && <=2.0)
+    required: exact_api: =2.0
+    required: fabricloader: >=0.16.0
+    required: hyphen_api: (>=1.0 && <=2.0)
+    required: java: >=21
+    required: minecraft: 1.21.x
+    required: not_equal_api: !=1.5
+    required: tilde_api: ~1.4
+    recommended: recommended_api: ^2.0
+    suggested: suggested_api: *
+    breaks: broken_api: <1.0
+    conflicts: conflicting_api: (=1.0 || =2.0)
+
+  Name: Nested Module
+  ID: omnibus_nested
+  Version: 1.0.0
+  Dependencies:
+    required: omnibus_leaf: >=1
+
+  Name: Leaf with no dependencies
+  ID: omnibus_leaf
+  Version: 1.0.0
+  Dependencies: none
+
+Loader: Quilt
+  Name: Complex Mod / Quilt
+  ID: omnibus
+  Version: 3.2.1+quilt
+  Dependencies:
+    required: quilt_loader: *
+    required: minecraft: 1.21.x
+    required: (example:render_api: ((>=1 && <2) || ^3) [if present; unless (fallback: ~2 || standalone: *); side=client; reason=client integration] || alternate_api: *)
+    required: server_api: ^2.0 [side=server]
+    required: universal_api: * [side=both; reason=line one\nline two\tend]
+    breaks: (legacy_api: <1 && legacy_bridge: * [unless compatibility: >=2 [unless compat_disabled: *]])
+    breaks: broken_quilt_api: =0.1 [reason=incompatible API]
+
+  Name: Nested Module
+  ID: omnibus_nested
+  Version: 1.0.0
+  Dependencies:
+    required: omnibus_leaf: *
+
+  Name: Leaf with no dependencies
+  ID: omnibus_leaf
+  Version: 1.0.0
+  Dependencies: none

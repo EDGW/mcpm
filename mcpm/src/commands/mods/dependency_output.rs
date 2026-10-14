@@ -3,7 +3,9 @@ use kako_mods_lib::local::mcmod::{
     VersionConstraint, VersionOperator,
 };
 
-pub(super) fn format_dependency(dependency: &Dependency) -> String {
+use super::output_style::OutputStyle;
+
+pub(super) fn format_dependency(dependency: &Dependency, style: &OutputStyle) -> String {
     let kind = match dependency.kind {
         DependencyKind::Required => "required",
         DependencyKind::Optional => "optional",
@@ -12,16 +14,27 @@ pub(super) fn format_dependency(dependency: &Dependency) -> String {
         DependencyKind::Breaks => "breaks",
         DependencyKind::Conflicts => "conflicts",
     };
-    format!("{kind}: {}", format_constraint(&dependency.constraint))
+    let kind = match dependency.kind {
+        DependencyKind::Required => style.required(kind),
+        DependencyKind::Recommended => style.recommended(kind),
+        DependencyKind::Suggested => style.suggested(kind),
+        DependencyKind::Breaks => style.danger(kind),
+        DependencyKind::Conflicts => style.warning(kind),
+        _ => style.secondary(kind),
+    };
+    format!(
+        "{kind}: {}",
+        format_constraint(&dependency.constraint, style)
+    )
 }
 
-fn format_constraint(constraint: &DependencyConstraint) -> String {
+fn format_constraint(constraint: &DependencyConstraint, style: &OutputStyle) -> String {
     match constraint {
         DependencyConstraint::Reference(reference) => {
             let mut value = format!(
                 "{}: {}",
-                text(&reference.id),
-                format_version(&reference.version_requirement)
+                style.important(text(&reference.id)),
+                style.important(format_version(&reference.version_requirement))
             );
             let q = &reference.qualifiers;
             let mut rules = Vec::new();
@@ -29,7 +42,10 @@ fn format_constraint(constraint: &DependencyConstraint) -> String {
                 rules.push("if present".into());
             }
             if let Some(unless) = &q.unless {
-                rules.push(format!("unless {}", format_constraint(unless)));
+                rules.push(format!(
+                    "unless {}",
+                    format_constraint(unless, &OutputStyle::plain())
+                ));
             }
             if let Some(side) = q.side {
                 rules.push(format!(
@@ -55,16 +71,24 @@ fn format_constraint(constraint: &DependencyConstraint) -> String {
                 rules.push(format!("reason={}", text(reason)));
             }
             if !rules.is_empty() {
-                value.push_str(&format!(" [{}]", rules.join("; ")));
+                value.push_str(&style.secondary(format!(" [{}]", rules.join("; "))));
             }
             value
         }
-        DependencyConstraint::All(conditions) => {
-            group(conditions.iter().map(format_constraint), " && ", "true")
-        }
-        DependencyConstraint::AnyOf(conditions) => {
-            group(conditions.iter().map(format_constraint), " || ", "false")
-        }
+        DependencyConstraint::All(conditions) => group(
+            conditions
+                .iter()
+                .map(|condition| format_constraint(condition, style)),
+            " && ",
+            "true",
+        ),
+        DependencyConstraint::AnyOf(conditions) => group(
+            conditions
+                .iter()
+                .map(|condition| format_constraint(condition, style)),
+            " || ",
+            "false",
+        ),
     }
 }
 
