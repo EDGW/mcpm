@@ -9,6 +9,7 @@ use kako_mods_lib::local::mcmod::{self, IdentificationErrorAction, ModEntry};
 use thiserror::Error;
 
 use super::loaders::LoaderArgs;
+use super::source_path::PathArgs;
 
 #[derive(Args)]
 pub(super) struct DepsArgs {
@@ -17,6 +18,8 @@ pub(super) struct DepsArgs {
     files: Vec<PathBuf>,
     #[command(flatten)]
     loaders: LoaderArgs,
+    #[command(flatten)]
+    paths_output: PathArgs,
 }
 
 #[derive(Debug, Error)]
@@ -66,7 +69,7 @@ pub(super) fn run(args: DepsArgs) -> Result<()> {
         if written {
             writeln!(stdout).context("failed to write dependency separator")?;
         }
-        output::write_deps(&mut stdout, &file, &failed_loaders)
+        output::write_deps(&mut stdout, &file, &failed_loaders, &args.paths_output)
             .context("failed to write dependency declarations")?;
         stdout
             .flush()

@@ -1,11 +1,12 @@
 use std::collections::HashSet;
 use std::io::{self, Write};
+use std::path::Path;
 
 use kako_mods_lib::local::modloader::ModLoaderMeta;
 use owo_colors::Style;
 use unicode_width::UnicodeWidthStr;
 
-use super::super::mod_records;
+use super::super::{mod_records, source_path::PathArgs};
 use super::{ListedFile, columns::Column};
 
 mod layout;
@@ -34,7 +35,7 @@ impl Row {
         index: Option<usize>,
         name: &str,
         modid: &str,
-        filename: &str,
+        filename: Vec<Piece>,
         loaders: Vec<Piece>,
     ) -> Self {
         Self {
@@ -45,7 +46,7 @@ impl Row {
                 )],
                 vec![Piece::new(name, Style::new().bright_white().bold())],
                 vec![Piece::new(modid, Style::new().bright_black())],
-                vec![Piece::new(filename, Style::new().bright_black())],
+                filename,
                 loaders,
             ],
         }
@@ -60,22 +61,27 @@ impl Row {
     }
 }
 
+pub(super) struct ListOptions<'a> {
+    pub expanded: bool,
+    pub color: bool,
+    pub columns: &'a [Column],
+    pub width: Option<usize>,
+    pub paths: &'a PathArgs,
+}
+
 pub(super) fn write_list(
     output: &mut impl Write,
     files: &[ListedFile],
-    expanded: bool,
-    color: bool,
-    columns: &[Column],
-    width: Option<usize>,
+    options: ListOptions<'_>,
 ) -> io::Result<()> {
     let mut rows = Vec::new();
     for (index, listed) in files.iter().enumerate() {
-        append_rows(&mut rows, listed, index + 1, expanded);
+        append_rows(&mut rows, listed, index + 1, &options);
     }
-    layout::write(output, &rows, columns, color, width)
+    layout::write(output, &rows, options.columns, options.color, options.width)
 }
 
-fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, expanded: bool) {
+fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options: &ListOptions<'_>) {
     let file = &listed.file;
     let records: Vec<_> = file
         .metadata
@@ -97,11 +103,11 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, expanded
             Some(number),
             file.entry.name(),
             "",
-            &outer_filename,
+            vec![Piece::new(&outer_filename, Style::new().bright_black())],
             loaders,
         ));
     }
-    if expanded {
+    if options.expanded {
         for (index, record) in records.iter().enumerate() {
             let loader = record.loader;
             let info = record.info;
@@ -109,7 +115,7 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, expanded
                 (index == 0).then_some(number),
                 &info.name,
                 &info.modid,
-                &filename(&record.source, &outer_filename),
+                filename(&record.source, file.entry.path(), options.paths),
                 vec![loader_piece(loader)],
             ));
         }
@@ -118,7 +124,7 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, expanded
                 None,
                 file.entry.name(),
                 "",
-                &outer_filename,
+                vec![Piece::new(&outer_filename, Style::new().bright_black())],
                 vec![
                     loader_piece(&failure.loader),
                     Piece::new(" [failed]", warning()),
@@ -158,16 +164,27 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, expanded
             Some(number),
             &info.name,
             &info.modid,
-            &filename(&record.source, &outer_filename),
+            filename(&record.source, file.entry.path(), options.paths),
             loaders,
         ));
     }
 }
 
-fn filename(source: &[String], outer: &str) -> String {
-    match source.last() {
-        Some(member) => format!("nested {}", member.rsplit('/').next().unwrap_or(member)),
-        None => outer.to_owned(),
+fn filename(source: &[String], outer: &Path, paths: &PathArgs) -> Vec<Piece> {
+    if source.is_empty() {
+        vec![Piece::new(
+            outer.file_name().unwrap_or_default().to_string_lossy(),
+            Style::new().bright_black(),
+        )]
+    } else {
+        let mut pieces = Vec::new();
+        for (index, part) in paths.parts(outer, source).iter().enumerate() {
+            if index > 0 {
+                pieces.push(Piece::new("!", Style::new().bright_white().bold()));
+            }
+            pieces.push(Piece::new(part, Style::new().bright_black()));
+        }
+        pieces
     }
 }
 

@@ -5,11 +5,13 @@ use kako_mods_lib::local::mcmod::ModFile;
 use super::super::dependency_output::{format_dependency, text};
 use super::super::mod_records;
 use super::super::output_style::OutputStyle;
+use super::super::source_path::PathArgs;
 
 pub(super) fn write_deps(
     output: &mut impl Write,
     file: &ModFile,
     failed_loaders: &[String],
+    paths: &PathArgs,
 ) -> io::Result<()> {
     let style = OutputStyle::new();
     let outer_path = text(&file.entry.path().display().to_string());
@@ -45,12 +47,13 @@ pub(super) fn write_deps(
                 style.important(text(&info.modid)),
                 style.important(text(&info.version))
             )?;
-            let mut source = outer_path.clone();
-            for member in &record.source {
-                source.push_str("!/");
-                source.push_str(&text(member));
-            }
-            writeln!(output, "{}", style.secondary(format!("  Source: {source}")))?;
+            let source = paths
+                .parts(file.entry.path(), &record.source)
+                .iter()
+                .map(|part| style.secondary(text(part)))
+                .collect::<Vec<_>>()
+                .join(&style.important("!"));
+            writeln!(output, "{}{source}", style.secondary("  Source: "))?;
             if info.dependencies.is_empty() {
                 writeln!(
                     output,

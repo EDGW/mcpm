@@ -4,7 +4,9 @@ mod ignored_output;
 mod info;
 mod list;
 mod loaders;
+mod mod_records;
 mod output_style;
+mod source_path;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -32,5 +34,3 @@ pub(crate) fn run(args: ModArgs) -> Result<()> {
         ModCommand::List(args) => list::run(args),
     }
 }
-
-mod mod_records;

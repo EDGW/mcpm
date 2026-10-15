@@ -17,6 +17,7 @@ use thiserror::Error;
 use crate::terminal::{self, Stream};
 
 use super::loaders::LoaderArgs;
+use super::source_path::PathArgs;
 use columns::ColumnArgs;
 
 #[derive(Args)]
@@ -34,6 +35,8 @@ pub(super) struct ListArgs {
     loaders: LoaderArgs,
     #[command(flatten)]
     columns: ColumnArgs,
+    #[command(flatten)]
+    paths_output: PathArgs,
 }
 
 #[derive(Debug, Error)]
@@ -124,8 +127,18 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
             .unwrap_or_else(textwrap::termwidth)
     });
     let mut stdout = io::stdout().lock();
-    output::write_list(&mut stdout, &files, args.expanded, color, &columns, width)
-        .context("failed to write mod list")?;
+    output::write_list(
+        &mut stdout,
+        &files,
+        output::ListOptions {
+            expanded: args.expanded,
+            color,
+            columns: &columns,
+            width,
+            paths: &args.paths_output,
+        },
+    )
+    .context("failed to write mod list")?;
     super::ignored_output::write_loader_filtered(&mut stdout, ignored, &ignored_files)
         .context("failed to write ignored mod files summary")?;
     stdout.flush().context("failed to flush mod list")?;
