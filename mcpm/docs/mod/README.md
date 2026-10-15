@@ -11,23 +11,24 @@ mcpm mod <COMMAND>
 | [`list`](list.md) | List mod declarations from files and directories. |
 | [`info`](info.md) | Inspect metadata and dependencies in one or more files. |
 | [`deps`](deps.md) | Show direct dependency declarations and their archive sources. |
+| [`dep-graph`](dep-graph.md) | Build graphs, validate snapshots, or display a mod dependency tree. |
 
 ## Loader selection
 
-All three commands accept these options:
+`list`, `info`, `deps`, and `dep-graph build` accept these options:
 
 | Option | Description |
 | --- | --- |
 | `--loader <LOADER>` | Select one loader. Repeat to select more than one. |
 | `--loaders <LOADERS>` | Select comma-separated loaders. Repeat or combine with `--loader`. |
 
-Accepted values are `forge`, `neoforge`, `fabric`, and `quilt`.
-Without either option, all four loaders are attempted. Selections are combined
+Accepted values are `forge`, `neoforge`, and `fabric`.
+Without either option, all three loaders are attempted. Selections are combined
 as a union, with duplicates removed. Loader records are displayed in built-in
-order: Forge, NeoForge, Fabric, then Quilt.
+order: Forge, NeoForge, then Fabric.
 
 ```sh
-mcpm mod list mods/ --loader fabric --loader quilt
+mcpm mod list mods/ --loader fabric --loader neoforge
 mcpm mod info example.jar --loader forge --loaders neoforge,fabric
 ```
 

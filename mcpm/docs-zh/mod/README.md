@@ -11,20 +11,21 @@ mcpm mod <COMMAND>
 | [`list`](list.md) | 列出文件和目录中的 Mod 声明。 |
 | [`info`](info.md) | 检查一个或多个文件的元数据和依赖。 |
 | [`deps`](deps.md) | 显示直接依赖声明及其来源归档。 |
+| [`dep-graph`](dep-graph.md) | 构建目录依赖图、校验快照，或查看单个 Mod 的依赖树。 |
 
 ## Loader 选择
 
-三个命令都支持以下选项：
+`list`、`info`、`deps` 和 `dep-graph build` 都支持以下选项：
 
 | 选项 | 说明 |
 | --- | --- |
 | `--loader <LOADER>` | 选择一个 Loader，可重复指定。 |
 | `--loaders <LOADERS>` | 选择以逗号分隔的多个 Loader，可重复指定或与 `--loader` 组合使用。 |
 
-可用值为 `forge`、`neoforge`、`fabric` 和 `quilt`。不指定时尝试全部四个 Loader。多个选择取并集并去重，记录按内置顺序显示：Forge、NeoForge、Fabric、Quilt。
+可用值为 `forge`、`neoforge` 和 `fabric`。不指定时尝试全部三个 Loader。多个选择取并集并去重，记录按内置顺序显示：Forge、NeoForge、Fabric。
 
 ```sh
-mcpm mod list mods/ --loader fabric --loader quilt
+mcpm mod list mods/ --loader fabric --loader neoforge
 mcpm mod info example.jar --loader forge --loaders neoforge,fabric
 ```
 

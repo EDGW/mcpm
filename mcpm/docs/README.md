@@ -1,16 +1,19 @@
 # mcpm command reference
 
-`mcpm` inspects local Minecraft mod archives. The available commands are
-`mod list`, `mod info`, and `mod deps`. These commands read files without
-modifying them.
+`mcpm` inspects local Minecraft clients and mod archives. The available commands are
+`client list`, `client check`, `mod list`, `mod info`, `mod deps`, and `mod dep-graph build`. Mod archives
+are read without modifying them; graph snapshots can be written to a separate file.
 
-[Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md)
+[Client list](client/list.md) · [client check](client/check.md)
+
+[Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
 [简体中文](../docs-zh/README.md)
 
 ## Quick start
 
 ```sh
+mcpm client list "$HOME/Downloads/.minecraft"
 mcpm mod list
 mcpm mod list mods/ example.jar other-mods/
 mcpm mod info example.jar another.jar.disabled
@@ -24,7 +27,7 @@ with `cargo run --manifest-path mcpm/Cargo.toml --`.
 ## Global options
 
 ```text
-mcpm [OPTIONS] mod <COMMAND>
+mcpm [OPTIONS] <COMMAND>
 ```
 
 | Option | Description |
@@ -44,9 +47,14 @@ Use command-specific help to see the accepted arguments:
 
 ```sh
 mcpm --help
+mcpm client list --help
+mcpm client check --help
 mcpm mod list --help
 mcpm mod info --help
 mcpm mod deps --help
+mcpm mod dep-graph build --help
+mcpm mod dep-graph test --help
+mcpm mod dep-graph view --help
 ```
 
 ## Terminal output

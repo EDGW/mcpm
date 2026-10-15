@@ -1,19 +1,18 @@
 # Complex mod output fixture
 
 `complex-mod.jar` is a metadata-only inspection fixture, not a playable mod.
-It contains Forge, NeoForge, Fabric, and native Quilt declarations in one archive.
+It contains Forge, NeoForge, and Fabric declarations in one archive.
 Each loader also identifies a child and grandchild JAR, including a leaf without
 dependencies. A second child declares three native Mods under Forge/NeoForge
-and one under Fabric/Quilt. A third child is a plain library without Mod
+and one under Fabric. A third child is a plain library without Mod
 declarations, retained as an empty metadata node. Forge and NeoForge each
 declare two mods in the outer archive;
 the `omnibus` ID deliberately occurs independently under every loader.
 
 The declarations cover required, optional, recommended, suggested, breaks, and
-conflicts; conjunctive and alternative target/version groups; every supported
-version constraint variant; reference-local optional/unless conditions, physical
-sides, loading order, reasons, escaped control characters, and manifest/property
-version substitution. NeoForge type spelling includes uppercase, lowercase,
+conflicts; conjunctive and alternative version conditions; every supported
+version constraint variant; physical sides, loading order, reasons, and
+manifest/property version substitution. NeoForge type spelling includes uppercase, lowercase,
 mixed case, and an omitted type using its default.
 
 Rebuild the deterministic archive with:
@@ -50,3 +49,10 @@ For an interactive preview of the colors:
 cargo run --manifest-path mcpm/Cargo.toml -- mod info mcpm/tests/fixtures/complex-mod.jar
 cargo run --manifest-path mcpm/Cargo.toml -- mod deps mcpm/tests/fixtures/complex-mod.jar
 ```
+
+## Client profiles
+
+`clients/versions/` contains minimal vanilla, Fabric, Forge, and NeoForge profiles
+for the client-list CLI tests. `broken/broken.json` is deliberately invalid JSON;
+`missing/` deliberately has no matching version JSON. These verify that broken
+profiles remain visible without causing a successful directory listing to fail.

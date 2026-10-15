@@ -20,12 +20,12 @@ mcpm --raw mod deps example.jar > dependencies.txt
 example.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar
 ```
 
-依赖关系保留 `required`、`optional`、`recommended`、`suggested`、`breaks` 和 `conflicts` 六类。条件组使用括号，`&&` 表示全部条件，`||` 表示可选条件。引用自身的规则，例如 `if present`、`unless`、`side`、`ordering` 和 `reason`，显示在方括号中。加载顺序描述声明者相对于目标的位置。
+依赖关系保留 `required`、`optional`、`recommended`、`suggested`、`breaks` 和 `conflicts` 六类。每条声明只引用一个目标。版本条件使用括号，`&&` 表示全部版本条件，`||` 表示可选版本条件。`side`、`ordering` 和 `reason` 显示在方括号中。加载顺序描述声明者相对于目标的位置。
 
 ```text
-required: (render_api: >=1 || alternate_api: *)
+required: render_api: (>=1 && <2)
 optional: client_api: >=2 [side=client; ordering=after target]
-breaks: legacy_api: <1 [unless compatibility: >=2]
+breaks: legacy_api: <1
 ```
 
 这些是依赖声明，尚未进行依赖解析。命令不会查找已安装的候选 Mod、判断版本兼容性或决定哪些嵌套候选项实际会被加载。目前未实现 `--tree` 和 `--dir`。

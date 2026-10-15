@@ -1,14 +1,17 @@
 # mcpm 命令参考
 
-`mcpm` 用于检查本地 Minecraft Mod 归档。可用命令包括 `mod list`、`mod info` 和 `mod deps`，这些命令只读取文件。
+`mcpm` 用于检查本地 Minecraft 客户端和 Mod 归档。可用命令包括 `client list`、`client check`、`mod list`、`mod info`、`mod deps` 和 `mod dep-graph build`。Mod 归档只被读取，依赖图可另存为文件。
 
-[Mod 命令](mod/README.md)：[list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md)
+[客户端列表](client/list.md) · [完整性检查](client/check.md)
+
+[Mod 命令](mod/README.md)：[list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
 [English](../docs/README.md)
 
 ## 快速开始
 
 ```sh
+mcpm client list "$HOME/Downloads/.minecraft"
 mcpm mod list
 mcpm mod list mods/ example.jar other-mods/
 mcpm mod info example.jar another.jar.disabled
@@ -21,7 +24,7 @@ mcpm --raw mod list mods/ -C MF > mods.tsv
 ## 全局选项
 
 ```text
-mcpm [OPTIONS] mod <COMMAND>
+mcpm [OPTIONS] <COMMAND>
 ```
 
 | 选项 | 说明 |
@@ -41,9 +44,14 @@ mcpm mod list mods/ --raw
 
 ```sh
 mcpm --help
+mcpm client list --help
+mcpm client check --help
 mcpm mod list --help
 mcpm mod info --help
 mcpm mod deps --help
+mcpm mod dep-graph build --help
+mcpm mod dep-graph test --help
+mcpm mod dep-graph view --help
 ```
 
 ## 终端输出

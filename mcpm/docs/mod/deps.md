@@ -27,15 +27,15 @@ example.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar
 ```
 
 Relations retain the categories `required`, `optional`, `recommended`,
-`suggested`, `breaks`, and `conflicts`. Condition groups use parentheses with
-`&&` for all conditions and `||` for alternatives. Reference-specific rules,
-such as `if present`, `unless`, `side`, `ordering`, and `reason`, appear in
-brackets. Ordering describes the declaring mod relative to the target.
+`suggested`, `breaks`, and `conflicts`. Each declaration references one target.
+Version conditions use parentheses with `&&` for conjunction and `||` for
+alternatives. The `side`, `ordering`, and `reason` fields appear in brackets.
+Ordering describes the declaring mod relative to the target.
 
 ```text
-required: (render_api: >=1 || alternate_api: *)
+required: render_api: (>=1 && <2)
 optional: client_api: >=2 [side=client; ordering=after target]
-breaks: legacy_api: <1 [unless compatibility: >=2]
+breaks: legacy_api: <1
 ```
 
 These are declarations, not resolved dependencies. The command does not search

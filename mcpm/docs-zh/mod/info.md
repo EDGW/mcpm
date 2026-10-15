@@ -8,7 +8,7 @@ mcpm mod info [OPTIONS] <FILE>...
 
 ```sh
 mcpm mod info example.jar
-mcpm mod info example.jar another.jar.disabled --loaders fabric,quilt
+mcpm mod info example.jar another.jar.disabled --loaders fabric,neoforge
 mcpm --raw mod info example.jar > info.txt
 ```
 
