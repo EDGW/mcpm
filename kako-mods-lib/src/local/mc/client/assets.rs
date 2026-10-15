@@ -30,6 +30,14 @@ impl AssetsDirectory {
         self.path.join("objects")
     }
 
+    pub fn log_configs_path(&self) -> PathBuf {
+        self.path.join("log_configs")
+    }
+
+    pub fn log_config_path(&self, id: &str) -> Result<PathBuf, ResourcePathError> {
+        path::within(&self.log_configs_path(), id)
+    }
+
     pub fn index_path(&self, id: &str) -> Result<PathBuf, AssetError> {
         if id.is_empty() || id.contains(['/', '\\', ':', '\0']) || matches!(id, "." | "..") {
             return Err(AssetError::InvalidIndexId { id: id.to_owned() });

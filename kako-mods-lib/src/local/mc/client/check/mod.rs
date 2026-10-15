@@ -12,7 +12,6 @@ use super::{
 mod file;
 mod progress;
 mod report;
-mod rules;
 
 use progress::Progress;
 pub use progress::{CheckEvent, CheckProgress, CheckStep, PlannedFile};
@@ -20,7 +19,9 @@ pub use progress::{CheckEvent, CheckProgress, CheckStep, PlannedFile};
 pub use report::{
     CheckIssue, CheckProblem, CheckReport, CheckTarget, CheckedFile, FileCheckStatus,
 };
-pub use rules::{CheckPlatform, CheckRules, LibraryRuleError};
+pub use super::rules::{
+    ClientPlatform as CheckPlatform, LibraryRuleError, RuleEnvironment as CheckRules,
+};
 
 /// Verification policy for an independently selectable resource category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

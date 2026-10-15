@@ -5,9 +5,11 @@ use crate::local::modloader::ModLoaderMeta;
 mod assets;
 mod check;
 mod directory;
+pub mod launch;
 mod libraries;
 mod manifest;
 mod path;
+mod rules;
 mod version;
 
 pub use assets::{AssetError, AssetsDirectory};
@@ -17,11 +19,11 @@ pub use check::{
     LibraryRuleError, PlannedFile,
 };
 pub use directory::{MinecraftDirectory, MinecraftDirectoryError};
-pub use libraries::{LibrariesDirectory, LibraryError, LibraryFile};
+pub use libraries::{LibrariesDirectory, LibraryError, LibraryFile, LibraryFileKind};
 pub use manifest::{
-    AssetIndex, AssetIndexInfo, AssetObject, DownloadInfo, LibraryCoordinateError,
-    LibraryDownloads, LibraryExtract, LibraryRule, LibraryRuleAction, LibraryRuleOs,
-    MavenCoordinate, MinecraftLibrary, MinecraftVersionManifest,
+    AssetIndex, AssetIndexInfo, AssetObject, ClientLogging, DownloadInfo, JavaRequirement,
+    LibraryCoordinateError, LibraryDownloads, LibraryExtract, LibraryRule, LibraryRuleAction,
+    LibraryRuleOs, LoggingFile, MavenCoordinate, MinecraftLibrary, MinecraftVersionManifest,
 };
 pub use path::ResourcePathError;
 pub use version::{BrokenVersion, MinecraftVersion, MinecraftVersionError, NormalVersion};
@@ -32,3 +34,5 @@ pub struct MinecraftModLoader {
     pub loader: ModLoaderMeta,
     pub version: String,
 }
+
+pub use rules::{ClientPlatform, RuleEnvironment};

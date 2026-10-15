@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use super::{
-    check::{CheckRules, LibraryRuleError},
     manifest::{DownloadInfo, LibraryCoordinateError, MinecraftLibrary},
     path::{self, ResourcePathError},
+    rules::{LibraryRuleError, RuleEnvironment},
 };
 
 /// Read-only access to the shared `libraries/` repository. It may not exist yet.
@@ -17,12 +17,19 @@ pub struct LibrariesDirectory {
 /// A selected artifact or native archive, including verification/download metadata.
 #[derive(Debug, Clone)]
 pub struct LibraryFile {
+    pub kind: LibraryFileKind,
     pub name: String,
     pub classifier: Option<String>,
     pub path: PathBuf,
     pub download: DownloadInfo,
     /// Alternative SHA-1 values declared by legacy library metadata.
     pub checksums: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryFileKind {
+    Artifact,
+    Native,
 }
 
 impl LibrariesDirectory {
@@ -42,7 +49,7 @@ impl LibrariesDirectory {
     pub fn resolve(
         &self,
         library: &MinecraftLibrary,
-        rules: &CheckRules,
+        rules: &RuleEnvironment,
     ) -> Result<Vec<LibraryFile>, LibraryError> {
         if library.clientreq == Some(false) || !rules.allows(&library.rules)? {
             return Ok(Vec::new());
@@ -124,6 +131,11 @@ impl LibrariesDirectory {
             Vec::new()
         };
         Ok(LibraryFile {
+            kind: if primary {
+                LibraryFileKind::Artifact
+            } else {
+                LibraryFileKind::Native
+            },
             name: library.name.clone(),
             classifier,
             path,

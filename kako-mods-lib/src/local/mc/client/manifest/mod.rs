@@ -9,10 +9,12 @@ use crate::local::modloader::{LoaderId, ModLoaderMeta};
 use super::MinecraftModLoader;
 
 mod assets;
+mod launch;
 mod library;
 mod rules;
 
 pub use assets::{AssetIndex, AssetIndexInfo, AssetObject};
+pub use launch::{ClientLogging, JavaRequirement, LoggingFile};
 pub use library::{
     DownloadInfo, LibraryCoordinateError, LibraryDownloads, LibraryExtract, MavenCoordinate,
     MinecraftLibrary,
@@ -25,6 +27,7 @@ pub use rules::{LibraryRule, LibraryRuleAction, LibraryRuleOs};
 #[serde(rename_all = "camelCase")]
 pub struct MinecraftVersionManifest {
     id: String,
+    root: Option<bool>,
     version: Option<String>,
     hidden: Option<bool>,
     priority: Option<i32>,
@@ -40,6 +43,11 @@ pub struct MinecraftVersionManifest {
     #[serde(default)]
     arguments: Arguments,
     minecraft_arguments: Option<String>,
+    java_version: Option<JavaRequirement>,
+    #[serde(default)]
+    logging: std::collections::BTreeMap<String, ClientLogging>,
+    #[serde(rename = "type")]
+    version_type: Option<String>,
     #[serde(default)]
     patches: Vec<MinecraftVersionManifest>,
 }
@@ -48,9 +56,42 @@ pub struct MinecraftVersionManifest {
 struct Arguments {
     #[serde(default)]
     game: Vec<Value>,
+    #[serde(default)]
+    jvm: Vec<Value>,
 }
 
 impl MinecraftVersionManifest {
+    pub fn java_version(&self) -> Option<&JavaRequirement> {
+        self.ordered_patches()
+            .into_iter()
+            .rev()
+            .find_map(|patch| patch.java_version())
+            .or(self.java_version.as_ref())
+    }
+
+    pub fn client_logging(&self) -> Option<&ClientLogging> {
+        self.ordered_patches()
+            .into_iter()
+            .rev()
+            .find_map(|patch| patch.client_logging())
+            .or_else(|| self.logging.get("client"))
+    }
+
+    pub fn version_type(&self) -> Option<&str> {
+        self.version_type.as_deref()
+    }
+
+    pub fn jvm_arguments(&self) -> &[Value] {
+        &self.arguments.jvm
+    }
+
+    pub fn legacy_launch_arguments(&self) -> Option<&str> {
+        self.ordered_patches()
+            .into_iter()
+            .rev()
+            .find_map(|patch| patch.legacy_launch_arguments())
+            .or(self.minecraft_arguments.as_deref())
+    }
     /// Version directory supplying the client JAR after external inheritance resolution.
     pub fn jar(&self) -> Option<&str> {
         self.ordered_patches()
@@ -185,6 +226,12 @@ impl MinecraftVersionManifest {
         self.libraries = parent.libraries;
         parent.arguments.game.extend(self.arguments.game);
         self.arguments.game = parent.arguments.game;
+        parent.arguments.jvm.extend(self.arguments.jvm);
+        self.arguments.jvm = parent.arguments.jvm;
+        self.java_version = self.java_version.or(parent.java_version);
+        parent.logging.extend(self.logging);
+        self.logging = parent.logging;
+        self.version_type = self.version_type.or(parent.version_type);
         self.main_class = self.main_class.or(parent.main_class);
         self.jar = self.jar.or(parent.jar);
         parent.downloads.extend(self.downloads);

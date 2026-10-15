@@ -48,7 +48,8 @@ impl MinecraftDirectory {
     /// The version's metadata is its loaded snapshot; resource files are read afresh.
     /// Libraries include applicable primary artifacts and selected native archives.
     /// Assets include the index and content-addressed objects, not generated virtual
-    /// or resources copies. No game JAR, Java runtime, mod or launch check is implied.
+    /// or resources copies. Client JAR checking is configurable; Java runtime,
+    /// mods, and game launchability remain outside its scope.
     pub fn check(
         &self,
         version: &MinecraftVersion,

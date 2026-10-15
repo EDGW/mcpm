@@ -3,12 +3,12 @@ use std::collections::BTreeMap;
 use regex::Regex;
 use thiserror::Error;
 
-use super::super::manifest::{LibraryRule, LibraryRuleAction};
+use super::manifest::{LibraryRule, LibraryRuleAction};
 
 /// Explicit target platform, using launcher OS names (`windows`, `linux`, `osx`)
 /// and the architecture/version strings against which manifest regexes match.
 #[derive(Debug, Clone)]
-pub struct CheckPlatform {
+pub struct ClientPlatform {
     pub os: String,
     pub arch: String,
     pub version: String,
@@ -18,14 +18,14 @@ pub struct CheckPlatform {
 
 /// Caller-supplied environment used to evaluate library rules and select natives.
 #[derive(Debug, Clone)]
-pub struct CheckRules {
-    pub platform: CheckPlatform,
+pub struct RuleEnvironment {
+    pub platform: ClientPlatform,
     /// Missing features do not satisfy a rule, matching HMCL's rule evaluation.
     pub features: BTreeMap<String, bool>,
 }
 
-impl CheckRules {
-    pub fn new(platform: CheckPlatform) -> Self {
+impl RuleEnvironment {
+    pub fn new(platform: ClientPlatform) -> Self {
         Self {
             platform,
             features: BTreeMap::new(),

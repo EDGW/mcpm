@@ -27,9 +27,10 @@ impl MinecraftVersion {
     ) -> std::result::Result<Self, MinecraftVersionError> {
         let location = VersionLocation::new(directory, name)?;
         Ok(match load_manifest(&location) {
-            Ok(manifest) => Self::Normal(NormalVersion {
+            Ok((manifest, launch_manifest)) => Self::Normal(NormalVersion {
                 location,
                 manifest: Box::new(manifest),
+                launch_manifest: Box::new(launch_manifest),
             }),
             Err(error) => Self::Broken(BrokenVersion {
                 location,
@@ -62,7 +63,14 @@ impl MinecraftVersion {
 
     /// Client JAR location, respecting `jar` aliases and inherited base versions.
     pub fn jar_path(&self) -> Result<PathBuf> {
-        let manifest = self.manifest()?;
+        self.jar_path_for(self.manifest()?)
+    }
+
+    pub fn launch_jar_path(&self) -> Result<PathBuf> {
+        self.jar_path_for(self.launch_manifest()?)
+    }
+
+    fn jar_path_for(&self, manifest: &MinecraftVersionManifest) -> Result<PathBuf> {
         let name = manifest.jar().unwrap_or(self.name());
         let location = VersionLocation::new(&self.location().directory, name.to_owned())?;
         Ok(location.path().join(format!("{name}.jar")))
@@ -73,6 +81,15 @@ impl MinecraftVersion {
     pub fn manifest(&self) -> Result<&MinecraftVersionManifest> {
         match self {
             Self::Normal(version) => Ok(version.manifest()),
+            Self::Broken(version) => Err(anyhow::Error::new(Arc::clone(&version.error))),
+        }
+    }
+
+    /// Cached launch view with each document's HMCL root/patch metadata
+    /// normalized before parent-child inheritance. No filesystem reads occur.
+    pub fn launch_manifest(&self) -> Result<&MinecraftVersionManifest> {
+        match self {
+            Self::Normal(version) => Ok(version.launch_manifest()),
             Self::Broken(version) => Err(anyhow::Error::new(Arc::clone(&version.error))),
         }
     }
@@ -102,6 +119,7 @@ impl MinecraftVersion {
 pub struct NormalVersion {
     location: VersionLocation,
     manifest: Box<MinecraftVersionManifest>,
+    launch_manifest: Box<MinecraftVersionManifest>,
 }
 
 impl NormalVersion {
@@ -115,6 +133,10 @@ impl NormalVersion {
 
     pub fn manifest(&self) -> &MinecraftVersionManifest {
         &self.manifest
+    }
+
+    pub fn launch_manifest(&self) -> &MinecraftVersionManifest {
+        &self.launch_manifest
     }
 
     /// HMCL's `isModded` heuristic; independent of specific loader recognition.
@@ -193,7 +215,8 @@ impl VersionLocation {
 
 fn load_manifest(
     location: &VersionLocation,
-) -> std::result::Result<MinecraftVersionManifest, MinecraftVersionError> {
+) -> std::result::Result<(MinecraftVersionManifest, MinecraftVersionManifest), MinecraftVersionError>
+{
     let mut chain = Vec::new();
     let mut names = HashSet::new();
     let mut current = location.clone();
@@ -202,6 +225,7 @@ fn load_manifest(
             return Err(MinecraftVersionError::InheritanceCycle { name: current.name });
         }
         let path = current.manifest_path();
+        tracing::debug!(?path, "Loading client version manifest");
         let bytes = fs::read(&path).map_err(|source| MinecraftVersionError::ReadManifest {
             path: path.clone(),
             source,
@@ -217,10 +241,12 @@ fn load_manifest(
         }
     }
     let mut resolved = chain.pop().expect("at least one manifest was read");
+    let mut launch = resolved.clone().into_launch_manifest();
     while let Some(child) = chain.pop() {
+        launch = child.clone().into_launch_manifest().inherit(launch);
         resolved = child.inherit(resolved);
     }
-    Ok(resolved)
+    Ok((resolved, launch))
 }
 
 #[derive(Debug, Error)]
