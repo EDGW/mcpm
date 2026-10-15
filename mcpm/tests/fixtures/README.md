@@ -29,11 +29,19 @@ cargo test --manifest-path mcpm/Cargo.toml --test complex_mod_output -- --nocapt
 ```
 
 The test checks the loader-specific archive trees, direct Mod counts, relative
-child paths, and preserved library-only nodes. It captures and compares complete
-`info` and `deps` output in both raw and redirected modes before previewing
-both commands with inherited console streams. Expected paths remain relative
-by running in this directory. Inspect snapshot changes against the fixture
-declarations before updating expected output.
+child paths, and preserved library-only nodes. It then captures and compares
+complete `info`, `deps`, and expanded `list` output with the reviewed `.txt`
+files, using both global `--raw` and ordinary redirected output. List snapshots
+cover all loaders and a single selected loader, including hierarchical indices
+such as `1-neoforge+2-3` and `1+1+1`, plus `--index-type tree` with aligned
+first-item labels, compact two-space nesting, and two spaces of name indentation
+per nested JAR.
+After all comparisons pass, it runs
+`info`, `deps`, and expanded `list` in both index styles with inherited console streams
+to show the actual terminal output, including colors when the console is a TTY
+and `NO_COLOR` is unset. Expected paths
+remain relative by running in this directory. Do not automatically refresh the
+expected output: inspect changes against the fixture declarations first.
 
 For an interactive preview of the colors:
 

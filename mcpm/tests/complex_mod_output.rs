@@ -9,7 +9,7 @@ use kako_mods_lib::local::{
 
 /// Exercise the real clap dispatch, all four parsers, nested archives, and output.
 #[test]
-fn complex_mod_info_and_deps_match_reviewed_output() {
+fn complex_mod_tree_and_output_match_reviewed_expectations() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let file = mcmod::open(
         ModEntry::new(fixtures.join("complex-mod.jar")).unwrap(),
@@ -35,9 +35,58 @@ fn complex_mod_info_and_deps_match_reviewed_output() {
         assert_loader_tree(metadata, &metadata.loader.id);
     }
 
-    for (command, expected) in [
-        ("info", include_str!("fixtures/complex-mod.info.txt")),
-        ("deps", include_str!("fixtures/complex-mod.deps.txt")),
+    for (command, options, expected) in [
+        (
+            "info",
+            &[][..],
+            include_str!("fixtures/complex-mod.info.txt"),
+        ),
+        (
+            "deps",
+            &[][..],
+            include_str!("fixtures/complex-mod.deps.txt"),
+        ),
+        (
+            "list",
+            &["--expanded", "-C", "IMFL"][..],
+            include_str!("fixtures/complex-mod.list.txt"),
+        ),
+        (
+            "list",
+            &["--expanded", "--loader", "fabric", "-C", "IMFL"][..],
+            include_str!("fixtures/complex-mod.list.fabric.txt"),
+        ),
+        (
+            "list",
+            &["--expanded", "--index-type", "tree", "-C", "INMFL"][..],
+            include_str!("fixtures/complex-mod.list.tree.txt"),
+        ),
+        (
+            "list",
+            &[
+                "--expanded",
+                "--index-type",
+                "tree",
+                "--loader",
+                "fabric",
+                "-C",
+                "INMFL",
+            ][..],
+            include_str!("fixtures/complex-mod.list.tree.fabric.txt"),
+        ),
+        (
+            "list",
+            &[
+                "--expanded",
+                "--index-type",
+                "tree",
+                "--loader",
+                "neoforge",
+                "-C",
+                "INMFL",
+            ][..],
+            include_str!("fixtures/complex-mod.list.tree.neoforge.txt"),
+        ),
     ] {
         for raw in [false, true] {
             let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm"));
@@ -47,6 +96,7 @@ fn complex_mod_info_and_deps_match_reviewed_output() {
             }
             let output = process
                 .args(["mod", command, "complex-mod.jar"])
+                .args(options)
                 .output()
                 .expect("failed to run mcpm");
             let actual = String::from_utf8(output.stdout).expect("output must be UTF-8");
@@ -59,19 +109,34 @@ fn complex_mod_info_and_deps_match_reviewed_output() {
                 output.stderr.is_empty(),
                 "unexpected diagnostics for {command}"
             );
-            assert_eq!(actual, expected, "{command}, raw={raw}");
+            assert_eq!(
+                actual, expected,
+                "{command}, options={options:?}, raw={raw}"
+            );
         }
     }
 
-    // Preview only after both commands have passed every output comparison.
-    for command in ["info", "deps"] {
-        println!("\n--- verified mcpm mod {command}: console preview ---");
+    // Preview only after every command has passed every output comparison.
+    for (command, index_type) in [
+        ("info", None),
+        ("deps", None),
+        ("list", Some("flat")),
+        ("list", Some("tree")),
+    ] {
+        println!(
+            "\n--- verified mcpm mod {command}, index_type={index_type:?}: console preview ---"
+        );
         io::stdout()
             .flush()
             .expect("failed to flush preview heading");
-        let status = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+        process
             .current_dir(&fixtures)
-            .args(["mod", command, "complex-mod.jar"])
+            .args(["mod", command, "complex-mod.jar"]);
+        if let Some(index_type) = index_type {
+            process.args(["--expanded", "--index-type", index_type]);
+        }
+        let status = process
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())

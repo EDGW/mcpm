@@ -28,6 +28,9 @@ pub(super) struct ListArgs {
     /// Show every mod declaration and list ignored filenames in formatted terminal output.
     #[arg(long)]
     expanded: bool,
+    /// Index layout: full indices or aligned first items with compact nesting and indented names.
+    #[arg(long, value_enum, default_value = "flat", value_name = "TYPE")]
+    index_type: output::IndexType,
     /// Override terminal layout width; ignored for --raw or redirected output.
     #[arg(long, value_name = "WIDTH", value_parser = clap::value_parser!(u16).range(1..))]
     width: Option<u16>,
@@ -136,6 +139,7 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
             columns: &columns,
             width,
             paths: &args.paths_output,
+            index_type: args.index_type,
         },
     )
     .context("failed to write mod list")?;

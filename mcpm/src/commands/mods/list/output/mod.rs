@@ -9,7 +9,9 @@ use unicode_width::UnicodeWidthStr;
 use super::super::{mod_records, source_path::PathArgs};
 use super::{ListedFile, columns::Column};
 
+mod index;
 mod layout;
+pub(super) use index::IndexType;
 
 #[derive(Clone)]
 struct Piece {
@@ -28,27 +30,29 @@ impl Piece {
 
 struct Row {
     cells: [Vec<Piece>; 5],
+    index_labels: index::Value,
+    name_indent: usize,
 }
 
 impl Row {
     fn new(
-        index: Option<usize>,
+        index: index::Value,
         name: &str,
         modid: &str,
         filename: Vec<Piece>,
         loaders: Vec<Piece>,
+        name_indent: usize,
     ) -> Self {
         Self {
             cells: [
-                vec![Piece::new(
-                    index.map(|index| format!("[{index}]")).unwrap_or_default(),
-                    Style::new(),
-                )],
+                Vec::new(),
                 vec![Piece::new(name, Style::new().bright_white().bold())],
                 vec![Piece::new(modid, Style::new().bright_black())],
                 filename,
                 loaders,
             ],
+            index_labels: index,
+            name_indent,
         }
     }
 
@@ -58,6 +62,15 @@ impl Row {
             .map(|piece| piece.text.as_str())
             .collect::<String>()
             .width()
+            + self.indentation(column)
+    }
+
+    fn indentation(&self, column: Column) -> usize {
+        if column == Column::Name {
+            self.name_indent
+        } else {
+            0
+        }
     }
 }
 
@@ -67,6 +80,7 @@ pub(super) struct ListOptions<'a> {
     pub columns: &'a [Column],
     pub width: Option<usize>,
     pub paths: &'a PathArgs,
+    pub index_type: IndexType,
 }
 
 pub(super) fn write_list(
@@ -78,15 +92,26 @@ pub(super) fn write_list(
     for (index, listed) in files.iter().enumerate() {
         append_rows(&mut rows, listed, index + 1, &options);
     }
+    index::align(&mut rows);
     layout::write(output, &rows, options.columns, options.color, options.width)
 }
 
 fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options: &ListOptions<'_>) {
     let file = &listed.file;
+    let file_index = number.to_string();
+    let multiple_loaders = file.metadata.len() + listed.failures.len() > 1;
+    let mut indices = index::Formatter::new(options.index_type);
     let records: Vec<_> = file
         .metadata
         .iter()
-        .flat_map(mod_records::collect)
+        .flat_map(|metadata| {
+            let prefix = if !multiple_loaders {
+                file_index.clone()
+            } else {
+                format!("{file_index}-{}", metadata.loader.id)
+            };
+            mod_records::collect(metadata, &prefix)
+        })
         .collect();
     let outer_filename = file
         .entry
@@ -100,28 +125,33 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
             loaders.push(failure_count(listed.failures.len()));
         }
         rows.push(Row::new(
-            Some(number),
+            indices.file(number),
             file.entry.name(),
             "",
             vec![Piece::new(&outer_filename, Style::new().bright_black())],
             loaders,
+            0,
         ));
     }
     if options.expanded {
-        for (index, record) in records.iter().enumerate() {
-            let loader = record.loader;
+        for record in &records {
             let info = record.info;
             rows.push(Row::new(
-                (index == 0).then_some(number),
+                indices.record(record, number, multiple_loaders),
                 &info.name,
                 &info.modid,
                 filename(&record.source, file.entry.path(), options.paths),
-                vec![loader_piece(loader)],
+                vec![loader_piece(record.loader)],
+                if matches!(options.index_type, IndexType::Tree) {
+                    record.source.len() * 2
+                } else {
+                    0
+                },
             ));
         }
         for failure in &listed.failures {
             rows.push(Row::new(
-                None,
+                indices.failure(number, &failure.loader.id),
                 file.entry.name(),
                 "",
                 vec![Piece::new(&outer_filename, Style::new().bright_black())],
@@ -130,6 +160,7 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
                     Piece::new(" [failed]", warning()),
                     Piece::new(format!(" {}", failure.reason), Style::new().bright_white()),
                 ],
+                0,
             ));
         }
     } else if let Some(record) = records.first() {
@@ -161,11 +192,16 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
             loaders.push(failure_count(listed.failures.len()));
         }
         rows.push(Row::new(
-            Some(number),
+            indices.record(record, number, multiple_loaders),
             &info.name,
             &info.modid,
             filename(&record.source, file.entry.path(), options.paths),
             loaders,
+            if matches!(options.index_type, IndexType::Tree) {
+                record.source.len() * 2
+            } else {
+                0
+            },
         ));
     }
 }
@@ -189,14 +225,17 @@ fn filename(source: &[String], outer: &Path, paths: &PathArgs) -> Vec<Piece> {
 }
 
 fn loader_piece(loader: &ModLoaderMeta) -> Piece {
-    let style = match loader.id.as_str() {
+    Piece::new(format!("[{}]", loader.name), loader_style(&loader.id))
+}
+
+fn loader_style(id: &str) -> Style {
+    match id {
         "forge" => Style::new().bright_yellow(),
         "neoforge" => Style::new().bright_red(),
         "fabric" => Style::new().bright_cyan(),
         "quilt" => Style::new().bright_magenta(),
         _ => Style::new().bright_blue(),
-    };
-    Piece::new(format!("[{}]", loader.name), style)
+    }
 }
 
 fn warning() -> Style {

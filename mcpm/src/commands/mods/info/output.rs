@@ -29,7 +29,7 @@ pub(super) fn write_info(output: &mut impl Write, file: &ModFile) -> io::Result<
             style.secondary("Loader: "),
             style.loader(&metadata.loader.id, &text(&metadata.loader.name))
         )?;
-        for (index, record) in mod_records::collect(metadata).iter().enumerate() {
+        for (index, record) in mod_records::collect(metadata, "").iter().enumerate() {
             let info = record.info;
             if index > 0 {
                 writeln!(output)?;

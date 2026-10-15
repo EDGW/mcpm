@@ -18,6 +18,7 @@ pub(super) fn write(
                 if index > 0 {
                     write!(output, "\t")?;
                 }
+                write!(output, "{}", " ".repeat(row.indentation(*column)))?;
                 write_pieces(output, &row.cells[column.position()], false)?;
             }
             writeln!(output)?;
@@ -96,6 +97,7 @@ fn write_table_row(
                 &row.cells[column.position()],
                 widths[column.position()],
                 column,
+                row.indentation(column),
             )
         })
         .collect();
@@ -104,13 +106,9 @@ fn write_table_row(
         for (position, &column) in columns.iter().enumerate() {
             let pieces = cells[position].get(line).map(Vec::as_slice).unwrap_or(&[]);
             let padding = widths[column.position()].saturating_sub(piece_width(pieces));
-            if column == Column::Index {
-                write!(output, "{}", " ".repeat(padding))?;
-            }
             write_pieces(output, pieces, color)?;
             if position + 1 < columns.len() {
-                let trailing = if column == Column::Index { 0 } else { padding };
-                write!(output, "{}", " ".repeat(trailing + 2))?;
+                write!(output, "{}", " ".repeat(padding + 2))?;
             }
         }
         writeln!(output)?;
@@ -145,9 +143,10 @@ fn write_stacked_row(
         let prefix = format!("{indentation}{label}");
         let minimum_content = if column == Column::Loaders { 14 } else { 2 };
         if width.saturating_sub(prefix.len()) >= minimum_content {
-            for (index, line) in wrap_cell(cell, width - prefix.len(), column)
-                .iter()
-                .enumerate()
+            for (index, line) in
+                wrap_cell(cell, width - prefix.len(), column, row.indentation(column))
+                    .iter()
+                    .enumerate()
             {
                 write!(
                     output,
@@ -168,7 +167,12 @@ fn write_stacked_row(
                     writeln!(output, "{line}")?;
                 }
             }
-            for line in wrap_cell(cell, width.saturating_sub(indentation.len()).max(1), column) {
+            for line in wrap_cell(
+                cell,
+                width.saturating_sub(indentation.len()).max(1),
+                column,
+                row.indentation(column),
+            ) {
                 write!(output, "{indentation}")?;
                 write_pieces(output, &line, color)?;
                 writeln!(output)?;
@@ -178,9 +182,15 @@ fn write_stacked_row(
     writeln!(output)
 }
 
-fn wrap_cell(pieces: &[Piece], width: usize, column: Column) -> Vec<Vec<Piece>> {
+fn wrap_cell(
+    pieces: &[Piece],
+    width: usize,
+    column: Column,
+    indentation: usize,
+) -> Vec<Vec<Piece>> {
+    let indentation = indentation.min(width.saturating_sub(1));
     let text: String = pieces.iter().map(|piece| piece.text.as_str()).collect();
-    let mut options = Options::new(width.max(1))
+    let mut options = Options::new(width.saturating_sub(indentation).max(1))
         .word_splitter(WordSplitter::NoHyphenation)
         .wrap_algorithm(WrapAlgorithm::FirstFit);
     if column == Column::Loaders {
@@ -196,6 +206,12 @@ fn wrap_cell(pieces: &[Piece], width: usize, column: Column) -> Vec<Vec<Piece>> 
             cursor = end;
             let mut offset = 0;
             let mut result = Vec::new();
+            if indentation > 0 {
+                result.push(Piece::new(
+                    " ".repeat(indentation),
+                    owo_colors::Style::new(),
+                ));
+            }
             for piece in pieces {
                 let piece_end = offset + piece.text.len();
                 let slice_start = start.max(offset);
