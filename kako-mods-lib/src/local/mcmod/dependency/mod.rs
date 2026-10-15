@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 mod ordering;
 mod side;
 
+pub mod graph;
+
 pub use ordering::DependencyOrdering;
 pub use side::DependencySide;
 
