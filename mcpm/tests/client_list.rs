@@ -80,9 +80,7 @@ fn client_list_infers_last_minecraft_component_only_for_omitted_paths() {
         String::from_utf8(inferred.stdout).unwrap(),
         "1\tinner\tnormal\t\tvanilla\n"
     );
-    let hint = String::from_utf8(inferred.stderr).unwrap();
-    assert!(hint.contains(&format!("{inner:?}")), "{hint}");
-    assert!(hint.contains("mcpm client list ."));
+    assert!(inferred.stderr.is_empty());
 
     let explicit_current = run(&["."]);
     assert!(explicit_current.status.success());

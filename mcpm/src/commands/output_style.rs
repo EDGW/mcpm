@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use owo_colors::Style;
 
-use crate::terminal::{self, Stream};
+use crate::terminal;
 
 pub(super) struct OutputStyle {
     color: bool,
@@ -11,7 +11,7 @@ pub(super) struct OutputStyle {
 impl OutputStyle {
     pub(super) fn new() -> Self {
         Self {
-            color: terminal::color_enabled(Stream::Stdout),
+            color: terminal::color_enabled(),
         }
     }
 

@@ -33,7 +33,7 @@ impl LogLevel {
 pub(crate) fn init(level: LogLevel) -> Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(level.filter())
-        .with_ansi(terminal::color_enabled(terminal::Stream::Stderr))
+        .with_ansi(terminal::color_enabled())
         .with_writer(writer::WriterFactory)
         .with_target(false)
         .without_time()

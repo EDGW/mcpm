@@ -19,7 +19,7 @@ pub(super) struct BatchProgress {
 
 impl BatchProgress {
     pub(super) fn new(total: usize) -> Self {
-        let enabled = terminal::is_tty(terminal::Stream::Stdout) && terminal::is_tty(terminal::Stream::Stderr);
+        let enabled = terminal::is_interactive();
         let display = MultiProgress::with_draw_target(if enabled {
             ProgressDrawTarget::stderr_with_hz(10)
         } else {
@@ -27,7 +27,7 @@ impl BatchProgress {
         });
         let overall = (total > 1).then(|| {
             let bar = display.add(ProgressBar::new(total as u64));
-            let template = if terminal::color_enabled(terminal::Stream::Stderr) {
+            let template = if terminal::color_enabled() {
                 "{prefix} {pos}/{len} {wide_bar:.cyan} {percent}% {msg}"
             } else {
                 "{prefix} {pos}/{len} {wide_bar} {percent}% {msg}"
@@ -92,7 +92,7 @@ impl Progress {
         let display = batch.display.clone();
         let main = display.add(ProgressBar::new(1));
         let step = display.add(ProgressBar::new_spinner());
-        let template = if terminal::color_enabled(terminal::Stream::Stderr) {
+        let template = if terminal::color_enabled() {
             "{prefix}\n{wide_bar:.cyan} {percent}%"
         } else {
             "{prefix}\n{wide_bar} {percent}%"
@@ -196,7 +196,7 @@ impl Progress {
         let determinate = progress.step_total_files.is_some();
         if self.determinate != Some(determinate) {
             let template = if determinate {
-                if terminal::color_enabled(terminal::Stream::Stderr) {
+                if terminal::color_enabled() {
                     "{prefix} {wide_msg}\n{wide_bar:.cyan} {percent}%"
                 } else {
                     "{prefix} {wide_msg}\n{wide_bar} {percent}%"

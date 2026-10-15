@@ -3,7 +3,7 @@ use std::{
     io::{self, Write},
 };
 
-use crate::terminal::{self, Stream};
+use crate::terminal;
 
 pub(super) fn write_inferred_root(
     output: &mut impl Write,
@@ -13,7 +13,7 @@ pub(super) fn write_inferred_root(
     if terminal::is_raw() {
         return Ok(());
     }
-    if terminal::color_enabled(Stream::Stderr) {
+    if terminal::color_enabled() {
         let theme = owo_colors::Style::new().bright_cyan().bold();
         let white = owo_colors::Style::new().bright_white().bold();
         writeln!(

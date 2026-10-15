@@ -14,7 +14,7 @@ use kako_mods_lib::local::{
 };
 use thiserror::Error;
 
-use crate::terminal::{self, Stream};
+use crate::terminal;
 
 use super::loaders::LoaderArgs;
 use super::source_path::PathArgs;
@@ -64,8 +64,8 @@ struct FailedIdentification {
 }
 
 pub(super) fn run(args: ListArgs) -> Result<()> {
-    let formatted = terminal::is_tty(Stream::Stdout);
-    let progress = progress::Progress::new(formatted && terminal::is_tty(Stream::Stderr));
+    let formatted = terminal::is_interactive();
+    let progress = progress::Progress::new(formatted);
     let mut entries = Vec::new();
     let mut input_errors = 0;
     for path in args.paths {
@@ -126,7 +126,7 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
         files.push(ListedFile { file, failures });
     }
     drop(progress);
-    let color = terminal::color_enabled(Stream::Stdout);
+    let color = terminal::color_enabled();
     let width = formatted.then(|| {
         args.width
             .map(usize::from)

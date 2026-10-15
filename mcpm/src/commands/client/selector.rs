@@ -20,7 +20,7 @@ enum SelectError {
     #[error("no client versions found in the selected directory")]
     NoVersions,
     #[error(
-        "interactive version selection requires terminal input and stderr; {hint}"
+        "interactive version selection requires terminal stdin, stdout, and stderr without --raw; {hint}"
     )]
     Unavailable { hint: &'static str },
 }
@@ -49,7 +49,7 @@ pub(super) fn select(versions: &[MinecraftVersion], purpose: Purpose) -> Result<
     if versions.is_empty() {
         return Err(SelectError::NoVersions.into());
     }
-    if !std::io::IsTerminal::is_terminal(&io::stdin()) || !policy::is_tty(policy::Stream::Stderr) {
+    if !policy::is_interactive() {
         return Err(SelectError::Unavailable {
             hint: purpose.hint(),
         }
@@ -102,7 +102,7 @@ impl Screen {
         action: &str,
     ) -> io::Result<()> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
-        let color = policy::color_enabled(policy::Stream::Stderr);
+        let color = policy::color_enabled();
         let title = if color {
             content_style(Color::Cyan, true)
         } else {

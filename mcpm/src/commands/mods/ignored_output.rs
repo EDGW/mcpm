@@ -3,14 +3,14 @@ use std::path::PathBuf;
 
 use owo_colors::Style;
 
-use crate::terminal::{self, Stream};
+use crate::terminal;
 
 pub(super) fn write_loader_filtered(
     output: &mut impl Write,
     count: usize,
     files: &[PathBuf],
 ) -> io::Result<()> {
-    if count == 0 || !terminal::is_tty(Stream::Stdout) {
+    if count == 0 || !terminal::is_interactive() {
         return Ok(());
     }
     let noun = if count == 1 { "file" } else { "files" };
@@ -18,7 +18,7 @@ pub(super) fn write_loader_filtered(
         "({count} {noun} ignored due to no mod declarations recognized by the selected loaders)"
     );
     writeln!(output)?;
-    let color = terminal::color_enabled(Stream::Stdout);
+    let color = terminal::color_enabled();
     write_line(output, &hint, color)?;
     for path in files {
         // Debug formatting quotes filenames and escapes terminal controls.

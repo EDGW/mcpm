@@ -1,9 +1,9 @@
 use owo_colors::Style;
 
-use crate::terminal::{self, Stream};
+use crate::terminal;
 
 pub(crate) fn error(error: &anyhow::Error) {
-    let color = terminal::color_enabled(Stream::Stderr);
+    let color = terminal::color_enabled();
     for (depth, cause) in error.chain().enumerate() {
         let indentation = if depth == 0 { "" } else { "  " };
         let label = if depth == 0 { "error:" } else { "caused by:" };

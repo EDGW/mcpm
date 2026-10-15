@@ -11,7 +11,7 @@ use super::super::output::{error_chain, text};
 use crate::{commands::output_style::OutputStyle, terminal};
 
 pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io::Result<()> {
-    let formatted = terminal::is_tty(terminal::Stream::Stdout);
+    let formatted = terminal::is_interactive();
     let style = OutputStyle::new();
     let state = if report.is_intact() {
         "intact"

@@ -1,16 +1,13 @@
 use std::io::{self, Write};
 
-use crate::{
-    commands::output_style::OutputStyle,
-    terminal::{self, Stream},
-};
+use crate::{commands::output_style::OutputStyle, terminal};
 
 use super::{Row, State};
 
 use super::super::output::text;
 
 pub(super) fn write_list(output: &mut impl Write, rows: &[Row]) -> io::Result<()> {
-    let formatted = terminal::is_tty(Stream::Stdout);
+    let formatted = terminal::is_interactive();
     let style = OutputStyle::new();
     let width = textwrap::termwidth().max(1);
     for (index, row) in rows.iter().enumerate() {
