@@ -6,7 +6,7 @@ mod info;
 mod list;
 mod loaders;
 mod mod_records;
-mod output_style;
+use super::output_style;
 mod source_path;
 
 use anyhow::Result;

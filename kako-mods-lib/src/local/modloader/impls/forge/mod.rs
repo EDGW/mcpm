@@ -29,6 +29,21 @@ impl ModLoader for ForgeLoader {
         &METADATA
     }
 
+    fn try_identify_client(
+        &self,
+        manifest: &crate::local::mc::client::MinecraftVersionManifest,
+    ) -> Result<Option<String>> {
+        if super::client::has_library(manifest, super::client::NEOFORGE_LIBRARIES) {
+            return Ok(None);
+        }
+        super::client::identify(
+            manifest,
+            &["net.minecraftforge:forge", "net.minecraftforge:fmlloader"],
+        )
+        .map(|version| version.map(|version| super::client::forge_version(&version).to_owned()))
+        .map_err(|source| ForgeError::ClientIdentification { source }.into())
+    }
+
     fn try_identify(&self, entry: &ModEntry) -> Result<Option<ModMeta>> {
         let mut archive = archive::open(entry).map_err(|source| ForgeError::OpenArchive {
             path: entry.path().to_owned(),

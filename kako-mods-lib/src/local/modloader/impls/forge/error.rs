@@ -5,6 +5,13 @@ use thiserror::Error;
 /// Errors reported by the Forge identification boundary.
 #[derive(Debug, Error)]
 pub enum ForgeError {
+    /// Recognized client library declarations are invalid.
+    #[error("Forge: failed to identify client loader version")]
+    ClientIdentification {
+        #[source]
+        source: super::super::ClientLibraryError,
+    },
+
     /// The archive could not be opened or decoded as ZIP.
     #[error("Forge: failed to open mod archive {path:?}")]
     OpenArchive {

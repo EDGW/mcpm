@@ -22,6 +22,22 @@ pub trait ModLoader: Send + Sync + Debug {
     /// loader. This operation is infallible.
     fn metadata(&self) -> &ModLoaderMeta;
 
+    /// Identifies this loader in client profile declarations and returns its
+    /// loader version according to its recognition rules.
+    /// The manifest may already have inherited parent libraries. This operation
+    /// performs no I/O. `None` means unrecognized, including loaders that do not
+    /// support client inspection. Malformed recognized declarations must return
+    /// an error defined by the implementation, not `None`.
+    /// Built-in detectors follow HMCL: later library
+    /// matches replace earlier ones; NeoForge prefers versions in game arguments.
+    /// Visible HMCL patch versions are applied by the client aggregation API.
+    fn try_identify_client(
+        &self,
+        _manifest: &super::mc::client::MinecraftVersionManifest,
+    ) -> Result<Option<String>> {
+        Ok(None)
+    }
+
     /// Attempts to identify the mod file referenced by `entry` for this loader.
     ///
     /// `entry` supplies a validated filename, but does not guarantee that its

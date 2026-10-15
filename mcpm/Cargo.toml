@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+crossterm = { version = "0.29", default-features = false, features = ["events", "windows"] }
 indicatif = "0.18"
 kako-mods-lib = { path = "../kako-mods-lib" }
 owo-colors = "4"

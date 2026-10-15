@@ -1,9 +1,13 @@
 use clap::{Parser, Subcommand};
 
-use crate::commands::mods::ModArgs;
+use crate::commands::{client::ClientArgs, mods::ModArgs};
 
 #[derive(Parser)]
-#[command(name = "mcpm", version, about = "Inspect and manage Minecraft mods")]
+#[command(
+    name = "mcpm",
+    version,
+    about = "Inspect and manage Minecraft clients and mods"
+)]
 pub(crate) struct Cli {
     /// Disable terminal formatting, colors, progress indicators, and hints.
     #[arg(long, global = true)]
@@ -14,6 +18,8 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
+    /// Inspect local Minecraft client profiles.
+    Client(ClientArgs),
     /// Inspect and manage local mod files.
     #[command(name = "mod")]
     Mod(ModArgs),

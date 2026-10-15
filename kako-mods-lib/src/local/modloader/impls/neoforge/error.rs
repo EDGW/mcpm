@@ -5,6 +5,13 @@ use thiserror::Error;
 /// Errors reported by the NeoForge identification boundary.
 #[derive(Debug, Error)]
 pub enum NeoForgeError {
+    /// Recognized client library declarations are invalid.
+    #[error("NeoForge: failed to identify client loader version")]
+    ClientIdentification {
+        #[source]
+        source: super::super::ClientLibraryError,
+    },
+
     /// The archive could not be opened or decoded as ZIP.
     #[error("NeoForge: failed to open mod archive {path:?}")]
     OpenArchive {

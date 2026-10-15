@@ -31,6 +31,21 @@ impl ModLoader for FabricLoader {
         &METADATA
     }
 
+    fn try_identify_client(
+        &self,
+        manifest: &crate::local::mc::client::MinecraftVersionManifest,
+    ) -> Result<Option<String>> {
+        // HMCL distinguishes Legacy Fabric by any net.legacyfabric library.
+        if manifest
+            .libraries()
+            .any(|library| library.name.split(':').next() == Some("net.legacyfabric"))
+        {
+            return Ok(None);
+        }
+        super::client::identify(manifest, &["net.fabricmc:fabric-loader"])
+            .map_err(|source| FabricError::ClientIdentification { source }.into())
+    }
+
     fn try_identify(&self, entry: &ModEntry) -> Result<Option<ModMeta>> {
         let mut archive = archive::open(entry).map_err(|source| FabricError::OpenArchive {
             path: entry.path().to_owned(),

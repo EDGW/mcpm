@@ -23,6 +23,10 @@ impl OutputStyle {
         self.paint(value, Style::new().bright_white().bold())
     }
 
+    pub(super) fn theme(&self, value: impl Display) -> String {
+        self.paint(value, Style::new().bright_cyan().bold())
+    }
+
     pub(super) fn secondary(&self, value: impl Display) -> String {
         self.paint(value, Style::new().bright_black())
     }

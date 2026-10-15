@@ -14,6 +14,8 @@
 //! - [Fabric nested JARs](https://docs.fabricmc.net/develop/loader/#nested-jars)
 
 mod archive;
+mod client;
+pub use client::ClientLibraryError;
 mod constraints;
 mod fml;
 mod jarjar;

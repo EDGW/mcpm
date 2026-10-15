@@ -5,6 +5,13 @@ use thiserror::Error;
 /// Errors reported by the Fabric identification boundary.
 #[derive(Debug, Error)]
 pub enum FabricError {
+    /// Recognized client library declarations are invalid.
+    #[error("Fabric: failed to identify client loader version")]
+    ClientIdentification {
+        #[source]
+        source: super::super::ClientLibraryError,
+    },
+
     /// The archive could not be opened or decoded as ZIP.
     #[error("Fabric: failed to open mod archive {path:?}")]
     OpenArchive {

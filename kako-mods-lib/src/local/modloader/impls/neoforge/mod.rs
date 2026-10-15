@@ -34,6 +34,19 @@ impl ModLoader for NeoForgeLoader {
         &METADATA
     }
 
+    fn try_identify_client(
+        &self,
+        manifest: &crate::local::mc::client::MinecraftVersionManifest,
+    ) -> Result<Option<String>> {
+        let version = super::client::identify(manifest, super::client::NEOFORGE_LIBRARIES)
+            .map_err(|source| NeoForgeError::ClientIdentification { source })?;
+        Ok(version.map(|version| {
+            super::client::neoforge_argument_version(manifest)
+                .unwrap_or_else(|| super::client::forge_version(&version))
+                .to_owned()
+        }))
+    }
+
     fn try_identify(&self, entry: &ModEntry) -> Result<Option<ModMeta>> {
         let mut archive = archive::open(entry).map_err(|source| NeoForgeError::OpenArchive {
             path: entry.path().to_owned(),

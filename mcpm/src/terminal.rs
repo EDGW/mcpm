@@ -18,13 +18,17 @@ pub(crate) fn init(raw: bool) {
 
 /// Raw mode treats both output streams as non-TTYs.
 pub(crate) fn is_tty(stream: Stream) -> bool {
-    if RAW.get().copied().unwrap_or(false) {
+    if is_raw() {
         return false;
     }
     match stream {
         Stream::Stdout => io::stdout().is_terminal(),
         Stream::Stderr => io::stderr().is_terminal(),
     }
+}
+
+pub(crate) fn is_raw() -> bool {
+    RAW.get().copied().unwrap_or(false)
 }
 
 pub(crate) fn color_enabled(stream: Stream) -> bool {
