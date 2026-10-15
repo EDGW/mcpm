@@ -1,4 +1,5 @@
 mod columns;
+mod input;
 mod output;
 mod progress;
 
@@ -8,7 +9,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Args;
 use kako_mods_lib::local::{
-    mcmod::{self, IdentificationErrorAction, ModDirectory, ModFile},
+    mcmod::{self, IdentificationErrorAction, ModFile},
     modloader::ModLoaderMeta,
 };
 use thiserror::Error;
@@ -20,9 +21,9 @@ use columns::ColumnArgs;
 
 #[derive(Args)]
 pub(super) struct ListArgs {
-    /// Directory containing .jar and .jar.disabled files (not recursive).
-    #[arg(value_name = "DIR", default_value = ".")]
-    directory: PathBuf,
+    /// Mod files or directories, processed in argument order (directories are not recursive).
+    #[arg(value_name = "PATH", default_value = ".", num_args = 1..)]
+    paths: Vec<PathBuf>,
     /// Show every mod declaration and list ignored filenames in formatted terminal output.
     #[arg(long)]
     expanded: bool,
@@ -37,8 +38,13 @@ pub(super) struct ListArgs {
 
 #[derive(Debug, Error)]
 enum ListError {
-    #[error("failed to identify {count} mod file(s)")]
-    FailedFiles { count: usize },
+    #[error(
+        "failed to list mods: {input_paths} input path error(s), {mod_files} failed mod file(s)"
+    )]
+    FailedListing {
+        input_paths: usize,
+        mod_files: usize,
+    },
 }
 
 struct ListedFile {
@@ -54,7 +60,18 @@ struct FailedIdentification {
 pub(super) fn run(args: ListArgs) -> Result<()> {
     let formatted = terminal::is_tty(Stream::Stdout);
     let progress = progress::Progress::new(formatted && terminal::is_tty(Stream::Stderr));
-    let entries = ModDirectory::new(args.directory)?.entries()?;
+    let mut entries = Vec::new();
+    let mut input_errors = 0;
+    for path in args.paths {
+        let context = format!("failed to read list input {path:?}");
+        match input::read(path).context(context) {
+            Ok(found) => entries.extend(found),
+            Err(error) => {
+                progress.report(&error);
+                input_errors += 1;
+            }
+        }
+    }
     progress.set_total(entries.len());
     let filtered = args.loaders.is_filtered();
     let loaders = args.loaders.select()?;
@@ -113,8 +130,12 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
         .context("failed to write ignored mod files summary")?;
     stdout.flush().context("failed to flush mod list")?;
 
-    if failed > 0 {
-        return Err(ListError::FailedFiles { count: failed }.into());
+    if input_errors > 0 || failed > 0 {
+        return Err(ListError::FailedListing {
+            input_paths: input_errors,
+            mod_files: failed,
+        }
+        .into());
     }
     Ok(())
 }
