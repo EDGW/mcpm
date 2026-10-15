@@ -1,3 +1,4 @@
+mod dep_graph;
 mod dependency_output;
 mod deps;
 mod ignored_output;
@@ -19,6 +20,8 @@ pub(crate) struct ModArgs {
 
 #[derive(Subcommand)]
 enum ModCommand {
+    /// Build and export local mod dependency graphs.
+    DepGraph(dep_graph::DepGraphArgs),
     /// Show direct dependency declarations from local mod files.
     Deps(deps::DepsArgs),
     /// Show metadata and dependencies from a local mod file.
@@ -29,6 +32,7 @@ enum ModCommand {
 
 pub(crate) fn run(args: ModArgs) -> Result<()> {
     match args.command {
+        ModCommand::DepGraph(args) => dep_graph::run(args),
         ModCommand::Deps(args) => deps::run(args),
         ModCommand::Info(args) => info::run(args),
         ModCommand::List(args) => list::run(args),

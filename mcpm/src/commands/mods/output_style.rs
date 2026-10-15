@@ -15,6 +15,10 @@ impl OutputStyle {
         }
     }
 
+    pub(super) fn plain() -> Self {
+        Self { color: false }
+    }
+
     pub(super) fn important(&self, value: impl Display) -> String {
         self.paint(value, Style::new().bright_white().bold())
     }
