@@ -1,0 +1,3 @@
+# JVM tuning
+-Xmx2G
+-XX:+UseG1GC

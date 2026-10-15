@@ -1,0 +1,7 @@
+-p libraries/cpw/mods/bootstraplauncher/1.1.2/bootstraplauncher-1.1.2.jar
+-DlegacyClassPath=libraries/net/neoforged/forge/1.20.1-47.1.79/forge-1.20.1-47.1.79-universal.jar:libraries/net/minecraft/server/1.20.1/server-1.20.1-extra.jar
+cpw.mods.bootstraplauncher.BootstrapLauncher
+--launchTarget forgeserver
+--fml.forgeVersion 47.1.79
+--fml.mcVersion 1.20.1
+--fml.forgeGroup net.neoforged

@@ -29,6 +29,14 @@ impl ModLoader for ForgeLoader {
         &METADATA
     }
 
+    fn try_identify_server(
+        &self,
+        launch: &crate::local::mc::server::identify::ServerLaunch,
+    ) -> Result<Option<crate::local::modloader::ServerLoaderIdentity>> {
+        super::server::fml::identify(launch, super::server::fml::Family::Forge)
+            .map_err(|source| ForgeError::ServerIdentification { source }.into())
+    }
+
     fn try_identify_client(
         &self,
         manifest: &crate::local::mc::client::MinecraftVersionManifest,

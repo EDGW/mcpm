@@ -10,9 +10,10 @@ use thiserror::Error;
 
 use crate::local::modloader::{BUILTIN_LOADERS, LoaderInfo};
 
+pub mod identify;
 mod metadata;
 
-pub use metadata::{MinecraftServerMetadata, ServerModLoader};
+pub use metadata::{MinecraftServerMetadata, ServerModLoader, ServerStartCommand};
 
 /// A successfully loaded snapshot of a Minecraft server's declared metadata.
 /// Loading does not inspect JARs or guarantee that the server can launch.
@@ -54,7 +55,22 @@ impl MinecraftServer {
         path: impl Into<PathBuf>,
         metadata: MinecraftServerMetadata,
     ) -> Result<Self, MinecraftServerError> {
-        let path = path.into();
+        Self::write(path.into(), metadata, false)
+    }
+
+    /// Atomically replaces metadata after validation. Failed writes preserve the old file.
+    pub fn replace(
+        path: impl Into<PathBuf>,
+        metadata: MinecraftServerMetadata,
+    ) -> Result<Self, MinecraftServerError> {
+        Self::write(path.into(), metadata, true)
+    }
+
+    fn write(
+        path: PathBuf,
+        metadata: MinecraftServerMetadata,
+        overwrite: bool,
+    ) -> Result<Self, MinecraftServerError> {
         let name = directory_name(&path)?;
         let manifest = path.join(".mcpm/server.json");
         let mut bytes = serde_json::to_vec_pretty(&metadata)
@@ -72,9 +88,13 @@ impl MinecraftServer {
             fs::create_dir_all(&directory)?;
             let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
             temporary.write_all(&bytes)?;
-            temporary
-                .persist_noclobber(&manifest)
-                .map_err(|error| error.error)?;
+            if overwrite {
+                temporary.persist(&manifest).map_err(|error| error.error)?;
+            } else {
+                temporary
+                    .persist_noclobber(&manifest)
+                    .map_err(|error| error.error)?;
+            }
             Ok(())
         };
         write().map_err(|source| MinecraftServerError::WriteMetadata {

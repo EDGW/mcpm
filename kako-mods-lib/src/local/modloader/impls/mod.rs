@@ -20,6 +20,7 @@ mod constraints;
 mod fml;
 mod jarjar;
 mod metadata;
+mod server;
 mod version;
 
 pub mod fabric;

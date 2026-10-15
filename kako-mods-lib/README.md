@@ -35,6 +35,21 @@ infers missing information from server JARs.
 and declared version. No loader or an unknown loader ID returns `None`.
 Client `MinecraftModLoader` is a compatibility re-export of `LoaderInfo`.
 
+`server::identify::identify(root, script, &loaders)` performs read-only static
+inspection of a start script and returns verified `ServerCandidate` values.
+Loaders implement `ModLoader::try_identify_server`; the aggregation layer only
+depends on that interface. Unsupported script syntax, inconsistent versions or
+an unrecognized Java entry fail the scan. Unknown JVM options are preserved and
+ignored. No commands execute and no downloads occur. This verifies declared
+identity, not authenticity or launchability. See the CLI
+[initialization reference](../mcpm/docs/server/init.md) for supported layouts.
+
+Automatically identified metadata includes optional `start` information: script,
+working directory, Java executable, flattened arguments, and Windows quoting
+mode. Existing version-1 metadata without `start` remains valid. This is a saved
+snapshot, not a new launch API. `MinecraftServer::replace` atomically replaces
+the metadata file after validation; `create` continues to refuse overwrites.
+
 ## Client integrity checks
 
 `MinecraftDirectory` exposes read-only `libraries()` and `assets()` managers.

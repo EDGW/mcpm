@@ -1,10 +1,10 @@
 # mcpm 命令参考
 
-`mcpm` 用于检查和启动本地 Minecraft 客户端、检查服务端信息和 Mod 归档。可用命令包括 `client list`、`client check`、`client launch`、`server info`、`mod list`、`mod info`、`mod deps` 和 `mod dep-graph build`。Mod 归档只被读取，依赖图可另存为文件。
+`mcpm` 用于检查和启动本地 Minecraft 客户端、检查服务端信息和 Mod 归档。可用命令包括 `client list`、`client check`、`client launch`、`server init`、`server info`、`mod list`、`mod info`、`mod deps` 和 `mod dep-graph build`。Mod 归档只被读取，依赖图可另存为文件。
 
 [客户端列表](client/list.md) · [完整性检查](client/check.md) · [启动客户端](client/launch.md)
 
-[服务端信息](server/info.md)
+[初始化服务端](server/init.md) · [服务端信息](server/info.md)
 
 [Mod 命令](mod/README.md)：[list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 

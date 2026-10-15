@@ -34,7 +34,7 @@ fn server_info_reports_metadata_with_explicit_and_default_paths() {
                 };
                 assert_eq!(
                     String::from_utf8(output.stdout).unwrap(),
-                    format!("{name}\t{path}\t{version}\t{loader}\t{loader_version}\n")
+                    format!("{name}\t{path}\t{version}\t{loader}\t{loader_version}\tunavailable\n")
                 );
             }
         }

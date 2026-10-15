@@ -34,6 +34,14 @@ impl ModLoader for NeoForgeLoader {
         &METADATA
     }
 
+    fn try_identify_server(
+        &self,
+        launch: &crate::local::mc::server::identify::ServerLaunch,
+    ) -> Result<Option<crate::local::modloader::ServerLoaderIdentity>> {
+        super::server::fml::identify(launch, super::server::fml::Family::NeoForge)
+            .map_err(|source| NeoForgeError::ServerIdentification { source }.into())
+    }
+
     fn try_identify_client(
         &self,
         manifest: &crate::local::mc::client::MinecraftVersionManifest,

@@ -15,6 +15,7 @@ use crate::local::{
 use super::{archive, constraints, metadata};
 
 mod error;
+mod server;
 pub use error::FabricError;
 
 /// Identifies declarations in `fabric.mod.json`.
@@ -29,6 +30,14 @@ static METADATA: LazyLock<ModLoaderMeta> =
 impl ModLoader for FabricLoader {
     fn metadata(&self) -> &ModLoaderMeta {
         &METADATA
+    }
+
+    fn try_identify_server(
+        &self,
+        launch: &crate::local::mc::server::identify::ServerLaunch,
+    ) -> Result<Option<crate::local::modloader::ServerLoaderIdentity>> {
+        server::identify(launch)
+            .map_err(|source| FabricError::ServerIdentification { source }.into())
     }
 
     fn try_identify_client(

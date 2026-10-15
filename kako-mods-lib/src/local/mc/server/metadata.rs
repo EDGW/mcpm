@@ -12,6 +12,19 @@ pub struct MinecraftServerMetadata {
     /// Required in JSON; use `null` for servers without a mod loader.
     #[serde(deserialize_with = "Option::deserialize")]
     pub loader: Option<ServerModLoader>,
+    /// Selected static launch snapshot, absent in manually registered/older configurations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<ServerStartCommand>,
+}
+
+/// A flattened Java command, stored as arguments rather than executable shell text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerStartCommand {
+    pub script: std::path::PathBuf,
+    pub directory: std::path::PathBuf,
+    pub executable: String,
+    pub arguments: Vec<String>,
+    pub windows: bool,
 }
 
 fn format_version<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {

@@ -26,6 +26,7 @@ fn metadata_round_trip_and_existing_metadata_is_preserved() {
             version: 1,
             minecraft_version: "1.21.1".into(),
             loader,
+            start: None,
         };
         let server = MinecraftServer::create(&path, metadata.clone()).unwrap();
         let bytes = fs::read(server.metadata_path()).unwrap();
@@ -65,6 +66,7 @@ fn unknown_loader_is_not_identified_and_dot_path_keeps_directory_name() {
     let metadata = MinecraftServerMetadata {
         version: 1,
         minecraft_version: "1.20.1".into(),
+        start: None,
         loader: Some(ServerModLoader {
             loader_type: "custom".into(),
             version: "1.0".into(),
@@ -123,6 +125,7 @@ fn invalid_registration_does_not_write_metadata_and_roots_must_be_directories() 
         version: 1,
         minecraft_version: "".into(),
         loader: None,
+        start: None,
     };
     assert!(matches!(
         MinecraftServer::create(root.path(), metadata),

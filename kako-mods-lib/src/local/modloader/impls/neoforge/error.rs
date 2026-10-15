@@ -5,6 +5,12 @@ use thiserror::Error;
 /// Errors reported by the NeoForge identification boundary.
 #[derive(Debug, Error)]
 pub enum NeoForgeError {
+    #[error("NeoForge: failed to verify server launch")]
+    ServerIdentification {
+        #[source]
+        source: anyhow::Error,
+    },
+
     /// Recognized client library declarations are invalid.
     #[error("NeoForge: failed to identify client loader version")]
     ClientIdentification {

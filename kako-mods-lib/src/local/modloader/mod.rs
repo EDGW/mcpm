@@ -21,6 +21,13 @@ pub struct LoaderInfo {
     pub version: String,
 }
 
+/// Version evidence returned by one server loader implementation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerLoaderIdentity {
+    pub minecraft_version: String,
+    pub version: String,
+}
+
 /// A loader that identifies mod files and supplies common identification metadata.
 pub trait ModLoader: Send + Sync + Debug {
     /// Returns this loader's identity and associated instance.
@@ -28,6 +35,16 @@ pub trait ModLoader: Send + Sync + Debug {
     /// No preconditions are required. The returned metadata must describe this
     /// loader. This operation is infallible.
     fn metadata(&self) -> &ModLoaderMeta;
+
+    /// Verifies a statically parsed Java server entry using local evidence.
+    /// Unrecognized entries return `None`; recognized but invalid or conflicting
+    /// declarations return an implementation-specific error. No execution or downloads.
+    fn try_identify_server(
+        &self,
+        _launch: &super::mc::server::identify::ServerLaunch,
+    ) -> Result<Option<ServerLoaderIdentity>> {
+        Ok(None)
+    }
 
     /// Identifies this loader in client profile declarations and returns its
     /// loader version according to its recognition rules.

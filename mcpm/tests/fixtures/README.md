@@ -56,3 +56,44 @@ cargo run --manifest-path mcpm/Cargo.toml -- mod deps mcpm/tests/fixtures/comple
 for the client-list CLI tests. `broken/broken.json` is deliberately invalid JSON;
 `missing/` deliberately has no matching version JSON. These verify that broken
 profiles remain visible without causing a successful directory listing to fail.
+
+## Server identification
+
+`server-init/` contains static scripts and deterministic metadata-only JARs for
+`server_init.rs`. Empty `.class` entries are inspection markers, not runnable
+bytecode. The fixtures do not establish server authenticity or launchability.
+
+```sh
+python3 mcpm/tests/fixtures/build_server_fixtures.py
+cargo test --manifest-path mcpm/Cargo.toml --test server_init
+```
+
+Success cases cover Forge, NeoForge, early NeoForge with Forge argument names,
+Forge shim, both Fabric installer layouts, vanilla and bundled vanilla,
+nested shell/BAT scripts, multiple verified entries, and ignored unknown JVM
+options. The CLI tests copy each fixture to a temporary directory before writing.
+
+Failure examples are intentionally preserved for inspection:
+
+| Fixture | Reason initialization must fail |
+| --- | --- |
+| `dynamic-control` / `dynamic-batch` | Conditional launch selection cannot be resolved statically |
+| `dynamic-command` | Arbitrary command substitution is not executed |
+| `undefined-variable` / `unquoted-variable` | Unresolved expansion or shell word splitting |
+| `delayed-batch` | Delayed variable expansion is unsupported |
+| `cycle` / `argument-cycle` | Recursive script or nested Java argument-file reference |
+| `unknown-main` | No recognized server entry |
+| `partial-unknown` | One known launch cannot hide another unknown Java entry |
+| `missing-jar` / `corrupt-jar` | Missing archive or invalid ZIP |
+| `fake-vanilla` | Manifest naming vanilla without its entry class |
+| `no-java` | Script contains no Java launch |
+| `loader-version-conflict` / `game-version-conflict` | Launch version disagrees with referenced artifact |
+| `missing-loader` / `fake-loader` | Loader JAR absent or lacking implementation marker |
+| `duplicate-version` | Multiple declarations of the same game version option |
+| `client-target` | Client entry cannot initialize a production server |
+| `fabric-version-conflict` | Fabric intermediary and game JAR versions disagree |
+| `fabric-auto-missing-version` | Automatic launcher lacks loader version configuration |
+
+Every failure is also tried with `--force` to verify that the old configuration
+survives. Multiple candidates are rejected in non-TTY/raw mode. Unknown JVM flags
+are retained in the full command and do not themselves cause rejection.

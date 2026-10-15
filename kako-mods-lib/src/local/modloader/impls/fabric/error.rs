@@ -5,6 +5,11 @@ use thiserror::Error;
 /// Errors reported by the Fabric identification boundary.
 #[derive(Debug, Error)]
 pub enum FabricError {
+    #[error("Fabric: failed to verify server launch")]
+    ServerIdentification {
+        #[source]
+        source: anyhow::Error,
+    },
     /// Recognized client library declarations are invalid.
     #[error("Fabric: failed to identify client loader version")]
     ClientIdentification {
