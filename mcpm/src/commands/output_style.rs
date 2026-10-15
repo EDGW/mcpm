@@ -4,6 +4,20 @@ use owo_colors::Style;
 
 use crate::terminal;
 
+/// Escape controls in metadata so it cannot change terminal or TSV structure.
+pub(super) fn text(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_control() {
+                ch.escape_default().to_string()
+            } else {
+                ch.to_string()
+            }
+        })
+        .collect()
+}
+
 pub(super) struct OutputStyle {
     color: bool,
 }

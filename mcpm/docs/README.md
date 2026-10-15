@@ -1,10 +1,12 @@
 # mcpm command reference
 
 `mcpm` inspects and launches local Minecraft clients, and inspects mod archives. The available commands are
-`client list`, `client check`, `client launch`, `mod list`, `mod info`, `mod deps`, and `mod dep-graph build`. Mod archives
+`client list`, `client check`, `client launch`, `server info`, `mod list`, `mod info`, `mod deps`, and `mod dep-graph build`. Mod archives
 are read without modifying them; graph snapshots can be written to a separate file.
 
 [Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
+
+[Server info](server/info.md)
 
 [Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 

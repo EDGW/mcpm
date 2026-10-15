@@ -14,6 +14,13 @@ mod meta;
 pub use id::LoaderId;
 pub use meta::ModLoaderMeta;
 
+/// A recognized loader and its declared version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoaderInfo {
+    pub loader: ModLoaderMeta,
+    pub version: String,
+}
+
 /// A loader that identifies mod files and supplies common identification metadata.
 pub trait ModLoader: Send + Sync + Debug {
     /// Returns this loader's identity and associated instance.

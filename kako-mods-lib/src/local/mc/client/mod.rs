@@ -1,7 +1,5 @@
 //! Installed client profiles. Enumeration and metadata inspection never launch the game.
 
-use crate::local::modloader::ModLoaderMeta;
-
 mod assets;
 mod check;
 mod directory;
@@ -28,11 +26,7 @@ pub use manifest::{
 pub use path::ResourcePathError;
 pub use version::{BrokenVersion, MinecraftVersion, MinecraftVersionError, NormalVersion};
 
-/// One recognized loader and its declared version, retained as a string.
-#[derive(Debug, Clone)]
-pub struct MinecraftModLoader {
-    pub loader: ModLoaderMeta,
-    pub version: String,
-}
+/// Compatibility name for a recognized loader and its declared version.
+pub use crate::local::modloader::LoaderInfo as MinecraftModLoader;
 
 pub use rules::{ClientPlatform, RuleEnvironment};

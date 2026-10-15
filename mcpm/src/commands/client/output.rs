@@ -34,19 +34,7 @@ pub(super) fn write_inferred_root(
     writeln!(output)
 }
 
-// Escape controls so names, paths and error text cannot change terminal structure.
-pub(super) fn text(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_control() {
-                ch.escape_default().to_string()
-            } else {
-                ch.to_string()
-            }
-        })
-        .collect()
-}
+pub(super) use crate::commands::output_style::text;
 
 pub(super) fn error_chain(error: &dyn StdError) -> String {
     let mut message = error.to_string();

@@ -1,6 +1,39 @@
 # kako-mods-lib
 
-Local Minecraft client metadata, resource inspection, and mod identification.
+Local Minecraft client/server metadata, resource inspection, and mod identification.
+
+## Server metadata
+
+`local::mc::server::MinecraftServer::load(path)` requires an existing server
+directory with readable, valid `.mcpm/server.json`:
+
+```json
+{
+  "version": 1,
+  "minecraft_version": "1.21.1",
+  "loader": {
+    "type": "fabric",
+    "version": "0.19.3"
+  }
+}
+```
+
+`version` is the configuration format version and must be the number `1`.
+`minecraft_version` is the Minecraft version. All three top-level fields are required;
+use `"loader": null` for a server without a mod loader. Loader type and version
+strings must be nonempty, as must the Minecraft version. Loader identifiers are
+open strings, allowing custom loaders without changing this metadata model.
+
+`MinecraftServer::create(path, MinecraftServerMetadata { ... })` registers an
+existing server directory, creating `.mcpm` as needed and refusing to overwrite
+`server.json`. It does not install software. `metadata()` returns a loaded
+snapshot; call `load` again to refresh it. Loading never creates metadata or
+infers missing information from server JARs.
+
+`name()` returns the server directory name. `loader()` returns
+`Option<local::modloader::LoaderInfo>` containing the recognized `ModLoaderMeta`
+and declared version. No loader or an unknown loader ID returns `None`.
+Client `MinecraftModLoader` is a compatibility re-export of `LoaderInfo`.
 
 ## Client integrity checks
 
