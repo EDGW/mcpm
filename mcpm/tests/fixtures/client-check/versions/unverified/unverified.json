@@ -1,0 +1,26 @@
+{
+  "id": "unverified",
+  "mainClass": "net.minecraft.client.main.Main",
+  "assetIndex": {
+    "id": "test",
+    "size": 89,
+    "sha1": "b52fea1b364ab2224a7dc451571c9c96696a2046"
+  },
+  "libraries": [
+    {
+      "name": "example:library:1",
+      "downloads": {
+        "artifact": {
+          "path": "good.jar",
+          "size": 3
+        }
+      }
+    }
+  ],
+  "downloads": {
+    "client": {
+      "sha1": "f92e777f4341930bad9b2422283c4680d00dbc06",
+      "size": 3
+    }
+  }
+}

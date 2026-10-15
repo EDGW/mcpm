@@ -1,0 +1,8 @@
+{
+  "id": "forge",
+  "libraries": [
+    {
+      "name": "net.minecraftforge:fmlloader:1.20.1-47.4.16"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "neoforge",
+  "libraries": [
+    {
+      "name": "net.neoforged.fancymodloader:loader:4.0.42"
+    }
+  ],
+  "arguments": {
+    "game": [
+      "--fml.neoForgeVersion",
+      "21.1.227"
+    ]
+  }
+}
