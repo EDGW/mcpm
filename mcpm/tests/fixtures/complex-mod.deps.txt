@@ -8,23 +8,29 @@ Loader: Forge
     required: minecraft: (>=1.21 && <1.22) [side=both; ordering=none]
     optional: client_api: (<=1.0 || (>=2.0 && <3.0)) [side=client; ordering=after target; reason=optional client integration]
     required: server_api: =2.0 [side=server; ordering=before target]
+
   Mod: Forge Tools (forge_tools) 3.2.1
   Source: complex-mod.jar
   Dependencies:
     optional: preferred_api: recommended(2.0) [side=both; ordering=none]
+
   Mod: Nested Module (omnibus_nested) 1.0.0
   Source: complex-mod.jar!META-INF/jars/child.jar
   Dependencies:
     required: omnibus_leaf: >=1 [side=both; ordering=none]
+
   Mod: Leaf with no dependencies (omnibus_leaf) 1.0.0
   Source: complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar
   Dependencies: none declared
+
   Mod: Extension One (omnibus_extension) 1.0.0
   Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none declared
+
   Mod: Extension Two (extension_two) 1.0.0
   Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none declared
+
   Mod: Extension Three (extension_three) 1.0.0
   Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none declared
@@ -38,22 +44,28 @@ Loader: NeoForge
     optional: client_api: (<=1.0 || >=2.0) [side=client; ordering=after target; reason=optional API]
     breaks: broken_api: (>=0 && <1) [side=server; ordering=none; reason=broken server integration]
     conflicts: conflicting_api: =2.0 [side=both; ordering=before target; reason=known conflict]
+
   Mod: NeoForge Tools (neo_tools) 1.0.0
   Source: complex-mod.jar
   Dependencies: none declared
+
   Mod: Nested Module (omnibus_nested) 1.0.0
   Source: complex-mod.jar!META-INF/jars/child.jar
   Dependencies:
     required: omnibus_leaf: >=1 [side=both; ordering=none]
+
   Mod: Leaf with no dependencies (omnibus_leaf) 1.0.0
   Source: complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar
   Dependencies: none declared
+
   Mod: Extension One (omnibus_extension) 1.0.0
   Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none declared
+
   Mod: Extension Two (extension_two) 1.0.0
   Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none declared
+
   Mod: Extension Three (extension_three) 1.0.0
   Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none declared
@@ -75,13 +87,16 @@ Loader: Fabric
     suggested: suggested_api: *
     breaks: broken_api: <1.0
     conflicts: conflicting_api: (=1.0 || =2.0)
+
   Mod: Nested Module (omnibus_nested) 1.0.0
   Source: complex-mod.jar!META-INF/jars/child.jar
   Dependencies:
     required: omnibus_leaf: >=1
+
   Mod: Leaf with no dependencies (omnibus_leaf) 1.0.0
   Source: complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar
   Dependencies: none declared
+
   Mod: Extension One (omnibus_extension) 1.0.0
   Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none declared
@@ -97,13 +112,16 @@ Loader: Quilt
     required: universal_api: * [side=both; reason=line one\nline two\tend]
     breaks: (legacy_api: <1 && legacy_bridge: * [unless compatibility: >=2 [unless compat_disabled: *]])
     breaks: broken_quilt_api: =0.1 [reason=incompatible API]
+
   Mod: Nested Module (omnibus_nested) 1.0.0
   Source: complex-mod.jar!META-INF/jars/child.jar
   Dependencies:
     required: omnibus_leaf: *
+
   Mod: Leaf with no dependencies (omnibus_leaf) 1.0.0
   Source: complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar
   Dependencies: none declared
+
   Mod: Extension One (omnibus_extension) 1.0.0
   Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none declared

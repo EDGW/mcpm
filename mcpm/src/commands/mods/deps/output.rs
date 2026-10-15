@@ -37,7 +37,10 @@ pub(super) fn write_deps(
             style.secondary("Loader: "),
             style.loader(&metadata.loader.id, &text(&metadata.loader.name))
         )?;
-        for record in mod_records::collect(metadata, "") {
+        for (index, record) in mod_records::collect(metadata, "").into_iter().enumerate() {
+            if index > 0 {
+                writeln!(output)?;
+            }
             let info = record.info;
             writeln!(
                 output,
