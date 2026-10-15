@@ -8,13 +8,10 @@ use kako_mods_lib::local::mc::client::{
 };
 
 use super::super::output::{error_chain, text};
-use crate::{
-    commands::output_style::OutputStyle,
-    terminal::{self, Stream},
-};
+use crate::{commands::output_style::OutputStyle, terminal};
 
 pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io::Result<()> {
-    let formatted = terminal::is_tty(Stream::Stdout);
+    let formatted = terminal::is_tty(terminal::Stream::Stdout);
     let style = OutputStyle::new();
     let state = if report.is_intact() {
         "intact"
@@ -43,6 +40,7 @@ pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io:
         ("assets", report.options.assets),
         ("asset_index", report.options.asset_index),
         ("version_jar", report.options.version_jar),
+        ("logging", report.options.logging),
     ]
     .into_iter()
     .filter(|(_, mode)| mode.is_enabled())
@@ -166,6 +164,7 @@ fn target_name(target: &CheckTarget) -> String {
     match target {
         CheckTarget::Version => "version".into(),
         CheckTarget::VersionJar => "version JAR".into(),
+        CheckTarget::Logging { id } => format!("logging config {id}"),
         CheckTarget::Library { name, classifier } => match classifier {
             Some(classifier) => format!("library {name} ({classifier})"),
             None => format!("library {name}"),

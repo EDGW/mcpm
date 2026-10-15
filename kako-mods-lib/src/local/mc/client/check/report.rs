@@ -55,6 +55,9 @@ pub enum FileCheckStatus {
 pub enum CheckTarget {
     Version,
     VersionJar,
+    Logging {
+        id: String,
+    },
     Library {
         name: String,
         classifier: Option<String>,
@@ -76,6 +79,11 @@ pub struct CheckIssue {
 
 #[derive(Debug, Error)]
 pub enum CheckProblem {
+    #[error("invalid resource path")]
+    Path {
+        #[source]
+        source: super::super::ResourcePathError,
+    },
     #[error("version metadata could not be loaded")]
     Version {
         #[source]

@@ -14,9 +14,14 @@ const SKIP_ALL: CheckOptions = CheckOptions {
     assets: CheckOptionValue::Skip,
     asset_index: CheckOptionValue::Skip,
     version_jar: CheckOptionValue::Skip,
+    logging: CheckOptionValue::Skip,
 };
 const LIBRARIES: CheckOptions = CheckOptions {
     libraries: CheckOptionValue::Hash,
+    ..SKIP_ALL
+};
+const LOGGING: CheckOptions = CheckOptions {
+    logging: CheckOptionValue::Hash,
     ..SKIP_ALL
 };
 const ASSETS: CheckOptions = CheckOptions {
@@ -547,7 +552,7 @@ fn default_policies_check_jar_libraries_index_hashes_and_only_asset_sizes() {
     let mut steps = Vec::new();
     let report =
         directory.check_with_progress(&version, CheckOptions::default(), &rules(), |progress| {
-            assert_eq!(progress.total_steps, 5);
+            assert_eq!(progress.total_steps, 6);
             if progress.event == CheckEvent::StepStarted {
                 steps.push(progress.step);
             }
@@ -560,6 +565,7 @@ fn default_policies_check_jar_libraries_index_hashes_and_only_asset_sizes() {
             CheckStep::Preparing,
             CheckStep::VersionJar,
             CheckStep::Libraries,
+            CheckStep::Logging,
             CheckStep::AssetIndex,
             CheckStep::AssetObjects
         ]
@@ -733,4 +739,90 @@ fn client_jar_check_resolves_inherited_and_explicit_jar_locations() {
             .check(&directory.version("unsafe").unwrap(), options, &rules())
             .has_errors()
     );
+}
+
+#[test]
+fn logging_checks_inherited_configuration_and_reports_progress_and_corruption() {
+    let root = TempDir::new().unwrap();
+    profile(
+        root.path(),
+        "parent",
+        json!({
+            "id":"parent", "logging":{"client":{
+                "argument":"-Dlog4j.configurationFile=${path}",
+                "file":{"id":"client.xml","size":4,"sha1":sha(b"good")}
+            }}
+        }),
+    );
+    profile(
+        root.path(),
+        "child",
+        json!({"id":"child","inheritsFrom":"parent"}),
+    );
+    write(root.path(), "assets/log_configs/client.xml", b"good");
+    let directory = MinecraftDirectory::new(root.path()).unwrap();
+    let version = directory.version("child").unwrap();
+    let mut steps = Vec::new();
+    let report = directory.check_with_progress(&version, LOGGING, &rules(), |progress| {
+        assert_eq!(progress.total_steps, 2);
+        if progress.event == CheckEvent::StepStarted {
+            steps.push(progress.step);
+        }
+        if let CheckEvent::FileFinished { status } = progress.event {
+            assert_eq!(progress.step, CheckStep::Logging);
+            assert_eq!(status, FileCheckStatus::Verified);
+            assert_eq!(progress.completed_files, 1);
+            assert_eq!(progress.step_total_files, Some(1));
+        }
+        if progress.event == CheckEvent::Finished {
+            assert_eq!(progress.completed_steps, 2);
+            assert_eq!(progress.remaining_files, Some(0));
+        }
+    });
+    assert!(report.is_intact(), "{report:#?}");
+    assert_eq!(steps, [CheckStep::Preparing, CheckStep::Logging]);
+    assert_eq!(report.files.len(), 1);
+    assert_eq!(
+        report.files[0].target,
+        CheckTarget::Logging {
+            id: "client.xml".into()
+        }
+    );
+    assert_eq!(
+        report.files[0].path,
+        root.path().join("assets/log_configs/client.xml")
+    );
+
+    write(root.path(), "assets/log_configs/client.xml", b"bad!");
+    let report = directory.check(&version, LOGGING, &rules());
+    assert!(matches!(
+        report.issues[0].problem,
+        CheckProblem::HashMismatch { .. }
+    ));
+    assert!(
+        directory
+            .check(
+                &version,
+                CheckOptions {
+                    logging: CheckOptionValue::Size,
+                    ..SKIP_ALL
+                },
+                &rules()
+            )
+            .is_intact()
+    );
+    write(root.path(), "assets/log_configs/client.xml", b"short");
+    let report = directory.check(&version, LOGGING, &rules());
+    assert!(matches!(
+        report.issues[0].problem,
+        CheckProblem::SizeMismatch { .. }
+    ));
+    fs::remove_file(root.path().join("assets/log_configs/client.xml")).unwrap();
+    let report = directory.check(&version, LOGGING, &rules());
+    assert!(matches!(
+        report.issues[0].problem,
+        CheckProblem::MissingFile
+    ));
+    let skipped = directory.check(&version, SKIP_ALL, &rules());
+    assert!(skipped.files.is_empty() && skipped.issues.is_empty());
 }

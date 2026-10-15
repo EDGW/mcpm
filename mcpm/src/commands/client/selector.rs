@@ -1,4 +1,4 @@
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, Write};
 
 use anyhow::{Context, Result};
 use crossterm::{
@@ -12,31 +12,54 @@ use kako_mods_lib::local::mc::client::MinecraftVersion;
 use thiserror::Error;
 use unicode_width::UnicodeWidthChar;
 
-use super::super::output::text;
-use crate::terminal::{self as policy, Stream};
+use super::output::text;
+use crate::terminal as policy;
 
 #[derive(Debug, Error)]
 enum SelectError {
     #[error("no client versions found in the selected directory")]
     NoVersions,
     #[error(
-        "interactive version selection requires terminal input and stderr; specify version IDs or use --all"
+        "interactive version selection requires terminal input and stderr; {hint}"
     )]
-    Unavailable,
+    Unavailable { hint: &'static str },
 }
 
-pub(super) fn select(versions: &[MinecraftVersion]) -> Result<Option<usize>> {
+pub(super) enum Purpose {
+    Check,
+    Launch,
+}
+
+impl Purpose {
+    fn action(&self) -> &'static str {
+        match self {
+            Self::Check => "check",
+            Self::Launch => "launch",
+        }
+    }
+    fn hint(&self) -> &'static str {
+        match self {
+            Self::Check => "specify version IDs or use --all",
+            Self::Launch => "specify version IDs",
+        }
+    }
+}
+
+pub(super) fn select(versions: &[MinecraftVersion], purpose: Purpose) -> Result<Option<usize>> {
     if versions.is_empty() {
         return Err(SelectError::NoVersions.into());
     }
-    if !io::stdin().is_terminal() || !policy::is_tty(Stream::Stderr) {
-        return Err(SelectError::Unavailable.into());
+    if !std::io::IsTerminal::is_terminal(&io::stdin()) || !policy::is_tty(policy::Stream::Stderr) {
+        return Err(SelectError::Unavailable {
+            hint: purpose.hint(),
+        }
+        .into());
     }
     let mut screen = Screen::new().context("failed to open version selector")?;
     let mut selected = 0;
     loop {
         screen
-            .render(versions, selected)
+            .render(versions, selected, purpose.action())
             .context("failed to draw version selector")?;
         if let Event::Key(key) = event::read().context("failed to read version selection")? {
             if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
@@ -72,9 +95,14 @@ impl Screen {
         Ok(screen)
     }
 
-    fn render(&mut self, versions: &[MinecraftVersion], selected: usize) -> io::Result<()> {
+    fn render(
+        &mut self,
+        versions: &[MinecraftVersion],
+        selected: usize,
+        action: &str,
+    ) -> io::Result<()> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
-        let color = policy::color_enabled(Stream::Stderr);
+        let color = policy::color_enabled(policy::Stream::Stderr);
         let title = if color {
             content_style(Color::Cyan, true)
         } else {
@@ -84,7 +112,9 @@ impl Screen {
             self.output,
             Clear(ClearType::All),
             MoveTo(0, 0),
-            PrintStyledContent(title.apply(clip("Select a client version to check", width)))
+            PrintStyledContent(
+                title.apply(clip(&format!("Select a client version to {action}"), width))
+            )
         )?;
         let visible = usize::from(height.saturating_sub(4).max(1));
         let start = selected
@@ -123,7 +153,7 @@ impl Screen {
             self.output,
             MoveTo(0, height.saturating_sub(1)),
             Print(clip(
-                "Up/Down: move | Enter: check | Esc/Ctrl-C: cancel",
+                &format!("Up/Down: move | Enter: {action} | Esc/Ctrl-C: cancel"),
                 width
             ))
         )?;

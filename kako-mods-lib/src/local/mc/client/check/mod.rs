@@ -10,17 +10,18 @@ use super::{
 };
 
 mod file;
+mod logging;
 mod progress;
 mod report;
 
 use progress::Progress;
 pub use progress::{CheckEvent, CheckProgress, CheckStep, PlannedFile};
 
-pub use report::{
-    CheckIssue, CheckProblem, CheckReport, CheckTarget, CheckedFile, FileCheckStatus,
-};
 pub use super::rules::{
     ClientPlatform as CheckPlatform, LibraryRuleError, RuleEnvironment as CheckRules,
+};
+pub use report::{
+    CheckIssue, CheckProblem, CheckReport, CheckTarget, CheckedFile, FileCheckStatus,
 };
 
 /// Verification policy for an independently selectable resource category.
@@ -44,6 +45,7 @@ pub struct CheckOptions {
     pub assets: CheckOptionValue,
     pub asset_index: CheckOptionValue,
     pub version_jar: CheckOptionValue,
+    pub logging: CheckOptionValue,
 }
 
 impl Default for CheckOptions {
@@ -53,6 +55,7 @@ impl Default for CheckOptions {
             assets: CheckOptionValue::Size,
             asset_index: CheckOptionValue::Hash,
             version_jar: CheckOptionValue::Hash,
+            logging: CheckOptionValue::Hash,
         }
     }
 }
@@ -63,9 +66,11 @@ impl CheckOptions {
             && !self.assets.is_enabled()
             && !self.asset_index.is_enabled()
             && !self.version_jar.is_enabled()
+            && !self.logging.is_enabled()
     }
 }
 
+#[tracing::instrument(name = "client.check", skip_all, fields(version = ?version.name()))]
 pub(super) fn check(
     directory: &MinecraftDirectory,
     version: &MinecraftVersion,
@@ -73,6 +78,7 @@ pub(super) fn check(
     rules: &CheckRules,
     mut observer: impl FnMut(CheckProgress<'_>),
 ) -> CheckReport {
+    tracing::info!(?options, "Checking client resources");
     let mut report = CheckReport {
         version: version.name().to_owned(),
         options,
@@ -82,6 +88,13 @@ pub(super) fn check(
     let mut progress = Progress::new(&mut observer, &report);
     run(directory, version, rules, &mut report, &mut progress);
     progress.finish(&report);
+    tracing::info!(
+        files = report.files.len(),
+        issues = report.issues.len(),
+        unverified = report.unverified_count(),
+        intact = report.is_intact(),
+        "Client resource check complete"
+    );
     report
 }
 
@@ -140,6 +153,20 @@ fn run(
     if report.options.libraries.is_enabled() {
         plan.extend(plan_libraries(directory, manifest, rules, report));
     }
+    if report.options.logging.is_enabled() {
+        match version.launch_manifest() {
+            Ok(manifest) => {
+                if let Some(file) = logging::plan(directory, manifest, report) {
+                    plan.push(file);
+                }
+            }
+            Err(source) => report.issues.push(CheckIssue {
+                target: CheckTarget::Version,
+                path: Some(version.manifest_path()),
+                problem: CheckProblem::Version { source },
+            }),
+        }
+    }
     let index_needed =
         report.options.asset_index.is_enabled() || report.options.assets.is_enabled();
     let index = if index_needed {
@@ -156,6 +183,7 @@ fn run(
     for (mode, step) in [
         (report.options.version_jar, CheckStep::VersionJar),
         (report.options.libraries, CheckStep::Libraries),
+        (report.options.logging, CheckStep::Logging),
     ] {
         if mode.is_enabled() {
             progress.start_step(step, report);

@@ -26,7 +26,7 @@ fn check_accepts_multiple_ids_deduplicates_and_continues_after_failure() {
             .count(),
         3
     );
-    assert!(stdout.contains("good\tintact\tsummary\t\tscope=libraries:hash,assets:size,asset_index:hash,version_jar:hash, files=4"));
+    assert!(stdout.contains("good\tintact\tsummary\t\tscope=libraries:hash,assets:size,asset_index:hash,version_jar:hash,logging:hash, files=4"));
     assert!(stdout.contains("corrupt\tfailed\tsummary"));
     assert!(stdout.contains("SHA-1 mismatch"));
     assert!(stdout.contains("unverified\tunverified\tsummary"));

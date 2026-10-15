@@ -1,12 +1,12 @@
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use kako_mods_lib::local::mc::client::{CheckPlatform, CheckRules};
+use kako_mods_lib::local::mc::client::{ClientPlatform, RuleEnvironment};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 enum PlatformError {
-    #[error("client checks do not support host OS {os:?}")]
+    #[error("client commands do not support host OS {os:?}")]
     Unsupported { os: &'static str },
     #[error("system platform query failed")]
     QueryFailed,
@@ -14,7 +14,7 @@ enum PlatformError {
     MissingVersion,
 }
 
-pub(super) fn current() -> Result<CheckRules> {
+pub(super) fn current() -> Result<RuleEnvironment> {
     let os = match std::env::consts::OS {
         "macos" => "osx",
         "linux" => "linux",
@@ -22,26 +22,34 @@ pub(super) fn current() -> Result<CheckRules> {
         os => return Err(PlatformError::Unsupported { os }.into()),
     };
     let (arch, version) = host_details()?;
-    // HMCL-compatible architecture names for manifest OS restrictions.
-    let arch = match arch.as_str() {
-        "amd64" | "x64" | "x86_64" => "x86_64",
-        "i386" | "i486" | "i586" | "i686" | "x86" => "x86",
-        "aarch64" | "arm64" | "ARM64" => "arm64",
-        "arm" | "armv7l" => "arm32",
-        other => other,
-    }
-    .to_owned();
-    let bits = match arch.as_str() {
-        "x86" | "arm32" => 32,
-        _ if arch.contains("64") || matches!(arch.as_str(), "s390x") => 64,
-        _ => usize::BITS as u8,
-    };
-    Ok(CheckRules::new(CheckPlatform {
+    let arch = normalize_architecture(&arch);
+    let bits = architecture_bits(&arch).unwrap_or(usize::BITS as u8);
+    Ok(RuleEnvironment::new(ClientPlatform {
         os: os.to_owned(),
         arch,
         version,
         bits,
     }))
+}
+
+// HMCL-compatible names shared by host defaults and explicit JVM overrides.
+pub(super) fn normalize_architecture(arch: &str) -> String {
+    match arch {
+        "amd64" | "x64" | "x86_64" => "x86_64",
+        "i386" | "i486" | "i586" | "i686" | "x86" => "x86",
+        "aarch64" | "arm64" | "ARM64" => "arm64",
+        "arm" | "armv7l" | "arm32" => "arm32",
+        other => other,
+    }
+    .into()
+}
+
+pub(super) fn architecture_bits(arch: &str) -> Option<u8> {
+    match arch {
+        "x86" | "arm32" => Some(32),
+        arch if arch.contains("64") || arch == "s390x" => Some(64),
+        _ => None,
+    }
 }
 
 #[cfg(unix)]

@@ -1,8 +1,6 @@
 mod options;
 mod output;
-mod platform;
 mod progress;
-mod selector;
 
 use std::{
     collections::HashSet,
@@ -15,7 +13,7 @@ use clap::Args;
 use kako_mods_lib::local::mc::client::MinecraftDirectory;
 use thiserror::Error;
 
-use super::{input, output as client_output};
+use super::{input, output as client_output, platform, selector};
 
 #[derive(Args)]
 pub(super) struct CheckArgs {
@@ -54,7 +52,7 @@ pub(super) fn run(args: CheckArgs) -> Result<()> {
         directory.versions()?
     } else if args.versions.is_empty() {
         let versions = directory.versions()?;
-        let Some(selected) = selector::select(&versions)? else {
+        let Some(selected) = selector::select(&versions, selector::Purpose::Check)? else {
             return Ok(());
         };
         versions.into_iter().nth(selected).into_iter().collect()

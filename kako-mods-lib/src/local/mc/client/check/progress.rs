@@ -7,6 +7,7 @@ pub enum CheckStep {
     Preparing,
     VersionJar,
     Libraries,
+    Logging,
     AssetIndex,
     AssetObjects,
     Finished,
@@ -62,8 +63,8 @@ pub(super) struct Progress<'a> {
     cursor: usize,
     step: CheckStep,
     step_active: bool,
-    step_totals: [usize; 6],
-    step_done: [usize; 6],
+    step_totals: [usize; 7],
+    step_done: [usize; 7],
     inventory_complete: bool,
     completed_steps: usize,
     total_steps: usize,
@@ -80,13 +81,14 @@ impl<'a> Progress<'a> {
             cursor: 0,
             step: CheckStep::Preparing,
             step_active: true,
-            step_totals: [0; 6],
-            step_done: [0; 6],
+            step_totals: [0; 7],
+            step_done: [0; 7],
             inventory_complete: false,
             completed_steps: 0,
             total_steps: 1
                 + usize::from(report.options.version_jar.is_enabled())
                 + usize::from(report.options.libraries.is_enabled())
+                + usize::from(report.options.logging.is_enabled())
                 + usize::from(
                     report.options.asset_index.is_enabled() || report.options.assets.is_enabled(),
                 )

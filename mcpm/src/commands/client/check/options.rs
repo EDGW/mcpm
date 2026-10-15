@@ -21,10 +21,10 @@ impl From<Mode> for CheckOptionValue {
 #[derive(Args)]
 pub(super) struct OptionArgs {
     /// Verify every category using size and SHA-1; conflicts with individual policies.
-    #[arg(long, conflicts_with_all = ["shallow", "libraries", "assets", "asset_index", "version_jar"])]
+    #[arg(long, conflicts_with_all = ["shallow", "libraries", "assets", "asset_index", "version_jar", "logging"])]
     strict: bool,
     /// Verify every category using size only; conflicts with individual policies.
-    #[arg(long, conflicts_with_all = ["libraries", "assets", "asset_index", "version_jar"])]
+    #[arg(long, conflicts_with_all = ["libraries", "assets", "asset_index", "version_jar", "logging"])]
     shallow: bool,
     /// Library/native verification: size, size then SHA-1, or skip.
     #[arg(long, value_enum, default_value = "hash")]
@@ -38,6 +38,9 @@ pub(super) struct OptionArgs {
     /// Client JAR verification, respecting jar aliases and inherited base versions.
     #[arg(long, value_enum, default_value = "hash")]
     version_jar: Mode,
+    /// Verify the declared client logging configuration: size, hash, or skip.
+    #[arg(long, value_enum, default_value = "hash")]
+    logging: Mode,
 }
 
 impl OptionArgs {
@@ -55,6 +58,7 @@ impl OptionArgs {
                 assets: mode,
                 asset_index: mode,
                 version_jar: mode,
+                logging: mode,
             };
         }
         CheckOptions {
@@ -62,6 +66,7 @@ impl OptionArgs {
             assets: self.assets.into(),
             asset_index: self.asset_index.into(),
             version_jar: self.version_jar.into(),
+            logging: self.logging.into(),
         }
     }
 }

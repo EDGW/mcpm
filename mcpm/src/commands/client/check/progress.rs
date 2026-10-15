@@ -8,17 +8,18 @@ use kako_mods_lib::local::mc::client::{CheckEvent, CheckProgress, CheckStep};
 
 use super::super::output::text;
 use crate::commands::output_style::OutputStyle;
-use crate::terminal::{self, Stream};
+use crate::terminal;
 
 pub(super) struct BatchProgress {
     display: MultiProgress,
     overall: Option<ProgressBar>,
     enabled: bool,
+    _logging: crate::logging::ProgressGuard,
 }
 
 impl BatchProgress {
     pub(super) fn new(total: usize) -> Self {
-        let enabled = terminal::is_tty(Stream::Stdout) && terminal::is_tty(Stream::Stderr);
+        let enabled = terminal::is_tty(terminal::Stream::Stdout) && terminal::is_tty(terminal::Stream::Stderr);
         let display = MultiProgress::with_draw_target(if enabled {
             ProgressDrawTarget::stderr_with_hz(10)
         } else {
@@ -26,7 +27,7 @@ impl BatchProgress {
         });
         let overall = (total > 1).then(|| {
             let bar = display.add(ProgressBar::new(total as u64));
-            let template = if terminal::color_enabled(Stream::Stderr) {
+            let template = if terminal::color_enabled(terminal::Stream::Stderr) {
                 "{prefix} {pos}/{len} {wide_bar:.cyan} {percent}% {msg}"
             } else {
                 "{prefix} {pos}/{len} {wide_bar} {percent}% {msg}"
@@ -38,10 +39,12 @@ impl BatchProgress {
             bar.set_prefix(OutputStyle::new().theme("Versions"));
             bar
         });
+        let logging = crate::logging::attach_progress(enabled.then(|| display.clone()));
         Self {
             display,
             overall,
             enabled,
+            _logging: logging,
         }
     }
 
@@ -89,7 +92,7 @@ impl Progress {
         let display = batch.display.clone();
         let main = display.add(ProgressBar::new(1));
         let step = display.add(ProgressBar::new_spinner());
-        let template = if terminal::color_enabled(Stream::Stderr) {
+        let template = if terminal::color_enabled(terminal::Stream::Stderr) {
             "{prefix}\n{wide_bar:.cyan} {percent}%"
         } else {
             "{prefix}\n{wide_bar} {percent}%"
@@ -128,6 +131,7 @@ impl Progress {
             CheckStep::Preparing => "Preparing",
             CheckStep::VersionJar => "Checking version JAR",
             CheckStep::Libraries => "Checking libraries",
+            CheckStep::Logging => "Checking logging config",
             CheckStep::AssetIndex => "Checking asset index",
             CheckStep::AssetObjects => "Checking asset objects",
             CheckStep::Finished => "Finished",
@@ -192,7 +196,7 @@ impl Progress {
         let determinate = progress.step_total_files.is_some();
         if self.determinate != Some(determinate) {
             let template = if determinate {
-                if terminal::color_enabled(Stream::Stderr) {
+                if terminal::color_enabled(terminal::Stream::Stderr) {
                     "{prefix} {wide_msg}\n{wide_bar:.cyan} {percent}%"
                 } else {
                     "{prefix} {wide_msg}\n{wide_bar} {percent}%"

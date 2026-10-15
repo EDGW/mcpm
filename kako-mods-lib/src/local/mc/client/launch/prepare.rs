@@ -59,7 +59,10 @@ impl LaunchPlan {
     #[tracing::instrument(name = "launch.prepare", skip_all, fields(version = ?self.version.name()), err)]
     pub fn prepare(self) -> Result<PreparedLaunch, PreparationError> {
         tracing::info!("Preparing local launch files");
-        if let Some(options) = self.options.verification {
+        if let Some(mut options) = self.options.verification {
+            if !matches!(&self.options.logging, super::LoggingOptions::Manifest) {
+                options.logging = crate::local::mc::client::CheckOptionValue::Skip;
+            }
             tracing::info!(?options, "Verifying selected resources");
             let report = self
                 .directory
