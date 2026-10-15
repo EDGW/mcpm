@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use kako_mods_lib::local::mcmod::ModFile;
 
 use super::super::dependency_output::{format_dependency, text};
+use super::super::mod_records;
 use super::super::output_style::OutputStyle;
 
 pub(super) fn write_deps(
@@ -34,7 +35,8 @@ pub(super) fn write_deps(
             style.secondary("Loader: "),
             style.loader(&metadata.loader.id, &text(&metadata.loader.name))
         )?;
-        for info in &metadata.mods {
+        for record in mod_records::collect(metadata) {
+            let info = record.info;
             writeln!(
                 output,
                 "{}{} ({}) {}",
@@ -44,7 +46,7 @@ pub(super) fn write_deps(
                 style.important(text(&info.version))
             )?;
             let mut source = outer_path.clone();
-            for member in &info.nested_path {
+            for member in &record.source {
                 source.push_str("!/");
                 source.push_str(&text(member));
             }

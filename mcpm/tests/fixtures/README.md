@@ -3,7 +3,10 @@
 `complex-mod.jar` is a metadata-only inspection fixture, not a playable mod.
 It contains Forge, NeoForge, Fabric, and native Quilt declarations in one archive.
 Each loader also identifies a child and grandchild JAR, including a leaf without
-dependencies. Forge and NeoForge each declare two mods in the outer archive;
+dependencies. A second child declares three native Mods under Forge/NeoForge
+and one under Fabric/Quilt. A third child is a plain library without Mod
+declarations, retained as an empty metadata node. Forge and NeoForge each
+declare two mods in the outer archive;
 the `omnibus` ID deliberately occurs independently under every loader.
 
 The declarations cover required, optional, recommended, suggested, breaks, and
@@ -25,13 +28,12 @@ Run the CLI output test with:
 cargo test --manifest-path mcpm/Cargo.toml --test complex_mod_output -- --nocapture
 ```
 
-The test first captures and compares complete CLI output with the reviewed `.txt`
-files, using both global `--raw` and ordinary redirected output. After all
-comparisons pass, it runs `info` and `deps` again with inherited console streams
-to show the actual terminal output, including colors when the console is a TTY
-and `NO_COLOR` is unset. Expected paths
-remain relative by running in this directory. Do not automatically refresh the
-expected output: inspect changes against the fixture declarations first.
+The test checks the loader-specific archive trees, direct Mod counts, relative
+child paths, and preserved library-only nodes. It captures and compares complete
+`info` and `deps` output in both raw and redirected modes before previewing
+both commands with inherited console streams. Expected paths remain relative
+by running in this directory. Inspect snapshot changes against the fixture
+declarations before updating expected output.
 
 For an interactive preview of the colors:
 

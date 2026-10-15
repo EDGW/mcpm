@@ -28,6 +28,21 @@ Loader: Forge
   Version: 1.0.0
   Dependencies: none
 
+  Name: Extension One
+  ID: omnibus_extension
+  Version: 1.0.0
+  Dependencies: none
+
+  Name: Extension Two
+  ID: extension_two
+  Version: 1.0.0
+  Dependencies: none
+
+  Name: Extension Three
+  ID: extension_three
+  Version: 1.0.0
+  Dependencies: none
+
 Loader: NeoForge
   Name: Complex Mod / NeoForge
   ID: omnibus
@@ -52,6 +67,21 @@ Loader: NeoForge
 
   Name: Leaf with no dependencies
   ID: omnibus_leaf
+  Version: 1.0.0
+  Dependencies: none
+
+  Name: Extension One
+  ID: omnibus_extension
+  Version: 1.0.0
+  Dependencies: none
+
+  Name: Extension Two
+  ID: extension_two
+  Version: 1.0.0
+  Dependencies: none
+
+  Name: Extension Three
+  ID: extension_three
   Version: 1.0.0
   Dependencies: none
 
@@ -85,6 +115,11 @@ Loader: Fabric
   Version: 1.0.0
   Dependencies: none
 
+  Name: Extension One
+  ID: omnibus_extension
+  Version: 1.0.0
+  Dependencies: none
+
 Loader: Quilt
   Name: Complex Mod / Quilt
   ID: omnibus
@@ -106,5 +141,10 @@ Loader: Quilt
 
   Name: Leaf with no dependencies
   ID: omnibus_leaf
+  Version: 1.0.0
+  Dependencies: none
+
+  Name: Extension One
+  ID: omnibus_extension
   Version: 1.0.0
   Dependencies: none

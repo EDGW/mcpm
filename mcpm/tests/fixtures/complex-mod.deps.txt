@@ -19,6 +19,15 @@ Loader: Forge
   Mod: Leaf with no dependencies (omnibus_leaf) 1.0.0
   Source: complex-mod.jar!/META-INF/jars/child.jar!/META-INF/jars/grandchild.jar
   Dependencies: none declared
+  Mod: Extension One (omnibus_extension) 1.0.0
+  Source: complex-mod.jar!/META-INF/jars/extension.jar
+  Dependencies: none declared
+  Mod: Extension Two (extension_two) 1.0.0
+  Source: complex-mod.jar!/META-INF/jars/extension.jar
+  Dependencies: none declared
+  Mod: Extension Three (extension_three) 1.0.0
+  Source: complex-mod.jar!/META-INF/jars/extension.jar
+  Dependencies: none declared
 
 Loader: NeoForge
   Mod: Complex Mod / NeoForge (omnibus) 3.2.1
@@ -38,6 +47,15 @@ Loader: NeoForge
     required: omnibus_leaf: >=1 [side=both; ordering=none]
   Mod: Leaf with no dependencies (omnibus_leaf) 1.0.0
   Source: complex-mod.jar!/META-INF/jars/child.jar!/META-INF/jars/grandchild.jar
+  Dependencies: none declared
+  Mod: Extension One (omnibus_extension) 1.0.0
+  Source: complex-mod.jar!/META-INF/jars/extension.jar
+  Dependencies: none declared
+  Mod: Extension Two (extension_two) 1.0.0
+  Source: complex-mod.jar!/META-INF/jars/extension.jar
+  Dependencies: none declared
+  Mod: Extension Three (extension_three) 1.0.0
+  Source: complex-mod.jar!/META-INF/jars/extension.jar
   Dependencies: none declared
 
 Loader: Fabric
@@ -64,6 +82,9 @@ Loader: Fabric
   Mod: Leaf with no dependencies (omnibus_leaf) 1.0.0
   Source: complex-mod.jar!/META-INF/jars/child.jar!/META-INF/jars/grandchild.jar
   Dependencies: none declared
+  Mod: Extension One (omnibus_extension) 1.0.0
+  Source: complex-mod.jar!/META-INF/jars/extension.jar
+  Dependencies: none declared
 
 Loader: Quilt
   Mod: Complex Mod / Quilt (omnibus) 3.2.1+quilt
@@ -82,4 +103,7 @@ Loader: Quilt
     required: omnibus_leaf: *
   Mod: Leaf with no dependencies (omnibus_leaf) 1.0.0
   Source: complex-mod.jar!/META-INF/jars/child.jar!/META-INF/jars/grandchild.jar
+  Dependencies: none declared
+  Mod: Extension One (omnibus_extension) 1.0.0
+  Source: complex-mod.jar!/META-INF/jars/extension.jar
   Dependencies: none declared

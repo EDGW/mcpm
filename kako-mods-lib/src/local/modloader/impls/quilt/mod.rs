@@ -41,20 +41,21 @@ impl ModLoader for QuiltLoader {
             source,
         })?;
         let root = read_archive(&mut archive, entry.path())?;
-        let mods =
-            archive::collect(&mut archive, root, entry.path(), read_archive).map_err(|source| {
-                QuiltError::NestedIdentification {
-                    path: entry.path().to_owned(),
-                    source,
-                }
-            })?;
-        if mods.is_empty() {
+        let metadata = archive::collect(
+            &mut archive,
+            root,
+            entry.path(),
+            self.metadata(),
+            read_archive,
+        )
+        .map_err(|source| QuiltError::NestedIdentification {
+            path: entry.path().to_owned(),
+            source,
+        })?;
+        if !metadata.has_mods() {
             return Ok(None);
         }
-        Ok(Some(ModMeta {
-            loader: self.metadata().clone(),
-            mods,
-        }))
+        Ok(Some(metadata))
     }
 }
 
@@ -156,7 +157,6 @@ fn parse(contents: &str) -> Result<ModInfo> {
         }
     }
     Ok(ModInfo {
-        nested_path: Vec::new(),
         name,
         modid,
         version,

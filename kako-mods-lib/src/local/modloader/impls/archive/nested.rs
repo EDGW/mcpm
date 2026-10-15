@@ -6,7 +6,10 @@ use anyhow::{Context, Result};
 use thiserror::Error;
 use zip::ZipArchive;
 
-use crate::local::mcmod::ModInfo;
+use crate::local::{
+    mcmod::{ModInfo, ModMeta, NestedModMeta},
+    modloader::ModLoaderMeta,
+};
 
 use super::{Archive, ArchiveReader};
 
@@ -37,13 +40,14 @@ pub(in super::super) fn collect(
     archive: &mut Archive,
     root: ArchiveNode,
     path: &Path,
+    loader: &ModLoaderMeta,
     mut identify: impl FnMut(&mut Archive, &Path) -> Result<ArchiveNode>,
-) -> Result<Vec<ModInfo>> {
+) -> Result<ModMeta> {
     let mut budget = Budget {
         bytes: 0,
         archives: 0,
     };
-    visit(archive, root, path, &[], &mut budget, &mut identify)
+    visit(archive, root, path, 0, loader, &mut budget, &mut identify)
 }
 
 struct Budget {
@@ -55,14 +59,16 @@ fn visit(
     archive: &mut Archive,
     node: ArchiveNode,
     path: &Path,
-    nested_path: &[String],
+    depth: usize,
+    loader: &ModLoaderMeta,
     budget: &mut Budget,
     identify: &mut impl FnMut(&mut Archive, &Path) -> Result<ArchiveNode>,
-) -> Result<Vec<ModInfo>> {
-    let mut mods = node.mods;
-    for info in &mut mods {
-        info.nested_path = nested_path.to_vec();
-    }
+) -> Result<ModMeta> {
+    let mut metadata = ModMeta {
+        loader: loader.clone(),
+        mods: node.mods,
+        nested: Vec::new(),
+    };
     let mut seen = HashSet::new();
     for member in node.jars {
         if !seen.insert(member.clone()) {
@@ -74,7 +80,7 @@ fn visit(
         {
             return Err(NestedArchiveError::InvalidPath { path: member }.into());
         }
-        if nested_path.len() >= MAX_DEPTH {
+        if depth >= MAX_DEPTH {
             return Err(NestedArchiveError::DepthLimit { limit: MAX_DEPTH }.into());
         }
         if budget.archives >= MAX_ARCHIVES {
@@ -84,22 +90,22 @@ fn visit(
             .into());
         }
         budget.archives += 1;
-        let child_display_path = PathBuf::from(format!("{}!/{member}", path.display()));
+        let child_display_path = PathBuf::from(format!("{}!{member}", path.display()));
         let mut nested = read_nested(archive, &member, budget)
             .with_context(|| format!("failed to open nested JAR {child_display_path:?}"))?;
         let node = identify(&mut nested, &child_display_path)?;
-        let mut child_path = nested_path.to_vec();
-        child_path.push(member);
-        mods.extend(visit(
+        let meta = visit(
             &mut nested,
             node,
             &child_display_path,
-            &child_path,
+            depth + 1,
+            loader,
             budget,
             identify,
-        )?);
+        )?;
+        metadata.nested.push(NestedModMeta { path: member, meta });
     }
-    Ok(mods)
+    Ok(metadata)
 }
 
 fn read_nested(archive: &mut Archive, member: &str, budget: &mut Budget) -> Result<Archive> {

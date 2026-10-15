@@ -23,17 +23,33 @@ pub struct ModFile {
 pub struct ModMeta {
     /// The loader that supplied this record, including its instance.
     pub loader: ModLoaderMeta,
-    /// The mods declared in this file according to the supplying loader,
-    /// including nested declarations that the loader identifies.
+    /// Only the mods declared directly in this JAR according to the supplying loader.
     pub mods: Vec<ModInfo>,
+    /// JARs declared directly inside this JAR, in declaration order.
+    /// Every child metadata record must use the same loader as this record.
+    pub nested: Vec<NestedModMeta>,
+}
+
+impl ModMeta {
+    /// Whether this JAR or any declared descendant contains recognized mods.
+    pub fn has_mods(&self) -> bool {
+        !self.mods.is_empty() || self.nested.iter().any(|child| child.meta.has_mods())
+    }
+}
+
+/// One declared child JAR and the supplying loader's metadata for it.
+pub struct NestedModMeta {
+    /// Archive member path relative to the immediate parent JAR.
+    /// Does not contain an outer filesystem path or synthetic `!` separators.
+    pub path: String,
+    /// Metadata supplied by the same loader as the parent record.
+    /// May contain no direct mods while still having nested JARs.
+    pub meta: ModMeta,
 }
 
 /// The minimum identification properties of one declared mod.
 #[derive(Debug, Clone)]
 pub struct ModInfo {
-    /// Archive member paths from the outer file to this mod's declaring JAR.
-    /// Empty for declarations in the outer file; one element per nesting level.
-    pub nested_path: Vec<String>,
     /// Display name supplied by the loader, falling back to the mod ID when absent.
     pub name: String,
     /// The mod identifier reported by the supplying loader.

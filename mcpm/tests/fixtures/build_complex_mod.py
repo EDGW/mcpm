@@ -28,7 +28,7 @@ def jarjar(path, artifact):
     }]})
 
 
-def nested_archive(modid, name, child=None):
+def nested_archive(modid, name, child=None, extra_mods=()):
     fabric = {"schemaVersion": 1, "id": modid, "name": name, "version": "1.0.0"}
     quilt = {"schema_version": 1, "quilt_loader": {
         "group": "example.fixture", "id": modid, "version": "1.0.0",
@@ -43,6 +43,10 @@ displayName="{name}"
 version="1.0.0"
 '''
     neo = forge.replace("[52,)", "[4,)")
+    for extra_id, extra_name in extra_mods:
+        declaration = f'\n[[mods]]\nmodId="{extra_id}"\ndisplayName="{extra_name}"\nversion="1.0.0"\n'
+        forge += declaration
+        neo += declaration
     documents = {}
     if child is not None:
         path = "META-INF/jars/grandchild.jar"
@@ -66,10 +70,17 @@ version="1.0.0"
 grandchild = nested_archive("omnibus_leaf", "Leaf with no dependencies")
 child = nested_archive("omnibus_nested", "Nested Module", grandchild)
 child_path = "META-INF/jars/child.jar"
+extension_path = "META-INF/jars/extension.jar"
+library_path = "META-INF/jars/plain-library.jar"
+extension = nested_archive("omnibus_extension", "Extension One", extra_mods=[
+    ("extension_two", "Extension Two"), ("extension_three", "Extension Three"),
+])
+library = bundle({"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\n\r\n"})
+inner_paths = [child_path, extension_path, library_path]
 
 fabric = {
     "schemaVersion": 1, "id": "omnibus", "version": "3.2.1+fabric",
-    "name": "Complex Mod / Fabric", "jars": [{"file": child_path}],
+    "name": "Complex Mod / Fabric", "jars": [{"file": path} for path in inner_paths],
     "depends": {
         "minecraft": "1.21.x", "java": ">=21", "fabricloader": ">=0.16.0",
         "api": [">=1.0 <2.0", "^3.0"], "tilde_api": "~1.4",
@@ -84,7 +95,7 @@ fabric = {
 
 quilt = {"schema_version": 1, "quilt_loader": {
     "group": "example.fixture", "id": "omnibus", "version": "3.2.1+quilt",
-    "metadata": {"name": "Complex Mod / Quilt"}, "jars": [child_path],
+    "metadata": {"name": "Complex Mod / Quilt"}, "jars": inner_paths,
     "depends": [
         "quilt_loader",
         {"id": "minecraft", "versions": "1.21.x"},
@@ -188,13 +199,20 @@ ordering="BEFORE"
 reason="known conflict"
 '''
 
+jarjar_metadata = {"jars": [
+    json.loads(jarjar(path, artifact))["jars"][0]
+    for path, artifact in zip(inner_paths, ["child", "extension", "plain-library"])
+]}
+
 documents = {
     "fabric.mod.json": json_document(fabric),
     "quilt.mod.json": json_document(quilt),
     "META-INF/mods.toml": forge,
     "META-INF/neoforge.mods.toml": neo,
-    "META-INF/jarjar/metadata.json": jarjar(child_path, "child"),
+    "META-INF/jarjar/metadata.json": json_document(jarjar_metadata),
     "META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nImplementation-Version: 3.2.1\r\n\r\n",
     child_path: child,
+    extension_path: extension,
+    library_path: library,
 }
 Path(__file__).with_name("complex-mod.jar").write_bytes(bundle(documents))

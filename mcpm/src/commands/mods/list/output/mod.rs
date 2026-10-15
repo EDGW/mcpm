@@ -1,10 +1,11 @@
 use std::collections::HashSet;
 use std::io::{self, Write};
 
-use kako_mods_lib::local::{mcmod::ModInfo, modloader::ModLoaderMeta};
+use kako_mods_lib::local::modloader::ModLoaderMeta;
 use owo_colors::Style;
 use unicode_width::UnicodeWidthStr;
 
+use super::super::mod_records;
 use super::{ListedFile, columns::Column};
 
 mod layout;
@@ -79,7 +80,7 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, expanded
     let records: Vec<_> = file
         .metadata
         .iter()
-        .flat_map(|metadata| metadata.mods.iter().map(|info| (&metadata.loader, info)))
+        .flat_map(mod_records::collect)
         .collect();
     let outer_filename = file
         .entry
@@ -101,12 +102,14 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, expanded
         ));
     }
     if expanded {
-        for (index, (loader, info)) in records.iter().enumerate() {
+        for (index, record) in records.iter().enumerate() {
+            let loader = record.loader;
+            let info = record.info;
             rows.push(Row::new(
                 (index == 0).then_some(number),
                 &info.name,
                 &info.modid,
-                &filename(info, &outer_filename),
+                &filename(&record.source, &outer_filename),
                 vec![loader_piece(loader)],
             ));
         }
@@ -123,7 +126,9 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, expanded
                 ],
             ));
         }
-    } else if let Some((loader, info)) = records.first() {
+    } else if let Some(record) = records.first() {
+        let loader = record.loader;
+        let info = record.info;
         let mut loaders = vec![loader_piece(loader)];
         if records.len() > 1 {
             loaders.push(Piece::new(
@@ -132,7 +137,8 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, expanded
             ));
         }
         let mut displayed = HashSet::from([loader.id.as_str()]);
-        for (loader, _) in records.iter().skip(1) {
+        for record in records.iter().skip(1) {
+            let loader = record.loader;
             if displayed.insert(loader.id.as_str()) {
                 loaders.push(space());
                 loaders.push(loader_piece(loader));
@@ -152,14 +158,14 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, expanded
             Some(number),
             &info.name,
             &info.modid,
-            &filename(info, &outer_filename),
+            &filename(&record.source, &outer_filename),
             loaders,
         ));
     }
 }
 
-fn filename(info: &ModInfo, outer: &str) -> String {
-    match info.nested_path.last() {
+fn filename(source: &[String], outer: &str) -> String {
+    match source.last() {
         Some(member) => format!("nested {}", member.rsplit('/').next().unwrap_or(member)),
         None => outer.to_owned(),
     }

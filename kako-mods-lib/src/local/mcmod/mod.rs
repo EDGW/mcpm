@@ -25,7 +25,7 @@ pub use version_constraint::VersionConstraint;
 pub use version_operator::VersionOperator;
 
 /// A mod file's path, name, and enabled state.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModEntry {
     path: PathBuf,
     name: ModEntryName,
@@ -90,7 +90,7 @@ pub enum ModEntryError {
 /// Mod filenames are expected to end in `.jar` for enabled mods or
 /// `.jar.disabled` for disabled mods. Construction validates the suffix and
 /// stores the complete filename.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModEntryName {
     filename: String,
 }

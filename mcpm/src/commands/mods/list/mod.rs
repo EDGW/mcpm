@@ -89,10 +89,7 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
         }
         if filtered
             && failures.is_empty()
-            && file
-                .metadata
-                .iter()
-                .all(|metadata| metadata.mods.is_empty())
+            && file.metadata.iter().all(|metadata| !metadata.has_mods())
         {
             ignored += 1;
             if args.expanded && formatted {

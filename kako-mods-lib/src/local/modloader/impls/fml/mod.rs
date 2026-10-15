@@ -68,7 +68,6 @@ pub(super) fn parse(
             }
         }
         mods.push(ModInfo {
-            nested_path: Vec::new(),
             name,
             modid,
             version,

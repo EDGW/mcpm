@@ -32,3 +32,5 @@ pub(crate) fn run(args: ModArgs) -> Result<()> {
         ModCommand::List(args) => list::run(args),
     }
 }
+
+mod mod_records;

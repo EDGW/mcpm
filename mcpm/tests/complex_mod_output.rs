@@ -2,10 +2,39 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use kako_mods_lib::local::{
+    mcmod::{self, IdentificationErrorAction, ModEntry, ModMeta},
+    modloader::BUILTIN_LOADERS,
+};
+
 /// Exercise the real clap dispatch, all four parsers, nested archives, and output.
 #[test]
 fn complex_mod_info_and_deps_match_reviewed_output() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let file = mcmod::open(
+        ModEntry::new(fixtures.join("complex-mod.jar")).unwrap(),
+        BUILTIN_LOADERS.clone(),
+        |_, _, _, _| IdentificationErrorAction::Abort,
+    )
+    .expect("failed to identify composite archive");
+    assert_eq!(file.metadata.len(), 4);
+    for metadata in &file.metadata {
+        let fml = matches!(metadata.loader.id.as_str(), "forge" | "neoforge");
+        assert_eq!(metadata.mods.len(), if fml { 2 } else { 1 });
+        assert_eq!(metadata.nested.len(), 3);
+        assert_eq!(metadata.nested[0].path, "META-INF/jars/child.jar");
+        assert_eq!(
+            metadata.nested[0].meta.nested[0].path,
+            "META-INF/jars/grandchild.jar"
+        );
+        assert_eq!(metadata.nested[1].meta.mods.len(), if fml { 3 } else { 1 });
+        assert!(
+            !metadata.nested[2].meta.has_mods(),
+            "plain library must be retained without inventing mods"
+        );
+        assert_loader_tree(metadata, &metadata.loader.id);
+    }
+
     for (command, expected) in [
         ("info", include_str!("fixtures/complex-mod.info.txt")),
         ("deps", include_str!("fixtures/complex-mod.deps.txt")),
@@ -49,5 +78,14 @@ fn complex_mod_info_and_deps_match_reviewed_output() {
             .status()
             .expect("failed to run console preview");
         assert!(status.success(), "console preview failed for {command}");
+    }
+}
+
+fn assert_loader_tree(metadata: &ModMeta, loader: &str) {
+    assert_eq!(metadata.loader.id, loader);
+    for child in &metadata.nested {
+        assert!(!child.path.starts_with('/'));
+        assert!(!child.path.contains('!'));
+        assert_loader_tree(&child.meta, loader);
     }
 }

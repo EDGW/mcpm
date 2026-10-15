@@ -39,7 +39,10 @@ pub trait ModLoader: Send + Sync {
     ///
     /// Returns `Ok(Some(metadata))` when recognized. The metadata must identify
     /// this loader and include the mod declarations it recognizes in the file,
-    /// normalized to the common identification fields. Returns `Ok(None)` when
+    /// with direct declarations in `mods` and declared child JARs in `nested`.
+    /// Child paths are relative to their immediate parent JAR and every node
+    /// retains this supplying loader. A wrapper with no direct mods can still
+    /// be recognized through its descendants. Returns `Ok(None)` when
     /// the archive contains no metadata recognized by this loader. The operation
     /// must leave the file and directory unchanged.
     ///
