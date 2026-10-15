@@ -366,6 +366,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "lazy_static",
+ "serde",
  "serde_json",
  "thiserror",
  "toml",

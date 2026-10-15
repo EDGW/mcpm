@@ -32,7 +32,7 @@ enum DepsError {
 
 pub(super) fn run(args: DepsArgs) -> Result<()> {
     let filtered = args.loaders.is_filtered();
-    let loaders = args.loaders.select()?;
+    let loaders = args.loaders.select();
     let mut stdout = io::stdout().lock();
     let mut failed = 0;
     let mut written = false;
@@ -44,12 +44,15 @@ pub(super) fn run(args: DepsArgs) -> Result<()> {
             .and_then(|entry| {
                 mcmod::open(entry, loaders.clone(), |_, loader, _, error| {
                     crate::diagnostics::error(error);
-                    failed_loaders.push(loader.id.clone());
+                    failed_loaders.push(loader.id().as_str().to_owned());
                     IdentificationErrorAction::Skip
                 })
             });
         let file = match result {
-            Ok(file) => file,
+            Ok(mut file) => {
+                super::loaders::sort_metadata(&mut file);
+                file
+            }
             Err(error) => {
                 crate::diagnostics::error(&error.context(format!("failed to inspect {path:?}")));
                 failed += 1;

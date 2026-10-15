@@ -80,7 +80,7 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
     }
     progress.set_total(entries.len());
     let filtered = args.loaders.is_filtered();
-    let loaders = args.loaders.select()?;
+    let loaders = args.loaders.select();
     let columns = args.columns.selected();
 
     let mut files = Vec::new();
@@ -100,7 +100,10 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
         });
         progress.advance();
         let file = match identified {
-            Ok(file) => file,
+            Ok(mut file) => {
+                super::loaders::sort_metadata(&mut file);
+                file
+            }
             Err(error) => {
                 progress.report(&error.context(format!("failed to identify {path:?}")));
                 failed += 1;

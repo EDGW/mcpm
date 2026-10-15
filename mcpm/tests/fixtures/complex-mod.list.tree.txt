@@ -16,7 +16,3 @@
 ·  · <1>	  Nested Module	omnibus_nested	complex-mod.jar!META-INF/jars/child.jar	[Fabric]
 ·  · · <1>	    Leaf with no dependencies	omnibus_leaf	complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar	[Fabric]
 ·  · <2>	  Extension One	omnibus_extension	complex-mod.jar!META-INF/jars/extension.jar	[Fabric]
-·  [quilt]	Complex Mod / Quilt	omnibus	complex-mod.jar	[Quilt]
-·  · <1>	  Nested Module	omnibus_nested	complex-mod.jar!META-INF/jars/child.jar	[Quilt]
-·  · · <1>	    Leaf with no dependencies	omnibus_leaf	complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar	[Quilt]
-·  · <2>	  Extension One	omnibus_extension	complex-mod.jar!META-INF/jars/extension.jar	[Quilt]

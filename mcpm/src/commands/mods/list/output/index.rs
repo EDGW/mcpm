@@ -108,13 +108,16 @@ impl Formatter {
             }
             return Value::Flat(vec![
                 Piece::new(format!("[{file}-"), Style::new()),
-                Piece::new(&record.loader.id, loader_style(&record.loader.id)),
+                Piece::new(
+                    record.loader.id().as_str(),
+                    loader_style(record.loader.id().as_str()),
+                ),
                 Piece::new(format!("{suffix}]"), Style::new()),
             ]);
         }
         let mut parts = vec![format!("[{file}]")];
         if multiple_loaders {
-            parts.push(format!("[{}]", record.loader.id));
+            parts.push(format!("[{}]", record.loader.id().as_str()));
         }
         parts.extend(
             record
@@ -127,7 +130,7 @@ impl Formatter {
         }
         self.tree(
             parts,
-            multiple_loaders.then(|| loader_style(&record.loader.id)),
+            multiple_loaders.then(|| loader_style(record.loader.id().as_str())),
         )
     }
 

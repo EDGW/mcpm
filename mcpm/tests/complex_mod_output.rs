@@ -7,7 +7,7 @@ use kako_mods_lib::local::{
     modloader::BUILTIN_LOADERS,
 };
 
-/// Exercise the real clap dispatch, all four parsers, nested archives, and output.
+/// Exercise the real clap dispatch, all three parsers, nested archives, and output.
 #[test]
 fn complex_mod_tree_and_output_match_reviewed_expectations() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -17,9 +17,9 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
         |_, _, _, _| IdentificationErrorAction::Abort,
     )
     .expect("failed to identify composite archive");
-    assert_eq!(file.metadata.len(), 4);
+    assert_eq!(file.metadata.len(), 3);
     for metadata in &file.metadata {
-        let fml = matches!(metadata.loader.id.as_str(), "forge" | "neoforge");
+        let fml = matches!(metadata.loader.id().as_str(), "forge" | "neoforge");
         assert_eq!(metadata.mods.len(), if fml { 2 } else { 1 });
         assert_eq!(metadata.nested.len(), 3);
         assert_eq!(metadata.nested[0].path, "META-INF/jars/child.jar");
@@ -32,7 +32,7 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
             !metadata.nested[2].meta.has_mods(),
             "plain library must be retained without inventing mods"
         );
-        assert_loader_tree(metadata, &metadata.loader.id);
+        assert_loader_tree(metadata, metadata.loader.id().as_str());
     }
 
     for (command, options, expected) in [
@@ -147,7 +147,7 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
 }
 
 fn assert_loader_tree(metadata: &ModMeta, loader: &str) {
-    assert_eq!(metadata.loader.id, loader);
+    assert_eq!(metadata.loader.id().as_str(), loader);
     for child in &metadata.nested {
         assert!(!child.path.starts_with('/'));
         assert!(!child.path.contains('!'));

@@ -15,10 +15,6 @@ impl OutputStyle {
         }
     }
 
-    pub(super) fn plain() -> Self {
-        Self { color: false }
-    }
-
     pub(super) fn important(&self, value: impl Display) -> String {
         self.paint(value, Style::new().bright_white().bold())
     }
@@ -52,7 +48,6 @@ impl OutputStyle {
             "forge" => Style::new().bright_yellow(),
             "neoforge" => Style::new().bright_red(),
             "fabric" => Style::new().bright_cyan(),
-            "quilt" => Style::new().bright_magenta(),
             _ => Style::new().bright_blue(),
         };
         self.paint(name, style)

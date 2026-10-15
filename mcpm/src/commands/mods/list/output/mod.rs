@@ -108,7 +108,7 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
             let prefix = if !multiple_loaders {
                 file_index.clone()
             } else {
-                format!("{file_index}-{}", metadata.loader.id)
+                format!("{file_index}-{}", metadata.loader.id().as_str())
             };
             mod_records::collect(metadata, &prefix)
         })
@@ -151,7 +151,7 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
         }
         for failure in &listed.failures {
             rows.push(Row::new(
-                indices.failure(number, &failure.loader.id),
+                indices.failure(number, failure.loader.id().as_str()),
                 file.entry.name(),
                 "",
                 vec![Piece::new(&outer_filename, Style::new().bright_black())],
@@ -173,10 +173,10 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
                 Style::new().bright_black(),
             ));
         }
-        let mut displayed = HashSet::from([loader.id.as_str()]);
+        let mut displayed = HashSet::from([loader.id().as_str()]);
         for record in records.iter().skip(1) {
             let loader = record.loader;
-            if displayed.insert(loader.id.as_str()) {
+            if displayed.insert(loader.id().as_str()) {
                 loaders.push(space());
                 loaders.push(loader_piece(loader));
             }
@@ -225,7 +225,10 @@ fn filename(source: &[String], outer: &Path, paths: &PathArgs) -> Vec<Piece> {
 }
 
 fn loader_piece(loader: &ModLoaderMeta) -> Piece {
-    Piece::new(format!("[{}]", loader.name), loader_style(&loader.id))
+    Piece::new(
+        format!("[{}]", loader.name()),
+        loader_style(loader.id().as_str()),
+    )
 }
 
 fn loader_style(id: &str) -> Style {
@@ -233,7 +236,6 @@ fn loader_style(id: &str) -> Style {
         "forge" => Style::new().bright_yellow(),
         "neoforge" => Style::new().bright_red(),
         "fabric" => Style::new().bright_cyan(),
-        "quilt" => Style::new().bright_magenta(),
         _ => Style::new().bright_blue(),
     }
 }

@@ -35,7 +35,7 @@ pub(super) fn write_deps(
             output,
             "\n{}{}",
             style.secondary("Loader: "),
-            style.loader(&metadata.loader.id, &text(&metadata.loader.name))
+            style.loader(metadata.loader.id().as_str(), &text(metadata.loader.name()))
         )?;
         for (index, record) in mod_records::collect(metadata, "").into_iter().enumerate() {
             if index > 0 {

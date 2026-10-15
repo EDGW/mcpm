@@ -1,5 +1,6 @@
 mod output;
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -7,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 use kako_mods_lib::local::{
     mcmod::{self, IdentificationErrorAction, ModEntry, ModFile},
-    modloader::ModLoaderSet,
+    modloader::{LoaderId, ModLoaderMeta},
 };
 use thiserror::Error;
 
@@ -32,7 +33,7 @@ enum InfoError {
 
 pub(super) fn run(args: InfoArgs) -> Result<()> {
     let filtered = args.loaders.is_filtered();
-    let loaders = args.loaders.select()?;
+    let loaders = args.loaders.select();
     let mut stdout = io::stdout().lock();
     let mut failed = 0;
     let mut ignored = 0;
@@ -77,12 +78,12 @@ pub(super) fn run(args: InfoArgs) -> Result<()> {
 
 fn read_file(
     path: &Path,
-    loaders: &ModLoaderSet,
+    loaders: &HashMap<LoaderId, ModLoaderMeta>,
     had_error: &mut bool,
     filtered: bool,
 ) -> Result<ModFile> {
     let entry = ModEntry::new(path.to_owned()).context("failed to validate mod file path")?;
-    let file = mcmod::open(entry, loaders.clone(), |_, _, _, error| {
+    let mut file = mcmod::open(entry, loaders.clone(), |_, _, _, error| {
         crate::diagnostics::error(error);
         *had_error = true;
         IdentificationErrorAction::Skip
@@ -94,5 +95,6 @@ fn read_file(
         .into());
     }
 
+    super::loaders::sort_metadata(&mut file);
     Ok(file)
 }

@@ -1,30 +1,21 @@
-//! Mod loader identification interfaces and ordered loader collections.
+//! Mod loader identification interfaces and loader maps.
 
-use std::sync::Arc;
+use std::{collections::HashMap, fmt::Debug};
 
 use anyhow::Result;
 use lazy_static::lazy_static;
 
 use super::mcmod::{ModEntry, ModMeta};
 
+mod id;
 pub mod impls;
-mod set;
+mod meta;
 
-pub use set::{LoaderSetError, ModLoaderSet};
-
-/// A loader's identity and the instance that provides its behavior.
-#[derive(Clone)]
-pub struct ModLoaderMeta {
-    /// The loader's stable identifier, used to detect duplicates in a loader set.
-    pub id: String,
-    /// The loader's name.
-    pub name: String,
-    /// The loader instance associated with this identity.
-    pub instance: Arc<dyn ModLoader>,
-}
+pub use id::LoaderId;
+pub use meta::ModLoaderMeta;
 
 /// A loader that identifies mod files and supplies common identification metadata.
-pub trait ModLoader: Send + Sync {
+pub trait ModLoader: Send + Sync + Debug {
     /// Returns this loader's identity and associated instance.
     ///
     /// No preconditions are required. The returned metadata must describe this
@@ -55,17 +46,13 @@ pub trait ModLoader: Send + Sync {
 }
 
 lazy_static! {
-    /// Built-in loaders in identification order: Forge, NeoForge, Fabric, Quilt.
-    pub static ref BUILTIN_LOADERS: ModLoaderSet = {
-        let mut loaders = ModLoaderSet::new();
-        for metadata in [
-            impls::forge::ForgeLoader.metadata(),
-            impls::neoforge::NeoForgeLoader.metadata(),
-            impls::fabric::FabricLoader.metadata(),
-            impls::quilt::QuiltLoader.metadata(),
-        ] {
-            loaders.add(metadata.clone()).expect("built-in loader IDs must be unique");
-        }
-        loaders
-    };
+    /// Built-in loaders indexed by their stable identifiers.
+    pub static ref BUILTIN_LOADERS: HashMap<LoaderId, ModLoaderMeta> = [
+        impls::forge::ForgeLoader.metadata(),
+        impls::neoforge::NeoForgeLoader.metadata(),
+        impls::fabric::FabricLoader.metadata(),
+    ]
+    .into_iter()
+    .map(|metadata| (metadata.id().clone(), metadata.clone()))
+    .collect();
 }

@@ -1,6 +1,10 @@
-use anyhow::Result;
+use std::collections::HashMap;
+
 use clap::{Args, ValueEnum};
-use kako_mods_lib::local::modloader::{BUILTIN_LOADERS, ModLoaderSet};
+use kako_mods_lib::local::{
+    mcmod::ModFile,
+    modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta},
+};
 
 #[derive(Args)]
 pub(super) struct LoaderArgs {
@@ -22,7 +26,6 @@ enum Loader {
     Forge,
     Neoforge,
     Fabric,
-    Quilt,
 }
 
 impl Loader {
@@ -31,7 +34,6 @@ impl Loader {
             Self::Forge => "forge",
             Self::Neoforge => "neoforge",
             Self::Fabric => "fabric",
-            Self::Quilt => "quilt",
         }
     }
 }
@@ -41,19 +43,37 @@ impl LoaderArgs {
         !self.loader.is_empty() || !self.loaders.is_empty()
     }
 
-    pub(super) fn select(&self) -> Result<ModLoaderSet> {
-        let mut set = ModLoaderSet::new();
-        for metadata in BUILTIN_LOADERS.iter() {
-            if !self.is_filtered()
-                || self
-                    .loader
-                    .iter()
-                    .chain(&self.loaders)
-                    .any(|loader| loader.id() == metadata.id)
-            {
-                set.add(metadata.clone())?;
-            }
+    pub(super) fn select(&self) -> HashMap<LoaderId, ModLoaderMeta> {
+        if !self.is_filtered() {
+            return BUILTIN_LOADERS.clone();
         }
-        Ok(set)
+
+        self.loader
+            .iter()
+            .chain(&self.loaders)
+            .filter_map(|loader| {
+                LoaderId::from(loader.id())
+                    .metadata(&BUILTIN_LOADERS)
+                    .map(|metadata| (metadata.id().clone(), metadata.clone()))
+            })
+            .collect()
+    }
+}
+
+/// Keeps console output stable independently of hash map iteration order.
+pub(super) fn sort_metadata(file: &mut ModFile) {
+    file.metadata.sort_by(|left, right| {
+        display_order(left.loader.id())
+            .cmp(&display_order(right.loader.id()))
+            .then_with(|| left.loader.id().cmp(right.loader.id()))
+    });
+}
+
+fn display_order(id: &LoaderId) -> usize {
+    match id.as_str() {
+        "forge" => 0,
+        "neoforge" => 1,
+        "fabric" => 2,
+        _ => 4,
     }
 }

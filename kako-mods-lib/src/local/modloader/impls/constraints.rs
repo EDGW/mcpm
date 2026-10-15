@@ -4,47 +4,16 @@ use serde_json::Value;
 use crate::local::mcmod::{VersionConstraint as Constraint, VersionOperator as Operator};
 
 pub(super) fn fabric_json(value: &Value) -> Result<Constraint> {
-    json(value, false)
-}
-
-pub(super) fn quilt_json(value: &Value) -> Result<Constraint> {
-    json(value, true)
-}
-
-fn json(value: &Value, bare_version_is_caret: bool) -> Result<Constraint> {
     match value {
-        Value::String(expression) => expression_condition(expression, bare_version_is_caret),
+        Value::String(expression) => expression_condition(expression),
         Value::Array(values) => Ok(Constraint::AnyOf(
-            values
-                .iter()
-                .map(|value| json(value, bare_version_is_caret))
-                .collect::<Result<_>>()?,
+            values.iter().map(fabric_json).collect::<Result<_>>()?,
         )),
-        Value::Object(values)
-            if !values.is_empty() && values.keys().all(|key| key == "all" || key == "any") =>
-        {
-            let mut conditions = Vec::new();
-            for (key, values) in values {
-                let values = values.as_array().ok_or_else(|| {
-                    anyhow::anyhow!("{key} must contain an array of version conditions")
-                })?;
-                let conditions_for_key = values
-                    .iter()
-                    .map(|value| json(value, bare_version_is_caret))
-                    .collect::<Result<_>>()?;
-                conditions.push(if key == "all" {
-                    Constraint::All(conditions_for_key)
-                } else {
-                    Constraint::AnyOf(conditions_for_key)
-                });
-            }
-            Ok(all(conditions))
-        }
-        _ => bail!("expected a version string, array, or all/any condition"),
+        _ => bail!("expected a version string or array of version strings"),
     }
 }
 
-fn expression_condition(expression: &str, bare_version_is_caret: bool) -> Result<Constraint> {
+fn expression_condition(expression: &str) -> Result<Constraint> {
     let alternatives = expression
         .split("||")
         .map(|clause| {
@@ -76,7 +45,7 @@ fn expression_condition(expression: &str, bare_version_is_caret: bool) -> Result
                 } else {
                     token
                 };
-                conditions.push(predicate(token, bare_version_is_caret)?);
+                conditions.push(predicate(token)?);
                 index += 1;
             }
             Ok(all(conditions))
@@ -89,7 +58,7 @@ fn expression_condition(expression: &str, bare_version_is_caret: bool) -> Result
     })
 }
 
-fn predicate(token: &str, bare_version_is_caret: bool) -> Result<Constraint> {
+fn predicate(token: &str) -> Result<Constraint> {
     if matches!(token, "*" | "x" | "X") {
         return Ok(Constraint::Any);
     }
@@ -127,11 +96,7 @@ fn predicate(token: &str, bare_version_is_caret: bool) -> Result<Constraint> {
     {
         return Ok(Constraint::Wildcard(token.into()));
     }
-    Ok(if bare_version_is_caret {
-        Constraint::Caret(token.into())
-    } else {
-        compare(Operator::Equal, token)
-    })
+    Ok(compare(Operator::Equal, token))
 }
 
 pub(super) fn maven(expression: &str) -> Result<Constraint> {

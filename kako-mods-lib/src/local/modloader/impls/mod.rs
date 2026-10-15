@@ -12,7 +12,6 @@
 //! - [JarJar JSON serializers](https://github.com/MinecraftForge/JarJar/tree/main/metadata/src/main/java/net/minecraftforge/jarjar/metadata/json)
 //! - [Fabric metadata](https://docs.fabricmc.net/develop/loader/fabric-mod-json)
 //! - [Fabric nested JARs](https://docs.fabricmc.net/develop/loader/#nested-jars)
-//! - [Quilt metadata](https://github.com/QuiltMC/rfcs/blob/main/specification/0002-quilt.mod.json.md#the-jars-field)
 
 mod archive;
 mod constraints;
@@ -24,4 +23,3 @@ mod version;
 pub mod fabric;
 pub mod forge;
 pub mod neoforge;
-pub mod quilt;

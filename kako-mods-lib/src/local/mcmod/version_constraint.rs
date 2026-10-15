@@ -1,10 +1,18 @@
+use serde::{Deserialize, Serialize};
+
 use super::VersionOperator;
 
 /// A parsed dependency version condition without evaluating version values.
 ///
 /// Version operands remain strings. Their comparison and compatibility rules
 /// belong to the loader supplying the metadata.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    content = "value",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum VersionConstraint {
     /// No version restriction.
     Any,

@@ -21,10 +21,12 @@ pub use error::NeoForgeError;
 #[derive(Debug, Default)]
 pub struct NeoForgeLoader;
 
-static METADATA: LazyLock<ModLoaderMeta> = LazyLock::new(|| ModLoaderMeta {
-    id: "neoforge".into(),
-    name: "NeoForge".into(),
-    instance: Arc::new(NeoForgeLoader),
+static METADATA: LazyLock<ModLoaderMeta> = LazyLock::new(|| {
+    ModLoaderMeta::new(
+        "neoforge".into(),
+        "NeoForge".into(),
+        Arc::new(NeoForgeLoader),
+    )
 });
 
 impl ModLoader for NeoForgeLoader {

@@ -1,24 +1,34 @@
 //! Dependency declarations; supplying loaders retain responsibility for evaluation.
 
-mod constraint;
-mod qualifiers;
-mod reference;
+use serde::{Deserialize, Serialize};
 
-pub use constraint::DependencyConstraint;
-pub use qualifiers::{DependencyOrdering, DependencyQualifiers, DependencySide};
-pub use reference::DependencyReference;
+mod ordering;
+mod side;
 
-/// One declared relation to a target or a group of targets.
-#[derive(Debug, Clone)]
+pub use ordering::DependencyOrdering;
+pub use side::DependencySide;
+
+/// One declared relation to a single mod or runtime component.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Dependency {
     /// The relation's category. Its exact behavior belongs to the supplying loader.
     pub kind: DependencyKind,
-    /// Target matching conditions, kept separate from the relation's polarity.
-    pub constraint: DependencyConstraint,
+    /// Identifier of the target mod or runtime component.
+    pub id: String,
+    /// Version conditions interpreted by the supplying loader.
+    pub version_requirement: super::VersionConstraint,
+    /// Physical side on which this relation applies, when declared.
+    pub side: Option<DependencySide>,
+    /// Declaring mod's loading order relative to the target, when declared.
+    pub ordering: Option<DependencyOrdering>,
+    /// Human-readable explanation from the metadata.
+    pub reason: Option<String>,
 }
 
 /// Categories of declared relations, without imposing cross-loader evaluation rules.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DependencyKind {
     /// A required dependency.
     Required,

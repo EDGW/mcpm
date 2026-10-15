@@ -4,9 +4,8 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::local::mcmod::{
-    Dependency, DependencyConstraint, DependencyKind, DependencyOrdering, DependencyQualifiers,
-    DependencyReference, DependencySide,
+use crate::local::mcmod::dependency::{
+    Dependency, DependencyKind, DependencyOrdering, DependencySide,
 };
 
 use super::super::{constraints, metadata};
@@ -42,12 +41,12 @@ pub(super) fn parse(
     let version = metadata::optional_string(clause, "versionRange", document)?.unwrap_or("");
     Ok(Dependency {
         kind: kind(clause, document, format)?,
-        constraint: DependencyConstraint::Reference(DependencyReference {
-            id: id.to_owned(),
-            version_requirement: constraints::maven(version)
-                .with_context(|| format!("{document}: invalid dependency range for {id}"))?,
-            qualifiers: qualifiers(clause, document)?,
-        }),
+        id: id.to_owned(),
+        version_requirement: constraints::maven(version)
+            .with_context(|| format!("{document}: invalid dependency range for {id}"))?,
+        side: Some(side(clause, document)?),
+        ordering: Some(ordering(clause, document)?),
+        reason: metadata::optional_string(clause, "reason", document)?.map(str::to_owned),
     })
 }
 
@@ -88,35 +87,27 @@ pub(super) fn kind(
     }
 }
 
-fn qualifiers(clause: &Value, document: &str) -> Result<DependencyQualifiers> {
+fn side(clause: &Value, document: &str) -> Result<DependencySide> {
     // Both loaders use case-sensitive enum values for side and ordering.
-    let side = match metadata::optional_string(clause, "side", document)?.unwrap_or("BOTH") {
-        "CLIENT" => DependencySide::Client,
-        "SERVER" => DependencySide::Server,
-        "BOTH" => DependencySide::Both,
-        value => {
-            return Err(DependencyParseError::InvalidSide {
-                value: value.to_owned(),
-            }
-            .into());
+    match metadata::optional_string(clause, "side", document)?.unwrap_or("BOTH") {
+        "CLIENT" => Ok(DependencySide::Client),
+        "SERVER" => Ok(DependencySide::Server),
+        "BOTH" => Ok(DependencySide::Both),
+        value => Err(DependencyParseError::InvalidSide {
+            value: value.to_owned(),
         }
-    };
-    let ordering = match metadata::optional_string(clause, "ordering", document)?.unwrap_or("NONE")
-    {
-        "NONE" => DependencyOrdering::None,
-        "BEFORE" => DependencyOrdering::BeforeTarget,
-        "AFTER" => DependencyOrdering::AfterTarget,
-        value => {
-            return Err(DependencyParseError::InvalidOrdering {
-                value: value.to_owned(),
-            }
-            .into());
+        .into()),
+    }
+}
+
+fn ordering(clause: &Value, document: &str) -> Result<DependencyOrdering> {
+    match metadata::optional_string(clause, "ordering", document)?.unwrap_or("NONE") {
+        "NONE" => Ok(DependencyOrdering::None),
+        "BEFORE" => Ok(DependencyOrdering::BeforeTarget),
+        "AFTER" => Ok(DependencyOrdering::AfterTarget),
+        value => Err(DependencyParseError::InvalidOrdering {
+            value: value.to_owned(),
         }
-    };
-    Ok(DependencyQualifiers {
-        side: Some(side),
-        ordering: Some(ordering),
-        reason: metadata::optional_string(clause, "reason", document)?.map(str::to_owned),
-        ..Default::default()
-    })
+        .into()),
+    }
 }

@@ -1,10 +1,13 @@
 //! Common mod identification metadata supplied independently by loaders.
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
+use serde::Serialize;
 
 use crate::local::{
-    mcmod::{Dependency, ModEntry},
-    modloader::{ModLoaderMeta, ModLoaderSet},
+    mcmod::{ModEntry, dependency::Dependency},
+    modloader::{LoaderId, ModLoaderMeta},
 };
 
 /// A mod file with independent metadata records from its loaders.
@@ -48,7 +51,7 @@ pub struct NestedModMeta {
 }
 
 /// The minimum identification properties of one declared mod.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ModInfo {
     /// Display name supplied by the loader, falling back to the mod ID when absent.
     pub name: String,
@@ -73,12 +76,12 @@ pub enum IdentificationErrorAction {
     Abort,
 }
 
-/// Identifies a mod entry using each loader in the supplied set.
+/// Identifies a mod entry using each loader in the supplied map.
 ///
-/// Loaders are tried in insertion order. Each successful identification adds a
-/// separate metadata record in that order; loaders that return `None` are skipped.
+/// Loader iteration order is unspecified. Each successful identification adds a
+/// separate metadata record; loaders that return `None` are skipped.
 /// If no loader recognizes the entry, the returned file has empty metadata.
-/// The entry and loader set are consumed, and the file is not modified.
+/// The entry and loader map are consumed, and the file is not modified.
 /// On failure, `on_error` receives the entry, loader, attempt number (starting
 /// at one for each loader), and the error with loader/path context. It may retry,
 /// skip, or abort. Skipped errors are the caller's responsibility to record.
@@ -88,19 +91,23 @@ pub enum IdentificationErrorAction {
 ///
 /// Returns the original contextual error when `on_error` selects
 /// [`IdentificationErrorAction::Abort`]. No partial file is returned in that case.
-pub fn open<F>(entry: ModEntry, loaders: ModLoaderSet, mut on_error: F) -> Result<ModFile>
+pub fn open<F>(
+    entry: ModEntry,
+    loaders: HashMap<LoaderId, ModLoaderMeta>,
+    mut on_error: F,
+) -> Result<ModFile>
 where
     F: FnMut(&ModEntry, &ModLoaderMeta, usize, &anyhow::Error) -> IdentificationErrorAction,
 {
     let mut metadata = Vec::new();
 
-    for loader in loaders.iter() {
+    for loader in loaders.values() {
         let mut attempt = 1;
         loop {
-            let identified = loader.instance.try_identify(&entry).with_context(|| {
+            let identified = loader.instance().try_identify(&entry).with_context(|| {
                 format!(
                     "loader {:?} failed to identify mod file {:?}",
-                    loader.id,
+                    loader.id(),
                     entry.path()
                 )
             });

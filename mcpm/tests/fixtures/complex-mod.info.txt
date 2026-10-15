@@ -119,32 +119,3 @@ Loader: Fabric
   ID: omnibus_extension
   Version: 1.0.0
   Dependencies: none
-
-Loader: Quilt
-  Name: Complex Mod / Quilt
-  ID: omnibus
-  Version: 3.2.1+quilt
-  Dependencies:
-    required: quilt_loader: *
-    required: minecraft: 1.21.x
-    required: (example:render_api: ((>=1 && <2) || ^3) [if present; unless (fallback: ~2 || standalone: *); side=client; reason=client integration] || alternate_api: *)
-    required: server_api: ^2.0 [side=server]
-    required: universal_api: * [side=both; reason=line one\nline two\tend]
-    breaks: (legacy_api: <1 && legacy_bridge: * [unless compatibility: >=2 [unless compat_disabled: *]])
-    breaks: broken_quilt_api: =0.1 [reason=incompatible API]
-
-  Name: Nested Module
-  ID: omnibus_nested
-  Version: 1.0.0
-  Dependencies:
-    required: omnibus_leaf: *
-
-  Name: Leaf with no dependencies
-  ID: omnibus_leaf
-  Version: 1.0.0
-  Dependencies: none
-
-  Name: Extension One
-  ID: omnibus_extension
-  Version: 1.0.0
-  Dependencies: none

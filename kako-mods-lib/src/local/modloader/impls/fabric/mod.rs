@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use crate::local::{
     mcmod::{
-        Dependency, DependencyConstraint, DependencyKind, DependencyReference, ModEntry, ModInfo,
-        ModMeta,
+        ModEntry, ModInfo, ModMeta,
+        dependency::{Dependency, DependencyKind},
     },
     modloader::{ModLoader, ModLoaderMeta},
 };
@@ -23,11 +23,8 @@ pub use error::FabricError;
 #[derive(Debug, Default)]
 pub struct FabricLoader;
 
-static METADATA: LazyLock<ModLoaderMeta> = LazyLock::new(|| ModLoaderMeta {
-    id: "fabric".into(),
-    name: "Fabric".into(),
-    instance: Arc::new(FabricLoader),
-});
+static METADATA: LazyLock<ModLoaderMeta> =
+    LazyLock::new(|| ModLoaderMeta::new("fabric".into(), "Fabric".into(), Arc::new(FabricLoader)));
 
 impl ModLoader for FabricLoader {
     fn metadata(&self) -> &ModLoaderMeta {
@@ -136,13 +133,13 @@ pub(super) fn parse(contents: &str) -> Result<ModInfo> {
             for (target, constraint) in metadata::object(clauses, document, key)? {
                 dependencies.push(Dependency {
                     kind,
-                    constraint: DependencyConstraint::Reference(DependencyReference {
-                        id: target.clone(),
-                        version_requirement: constraints::fabric_json(constraint).with_context(
-                            || format!("{document}: invalid {key} constraint for {target}"),
-                        )?,
-                        qualifiers: Default::default(),
-                    }),
+                    id: target.clone(),
+                    version_requirement: constraints::fabric_json(constraint).with_context(
+                        || format!("{document}: invalid {key} constraint for {target}"),
+                    )?,
+                    side: None,
+                    ordering: None,
+                    reason: None,
                 });
             }
         }

@@ -16,7 +16,3 @@
 [1-fabric+1]	omnibus_nested	complex-mod.jar!META-INF/jars/child.jar	[Fabric]
 [1-fabric+1+1]	omnibus_leaf	complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar	[Fabric]
 [1-fabric+2]	omnibus_extension	complex-mod.jar!META-INF/jars/extension.jar	[Fabric]
-[1-quilt]	omnibus	complex-mod.jar	[Quilt]
-[1-quilt+1]	omnibus_nested	complex-mod.jar!META-INF/jars/child.jar	[Quilt]
-[1-quilt+1+1]	omnibus_leaf	complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar	[Quilt]
-[1-quilt+2]	omnibus_extension	complex-mod.jar!META-INF/jars/extension.jar	[Quilt]

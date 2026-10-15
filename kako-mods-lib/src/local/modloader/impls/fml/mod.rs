@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use crate::local::mcmod::{DependencyKind, ModInfo};
+use crate::local::mcmod::{ModInfo, dependency::DependencyKind};
 
 use super::metadata;
 

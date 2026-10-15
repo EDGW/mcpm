@@ -21,11 +21,8 @@ pub use error::ForgeError;
 #[derive(Debug, Default)]
 pub struct ForgeLoader;
 
-static METADATA: LazyLock<ModLoaderMeta> = LazyLock::new(|| ModLoaderMeta {
-    id: "forge".into(),
-    name: "Forge".into(),
-    instance: Arc::new(ForgeLoader),
-});
+static METADATA: LazyLock<ModLoaderMeta> =
+    LazyLock::new(|| ModLoaderMeta::new("forge".into(), "Forge".into(), Arc::new(ForgeLoader)));
 
 impl ModLoader for ForgeLoader {
     fn metadata(&self) -> &ModLoaderMeta {

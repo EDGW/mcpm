@@ -30,10 +30,6 @@ def jarjar(path, artifact):
 
 def nested_archive(modid, name, child=None, extra_mods=()):
     fabric = {"schemaVersion": 1, "id": modid, "name": name, "version": "1.0.0"}
-    quilt = {"schema_version": 1, "quilt_loader": {
-        "group": "example.fixture", "id": modid, "version": "1.0.0",
-        "metadata": {"name": name},
-    }}
     forge = f'''modLoader="javafml"
 loaderVersion="[52,)"
 license="MIT"
@@ -51,16 +47,13 @@ version="1.0.0"
     if child is not None:
         path = "META-INF/jars/grandchild.jar"
         fabric["jars"] = [{"file": path}]
-        quilt["quilt_loader"]["jars"] = [path]
         documents[path] = child
         documents["META-INF/jarjar/metadata.json"] = jarjar(path, "grandchild")
         fabric["depends"] = {"omnibus_leaf": ">=1"}
-        quilt["quilt_loader"]["depends"] = ["omnibus_leaf"]
         forge += '\n[[dependencies.omnibus_nested]]\nmodId="omnibus_leaf"\nmandatory=true\nversionRange="[1,)"\n'
         neo += '\n[[dependencies.omnibus_nested]]\nmodId="omnibus_leaf"\ntype="required"\nversionRange="[1,)"\n'
     documents.update({
         "fabric.mod.json": json_document(fabric),
-        "quilt.mod.json": json_document(quilt),
         "META-INF/mods.toml": forge,
         "META-INF/neoforge.mods.toml": neo,
     })
@@ -92,31 +85,6 @@ fabric = {
     "breaks": {"broken_api": "<1.0"},
     "conflicts": {"conflicting_api": ["1.0", "2.0"]},
 }
-
-quilt = {"schema_version": 1, "quilt_loader": {
-    "group": "example.fixture", "id": "omnibus", "version": "3.2.1+quilt",
-    "metadata": {"name": "Complex Mod / Quilt"}, "jars": inner_paths,
-    "depends": [
-        "quilt_loader",
-        {"id": "minecraft", "versions": "1.21.x"},
-        [
-            {"id": "example:render_api", "versions": {
-                "any": [{"all": [">=1", "<2"]}, "^3"]},
-             "optional": True, "environment": "client", "reason": "client integration",
-             "unless": [{"id": "fallback", "versions": "~2"}, "standalone"]},
-            "alternate_api",
-        ],
-        {"id": "server_api", "versions": "2.0", "environment": "server"},
-        {"id": "universal_api", "versions": "*", "environment": "*",
-         "reason": "line one\nline two\tend"},
-    ],
-    "breaks": [
-        [{"id": "legacy_api", "versions": "<1"},
-         {"id": "legacy_bridge", "versions": "*", "unless": {
-             "id": "compatibility", "versions": ">=2", "unless": "compat_disabled"}}],
-        {"id": "broken_quilt_api", "versions": "=0.1", "reason": "incompatible API"},
-    ],
-}}
 
 forge = '''modLoader="javafml"
 loaderVersion="[52,)"
@@ -206,7 +174,6 @@ jarjar_metadata = {"jars": [
 
 documents = {
     "fabric.mod.json": json_document(fabric),
-    "quilt.mod.json": json_document(quilt),
     "META-INF/mods.toml": forge,
     "META-INF/neoforge.mods.toml": neo,
     "META-INF/jarjar/metadata.json": json_document(jarjar_metadata),

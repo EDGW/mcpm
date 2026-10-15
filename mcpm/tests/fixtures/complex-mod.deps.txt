@@ -100,28 +100,3 @@ Loader: Fabric
   Mod: Extension One (omnibus_extension) 1.0.0
   Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none declared
-
-Loader: Quilt
-  Mod: Complex Mod / Quilt (omnibus) 3.2.1+quilt
-  Source: complex-mod.jar
-  Dependencies:
-    required: quilt_loader: *
-    required: minecraft: 1.21.x
-    required: (example:render_api: ((>=1 && <2) || ^3) [if present; unless (fallback: ~2 || standalone: *); side=client; reason=client integration] || alternate_api: *)
-    required: server_api: ^2.0 [side=server]
-    required: universal_api: * [side=both; reason=line one\nline two\tend]
-    breaks: (legacy_api: <1 && legacy_bridge: * [unless compatibility: >=2 [unless compat_disabled: *]])
-    breaks: broken_quilt_api: =0.1 [reason=incompatible API]
-
-  Mod: Nested Module (omnibus_nested) 1.0.0
-  Source: complex-mod.jar!META-INF/jars/child.jar
-  Dependencies:
-    required: omnibus_leaf: *
-
-  Mod: Leaf with no dependencies (omnibus_leaf) 1.0.0
-  Source: complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar
-  Dependencies: none declared
-
-  Mod: Extension One (omnibus_extension) 1.0.0
-  Source: complex-mod.jar!META-INF/jars/extension.jar
-  Dependencies: none declared
