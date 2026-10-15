@@ -1,10 +1,10 @@
 # mcpm command reference
 
-`mcpm` inspects local Minecraft clients and mod archives. The available commands are
-`client list`, `client check`, `mod list`, `mod info`, `mod deps`, and `mod dep-graph build`. Mod archives
+`mcpm` inspects and launches local Minecraft clients, and inspects mod archives. The available commands are
+`client list`, `client check`, `client launch`, `mod list`, `mod info`, `mod deps`, and `mod dep-graph build`. Mod archives
 are read without modifying them; graph snapshots can be written to a separate file.
 
-[Client list](client/list.md) · [client check](client/check.md)
+[Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
 
 [Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
@@ -14,6 +14,7 @@ are read without modifying them; graph snapshots can be written to a separate fi
 
 ```sh
 mcpm client list "$HOME/Downloads/.minecraft"
+mcpm client launch 1.18.1 --directory "$HOME/Downloads/.minecraft" --java /path/to/java
 mcpm mod list
 mcpm mod list mods/ example.jar other-mods/
 mcpm mod info example.jar another.jar.disabled
@@ -32,7 +33,8 @@ mcpm [OPTIONS] <COMMAND>
 
 | Option | Description |
 | --- | --- |
-| `--raw` | Treat output streams as non-terminal streams: disable colors, terminal layout, progress indicators, and terminal-only hints. |
+| `--raw` | Force raw output: disable all TUI interaction, colors, terminal layout, progress indicators, and terminal-only hints. |
+| `--log-level LEVEL` | Diagnostic logging on stderr: off, error, warn (default), info, debug, trace. Available before or after subcommands. |
 | `-h`, `--help` | Show help for the current command. |
 | `-V`, `--version` | Show the executable version at the top level. |
 
@@ -49,6 +51,7 @@ Use command-specific help to see the accepted arguments:
 mcpm --help
 mcpm client list --help
 mcpm client check --help
+mcpm client launch --help
 mcpm mod list --help
 mcpm mod info --help
 mcpm mod deps --help
@@ -69,11 +72,11 @@ red for `breaks`, and yellow for `conflicts`.
 filtering skips files. `list --expanded` also lists the skipped filenames.
 These hints appear only on terminal stdout and are hidden with `--raw`.
 
-Redirected or piped stdout has no colors or terminal-only hints. `list` then
-uses unaligned, unwrapped, tab-separated columns. `--raw` applies this behavior
-even in a terminal and also disables colored diagnostics and progress
-indicators. Normal diagnostics use stderr; `list` progress indicators require
-both stdout and stderr to be terminals.
+A shared terminal policy enables raw output whenever `--raw` is supplied or any
+of stdin, stdout, or stderr is not a terminal. This disables all TUI interaction,
+colors, terminal layout, progress indicators, and terminal-only hints across commands
+and diagnostics. `list` uses unaligned, unwrapped, tab-separated columns. Client
+commands require explicit version IDs (or `check --all`) when selection is disabled.
 
 Setting `NO_COLOR` disables colors while retaining terminal layout and hints:
 
@@ -88,3 +91,21 @@ NO_COLOR=1 mcpm mod list mods/
 | `0` | Completed successfully, including empty results or files skipped by loader filtering. Help and version requests also succeed. |
 | `1` | An operational error occurred, such as an invalid path, unreadable archive, failed identification, or output failure. Partial results may have been printed. |
 | `2` | Command-line parsing failed, such as an unknown option, missing required argument, or invalid option value. |
+
+## Diagnostic logging
+
+`--log-level` configures the `tracing-subscriber` logger. Default `warn` keeps
+ordinary successful operations quiet. Use `info` for launch/check stages,
+`debug` for selected libraries, paths and the final redacted Java argument list,
+and `trace` for individual native entries and required-file inspections.
+
+```sh
+mcpm --log-level info client launch 1.18.1 --no-logging-config
+mcpm client launch 1.18.1 --no-logging-config --log-level debug
+```
+
+Logs use stderr and cooperate with progress bars. Colors follow terminal policy,
+`NO_COLOR`, and `--raw`. Log filtering does not hide normal command results or
+operational error diagnostics and does not filter the game's stdout/stderr.
+Identity tokens and known credential arguments are redacted from command logs;
+environment variable values are not logged.

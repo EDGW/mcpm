@@ -1,37 +1,37 @@
 # mcpm client check
 
-检查版本声明的库、natives 和资源完整性，不修改文件。
+检查版本声明的游戏 JAR、库、natives、资源和日志配置文件完整性，不修改文件。
 
 ```sh
 mcpm client check [VERSION ...] [--directory PATH] [--all]
 mcpm client check 1.18.1 "My Modpack" --directory "$HOME/Downloads/.minecraft"
 mcpm client check --directory "$HOME/Downloads/.minecraft"
 mcpm client check --all --directory "$HOME/Downloads/.minecraft"
-mcpm --raw client check --all --libraries hash --assets skip --asset-index skip --version-jar skip > checks.tsv
+mcpm --raw client check --all --libraries hash --assets skip --asset-index skip --version-jar skip --logging skip > checks.tsv
 ```
 
 版本 ID 是 `client list` 中显示的版本目录名。支持多个 ID，按传入顺序检查并去重。`--all` 检查全部版本，包括 BrokenVersion，不能与显式 ID 同时使用。
 
-不传 ID 和 `--all` 时，在标准错误终端中打开选择界面：上下键选择一个版本，Enter 确认，Esc 或 Ctrl-C 取消。取消返回成功。交互界面需要标准输入和标准错误均连接终端，`--raw` 会禁用交互；非交互环境需显式指定 ID 或 `--all`。
+不传 ID 和 `--all` 时，在标准错误终端中打开选择界面：上下键选择一个版本，Enter 确认，Esc 或 Ctrl-C 取消。取消返回成功。交互界面需要标准输入、标准输出和标准错误均连接终端，`--raw` 会禁用交互；非交互环境需显式指定 ID 或 `--all`。
 
 `--directory`（`-d`）指定 Minecraft 根目录。未传时选取当前路径中最后一个目录名恰好为 `.minecraft` 的目录；不存在则使用当前目录。自动识别时提示可用 `--directory .` 强制使用当前目录，`--raw` 隐藏提示。
 
-四个选项均接受 `size`、`hash` 或 `skip`：`--libraries` 默认 `hash`，`--assets` 默认 `size`，`--asset-index` 默认 `hash`，`--version-jar` 默认 `hash`。`size` 只读取文件元数据检查大小；`hash` 先检查声明的大小，再检查 SHA-1，大小不符时不计算哈希；`skip` 跳过该项。缺少对应大小或哈希元数据时标记为未验证。跳过索引检查但启用资源对象检查时，仍读取并解析索引。游戏 JAR 支持继承版本和显式 `jar` 别名。
+五个选项均接受 `size`、`hash` 或 `skip`：`--libraries` 默认 `hash`，`--assets` 默认 `size`，`--asset-index` 默认 `hash`，`--version-jar` 和 `--logging` 默认 `hash`。`size` 只读取文件元数据检查大小；`hash` 先检查声明的大小，再检查 SHA-1，大小不符时不计算哈希；`skip` 跳过该项。缺少对应大小或哈希元数据时标记为未验证。跳过索引检查但启用资源对象检查时，仍读取并解析索引。游戏 JAR 支持继承版本和显式 `jar` 别名。日志配置从启动时使用的有效 manifest 读取，支持继承和 HMCL 补丁，检查 `assets/log_configs/` 下声明的 `logging.client` 文件；未声明时跳过，不验证 XML 内容。
 
 前端根据当前系统、架构和系统版本构造 `CheckRules`，仅检查适用的库和 natives，可选启动 features 不启用。检查结果不代表 Mod、Java 完整或游戏能够启动。
 
-使用 `--strict` 将全部四类检查设为 `hash`，使用 `--shallow` 将全部设为 `size`。两者互斥，并且均不能与 `--libraries`、`--assets`、`--asset-index`、`--version-jar` 混用，无论参数顺序如何。
+使用 `--strict` 将全部五类检查设为 `hash`，使用 `--shallow` 将全部设为 `size`。两者互斥，并且均不能与 `--libraries`、`--assets`、`--asset-index`、`--version-jar`、`--logging` 混用，无论参数顺序如何。
 
-标准输出和标准错误均为终端时，使用四行进度界面：
+标准输入、标准输出和标准错误均为终端时，使用四行进度界面：
 
 ```text
-Step 3/5 Checking libraries (version)
+Step 3/6 Checking libraries (version)
 [Main Progress Bar]
 23/5000 [libraries/example.jar]
 [Step Progress Bar]
 ```
 
-检查多个版本时，最上方额外显示一条总进度，包含已完成版本数、总版本数和当前版本名；报告打印在进度区上方。默认共有五步：准备、游戏 JAR、库、资源索引、资源对象，跳过的类别不计入步骤总数。
+检查多个版本时，最上方额外显示一条总进度，包含已完成版本数、总版本数和当前版本名；报告打印在进度区上方。默认共有六步：准备、游戏 JAR、库、日志配置、资源索引、资源对象，跳过的类别不计入步骤总数。
 
 主进度表示步骤进度，步骤进度表示已完成检查的文件数量，包含失败和未验证的检查。文件名表示当前即将检查的文件，步骤结束时保留最后检查的文件名。文件读取和哈希计算期间不发送进度事件，也不显示字节进度。资源对象总数只有在索引通过验证并解析后才确定；索引失败时总数保持未知。
 

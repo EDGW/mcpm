@@ -35,9 +35,9 @@ for issue in &report.issues {
 # }
 ```
 
-`CheckOptions` has independent `libraries`, `assets`, `asset_index`, and
-`version_jar` policies. Each accepts `CheckOptionValue::{Size, Hash, Skip}`.
-Defaults are `Hash`, `Size`, `Hash`, and `Hash`, respectively. `Size` checks
+`CheckOptions` has independent `libraries`, `assets`, `asset_index`,
+`version_jar`, and `logging` policies. Each accepts `CheckOptionValue::{Size, Hash, Skip}`.
+Defaults are `Hash`, `Size`, `Hash`, `Hash`, and `Hash`, respectively. `Size` checks
 metadata without reading file contents; `Hash` first checks any declared size,
 then SHA-1. A size mismatch stops that file's check before hashing. `Skip`
 omits that category. Set all fields to `Skip` to disable checks.
@@ -54,6 +54,9 @@ required. Other platforms' libraries and classifiers are skipped.
   coordinates provide paths for legacy declarations. Later applicable HMCL
   patches override the same Maven identity. Modern SHA-1/size declarations and
   legacy alternative checksums are supported.
+- `logging`: checks the effective launch manifest’s optional `logging.client` file
+  in `assets/log_configs/`, including inheritance and HMCL patches. No declaration
+  means no file to check. This verifies size/SHA-1, not XML contents.
 - `assets` and `asset_index`: independently check the index and each unique content-addressed object in
   `assets/objects/`. Legacy `assets` IDs select a local index without a known
   checksum. Index flags `virtual` and `map_to_resources` are parsed; generated
@@ -113,5 +116,22 @@ reading and hashing emit no intermediate events. Overall totals and remaining
 counts stay `None` until the asset index is verified and parsed. If that fails,
 undiscovered objects are not reported as checked. All exit paths emit `Finished`.
 
-Default progress has five steps: preparation, client JAR, libraries, asset index,
-and asset objects. Disabled categories are omitted from the step count.
+Default progress has six steps: preparation, client JAR, libraries, logging
+configuration, asset index, and asset objects. Disabled categories are omitted from the step count.
+
+## Client launch
+
+`MinecraftDirectory::plan_launch(&version, &LaunchOptions)` builds a read-only
+launch plan. `plan.prepare()?.spawn()?` prepares local natives/legacy assets and
+starts Java. Java and identity are supplied by the caller; automatic login,
+downloads, and runtime discovery are separate. Configuration, process ownership,
+argument precedence, and the runnable example are documented in
+[the launch API reference](docs/launch.md).
+
+Shared platform evaluation uses `ClientPlatform` and `RuleEnvironment`.
+`CheckPlatform` and `CheckRules` remain compatible re-export names.
+
+The library emits structured `tracing` diagnostics for client metadata loading,
+checks, launch preparation/native extraction, redacted process arguments and
+process lifecycle. It does not install a subscriber; applications choose logging
+policy. mcpm exposes this through the global `--log-level` option.
