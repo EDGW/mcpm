@@ -35,7 +35,8 @@ files, using both global `--raw` and ordinary redirected output. List snapshots
 cover all loaders and a single selected loader, including hierarchical indices
 such as `1-neoforge+2-3` and `1+1+1`, plus `--index-type tree` with aligned
 first-item labels, compact two-space nesting, and two spaces of name indentation
-per nested JAR.
+per nested JAR. Gray middle-dot guides mark repeated ancestor positions in the
+tree indices; plain output retains the same guides without colors.
 After all comparisons pass, it runs
 `info`, `deps`, and expanded `list` in both index styles with inherited console streams
 to show the actual terminal output, including colors when the console is a TTY

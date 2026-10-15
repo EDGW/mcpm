@@ -50,10 +50,12 @@ pub(super) fn align(rows: &mut [Row]) {
                         ));
                     }
                 } else {
-                    pieces.push(Piece::new(
-                        " ".repeat(file_width + 2 * (shared - 1)),
-                        Style::new(),
-                    ));
+                    let guides = format!(
+                        "·{}{}",
+                        " ".repeat(file_width.saturating_sub(1)),
+                        "· ".repeat(shared - 1),
+                    );
+                    pieces.push(Piece::new(guides, Style::new().bright_black()));
                 }
                 for (position, part) in parts.iter().enumerate().skip((*shared).max(1)) {
                     let style = if position == 1 {
