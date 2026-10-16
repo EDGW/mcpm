@@ -12,7 +12,7 @@ pub(in crate::commands) fn write_loader_filtered(
     count: usize,
     files: &[PathBuf],
 ) -> io::Result<()> {
-    if count == 0 || !terminal::is_interactive() {
+    if count == 0 || !terminal::stdout_is_tty() {
         return Ok(());
     }
     let noun = if count == 1 { "file" } else { "files" };
@@ -20,7 +20,7 @@ pub(in crate::commands) fn write_loader_filtered(
         "({count} {noun} ignored due to no mod declarations recognized by the selected loaders)"
     );
     writeln!(output)?;
-    let color = terminal::color_enabled();
+    let color = terminal::stdout_color_enabled();
     write_line(output, &hint, color)?;
     for path in files {
         // Debug formatting quotes filenames and escapes terminal controls.

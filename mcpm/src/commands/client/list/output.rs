@@ -7,7 +7,7 @@ use super::{Row, State};
 use super::super::output::text;
 
 pub(super) fn write_list(output: &mut impl Write, rows: &[Row]) -> io::Result<()> {
-    let formatted = terminal::is_interactive();
+    let formatted = terminal::stdout_is_tty();
     let style = OutputStyle::new();
     let width = textwrap::termwidth().max(1);
     for (index, row) in rows.iter().enumerate() {

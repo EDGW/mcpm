@@ -36,7 +36,7 @@ impl Reporter {
 
 fn write(output: &mut impl Write, name: &str, event: Event) -> io::Result<()> {
     let name = text(name);
-    if !terminal::is_interactive() {
+    if !terminal::stdout_is_tty() {
         match event {
             Event::Preparing => writeln!(output, "{name}\tpreparing\t"),
             Event::Started { pid } => writeln!(output, "{name}\tstarted\t{pid}"),

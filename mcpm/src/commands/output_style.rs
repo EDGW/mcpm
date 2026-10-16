@@ -25,7 +25,13 @@ pub(super) struct OutputStyle {
 impl OutputStyle {
     pub(super) fn new() -> Self {
         Self {
-            color: terminal::color_enabled(),
+            color: terminal::stdout_color_enabled(),
+        }
+    }
+
+    pub(super) fn stderr() -> Self {
+        Self {
+            color: terminal::stderr_color_enabled(),
         }
     }
 

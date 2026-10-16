@@ -16,11 +16,13 @@ fn main() -> ExitCode {
         .any(|arg| arg == "--raw");
     terminal::init(raw);
     let matches = cli::Cli::command()
-        .color(if terminal::color_enabled() {
-            ColorChoice::Auto
-        } else {
-            ColorChoice::Never
-        })
+        .color(
+            if !terminal::is_raw() && std::env::var_os("NO_COLOR").is_none() {
+                ColorChoice::Auto
+            } else {
+                ColorChoice::Never
+            },
+        )
         .get_matches_from(args);
     let cli = cli::Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     if let Err(error) = logging::init(cli.log_level) {

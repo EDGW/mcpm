@@ -99,7 +99,7 @@ impl ScanSession {
 
     /// Enumerates only this directory and identifies previously unseen files.
     pub(super) fn directory(&mut self, path: &Path) -> Result<Vec<Arc<ScannedFile>>> {
-        let progress = Progress::new(crate::terminal::is_interactive());
+        let progress = Progress::new();
         let entries = ModDirectory::new(path.to_owned())?.entries()?;
         progress.set_total(entries.len());
         let mut files = Vec::new();

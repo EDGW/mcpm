@@ -19,7 +19,7 @@ pub(super) struct BatchProgress {
 
 impl BatchProgress {
     pub(super) fn new(total: usize) -> Self {
-        let enabled = terminal::is_interactive();
+        let enabled = terminal::stderr_is_tty();
         let display = MultiProgress::with_draw_target(if enabled {
             ProgressDrawTarget::stderr_with_hz(10)
         } else {
@@ -27,7 +27,7 @@ impl BatchProgress {
         });
         let overall = (total > 1).then(|| {
             let bar = display.add(ProgressBar::new(total as u64));
-            let template = if terminal::color_enabled() {
+            let template = if terminal::stderr_color_enabled() {
                 "{prefix} {pos}/{len} {wide_bar:.cyan} {percent}% {msg}"
             } else {
                 "{prefix} {pos}/{len} {wide_bar} {percent}% {msg}"
@@ -36,7 +36,7 @@ impl BatchProgress {
                 ProgressStyle::with_template(template)
                     .expect("batch check progress template must be valid"),
             );
-            bar.set_prefix(OutputStyle::new().theme("Versions"));
+            bar.set_prefix(OutputStyle::stderr().theme("Versions"));
             bar
         });
         let logging = crate::logging::attach_progress(enabled.then(|| display.clone()));
@@ -50,7 +50,7 @@ impl BatchProgress {
 
     pub(super) fn start(&self, name: &str, root: &Path) -> Progress {
         if let Some(bar) = &self.overall {
-            bar.set_message(OutputStyle::new().important(text(name)));
+            bar.set_message(OutputStyle::stderr().important(text(name)));
         }
         Progress::new(self, name, root)
     }
@@ -92,7 +92,7 @@ impl Progress {
         let display = batch.display.clone();
         let main = display.add(ProgressBar::new(1));
         let step = display.add(ProgressBar::new_spinner());
-        let template = if terminal::color_enabled() {
+        let template = if terminal::stderr_color_enabled() {
             "{prefix}\n{wide_bar:.cyan} {percent}%"
         } else {
             "{prefix}\n{wide_bar} {percent}%"
@@ -136,7 +136,7 @@ impl Progress {
             CheckStep::AssetObjects => "Checking asset objects",
             CheckStep::Finished => "Finished",
         };
-        let style = OutputStyle::new();
+        let style = OutputStyle::stderr();
         self.main.set_prefix(format!(
             "{} ({})",
             style.theme(format!(
@@ -196,7 +196,7 @@ impl Progress {
         let determinate = progress.step_total_files.is_some();
         if self.determinate != Some(determinate) {
             let template = if determinate {
-                if terminal::color_enabled() {
+                if terminal::stderr_color_enabled() {
                     "{prefix} {wide_msg}\n{wide_bar:.cyan} {percent}%"
                 } else {
                     "{prefix} {wide_msg}\n{wide_bar} {percent}%"

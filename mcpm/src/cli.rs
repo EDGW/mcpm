@@ -9,7 +9,7 @@ use crate::commands::{client::ClientArgs, mods::ModArgs, server::ServerArgs};
     about = "Inspect and manage Minecraft clients, servers and mods"
 )]
 pub(crate) struct Cli {
-    /// Disable TUI interaction, formatting, colors, progress, and hints (automatic for non-TTY stdout or stderr).
+    /// Disable TUI interaction, formatting, colors, progress, and hints; otherwise each output stream follows its own TTY status.
     #[arg(long, global = true)]
     pub(crate) raw: bool,
     /// Diagnostic log level on stderr; does not filter game stdout/stderr.

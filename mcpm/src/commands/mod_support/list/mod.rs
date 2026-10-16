@@ -51,8 +51,7 @@ pub(in crate::commands) fn run(
     hide_unrecognized: bool,
     args: ListDisplayArgs,
 ) -> Result<()> {
-    let formatted = terminal::is_interactive();
-    let progress = progress::Progress::new(formatted);
+    let progress = progress::Progress::new();
     let mut entries = Vec::new();
     let mut input_errors = 0;
     for input in inputs {
@@ -134,7 +133,7 @@ fn present(
     input_errors: usize,
     failed: usize,
 ) -> Result<()> {
-    let formatted = terminal::is_interactive();
+    let formatted = terminal::stdout_is_tty();
     let mut ignored = 0;
     let mut ignored_files = Vec::new();
     let files: Vec<_> = files
@@ -156,7 +155,7 @@ fn present(
         })
         .collect();
     let columns = args.columns.selected();
-    let color = terminal::color_enabled();
+    let color = terminal::stdout_color_enabled();
     let width = formatted.then(|| {
         args.width
             .map(usize::from)

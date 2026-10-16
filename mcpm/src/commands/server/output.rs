@@ -27,7 +27,7 @@ pub(super) fn write_info(
         Some(info) => (text(info.loader.name()), text(&info.version)),
         None => ("vanilla or unrecognized".into(), String::new()),
     };
-    if terminal::is_raw() {
+    if !terminal::stdout_is_tty() {
         return writeln!(
             output,
             "{name}\t{path}\t{version}\t{loader_name}\t{loader_version}\t{command}"

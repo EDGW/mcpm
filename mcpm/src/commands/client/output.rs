@@ -10,10 +10,10 @@ pub(super) fn write_inferred_root(
     path: &std::path::Path,
     command: &str,
 ) -> io::Result<()> {
-    if terminal::is_raw() {
+    if !terminal::stdout_is_tty() {
         return Ok(());
     }
-    if terminal::color_enabled() {
+    if terminal::stdout_color_enabled() {
         let theme = owo_colors::Style::new().bright_cyan().bold();
         let white = owo_colors::Style::new().bright_white().bold();
         writeln!(
