@@ -8,14 +8,15 @@ use clap::Args;
 use crate::commands::mod_support::{
     list::{self, ListDisplayArgs},
     loaders::LoaderArgs,
+    stdin,
 };
 
 mod input;
 
 #[derive(Args)]
 pub(super) struct ListArgs {
-    /// Mod files or directories, processed in argument order (directories are not recursive).
-    #[arg(value_name = "PATH", default_value = ".", num_args = 1..)]
+    /// Mod files or directories; append paths from stdin, one per line. Defaults to . when empty.
+    #[arg(value_name = "PATH", num_args = 0..)]
     paths: Vec<PathBuf>,
     #[command(flatten)]
     display: ListDisplayArgs,
@@ -24,7 +25,11 @@ pub(super) struct ListArgs {
 }
 
 pub(super) fn run(args: ListArgs) -> Result<()> {
-    let inputs = args.paths.into_iter().map(|path| {
+    let mut paths = stdin::append(args.paths)?;
+    if paths.is_empty() {
+        paths.push(PathBuf::from("."));
+    }
+    let inputs = paths.into_iter().map(|path| {
         let context = format!("failed to read list input {path:?}");
         input::read(path).context(context)
     });

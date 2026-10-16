@@ -11,12 +11,12 @@ use crossterm::{
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use kako_mods_lib::local::mc::server::identify::ServerCandidate;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use unicode_width::UnicodeWidthChar;
 
 pub(super) fn select(candidates: &[ServerCandidate]) -> Result<Option<usize>> {
     ensure!(
-        policy::is_interactive(),
+        policy::is_interactive() && io::stdin().is_terminal(),
         "multiple identified server launches found; TUI selection requires terminal stdin, stdout and stderr without --raw; use a dedicated --start-script or manual version/loader options to disambiguate"
     );
     let mut screen = Screen {

@@ -5,17 +5,21 @@ use std::sync::OnceLock;
 
 static RAW: OnceLock<bool> = OnceLock::new();
 
+/// Raw output depends only on explicit selection and stdout/stderr terminals.
+/// Piped stdin still permits formatting, progress and hints on terminal output.
 pub(crate) fn init(raw: bool) {
-    RAW.set(raw || !stdio_are_terminals())
+    RAW.set(raw || !outputs_are_terminals())
         .expect("terminal policy must be initialized once");
 }
 
-fn stdio_are_terminals() -> bool {
-    io::stdin().is_terminal() && io::stdout().is_terminal() && io::stderr().is_terminal()
+fn outputs_are_terminals() -> bool {
+    io::stdout().is_terminal() && io::stderr().is_terminal()
 }
 
 pub(crate) fn is_raw() -> bool {
-    RAW.get().copied().unwrap_or_else(|| !stdio_are_terminals())
+    RAW.get()
+        .copied()
+        .unwrap_or_else(|| !outputs_are_terminals())
 }
 
 pub(crate) fn is_interactive() -> bool {

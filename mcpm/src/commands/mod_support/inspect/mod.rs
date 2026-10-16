@@ -17,6 +17,9 @@ use super::{ignored_output, loaders, source_path::PathArgs};
 
 mod deps;
 mod info;
+mod input;
+
+pub(in crate::commands) use input::FileSelectionArgs;
 
 /// Selects the presentation without changing identification or input semantics.
 #[derive(Clone, Copy)]
@@ -109,6 +112,18 @@ pub(in crate::commands) fn run(
             Display::Dependencies(_) => InspectionError::FailedDependencies { count: failed },
         }
         .into());
+    }
+    Ok(())
+}
+
+/// Empty selection succeeds without scanning; interactive users receive guidance.
+pub(in crate::commands) fn prompt_for_input() -> Result<()> {
+    if crate::terminal::is_interactive() {
+        writeln!(
+            io::stderr().lock(),
+            "Specify at least one file, or use --all to inspect all mods."
+        )
+        .context("failed to write empty input hint")?;
     }
     Ok(())
 }

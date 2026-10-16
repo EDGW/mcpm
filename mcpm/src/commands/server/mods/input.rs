@@ -51,14 +51,7 @@ impl ServerMods {
         })
     }
 
-    fn files(&self, files: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
-        if files.is_empty() {
-            return Ok(self
-                .entries()?
-                .into_iter()
-                .map(|entry| entry.path().to_owned())
-                .collect());
-        }
+    pub(super) fn files(&self, files: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
         files
             .into_iter()
             .map(|path| {
@@ -87,16 +80,32 @@ pub(super) struct FileArgs {
     /// Registered server directory; defaults to the current directory.
     #[arg(long = "server", value_name = "PATH", default_value = ".")]
     path: PathBuf,
-    /// Mod filenames or mods/FILE paths; omit to inspect all mod files.
-    #[arg(value_name = "FILE", num_args = 0..)]
-    files: Vec<PathBuf>,
+    #[command(flatten)]
+    files: crate::commands::mod_support::inspect::FileSelectionArgs,
 }
 
 impl FileArgs {
-    pub(super) fn resolve(self) -> Result<(ServerMods, Vec<PathBuf>)> {
+    /// Reads stdin only for callers that support line-based file arguments.
+    pub(super) fn with_stdin(mut self) -> Result<Self> {
+        self.files = self.files.with_stdin()?;
+        Ok(self)
+    }
+
+    pub(super) fn resolve(self) -> Result<Option<(ServerMods, Vec<PathBuf>)>> {
+        if self.files.is_empty() {
+            crate::commands::mod_support::inspect::prompt_for_input()?;
+            return Ok(None);
+        }
         let source = ServerMods::load(self.path)?;
-        let files = source.files(self.files)?;
-        Ok((source, files))
+        let files = match self.files.into_files() {
+            Some(files) => source.files(files)?,
+            None => source
+                .entries()?
+                .into_iter()
+                .map(|entry| entry.path().to_owned())
+                .collect(),
+        };
+        Ok(Some((source, files)))
     }
 }
 

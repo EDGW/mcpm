@@ -8,6 +8,9 @@ use crate::commands::mod_support::{inspect, source_path::PathArgs};
 use super::input::FileArgs;
 
 #[derive(Args)]
+#[command(
+    after_help = "Additional mod filenames or mods/FILE paths are read from redirected stdin, one per line."
+)]
 pub(super) struct DepsArgs {
     #[command(flatten)]
     files: FileArgs,
@@ -16,7 +19,9 @@ pub(super) struct DepsArgs {
 }
 
 pub(super) fn run(args: DepsArgs) -> Result<()> {
-    let (source, paths) = args.files.resolve()?;
+    let Some((source, paths)) = args.files.with_stdin()?.resolve()? else {
+        return Ok(());
+    };
     inspect::run(
         paths,
         source.loaders(),

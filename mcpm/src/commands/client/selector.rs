@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 
 use anyhow::{Context, Result};
 use crossterm::{
@@ -49,7 +49,7 @@ pub(super) fn select(versions: &[MinecraftVersion], purpose: Purpose) -> Result<
     if versions.is_empty() {
         return Err(SelectError::NoVersions.into());
     }
-    if !policy::is_interactive() {
+    if !policy::is_interactive() || !io::stdin().is_terminal() {
         return Err(SelectError::Unavailable {
             hint: purpose.hint(),
         }
