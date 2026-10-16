@@ -2,6 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::ModInfo;
+use crate::local::modloader::ModLoader;
+
 mod ordering;
 mod side;
 
@@ -26,6 +29,46 @@ pub struct Dependency {
     pub ordering: Option<DependencyOrdering>,
     /// Human-readable explanation from the metadata.
     pub reason: Option<String>,
+}
+
+impl Dependency {
+    /// Tests whether a candidate's identity and version match this declaration.
+    ///
+    /// `loader` must be the loader that supplied this dependency. The caller
+    /// supplies a candidate interpreted in that loader's context. Matching is
+    /// delegated without imposing common identity or version comparison rules.
+    /// Relation kind, physical side, loading order and reason do not affect this
+    /// predicate. In particular, matching a `Breaks` or `Conflicts` declaration
+    /// means the candidate falls within the declared incompatibility range.
+    ///
+    /// This performs no I/O and does not select among candidates or determine
+    /// whether a complete mod set can load. Unsupported evaluation or insufficient
+    /// information returns [`DependencyMatch::Unknown`] and emits a warning log.
+    pub fn matches(&self, candidate: &ModInfo, loader: &dyn ModLoader) -> DependencyMatch {
+        let result = loader.matches_dependency(candidate, self);
+        if result == DependencyMatch::Unknown {
+            tracing::warn!(
+                loader = %loader.metadata().id().as_str(),
+                candidate_id = %candidate.modid,
+                candidate_version = %candidate.version,
+                dependency_id = %self.id,
+                constraint = ?self.version_requirement,
+                "Dependency match could not be determined"
+            );
+        }
+        result
+    }
+}
+
+/// Whether one candidate matches the target and version conditions of a dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DependencyMatch {
+    /// The candidate is known to match the declaration.
+    Matched,
+    /// The candidate is known not to match the declaration.
+    Unmatched,
+    /// Matching cannot be determined from available information or supported rules.
+    Unknown,
 }
 
 /// Categories of declared relations, without imposing cross-loader evaluation rules.

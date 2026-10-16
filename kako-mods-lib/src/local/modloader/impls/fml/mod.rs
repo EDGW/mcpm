@@ -7,6 +7,7 @@ mod client;
 mod constraints;
 mod dependency;
 mod jarjar;
+mod matching;
 mod metadata;
 mod server;
 mod version;

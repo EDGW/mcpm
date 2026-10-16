@@ -61,7 +61,7 @@ fn expression_condition(expression: &str) -> Result<Constraint> {
 }
 
 fn predicate(token: &str) -> Result<Constraint> {
-    if matches!(token, "*" | "x" | "X") {
+    if token == "*" {
         return Ok(Constraint::Any);
     }
     for (prefix, operator) in [
@@ -92,9 +92,11 @@ fn predicate(token: &str) -> Result<Constraint> {
         }
         return Ok(Constraint::Tilde(version.into()));
     }
-    if token
-        .split('.')
-        .any(|component| matches!(component, "x" | "X" | "*"))
+    // A standalone x/X is a string version in Fabric, not an unrestricted predicate.
+    if !matches!(token, "x" | "X")
+        && token
+            .split('.')
+            .any(|component| matches!(component, "x" | "X" | "*"))
     {
         return Ok(Constraint::Wildcard(token.into()));
     }

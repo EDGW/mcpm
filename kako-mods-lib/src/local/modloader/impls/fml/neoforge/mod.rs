@@ -2,7 +2,10 @@
 
 use super::super::utils::archive;
 use crate::local::{
-    mcmod::{ModEntry, ModMeta},
+    mcmod::{
+        ModEntry, ModInfo, ModMeta,
+        dependency::{Dependency, DependencyMatch},
+    },
     modloader::{ModLoader, ModLoaderMeta},
 };
 use anyhow::Result;
@@ -28,6 +31,10 @@ static METADATA: LazyLock<ModLoaderMeta> = LazyLock::new(|| {
 impl ModLoader for NeoForgeLoader {
     fn metadata(&self) -> &ModLoaderMeta {
         &METADATA
+    }
+
+    fn matches_dependency(&self, candidate: &ModInfo, dependency: &Dependency) -> DependencyMatch {
+        super::matching::matches(candidate, dependency)
     }
 
     fn try_identify_server(

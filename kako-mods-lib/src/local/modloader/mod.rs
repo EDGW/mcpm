@@ -10,7 +10,10 @@ use std::{collections::HashMap, fmt::Debug};
 use anyhow::Result;
 use lazy_static::lazy_static;
 
-use super::mcmod::{ModEntry, ModMeta};
+use super::mcmod::{
+    ModEntry, ModInfo, ModMeta,
+    dependency::{Dependency, DependencyMatch},
+};
 
 mod id;
 pub mod impls;
@@ -40,6 +43,24 @@ pub trait ModLoader: Send + Sync + Debug {
     /// No preconditions are required. The returned metadata must describe this
     /// loader. This operation is infallible.
     fn metadata(&self) -> &ModLoaderMeta;
+
+    /// Tests a candidate against the identity and version conditions of a
+    /// dependency supplied by this loader, using this loader's matching rules.
+    ///
+    /// The candidate must be interpreted in this loader's context. This pure
+    /// predicate performs no I/O and does not evaluate relation kind, physical
+    /// side, loading order, or whether the complete mod set can load. A matching
+    /// incompatibility declaration therefore returns `Matched`, not `Unmatched`.
+    /// Return `Unknown` when information is insufficient or evaluation is not
+    /// supported; do not treat an unrecognized version format as a mismatch.
+    /// The default reports unsupported evaluation.
+    fn matches_dependency(
+        &self,
+        _candidate: &ModInfo,
+        _dependency: &Dependency,
+    ) -> DependencyMatch {
+        DependencyMatch::Unknown
+    }
 
     /// Verifies a statically parsed Java server entry using local evidence.
     /// Unrecognized entries return `None`; missing or conflicting identity evidence

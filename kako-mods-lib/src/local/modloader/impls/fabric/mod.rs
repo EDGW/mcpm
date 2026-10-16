@@ -2,7 +2,10 @@
 
 use super::utils::archive;
 use crate::local::{
-    mcmod::{ModEntry, ModMeta},
+    mcmod::{
+        ModEntry, ModInfo, ModMeta,
+        dependency::{Dependency, DependencyMatch},
+    },
     modloader::{ModLoader, ModLoaderMeta},
 };
 use anyhow::Result;
@@ -11,6 +14,7 @@ use std::sync::{Arc, LazyLock};
 mod client;
 mod constraints;
 mod error;
+mod matching;
 mod metadata;
 mod server;
 pub use error::FabricError;
@@ -24,6 +28,10 @@ static METADATA: LazyLock<ModLoaderMeta> =
 impl ModLoader for FabricLoader {
     fn metadata(&self) -> &ModLoaderMeta {
         &METADATA
+    }
+
+    fn matches_dependency(&self, candidate: &ModInfo, dependency: &Dependency) -> DependencyMatch {
+        matching::matches(candidate, dependency)
     }
 
     fn try_identify_server(
