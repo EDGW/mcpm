@@ -23,10 +23,25 @@ pub use super::diagnostic::IdentificationFailure;
 pub fn build(
     directory: &ModDirectory,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
+    on_error: impl FnMut(&anyhow::Error),
+) -> Result<DependencyGraph> {
+    build_with_progress(directory, loaders, on_error, |_, _| {})
+}
+
+/// Builds a graph with file-level progress. Reports `(0, total)` after enumeration,
+/// then `(completed, total)` after each file, including unrecognized files.
+/// Callbacks carry no terminal or presentation policy.
+pub fn build_with_progress(
+    directory: &ModDirectory,
+    loaders: &HashMap<LoaderId, ModLoaderMeta>,
     mut on_error: impl FnMut(&anyhow::Error),
+    mut on_progress: impl FnMut(usize, usize),
 ) -> Result<DependencyGraph> {
     let mut graph = DependencyGraph::new();
-    for entry in directory.entries()? {
+    let entries = directory.entries()?;
+    let total = entries.len();
+    on_progress(0, total);
+    for (index, entry) in entries.into_iter().enumerate() {
         let path = entry.path().to_owned();
         let mut file = mcmod::open(entry, loaders.clone(), |entry, loader, _, error| {
             on_error(error);
@@ -43,6 +58,7 @@ pub fn build(
         for metadata in &file.metadata {
             graph.add_modfile(metadata);
         }
+        on_progress(index + 1, total);
     }
     graph.identification_failures.sort_by(|left, right| {
         left.path
