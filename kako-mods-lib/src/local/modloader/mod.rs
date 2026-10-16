@@ -42,8 +42,9 @@ pub trait ModLoader: Send + Sync + Debug {
     fn metadata(&self) -> &ModLoaderMeta;
 
     /// Verifies a statically parsed Java server entry using local evidence.
-    /// Unrecognized entries return `None`; recognized but invalid or conflicting
-    /// declarations return an implementation-specific error. No execution or downloads.
+    /// Unrecognized entries return `None`; missing or conflicting identity evidence
+    /// returns an implementation-specific error. Command validity and launchability
+    /// are not checked. No execution or downloads.
     fn try_identify_server(
         &self,
         _launch: &super::mc::server::ServerLaunch,

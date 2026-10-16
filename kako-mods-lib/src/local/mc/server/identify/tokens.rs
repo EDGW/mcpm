@@ -1,3 +1,5 @@
+//! Restricted token extraction and operator detection for static launch evidence.
+
 use anyhow::{Result, bail, ensure};
 use std::{collections::HashMap, path::Path};
 
@@ -179,4 +181,65 @@ pub(super) fn split(
         tokens.push(token);
     }
     Ok(tokens)
+}
+
+/// Detect control operators outside quotes before discarding irrelevant command text.
+/// Expansion contents are not executed or reinterpreted as shell syntax.
+pub(super) fn has_operators(input: &str, syntax: Syntax) -> bool {
+    let mut quote = None;
+    let mut escaped = false;
+    let mut expansion = Vec::new();
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if (syntax == Syntax::Shell && quote != Some('\'') && ch == '\\')
+            || (syntax == Syntax::Batch && quote.is_none() && ch == '^')
+        {
+            escaped = true;
+            continue;
+        }
+        if syntax == Syntax::Shell
+            && quote != Some('\'')
+            && ch == '$'
+            && let Some(&next @ ('(' | '{')) = chars.peek()
+        {
+            chars.next();
+            expansion.push(if next == '(' { ')' } else { '}' });
+            continue;
+        }
+        if let Some(&end) = expansion.last() {
+            if ch == end {
+                expansion.pop();
+            } else if ch == '(' && end == ')' {
+                expansion.push(')');
+            }
+            continue;
+        }
+        if syntax == Syntax::Shell && ch == '`' && quote != Some('\'') {
+            // A substitution runs outside the current shell's variable/directory scope.
+            while let Some(next) = chars.next() {
+                if next == '\\' {
+                    chars.next();
+                } else if next == '`' {
+                    break;
+                }
+            }
+            continue;
+        }
+        if ch == '"' || (syntax == Syntax::Shell && ch == '\'') {
+            if quote == Some(ch) {
+                quote = None;
+            } else if quote.is_none() {
+                quote = Some(ch);
+            }
+            continue;
+        }
+        if quote.is_none() && ";&|<>()".contains(ch) {
+            return true;
+        }
+    }
+    false
 }

@@ -129,7 +129,7 @@ pub(super) fn run(args: InitArgs) -> Result<()> {
         });
         if candidates.is_empty() {
             bail!(
-                "no verified server launch matches the supplied version/loader options; server remains unrecognized; initialize manually with complete --minecraft-version, --loader and --loader-version options (omit --loader-version only for explicitly selected vanilla)"
+                "no identified server launch matches the supplied version/loader options; server remains unrecognized; initialize manually with complete --minecraft-version, --loader and --loader-version options (omit --loader-version only for explicitly selected vanilla)"
             );
         }
         let index = if candidates.len() == 1 {

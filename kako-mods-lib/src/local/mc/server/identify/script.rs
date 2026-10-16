@@ -14,22 +14,10 @@ use std::{
 };
 use thiserror::Error;
 
-#[derive(Debug, Error)]
-enum ScriptError {
-    #[error("cannot statically interpret start script {path:?}:{line}")]
-    Statement {
-        path: PathBuf,
-        line: usize,
-        #[source]
-        source: anyhow::Error,
-    },
-    #[error("recursive or excessively deep script reference at {path:?}")]
-    Cycle { path: PathBuf },
-}
-
 #[derive(Clone)]
 struct State {
     cwd: PathBuf,
+    cwd_known: bool,
     vars: HashMap<String, String>,
     directories: Vec<PathBuf>,
     scopes: Vec<HashMap<String, String>>,
@@ -38,9 +26,17 @@ struct State {
     shell_directory: PathBuf,
 }
 
-pub(super) fn read(root: &Path, path: &Path) -> Result<Vec<ServerLaunch>> {
+/// Independent command evidence and diagnostics; one failure never erases earlier launches.
+#[derive(Default)]
+pub(super) struct ScriptEvidence {
+    pub launches: Vec<ServerLaunch>,
+    pub diagnostics: Vec<anyhow::Error>,
+}
+
+pub(super) fn read(root: &Path, path: &Path) -> ScriptEvidence {
     let mut state = State {
         cwd: root.to_owned(),
+        cwd_known: true,
         vars: HashMap::new(),
         directories: vec![],
         scopes: vec![],
@@ -48,16 +44,18 @@ pub(super) fn read(root: &Path, path: &Path) -> Result<Vec<ServerLaunch>> {
         shell_script: path.to_owned(),
         shell_directory: root.to_owned(),
     };
-    let mut launches = Vec::new();
-    visit(path, &mut state, &mut HashSet::new(), &mut launches)?;
-    Ok(launches)
+    let mut evidence = ScriptEvidence::default();
+    if let Err(error) = visit(path, &mut state, &mut HashSet::new(), &mut evidence) {
+        evidence.diagnostics.push(error);
+    }
+    evidence
 }
 
 fn visit(
     path: &Path,
     state: &mut State,
     stack: &mut HashSet<PathBuf>,
-    launches: &mut Vec<ServerLaunch>,
+    evidence: &mut ScriptEvidence,
 ) -> Result<bool> {
     tracing::debug!(?path, "reading server start script");
     let canonical =
@@ -94,23 +92,31 @@ fn visit(
             continue;
         }
         joined.push_str(line);
-        let stop = statement(&joined, &path, first_line, syntax, state, stack, launches).map_err(
-            |source| ScriptError::Statement {
-                path: path.to_owned(),
-                line: first_line,
-                source,
-            },
-        )?;
+        let stop = match statement(&joined, &path, first_line, syntax, state, stack, evidence) {
+            Ok(stop) => stop,
+            Err(source) => {
+                let stop = invalidate(&joined, syntax, state);
+                let error = ScriptError::Statement {
+                    path: path.to_owned(),
+                    line: first_line,
+                    source,
+                };
+                tracing::debug!(error = %format_args!("{error:#}"), "skipping unavailable script evidence");
+                evidence.diagnostics.push(error.into());
+                stop
+            }
+        };
         joined.clear();
         if stop {
             terminated = true;
             break;
         }
     }
-    ensure!(
-        joined.is_empty(),
-        "unfinished script continuation in {path:?}"
-    );
+    if !joined.is_empty() {
+        evidence.diagnostics.push(anyhow::anyhow!(
+            "unfinished script continuation in {path:?}"
+        ));
+    }
     stack.remove(&canonical);
     Ok(terminated)
 }
@@ -122,7 +128,7 @@ fn statement(
     syntax: Syntax,
     state: &mut State,
     stack: &mut HashSet<PathBuf>,
-    launches: &mut Vec<ServerLaunch>,
+    evidence: &mut ScriptEvidence,
 ) -> Result<bool> {
     let line = line.trim();
     if line.is_empty() || (syntax == Syntax::Shell && line.starts_with('#')) {
@@ -138,6 +144,35 @@ fn statement(
         && (lower == "rem" || lower.starts_with("rem ") || lower.starts_with("::"))
     {
         return Ok(false);
+    }
+    let head = lower.split_whitespace().next().unwrap_or("");
+    if !tokens::has_operators(line, syntax)
+        && matches!(
+            (syntax, head),
+            (Syntax::Shell, "echo" | "printf") | (Syntax::Batch, "echo" | "pause")
+        )
+    {
+        return Ok(false);
+    }
+    if matches!(
+        head,
+        "if" | "for"
+            | "while"
+            | "until"
+            | "case"
+            | "select"
+            | "goto"
+            | "else"
+            | "fi"
+            | "done"
+            | "do"
+            | "("
+    ) || head.ends_with("()")
+    {
+        bail!("control flow are unsupported for evidence extraction");
+    }
+    if matches!(head, "exit" | "return") {
+        return Ok(true);
     }
     if syntax == Syntax::Shell && line.contains("$0") {
         ensure!(
@@ -178,23 +213,67 @@ fn statement(
             .split_once('=')
             .ok_or_else(|| anyhow::anyhow!("expected literal variable assignment"))?;
         ensure!(valid_name(name), "unsupported variable assignment");
-        let values = tokens::split(value, syntax, &state.vars, expansion_script)?;
+        let values = tokens::split(value, syntax, &state.vars, expansion_script);
+        let name = if syntax == Syntax::Batch {
+            name.to_ascii_uppercase()
+        } else {
+            name.to_owned()
+        };
+        state.vars.remove(&name);
+        let values = values?;
         ensure!(
             values.len() <= 1,
             "variable assignment needs one literal value"
         );
-        state.vars.insert(
-            if syntax == Syntax::Batch {
-                name.to_ascii_uppercase()
-            } else {
-                name.into()
-            },
-            values.first().cloned().unwrap_or_default(),
-        );
+        state
+            .vars
+            .insert(name.clone(), values.first().cloned().unwrap_or_default());
         if syntax == Syntax::Shell && line.starts_with("export ") {
-            state.exported.insert(name.into());
+            state.exported.insert(name);
         }
         return Ok(false);
+    }
+    let raw_head = line.split_whitespace().next().unwrap_or("");
+    let binary = raw_head.rsplit(['/', '\\']).next().unwrap_or(raw_head);
+    let extension = Path::new(raw_head)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+    if !tokens::has_operators(line, syntax)
+        && raw_head
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || "_./\\-".contains(ch))
+        && !matches!(binary.to_ascii_lowercase().as_str(), "java" | "java.exe")
+        && !matches!(
+            head,
+            "exec"
+                | "cd"
+                | "chdir"
+                | "pushd"
+                | "popd"
+                | "source"
+                | "."
+                | "sh"
+                | "bash"
+                | "call"
+                | "set"
+                | "setlocal"
+                | "endlocal"
+                | "export"
+                | "unset"
+                | "eval"
+                | "read"
+                | "shift"
+        )
+        && !matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "sh" | "bat" | "cmd"
+        )
+    {
+        return Ok(false);
+    }
+    if matches!(head, "eval" | "read" | "shift" | "unset") {
+        bail!("cannot extract state changes from {head}");
     }
     let mut words = tokens::split(line, syntax, &state.vars, expansion_script)?;
     if words.is_empty() {
@@ -236,17 +315,21 @@ fn statement(
             })
             .collect();
         ensure!(args.len() == 1, "directory change needs one literal path");
-        let target = resolve(&state.cwd, args[0], syntax);
-        let new = fs::canonicalize(&target)
-            .with_context(|| format!("failed to resolve script working directory {target:?}"))?;
+        let value = if syntax == Syntax::Batch {
+            args[0].replace('\\', "/")
+        } else {
+            args[0].to_owned()
+        };
         ensure!(
-            new.is_dir(),
-            "script working directory {new:?} is not a directory"
+            state.cwd_known || Path::new(&value).is_absolute(),
+            "script working directory is unknown"
         );
-        if command == "pushd" {
+        let new = state.cwd.join(value);
+        if command == "pushd" && state.cwd_known {
             state.directories.push(state.cwd.clone());
         }
         state.cwd = new;
+        state.cwd_known = true;
         return Ok(false);
     }
     if command == "popd" {
@@ -257,23 +340,13 @@ fn statement(
             .ok_or_else(|| anyhow::anyhow!("unmatched popd"))?;
         return Ok(false);
     }
-    if command == "exit" {
-        bail!("explicit exit/return control flow is unsupported");
+    if matches!(command.as_str(), "exit" | "return") {
+        return Ok(true);
     }
     let binary = command.rsplit(['/', '\\']).next().unwrap();
     if matches!(binary, "java" | "java.exe") {
-        for name in [
-            "JDK_JAVA_OPTIONS",
-            "JAVA_TOOL_OPTIONS",
-            "_JAVA_OPTIONS",
-            "CLASSPATH",
-        ] {
-            ensure!(
-                !state.vars.contains_key(name),
-                "implicit Java environment option {name} is unsupported"
-            );
-        }
-        launches.push(java::parse(
+        ensure!(state.cwd_known, "script working directory is unknown");
+        evidence.launches.push(java::parse(
             state.cwd.clone(),
             path.to_owned(),
             line_number,
@@ -294,7 +367,21 @@ fn statement(
         );
         &words[1]
     } else {
-        ensure!(words.len() == 1, "unsupported command {command:?}");
+        let extension = Path::new(&words[0])
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if !matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "sh" | "bat" | "cmd"
+        ) {
+            // External helper commands are irrelevant to in-process variables and cwd.
+            return Ok(exec);
+        }
+        ensure!(
+            words.len() == 1,
+            "referenced scripts with arguments are unsupported"
+        );
         &words[0]
     };
     let child = resolve(&state.cwd, target, syntax);
@@ -324,7 +411,7 @@ fn statement(
     );
     if matches!(command.as_str(), "source" | "." | "call") {
         ensure!(!exec, "exec of shell builtins is unsupported");
-        let terminated = visit(&child, state, stack, launches)?;
+        let terminated = visit(&child, state, stack, evidence)?;
         if syntax == Syntax::Shell {
             return Ok(terminated);
         }
@@ -337,9 +424,66 @@ fn statement(
                 .vars
                 .retain(|name, _| child_state.exported.contains(name));
         }
-        visit(&child, &mut child_state, stack, launches)?;
+        visit(&child, &mut child_state, stack, evidence)?;
     }
     Ok(exec || (syntax == Syntax::Batch && !reference))
+}
+
+/// Discard only affected state. Unknown control flow ends this script scan because
+/// subsequent lines may be conditional; commands already extracted remain available.
+fn invalidate(line: &str, syntax: Syntax, state: &mut State) -> bool {
+    let line = line.trim().trim_start_matches('@');
+    let lower = line.to_ascii_lowercase();
+    let head = lower.split_whitespace().next().unwrap_or("");
+    if tokens::has_operators(line, syntax) {
+        state.vars.clear();
+        state.cwd_known = false;
+        state.directories.clear();
+        state.scopes.clear();
+        return true;
+    }
+    if matches!(head, "cd" | "chdir" | "pushd" | "popd") {
+        state.cwd_known = false;
+        state.directories.clear();
+        return false;
+    }
+    let assignment = if syntax == Syntax::Batch {
+        line.strip_prefix("set ")
+            .or_else(|| line.strip_prefix("SET "))
+    } else {
+        Some(line.strip_prefix("export ").unwrap_or(line))
+    };
+    if let Some((name, _)) = assignment.and_then(|value| value.trim_matches('"').split_once('=')) {
+        if valid_name(name) {
+            let name = if syntax == Syntax::Batch {
+                name.to_ascii_uppercase()
+            } else {
+                name.to_owned()
+            };
+            state.vars.remove(&name);
+            return false;
+        }
+    }
+    if matches!(
+        head,
+        "setlocal" | "endlocal" | "unset" | "export" | "set" | "read" | "shift"
+    ) {
+        state.vars.clear();
+        state.scopes.clear();
+        return false;
+    }
+    let binary = head.rsplit(['/', '\\']).next().unwrap_or(head);
+    if !tokens::has_operators(line, syntax)
+        && (matches!(binary, "java" | "java.exe") || head == "exec")
+    {
+        return false;
+    }
+    // Unknown syntax or a script reference may modify both variables and cwd.
+    state.vars.clear();
+    state.cwd_known = false;
+    state.directories.clear();
+    state.scopes.clear();
+    true
 }
 
 fn valid_name(name: &str) -> bool {
@@ -354,4 +498,17 @@ pub(super) fn resolve(cwd: &Path, value: &str, syntax: Syntax) -> PathBuf {
     } else {
         value.to_owned()
     })
+}
+
+#[derive(Debug, Error)]
+enum ScriptError {
+    #[error("cannot statically interpret start script {path:?}:{line}")]
+    Statement {
+        path: PathBuf,
+        line: usize,
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("recursive or excessively deep script reference at {path:?}")]
+    Cycle { path: PathBuf },
 }

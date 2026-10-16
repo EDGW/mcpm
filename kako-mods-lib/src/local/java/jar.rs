@@ -34,12 +34,6 @@ pub(crate) fn read(path: &Path, member: &str) -> Result<Option<Vec<u8>>> {
         .with_context(|| format!("failed to read {member} in {path:?}"))
 }
 
-pub(crate) fn has(path: &Path, member: &str) -> Result<bool> {
-    open(path)?
-        .has(member)
-        .with_context(|| format!("failed to inspect {member} in {path:?}"))
-}
-
 /// Reads UTF-8 metadata, retaining the existing tolerance for an initial BOM.
 pub(crate) fn read_text(archive: &mut Archive, member: &str) -> Result<Option<String>> {
     archive
@@ -93,22 +87,27 @@ pub(crate) fn attributes(
     Ok(values)
 }
 
-pub(crate) fn manifest_paths(
-    jar: &Path,
-    manifest: &HashMap<String, String>,
-) -> Result<Vec<PathBuf>> {
+/// Extracts local Class-Path entries without validating the full declaration.
+/// Unsupported URI/encoded entries are unavailable evidence rather than command errors.
+pub(crate) fn manifest_paths(jar: &Path, manifest: &HashMap<String, String>) -> Vec<PathBuf> {
+    let Some(parent) = jar.parent() else {
+        return Vec::new();
+    };
     manifest
         .get("class-path")
-        .map(|cp| {
-            cp.split_whitespace()
-                .map(|value| {
-                    ensure!(
-                        !value.contains(':') && !value.contains('%'),
-                        "URI or encoded manifest classpaths are unsupported in {jar:?}!META-INF/MANIFEST.MF: {value:?}"
-                    );
-                    Ok(jar.parent().context("JAR path has no parent")?.join(value))
-                })
-                .collect()
+        .into_iter()
+        .flat_map(|value| value.split_whitespace())
+        .filter_map(|value| {
+            if value.contains(':') || value.contains('%') {
+                tracing::debug!(
+                    ?jar,
+                    entry = value,
+                    "skipping unsupported Manifest Class-Path entry"
+                );
+                None
+            } else {
+                Some(parent.join(value))
+            }
         })
-        .unwrap_or_else(|| Ok(Vec::new()))
+        .collect()
 }

@@ -25,7 +25,9 @@ pub struct ServerLaunch {
 }
 
 impl ServerLaunch {
-    /// One unambiguous game option, accepting both `--name value` and `--name=value`.
+    /// Extracts one option from `--name value` or `--name=value` declarations.
+    /// Repeated identical values are accepted; conflicting values remain ambiguous.
+    /// This queries identity evidence without validating the command as a whole.
     pub fn option(&self, name: &str) -> Result<Option<&str>> {
         let mut found = None;
         for (index, arg) in self.game_arguments.iter().enumerate() {
@@ -42,9 +44,12 @@ impl ServerLaunch {
             if let Some(value) = value {
                 ensure!(
                     !value.trim().is_empty() && !value.starts_with('-'),
-                    "invalid game option value for {name}"
+                    "no extractable game option value for {name}"
                 );
-                ensure!(found.is_none(), "duplicate game option {name}");
+                ensure!(
+                    found.is_none_or(|previous| previous == value),
+                    "conflicting game option {name}"
+                );
                 found = Some(value);
             }
         }

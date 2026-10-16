@@ -39,8 +39,9 @@ pub enum ServerIdentificationError {
 }
 
 /// `script` is relative to `root` unless absolute. All script/file paths are resolved
-/// without executing anything. Unknown syntax, missing identity evidence, conflicting versions,
-/// or any unrecognized Java launch fail the entire operation without partial results.
+/// without executing anything. This extracts identity evidence, not command validity.
+/// Unavailable commands are diagnosed independently; recognized candidates survive
+/// failures elsewhere. When no candidate is found, an extraction diagnostic is returned.
 /// The caller selects loader implementations from the complete BUILTIN_LOADERS registry.
 pub fn identify(
     root: impl AsRef<Path>,
@@ -69,71 +70,29 @@ fn identify_inner(
         .with_context(|| format!("failed to resolve server directory {root:?}"))?;
     anyhow::ensure!(root.is_dir(), "server root is not a directory: {root:?}");
     let path = root.join(script);
-    let launches = script::read(&root, &path)?;
-    if launches.is_empty() {
-        return Err(ServerIdentificationError::NoLaunch { path }.into());
-    }
+    let evidence = script::read(&root, &path);
+    let mut diagnostics = evidence.diagnostics;
     let mut ordered: Vec<_> = loaders.values().collect();
     ordered.sort_by(|a, b| a.id().cmp(b.id()));
     let mut candidates: Vec<ServerCandidate> = Vec::new();
-    for launch in launches {
+    for launch in evidence.launches {
         tracing::debug!(script = ?launch.script, line = launch.line, main_class = %launch.main_class, "inspecting Java server entry");
-        let mut recognized = Vec::new();
-        for loader in &ordered {
-            tracing::trace!(loader = %loader.name(), "checking server loader evidence");
-            if let Some(identity) = loader
-                .instance()
-                .try_identify_server(&launch)
-                .with_context(|| {
-                    format!(
-                        "failed to identify {} at {:?}:{}",
-                        loader.name(),
-                        launch.script,
-                        launch.line
-                    )
-                })?
-            {
-                tracing::info!(loader = %loader.name(), minecraft_version = %identity.minecraft_version, loader_version = %identity.version, "identified server loader");
-                recognized.push(MinecraftServerMetadata {
-                    version: 1,
-                    minecraft_version: identity.minecraft_version,
-                    loader: Some(ServerModLoader {
-                        loader_type: loader.id().to_string(),
-                        version: identity.version,
-                    }),
-                    start: None,
-                });
-            }
-        }
-        if recognized.len() > 1 {
-            return Err(ServerIdentificationError::ConflictingLoaders {
-                path: launch.script,
-                line: launch.line,
-            }
-            .into());
-        }
-        let mut metadata = match recognized.pop() {
-            Some(metadata) => metadata,
-            None => {
-                let Some(version) = vanilla::vanilla(&launch).with_context(|| {
-                    format!(
-                        "failed to identify vanilla server at {:?}:{}",
-                        launch.script, launch.line
-                    )
-                })?
-                else {
-                    return Err(ServerIdentificationError::Unrecognized {
+        let mut metadata = match identify_launch(&launch, &ordered) {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                diagnostics.push(
+                    ServerIdentificationError::Unrecognized {
                         path: launch.script,
                         line: launch.line,
                     }
-                    .into());
-                };
-                MinecraftServerMetadata {
-                    version: 1,
-                    minecraft_version: version,
-                    loader: None,
-                    start: None,
-                }
+                    .into(),
+                );
+                continue;
+            }
+            Err(error) => {
+                tracing::debug!(error = %format_args!("{error:#}"), "skipping unavailable launch identity");
+                diagnostics.push(error);
+                continue;
             }
         };
         metadata.start = Some(ServerStartCommand {
@@ -151,5 +110,74 @@ fn identify_inner(
             candidates.push(ServerCandidate { metadata, launch });
         }
     }
+    if candidates.is_empty() {
+        return Err(diagnostics
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| ServerIdentificationError::NoLaunch { path }.into()));
+    }
     Ok(candidates)
+}
+
+/// One command's extraction failure must not discard other candidates.
+fn identify_launch(
+    launch: &ServerLaunch,
+    ordered: &[&ModLoaderMeta],
+) -> Result<Option<MinecraftServerMetadata>> {
+    let mut recognized = Vec::new();
+    for loader in ordered {
+        tracing::trace!(loader = %loader.name(), "checking server loader evidence");
+        if let Some(identity) =
+            loader
+                .instance()
+                .try_identify_server(launch)
+                .with_context(|| {
+                    format!(
+                        "failed to identify {} at {:?}:{}",
+                        loader.name(),
+                        launch.script,
+                        launch.line
+                    )
+                })?
+        {
+            tracing::info!(loader = %loader.name(), minecraft_version = %identity.minecraft_version, loader_version = %identity.version, "identified server loader");
+            recognized.push(MinecraftServerMetadata {
+                version: 1,
+                minecraft_version: identity.minecraft_version,
+                loader: Some(ServerModLoader {
+                    loader_type: loader.id().to_string(),
+                    version: identity.version,
+                }),
+                start: None,
+            });
+        }
+    }
+    if recognized.len() > 1 {
+        return Err(ServerIdentificationError::ConflictingLoaders {
+            path: launch.script.clone(),
+            line: launch.line,
+        }
+        .into());
+    }
+    let metadata = match recognized.pop() {
+        Some(metadata) => metadata,
+        None => {
+            let Some(version) = vanilla::vanilla(launch).with_context(|| {
+                format!(
+                    "failed to identify vanilla server at {:?}:{}",
+                    launch.script, launch.line
+                )
+            })?
+            else {
+                return Ok(None);
+            };
+            MinecraftServerMetadata {
+                version: 1,
+                minecraft_version: version,
+                loader: None,
+                start: None,
+            }
+        }
+    };
+    Ok(Some(metadata))
 }

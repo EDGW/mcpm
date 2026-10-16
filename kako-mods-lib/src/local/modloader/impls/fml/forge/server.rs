@@ -27,13 +27,9 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
     server::identify(launch, Family::Forge)
 }
 
-/// 1. Require an explicit launch JAR and reject FML argument overrides.
-/// 2. Read shim properties; require the Forge bootstrap class and server target.
-/// 3. Read the embedded dependency list.
-///    - Forge Maven coordinate: extract versions and require consistency with [`agree`].
-///    - Other coordinates: skip.
-/// 4. Return the identity without opening dependency JARs.
-///    - Missing or invalid required declarations: return an error.
+/// Reads shim version declarations and relevant command-line overrides.
+/// Embedded launch arguments supply defaults; explicit identity options take precedence.
+/// Dependency existence, entry class presence and command validity are not checked.
 fn identify_shim(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
     // Read shim metadata from the explicitly selected launch JAR.
     let jar = launch
@@ -44,29 +40,44 @@ fn identify_shim(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
         ?jar,
         "expanding Forge shim metadata because launch arguments lack versions"
     );
-    // Reject command-line overrides that could change the embedded declaration.
-    ensure!(
-        !launch
-            .game_arguments
-            .iter()
-            .any(|arg| arg.starts_with("--launchTarget") || arg.starts_with("--fml.")),
-        "Forge shim launch overrides are unsupported"
-    );
-    // Expand the shim declaration and require a Forge production server.
     let props = properties::parse(
         &jar::read(jar, "bootstrap-shim.properties")?
             .context("Forge shim properties are missing")?,
     )
     .with_context(|| format!("failed to parse bootstrap-shim.properties in {jar:?}"))?;
+    let mut defaults = launch.clone();
+    defaults.game_arguments = props
+        .get("Arguments")
+        .map(|value| shlex::split(value).context("cannot extract Forge shim Arguments"))
+        .transpose()?
+        .unwrap_or_default();
+    let option = |name: &str| -> Result<Option<&str>> {
+        match launch.option(name)? {
+            Some(value) => Ok(Some(value)),
+            None => defaults.option(name),
+        }
+    };
+    if let Some(target) = option("--launchTarget")? {
+        server::ensure_server_target(target)?;
+    }
+    if let Some(group) = option("--fml.forgeGroup")? {
+        ensure!(
+            group == "net.minecraftforge",
+            "conflicting Forge shim loader group {group:?}"
+        );
+    }
     ensure!(
-        props.get("Main-Class").map(String::as_str)
-            == Some("net.minecraftforge.bootstrap.ForgeBootstrap"),
-        "unrecognized Forge shim main class"
+        option("--fml.neoForgeVersion")?.is_none(),
+        "conflicting NeoForge version on Forge shim"
     );
-    ensure!(
-        props.get("Arguments").map(String::as_str) == Some("--launchTarget forge_server"),
-        "unrecognized Forge shim launch target"
-    );
+    let declared_mc = option("--fml.mcVersion")?;
+    let declared_loader = option("--fml.forgeVersion")?;
+    if let (Some(mc), Some(loader)) = (declared_mc, declared_loader) {
+        return Ok(ServerLoaderIdentity {
+            minecraft_version: mc.into(),
+            version: loader.into(),
+        });
+    }
     // Read version evidence from the embedded list without opening its dependencies.
     let list =
         jar::read(jar, "bootstrap-shim.list")?.context("Forge shim dependency list is missing")?;
@@ -102,9 +113,14 @@ fn identify_shim(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
         }
     }
     // Require complete version evidence before returning an identity.
-    let mc = mc.context("Forge shim has no Minecraft coordinate")?;
     Ok(ServerLoaderIdentity {
-        minecraft_version: mc,
-        version: loader.context("Forge shim has no Forge coordinate")?,
+        minecraft_version: declared_mc
+            .map(str::to_owned)
+            .or(mc)
+            .context("Forge shim has no Minecraft version evidence")?,
+        version: declared_loader
+            .map(str::to_owned)
+            .or(loader)
+            .context("Forge shim has no Forge version evidence")?,
     })
 }

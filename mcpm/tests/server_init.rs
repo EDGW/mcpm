@@ -1,3 +1,5 @@
+//! CLI server identification and initialization using declarations rather than launch validation.
+
 use kako_mods_lib::local::{
     mc::server::{MinecraftServer, identify},
     modloader::BUILTIN_LOADERS,
@@ -48,6 +50,8 @@ fn init_identifies_loaders_and_retains_flattened_command() {
         ("fabric", Some("fabric"), "1.20.1", "0.16.10"),
         ("fabric-auto", Some("fabric"), "1.20.1", "0.16.10"),
         ("vanilla", None, "1.20.1", ""),
+        ("fake-vanilla", None, "1.20.1", ""),
+        ("partial-unknown", None, "1.20.1", ""),
         ("unknown-jvm-options", None, "1.20.1", ""),
         ("bundled-vanilla", None, "1.21.1", ""),
         ("nested-shell", None, "1.20.1", ""),
@@ -114,6 +118,14 @@ fn fml_uses_command_evidence_without_opening_dependency_jars() {
             if !temp.path().join(script).is_file() {
                 continue;
             }
+            let path = temp.path().join(script);
+            let original = fs::read_to_string(&path).unwrap();
+            let helper = if script.ends_with(".bat") {
+                "helper.exe %UNRESOLVED_HELPER%\r\njava -jar absent-helper.jar\r\n"
+            } else {
+                "helper \"$UNRESOLVED_HELPER\"\njava -jar absent-helper.jar\n"
+            };
+            fs::write(&path, format!("{helper}{original}")).unwrap();
             let candidates = identify::identify(temp.path(), script, &BUILTIN_LOADERS).unwrap();
             // Conflict fixtures change only the shell argument file.
             let expected_version = if case == "loader-version-conflict" && script == "run.bat" {
@@ -218,18 +230,16 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
         ("unknown-main", "run.sh", "cannot accurately identify"),
         ("missing-jar", "run.sh", "failed to open"),
         ("corrupt-jar", "run.sh", "invalid JAR"),
-        ("fake-vanilla", "run.sh", "entry class is missing"),
         ("no-java", "run.sh", "no Java server launch"),
-        ("dynamic-batch", "run.bat", "unsupported command"),
+        ("dynamic-batch", "run.bat", "control flow are unsupported"),
         ("delayed-batch", "run.bat", "delayed batch expansion"),
-        ("duplicate-version", "run.sh", "duplicate game option"),
+        ("duplicate-version", "run.sh", "conflicting game option"),
         ("client-target", "run.sh", "not a production server"),
         (
             "fabric-auto-missing-version",
             "run.sh",
             "Fabric loader version is missing",
         ),
-        ("partial-unknown", "run.sh", "cannot accurately identify"),
     ] {
         let temp = TempDir::new().unwrap();
         copy(&fixture(case), temp.path());
@@ -264,7 +274,7 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
 }
 
 #[test]
-fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_verified_results() {
+fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identified_results() {
     let temp = TempDir::new().unwrap();
     copy(&fixture("multiple"), temp.path());
     let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
@@ -276,7 +286,7 @@ fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_verifie
         let output = run(temp.path(), &args);
         assert!(!output.status.success());
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains("multiple verified server launches")
+            String::from_utf8_lossy(&output.stderr).contains("multiple identified server launches")
         );
         assert!(!temp.path().join(".mcpm").exists());
     }
@@ -386,7 +396,9 @@ fn manual_options_conflicts_existing_configuration_force_and_default_script() {
         &["server", "init", "--force", "--minecraft-version", "1.19.4"],
     );
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("no verified server launch matches"));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("no identified server launch matches")
+    );
     assert_eq!(
         MinecraftServer::load(temp.path()).unwrap().metadata(),
         server.metadata()

@@ -17,7 +17,7 @@ use unicode_width::UnicodeWidthChar;
 pub(super) fn select(candidates: &[ServerCandidate]) -> Result<Option<usize>> {
     ensure!(
         policy::is_interactive(),
-        "multiple verified server launches found; TUI selection requires terminal stdin, stdout and stderr without --raw; use a dedicated --start-script or manual version/loader options to disambiguate"
+        "multiple identified server launches found; TUI selection requires terminal stdin, stdout and stderr without --raw; use a dedicated --start-script or manual version/loader options to disambiguate"
     );
     let mut screen = Screen {
         output: io::stderr(),
@@ -64,7 +64,10 @@ impl Screen {
             self.output,
             Clear(ClearType::All),
             MoveTo(0, 0),
-            Print(style.theme(clip("Select a verified server launch to initialize", width)))
+            Print(style.theme(clip(
+                "Select an identified server launch to initialize",
+                width
+            )))
         )?;
         let visible = usize::from(height.saturating_sub(4).max(1));
         let start = selected

@@ -70,14 +70,16 @@ cargo test --manifest-path mcpm/Cargo.toml --test server_init
 
 Success cases cover Forge, NeoForge, early NeoForge with Forge argument names,
 Forge shim, both Fabric installer layouts, vanilla and bundled vanilla,
-nested shell/BAT scripts, multiple verified entries, and ignored unknown JVM
+nested shell/BAT scripts, multiple identified entries, and ignored unknown JVM
 options. The CLI tests copy each fixture to a temporary directory before writing.
 
 Forge/NeoForge identification uses the entry point and FML arguments without
 opening dependency JARs. Forge shim reads its embedded properties and dependency
 list for versions, without checking the listed JARs. The `loader-version-conflict`,
 `game-version-conflict`, `missing-loader`, and `fake-loader` fixtures now succeed:
-installation integrity is outside server identification.
+installation integrity is outside server identification. `fake-vanilla` also succeeds
+from its declared entry and version metadata without checking the class file;
+`partial-unknown` retains the known candidate alongside the unknown Java command.
 
 Use `--log-level debug` to see scripts, argument-file expansion, identity evidence,
 and failure reasons; `info` shows identification progress and recognized versions.
@@ -92,11 +94,9 @@ Failure examples are intentionally preserved for inspection:
 | `delayed-batch` | Delayed variable expansion is unsupported |
 | `cycle` / `argument-cycle` | Recursive script or nested Java argument-file reference |
 | `unknown-main` | No recognized server entry |
-| `partial-unknown` | One known launch cannot hide another unknown Java entry |
 | `missing-jar` / `corrupt-jar` | Missing archive or invalid ZIP |
-| `fake-vanilla` | Manifest naming vanilla without its entry class |
 | `no-java` | Script contains no Java launch |
-| `duplicate-version` | Multiple declarations of the same game version option |
+| `duplicate-version` | Conflicting values of the game version option; identical repetitions are accepted |
 | `client-target` | Client entry cannot initialize a production server |
 | `fabric-auto-missing-version` | Automatic launcher lacks loader version configuration |
 

@@ -73,8 +73,8 @@ pub(super) fn parse(
     };
     let mut i = 0;
     let mut entry = None;
-    let mut classpath_seen = false;
-    let mut modulepath_seen = false;
+    let mut classpath = Vec::new();
+    let mut modulepath = Vec::new();
     while i < arguments.len() {
         let arg = &arguments[i];
         if arg == "-jar" {
@@ -87,7 +87,7 @@ pub(super) fn parse(
                 .with_context(|| format!("launch JAR {path:?} has no Main-Class"))?
                 .clone();
             // -jar ignores explicit JVM classpath; only the manifest applies.
-            launch.classpath = jar::manifest_paths(&path, &manifest)?;
+            launch.classpath = jar::manifest_paths(&path, &manifest);
             launch.jar = Some(path);
             entry = Some(i + 1);
             break;
@@ -100,14 +100,19 @@ pub(super) fn parse(
         }
         if let Some(property) = arg.strip_prefix("-D") {
             let (key, value) = property.split_once('=').unwrap_or((property, ""));
-            ensure!(!key.is_empty(), "empty JVM property name");
-            launch.properties.insert(key.into(), value.into());
+            if !key.is_empty() {
+                launch.properties.insert(key.into(), value.into());
+            }
         } else if arg.starts_with("-X") {
             // JVM tuning flags may contain '='; they do not consume another argv item.
         } else if let Some((name, value)) = arg.split_once('=') {
             if is_classpath(name) {
-                mark_classpath(name, &mut classpath_seen, &mut modulepath_seen)?;
-                add_paths(&mut launch, value);
+                let paths = if matches!(name, "-p" | "--module-path") {
+                    &mut modulepath
+                } else {
+                    &mut classpath
+                };
+                *paths = paths_from(&launch, value);
             }
         } else if is_operand(arg) {
             i += 1;
@@ -115,8 +120,12 @@ pub(super) fn parse(
                 .get(i)
                 .with_context(|| format!("missing JVM option operand for {arg}"))?;
             if is_classpath(arg) {
-                mark_classpath(arg, &mut classpath_seen, &mut modulepath_seen)?;
-                add_paths(&mut launch, value);
+                let paths = if matches!(arg.as_str(), "-p" | "--module-path") {
+                    &mut modulepath
+                } else {
+                    &mut classpath
+                };
+                *paths = paths_from(&launch, value);
             }
         }
         // Unknown JVM options are retained verbatim in the flattened command.
@@ -125,21 +134,15 @@ pub(super) fn parse(
     }
     let end = entry.context("Java command has no server entry point")?;
     launch.game_arguments = arguments[end..].to_vec();
+    if launch.jar.is_none() {
+        launch.classpath = classpath;
+        for path in modulepath {
+            if !launch.classpath.contains(&path) {
+                launch.classpath.push(path);
+            }
+        }
+    }
     Ok(launch)
-}
-
-fn mark_classpath(option: &str, classpath: &mut bool, modulepath: &mut bool) -> Result<()> {
-    let seen = if matches!(option, "-p" | "--module-path") {
-        modulepath
-    } else {
-        classpath
-    };
-    ensure!(
-        !*seen,
-        "repeated Java classpath/module-path options are unsupported"
-    );
-    *seen = true;
-    Ok(())
 }
 
 fn is_operand(option: &str) -> bool {
@@ -178,11 +181,14 @@ fn track_entry(arg: &str, options: &mut bool, operand: &mut bool) {
         *operand = true;
     }
 }
-fn add_paths(launch: &mut ServerLaunch, value: &str) {
+/// Repeated options replace their own path category without mixing overridden evidence.
+fn paths_from(launch: &ServerLaunch, value: &str) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
     for path in value.split(launch.path_separator) {
         let path = launch.resolve(path);
-        if !launch.classpath.contains(&path) {
-            launch.classpath.push(path);
+        if !paths.contains(&path) {
+            paths.push(path);
         }
     }
+    paths
 }

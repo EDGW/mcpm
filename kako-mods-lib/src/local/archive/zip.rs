@@ -28,14 +28,6 @@ impl Archive {
         })
     }
 
-    pub(crate) fn has(&mut self, member: &str) -> Result<bool, ArchiveError> {
-        match self.inner.by_name(member) {
-            Ok(_) => Ok(true),
-            Err(ZipError::FileNotFound) => Ok(false),
-            Err(source) => Err(ArchiveError::Zip(source)),
-        }
-    }
-
     /// Missing members return None; corrupt archives and exceeded limits are errors.
     /// Limits apply to both declared and actual uncompressed sizes.
     pub(crate) fn read(

@@ -9,19 +9,9 @@ pub(super) enum Family {
     NeoForge,
 }
 
-/// 1. Check the FML entry.
-///    - Unsupported: return `None`.
-///    - Supported: infer Forge/NeoForge.
-/// 2. Compare the inferred and requested families.
-///    - Different: return `None`.
-///    - Matching: check the group and production server target.
-///      - Direct NeoForge server entry: the target may be omitted.
-///      - Other entries: require a supported server target.
-/// 3. Read versions with [`ServerLaunch::option`].
-///    - neoForgeVersion present: prefer it; require forgeVersion to agree if present.
-///    - Otherwise: require forgeVersion.
-/// 4. Log and return the identity without inspecting dependency JARs.
-///    - Missing, invalid, duplicate, or conflicting required evidence: return an error.
+/// Extracts FML family and versions from declarations without checking launch validity.
+/// Explicit client targets are excluded; absent or unknown targets do not block
+/// otherwise sufficient evidence. Conflicting identity declarations remain errors.
 pub(super) fn identify(
     launch: &ServerLaunch,
     family: Family,
@@ -45,35 +35,19 @@ pub(super) fn identify(
         // Leave recognition to the detector for the matching family.
         return Ok(None);
     }
-    if !neo {
-        // Shared entry classes require an explicit Forge group.
+    if let Some(group) = group {
+        let expected = if neo {
+            "net.neoforged"
+        } else {
+            "net.minecraftforge"
+        };
         ensure!(
-            group == Some("net.minecraftforge"),
-            "Forge group is absent or unrecognized: expected net.minecraftforge, got {group:?}"
-        );
-    }
-    if neo && let Some(group) = group {
-        // Allow an omitted NeoForge group, but reject contradictory declarations.
-        ensure!(
-            group == "net.neoforged",
-            "NeoForge version conflicts with Forge group: expected net.neoforged, got {group:?}"
+            group == expected,
+            "conflicting FML loader group {group:?}; expected {expected}"
         );
     }
     if let Some(target) = launch.option("--launchTarget")? {
-        // Accept production server target names used across FML generations.
-        ensure!(
-            matches!(
-                target,
-                "forgeserver" | "neoforgeserver" | "forge_server" | "neoforge_server"
-            ),
-            "entry is not a production server launch: unsupported --launchTarget {target:?}"
-        );
-    } else {
-        // Only the direct server entry establishes its purpose without a target.
-        ensure!(
-            launch.main_class == "net.neoforged.fml.startup.Server",
-            "server launch target is missing"
-        );
+        ensure_server_target(target)?;
     }
     // Read versions, including the Forge argument name used by early NeoForge.
     let mc = launch
@@ -103,4 +77,23 @@ pub(super) fn identify(
         minecraft_version: mc.into(),
         version: version.into(),
     }))
+}
+
+/// Client targets are evidence against server identity, rather than invalid commands.
+pub(in crate::local::modloader::impls::fml) fn ensure_server_target(target: &str) -> Result<()> {
+    ensure!(
+        !matches!(
+            target.to_ascii_lowercase().as_str(),
+            "forgeclient"
+                | "neoforgeclient"
+                | "forge_client"
+                | "neoforge_client"
+                | "fmlclient"
+                | "fml_client"
+                | "forgeclientuserdev"
+                | "neoforgeclientuserdev"
+        ),
+        "entry declares a client target, not a production server: {target:?}"
+    );
+    Ok(())
 }
