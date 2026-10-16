@@ -1,7 +1,7 @@
 //! Commands for inspecting user-selected mod files and directories.
 
 use super::{
-    mod_support::{ignored_output, loaders, mod_records, source_path},
+    mod_support::{dependency_output, loaders},
     output_style,
 };
 
@@ -9,7 +9,6 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 mod dep_graph;
-mod dependency_output;
 mod deps;
 mod info;
 mod list;

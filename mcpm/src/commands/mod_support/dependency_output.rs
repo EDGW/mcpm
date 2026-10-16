@@ -1,11 +1,13 @@
+//! Shared dependency text and formatting for mod records and graph views.
+
 use kako_mods_lib::local::mcmod::{
     VersionConstraint, VersionOperator,
     dependency::{Dependency, DependencyKind, DependencyOrdering, DependencySide},
 };
 
-use super::output_style::OutputStyle;
+use crate::commands::output_style::OutputStyle;
 
-pub(super) fn format_kind(kind: DependencyKind, style: &OutputStyle) -> String {
+pub(in crate::commands) fn format_kind(kind: DependencyKind, style: &OutputStyle) -> String {
     let label = match kind {
         DependencyKind::Required => "required",
         DependencyKind::Optional => "optional",
@@ -24,7 +26,10 @@ pub(super) fn format_kind(kind: DependencyKind, style: &OutputStyle) -> String {
     }
 }
 
-pub(super) fn format_dependency(dependency: &Dependency, style: &OutputStyle) -> String {
+pub(in crate::commands) fn format_dependency(
+    dependency: &Dependency,
+    style: &OutputStyle,
+) -> String {
     format!(
         "{}: {}: {}",
         format_kind(dependency.kind, style),
@@ -33,7 +38,7 @@ pub(super) fn format_dependency(dependency: &Dependency, style: &OutputStyle) ->
     )
 }
 
-pub(super) fn format_details(dependency: &Dependency, style: &OutputStyle) -> String {
+pub(in crate::commands) fn format_details(dependency: &Dependency, style: &OutputStyle) -> String {
     let mut value = style.important(format_version(&dependency.version_requirement));
     let mut rules = Vec::new();
     if let Some(side) = dependency.side {
@@ -65,7 +70,7 @@ pub(super) fn format_details(dependency: &Dependency, style: &OutputStyle) -> St
     value
 }
 
-pub(super) fn format_version(constraint: &VersionConstraint) -> String {
+pub(in crate::commands) fn format_version(constraint: &VersionConstraint) -> String {
     match constraint {
         VersionConstraint::Any => "*".into(),
         VersionConstraint::Compare { operator, version } => {
@@ -104,7 +109,7 @@ fn group(parts: impl Iterator<Item = String>, separator: &str, empty: &str) -> S
 }
 
 // Keep metadata on its own line, including when it contains terminal controls.
-pub(super) fn text(value: &str) -> String {
+pub(in crate::commands) fn text(value: &str) -> String {
     value
         .chars()
         .map(|character| {

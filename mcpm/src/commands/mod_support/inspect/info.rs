@@ -1,8 +1,10 @@
+//! Shared mod info output for file and server commands.
+
 use std::io::{self, Write};
 
 use super::super::dependency_output::{format_dependency, text};
 use super::super::mod_records;
-use super::super::output_style::OutputStyle;
+use crate::commands::output_style::OutputStyle;
 
 use kako_mods_lib::local::mcmod::{ModFile, ModStatus};
 

@@ -1,11 +1,13 @@
+//! Shared mod deps output for file and server commands.
+
 use std::io::{self, Write};
 
 use kako_mods_lib::local::mcmod::ModFile;
 
 use super::super::dependency_output::{format_dependency, text};
 use super::super::mod_records;
-use super::super::output_style::OutputStyle;
 use super::super::source_path::PathArgs;
+use crate::commands::output_style::OutputStyle;
 
 pub(super) fn write_deps(
     output: &mut impl Write,
