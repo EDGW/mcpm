@@ -28,7 +28,7 @@ impl ModLoader for FabricLoader {
 
     fn try_identify_server(
         &self,
-        launch: &crate::local::mc::server::identify::ServerLaunch,
+        launch: &crate::local::mc::server::ServerLaunch,
     ) -> Result<Option<crate::local::modloader::ServerLoaderIdentity>> {
         server::identify(launch)
             .map_err(|source| FabricError::ServerIdentification { source }.into())

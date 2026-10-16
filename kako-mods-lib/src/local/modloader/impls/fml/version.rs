@@ -1,6 +1,10 @@
-use std::collections::{BTreeMap, HashSet};
+//! FML version substitution using document properties and shared JAR Manifest parsing.
+
+use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail};
+
+use crate::local::java::jar::{DuplicateHeaders, attributes};
 
 pub(super) fn resolve(
     expression: &str,
@@ -18,7 +22,7 @@ pub(super) fn resolve(
             if manifest_version.is_none() {
                 let contents =
                     read_manifest()?.context("missing META-INF/MANIFEST.MF for file.jarVersion")?;
-                let attributes = manifest_attributes(&contents)?;
+                let attributes = attributes(&contents, DuplicateHeaders::LastWins)?;
                 manifest_version = Some(
                     attributes
                         .get("implementation-version")
@@ -72,29 +76,4 @@ fn expand(
     }
     output.push_str(remaining);
     Ok(output)
-}
-
-fn manifest_attributes(contents: &str) -> Result<BTreeMap<String, String>> {
-    let mut attributes = BTreeMap::<String, String>::new();
-    let mut previous: Option<String> = None;
-    for line in contents.lines() {
-        if line.is_empty() {
-            break;
-        }
-        if let Some(continuation) = line.strip_prefix(' ') {
-            let key = previous
-                .as_ref()
-                .context("manifest continuation has no header")?;
-            attributes
-                .get_mut(key)
-                .context("manifest continuation header is missing")?
-                .push_str(continuation);
-        } else {
-            let (name, value) = line.split_once(": ").context("invalid manifest header")?;
-            let name = name.to_ascii_lowercase();
-            attributes.insert(name.clone(), value.to_owned());
-            previous = Some(name);
-        }
-    }
-    Ok(attributes)
 }

@@ -1,7 +1,10 @@
+//! Loader-specific server launch recognition.
+
 use super::super::super::utils::coordinate::{agree, coordinate};
 use super::super::server::{self, Family};
 use crate::local::{
-    mc::server::identify::{ServerLaunch, archive},
+    java::{jar, properties},
+    mc::server::ServerLaunch,
     modloader::ServerLoaderIdentity,
 };
 use anyhow::{Context, Result, ensure};
@@ -50,8 +53,8 @@ fn identify_shim(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
         "Forge shim launch overrides are unsupported"
     );
     // Expand the shim declaration and require a Forge production server.
-    let props = archive::properties(
-        &archive::read(jar, "bootstrap-shim.properties")?
+    let props = properties::parse(
+        &jar::read(jar, "bootstrap-shim.properties")?
             .context("Forge shim properties are missing")?,
     )
     .with_context(|| format!("failed to parse bootstrap-shim.properties in {jar:?}"))?;
@@ -65,8 +68,8 @@ fn identify_shim(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
         "unrecognized Forge shim launch target"
     );
     // Read version evidence from the embedded list without opening its dependencies.
-    let list = archive::read(jar, "bootstrap-shim.list")?
-        .context("Forge shim dependency list is missing")?;
+    let list =
+        jar::read(jar, "bootstrap-shim.list")?.context("Forge shim dependency list is missing")?;
     let mut mc = None;
     let mut loader = None;
     for (index, line) in std::str::from_utf8(&list)

@@ -46,7 +46,7 @@ pub trait ModLoader: Send + Sync + Debug {
     /// declarations return an implementation-specific error. No execution or downloads.
     fn try_identify_server(
         &self,
-        _launch: &super::mc::server::identify::ServerLaunch,
+        _launch: &super::mc::server::ServerLaunch,
     ) -> Result<Option<ServerLoaderIdentity>> {
         Ok(None)
     }

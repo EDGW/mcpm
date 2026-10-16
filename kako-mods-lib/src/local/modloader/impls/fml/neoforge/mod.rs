@@ -32,7 +32,7 @@ impl ModLoader for NeoForgeLoader {
 
     fn try_identify_server(
         &self,
-        launch: &crate::local::mc::server::identify::ServerLaunch,
+        launch: &crate::local::mc::server::ServerLaunch,
     ) -> Result<Option<crate::local::modloader::ServerLoaderIdentity>> {
         server::identify(launch)
             .map_err(|source| NeoForgeError::ServerIdentification { source }.into())

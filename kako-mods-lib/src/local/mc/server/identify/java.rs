@@ -1,65 +1,15 @@
-use super::{
-    archive, script,
-    tokens::{self, Syntax},
-};
-use anyhow::{Context, Result, ensure};
+//! Static parsing of Java commands and argument files into server launch evidence.
+
 use std::{collections::HashMap, fs, path::PathBuf};
 
-/// A Java launch parsed without executing the script. Paths are absolute and resolved
-/// against the statically known JVM working directory. Application and JVM arguments
-/// are separated so application text can never masquerade as JVM options.
-#[derive(Debug, Clone)]
-pub struct ServerLaunch {
-    pub executable: String,
-    pub script: PathBuf,
-    pub line: usize,
-    pub directory: PathBuf,
-    pub arguments: Vec<String>,
-    pub argument_files: Vec<PathBuf>,
-    pub main_class: String,
-    pub jar: Option<PathBuf>,
-    pub classpath: Vec<PathBuf>,
-    pub properties: HashMap<String, String>,
-    pub game_arguments: Vec<String>,
-    /// Separator used by the script's target Java platform, including offline inspection.
-    pub path_separator: char,
-}
+use anyhow::{Context, Result, ensure};
 
-impl ServerLaunch {
-    /// One unambiguous game option, accepting both `--name value` and `--name=value`.
-    pub fn option(&self, name: &str) -> Result<Option<&str>> {
-        let mut found = None;
-        for (index, arg) in self.game_arguments.iter().enumerate() {
-            let value = if arg == name {
-                Some(
-                    self.game_arguments
-                        .get(index + 1)
-                        .with_context(|| format!("missing game option value for {name}"))?
-                        .as_str(),
-                )
-            } else {
-                arg.strip_prefix(&format!("{name}="))
-            };
-            if let Some(value) = value {
-                ensure!(
-                    !value.trim().is_empty() && !value.starts_with('-'),
-                    "invalid game option value for {name}"
-                );
-                ensure!(found.is_none(), "duplicate game option {name}");
-                found = Some(value);
-            }
-        }
-        Ok(found)
-    }
+use crate::local::{java::jar, mc::server::ServerLaunch};
 
-    pub fn resolve(&self, path: &str) -> PathBuf {
-        self.directory.join(if self.path_separator == ';' {
-            path.replace('\\', "/")
-        } else {
-            path.to_owned()
-        })
-    }
-}
+use super::{
+    script,
+    tokens::{self, Syntax},
+};
 
 pub(super) fn parse(
     directory: PathBuf,
@@ -131,13 +81,13 @@ pub(super) fn parse(
             i += 1;
             let path = launch.resolve(arguments.get(i).context("-jar has no path")?);
             tracing::debug!(?path, "reading launch JAR manifest to determine Java entry");
-            let manifest = archive::manifest(&path)?;
+            let manifest = jar::manifest(&path)?;
             launch.main_class = manifest
                 .get("main-class")
                 .with_context(|| format!("launch JAR {path:?} has no Main-Class"))?
                 .clone();
             // -jar ignores explicit JVM classpath; only the manifest applies.
-            launch.classpath = archive::manifest_paths(&path, &manifest)?;
+            launch.classpath = jar::manifest_paths(&path, &manifest)?;
             launch.jar = Some(path);
             entry = Some(i + 1);
             break;
@@ -235,27 +185,4 @@ fn add_paths(launch: &mut ServerLaunch, value: &str) {
             launch.classpath.push(path);
         }
     }
-}
-
-pub(super) fn vanilla(launch: &ServerLaunch) -> Result<Option<String>> {
-    let Some(jar) = &launch.jar else {
-        return Ok(None);
-    };
-    if !matches!(
-        launch.main_class.as_str(),
-        "net.minecraft.bundler.Main"
-            | "net.minecraft.server.Main"
-            | "net.minecraft.server.MinecraftServer"
-    ) {
-        return Ok(None);
-    }
-    ensure!(
-        launch.classpath.is_empty(),
-        "vanilla launch with extra manifest classpath is unverified"
-    );
-    let class = format!("{}.class", launch.main_class.replace('.', "/"));
-    ensure!(archive::has(jar, &class)?, "vanilla entry class is missing");
-    let version = archive::minecraft_version(jar)?
-        .context("vanilla JAR lacks verifiable Minecraft version metadata")?;
-    Ok(Some(version))
 }

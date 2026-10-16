@@ -1,6 +1,9 @@
+//! Loader-specific server launch recognition.
+
 use super::super::utils::coordinate::{agree, coordinate};
 use crate::local::{
-    mc::server::identify::{ServerLaunch, archive},
+    java::{jar, properties},
+    mc::server::ServerLaunch,
     modloader::ServerLoaderIdentity,
 };
 use anyhow::{Context, Result, ensure};
@@ -66,7 +69,7 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
         && let Some(jar) = &launch.jar
     {
         tracing::debug!(?jar, "reading shaded Fabric loader version");
-        if let Some(bytes) = archive::read(jar, "fabric.mod.json")? {
+        if let Some(bytes) = jar::read(jar, "fabric.mod.json")? {
             let json: serde_json::Value = serde_json::from_slice(&bytes)
                 .with_context(|| format!("failed to parse fabric.mod.json in {jar:?}"))?;
             if json.get("id").and_then(|v| v.as_str()) == Some("fabricloader") {
@@ -89,7 +92,7 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
         } else {
             let props_path = launch.directory.join("fabric-server-launcher.properties");
             let props = match std::fs::read(&props_path) {
-                Ok(bytes) => archive::properties(&bytes)
+                Ok(bytes) => properties::parse(&bytes)
                     .with_context(|| format!("failed to parse {props_path:?}"))?,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
                 Err(error) => {
@@ -107,7 +110,7 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
             ?game,
             "reading Fabric game version because no intermediary coordinate is declared"
         );
-        let game_version = archive::minecraft_version(&game)?
+        let game_version = crate::local::mc::jar::minecraft_version(&game)?
             .context("Fabric's game JAR lacks version metadata")?;
         agree(&mut mc, &game_version, "Minecraft version")?;
     }
@@ -129,9 +132,8 @@ fn automatic(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
         .context("Fabric automatic launcher must be a JAR entry")?;
     // The installer entry establishes identity; embedded properties supply versions.
     tracing::debug!(?jar, "reading Fabric installer version declarations");
-    let props = archive::properties(
-        &archive::read(jar, "install.properties")?
-            .context("Fabric install.properties is missing")?,
+    let props = properties::parse(
+        &jar::read(jar, "install.properties")?.context("Fabric install.properties is missing")?,
     )
     .with_context(|| format!("failed to parse install.properties in {jar:?}"))?;
     let version = props

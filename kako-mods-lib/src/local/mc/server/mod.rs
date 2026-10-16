@@ -14,6 +14,9 @@ use crate::local::{
 };
 
 pub mod identify;
+mod launch;
+
+pub use launch::ServerLaunch;
 mod metadata;
 
 pub use metadata::{MinecraftServerMetadata, ServerModLoader, ServerStartCommand};

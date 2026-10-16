@@ -1,5 +1,9 @@
+//! Static shell and batch script interpretation for server launch discovery.
+
+use super::super::ServerLaunch;
+
 use super::{
-    java::{self, ServerLaunch},
+    java,
     tokens::{self, Syntax},
 };
 use anyhow::{Context, Result, bail, ensure};

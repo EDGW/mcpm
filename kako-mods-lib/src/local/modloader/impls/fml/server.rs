@@ -1,6 +1,6 @@
 //! Common FML launch-argument evidence; loader-specific launchers stay with the loader.
 
-use crate::local::{mc::server::identify::ServerLaunch, modloader::ServerLoaderIdentity};
+use crate::local::{mc::server::ServerLaunch, modloader::ServerLoaderIdentity};
 use anyhow::{Context, Result, ensure};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

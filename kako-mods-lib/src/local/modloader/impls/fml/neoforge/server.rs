@@ -1,5 +1,7 @@
+//! Loader-specific server launch recognition.
+
 use super::super::server::{self, Family};
-use crate::local::{mc::server::identify::ServerLaunch, modloader::ServerLoaderIdentity};
+use crate::local::{mc::server::ServerLaunch, modloader::ServerLoaderIdentity};
 use anyhow::Result;
 
 /// 1. Call [`server::identify`] with the NeoForge family.

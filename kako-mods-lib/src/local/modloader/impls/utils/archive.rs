@@ -1,17 +1,20 @@
+//! Mod archive adapters and declared nested JAR traversal with shared resource budgets.
+
 use std::collections::HashSet;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use thiserror::Error;
-use zip::ZipArchive;
 
 use crate::local::{
-    mcmod::{ModInfo, ModMeta, NestedModMeta},
+    archive::zip::ArchiveError,
+    mcmod::{ModEntry, ModInfo, ModMeta, NestedModMeta},
     modloader::ModLoaderMeta,
 };
 
-use super::{Archive, ArchiveReader};
+pub(in crate::local::modloader::impls) use crate::local::archive::zip::Archive;
+pub(in crate::local::modloader::impls) use crate::local::java::jar::read_text as read;
 
 // Implementation limits, not loader metadata restrictions.
 const MAX_DEPTH: usize = 32;
@@ -22,18 +25,6 @@ const MAX_ARCHIVES: usize = 4096;
 pub(in crate::local::modloader::impls) struct ArchiveNode {
     pub mods: Vec<ModInfo>,
     pub jars: Vec<String>,
-}
-
-#[derive(Debug, Error)]
-enum NestedArchiveError {
-    #[error("invalid nested JAR path {path:?}: expected a relative archive member path")]
-    InvalidPath { path: PathBuf },
-    #[error("nested JAR traversal exceeds the {limit} level depth limit at {path:?}")]
-    DepthLimit { limit: usize, path: PathBuf },
-    #[error("nested JAR traversal exceeds the {limit} archive limit at {path:?}")]
-    ArchiveLimit { limit: usize, path: PathBuf },
-    #[error("nested JAR traversal exceeds the {limit} byte read limit")]
-    ByteLimit { limit: u64 },
 }
 
 pub(in crate::local::modloader::impls) fn collect(
@@ -48,6 +39,11 @@ pub(in crate::local::modloader::impls) fn collect(
         archives: 0,
     };
     visit(archive, root, path, 0, loader, &mut budget, &mut identify)
+}
+
+pub(in crate::local::modloader::impls) fn open(entry: &ModEntry) -> Result<Archive> {
+    Archive::open(entry.path())
+        .with_context(|| format!("failed to open mod archive {:?}", entry.path()))
 }
 
 struct Budget {
@@ -118,18 +114,28 @@ fn visit(
 }
 
 fn read_nested(archive: &mut Archive, member: &str, budget: &mut Budget) -> Result<Archive> {
-    let mut file = archive.by_name(member)?;
     let remaining = MAX_BYTES - budget.bytes;
-    if file.size() > remaining {
-        return Err(NestedArchiveError::ByteLimit { limit: MAX_BYTES }.into());
-    }
-    let mut bytes = Vec::new();
-    (&mut file).take(remaining + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > remaining {
-        return Err(NestedArchiveError::ByteLimit { limit: MAX_BYTES }.into());
-    }
+    let bytes = archive
+        .read(member, Some(remaining))
+        .map_err(|source| match source {
+            ArchiveError::SizeLimit { .. } => {
+                anyhow::Error::new(NestedArchiveError::ByteLimit { limit: MAX_BYTES })
+            }
+            source => source.into(),
+        })?
+        .with_context(|| format!("declared nested JAR {member:?} is missing"))?;
     budget.bytes += bytes.len() as u64;
-    Ok(ZipArchive::new(
-        Box::new(Cursor::new(bytes)) as Box<dyn ArchiveReader>
-    )?)
+    Ok(Archive::from_reader(Cursor::new(bytes))?)
+}
+
+#[derive(Debug, Error)]
+enum NestedArchiveError {
+    #[error("invalid nested JAR path {path:?}: expected a relative archive member path")]
+    InvalidPath { path: PathBuf },
+    #[error("nested JAR traversal exceeds the {limit} level depth limit at {path:?}")]
+    DepthLimit { limit: usize, path: PathBuf },
+    #[error("nested JAR traversal exceeds the {limit} archive limit at {path:?}")]
+    ArchiveLimit { limit: usize, path: PathBuf },
+    #[error("nested JAR traversal exceeds the {limit} byte read limit")]
+    ByteLimit { limit: u64 },
 }

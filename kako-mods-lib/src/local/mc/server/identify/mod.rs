@@ -1,10 +1,10 @@
 //! Read-only identification from a statically understood start script.
 //! This never runs shell commands, Java, installers, or downloads.
 
-pub(crate) mod archive;
 mod java;
 mod script;
 mod tokens;
+mod vanilla;
 
 use super::{MinecraftServerMetadata, ServerModLoader, ServerStartCommand};
 use crate::local::modloader::{LoaderId, ModLoaderMeta};
@@ -15,7 +15,8 @@ use std::{
 };
 use thiserror::Error;
 
-pub use java::ServerLaunch;
+// Preserve the existing public import path.
+pub use super::ServerLaunch;
 
 /// An identified launch. Source location and Java entry point explain its provenance.
 /// Identification does not guarantee that dependencies are installed or launchable.
@@ -40,7 +41,7 @@ pub enum ServerIdentificationError {
 /// `script` is relative to `root` unless absolute. All script/file paths are resolved
 /// without executing anything. Unknown syntax, missing identity evidence, conflicting versions,
 /// or any unrecognized Java launch fail the entire operation without partial results.
-/// Loader implementations are supplied by the caller; no built-ins are assumed.
+/// The caller selects loader implementations from the complete BUILTIN_LOADERS registry.
 pub fn identify(
     root: impl AsRef<Path>,
     script: impl AsRef<Path>,
@@ -114,7 +115,7 @@ fn identify_inner(
         let mut metadata = match recognized.pop() {
             Some(metadata) => metadata,
             None => {
-                let Some(version) = java::vanilla(&launch).with_context(|| {
+                let Some(version) = vanilla::vanilla(&launch).with_context(|| {
                     format!(
                         "failed to identify vanilla server at {:?}:{}",
                         launch.script, launch.line
