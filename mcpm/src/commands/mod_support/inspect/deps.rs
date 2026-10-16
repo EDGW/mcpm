@@ -57,12 +57,7 @@ pub(super) fn write_deps(
                 style.important(text(&info.modid)),
                 style.important(text(&info.version))
             )?;
-            let source = paths
-                .parts(file.entry.path(), &record.source)
-                .iter()
-                .map(|part| style.secondary(text(part)))
-                .collect::<Vec<_>>()
-                .join(&style.important("!"));
+            let source = paths.format(file.entry.path(), &record.source, &style);
             writeln!(output, "{}{source}", style.secondary("  Source: "))?;
             if info.dependencies.is_empty() {
                 writeln!(

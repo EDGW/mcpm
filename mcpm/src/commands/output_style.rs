@@ -75,7 +75,7 @@ impl OutputStyle {
         self.paint(name, style)
     }
 
-    fn paint(&self, value: impl Display, style: Style) -> String {
+    pub(super) fn paint(&self, value: impl Display, style: Style) -> String {
         if self.color {
             style.style(value).to_string()
         } else {

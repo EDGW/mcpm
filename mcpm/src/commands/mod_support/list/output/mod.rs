@@ -204,21 +204,11 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
 }
 
 fn filename(source: &[String], outer: &Path, paths: &PathArgs) -> Vec<Piece> {
-    if source.is_empty() {
-        vec![Piece::new(
-            outer.file_name().unwrap_or_default().to_string_lossy(),
-            Style::new().bright_black(),
-        )]
-    } else {
-        let mut pieces = Vec::new();
-        for (index, part) in paths.parts(outer, source).iter().enumerate() {
-            if index > 0 {
-                pieces.push(Piece::new("!", Style::new().bright_white().bold()));
-            }
-            pieces.push(Piece::new(part, Style::new().bright_black()));
-        }
-        pieces
-    }
+    paths
+        .pieces(outer, source)
+        .into_iter()
+        .map(|(part, style)| Piece::new(part, style))
+        .collect()
 }
 
 fn loader_piece(loader: &ModLoaderMeta) -> Piece {

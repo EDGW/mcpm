@@ -4,6 +4,7 @@ use std::io::{self, Write};
 
 use super::super::dependency_output::{format_dependency, text};
 use super::super::mod_records::{self, RecordKey};
+use super::super::source_path;
 use crate::commands::output_style::OutputStyle;
 
 use kako_mods_lib::local::mcmod::{ModFile, ModStatus};
@@ -61,6 +62,12 @@ pub(super) fn write_info(
                 "{}{}",
                 style.secondary("  Version: "),
                 style.important(text(&info.version))
+            )?;
+            writeln!(
+                output,
+                "{}{}",
+                style.secondary("  Source: "),
+                source_path::full(file.entry.path(), &record.source, &style)
             )?;
             if info.dependencies.is_empty() {
                 writeln!(output, "{}", style.secondary("  Dependencies: none"))?;

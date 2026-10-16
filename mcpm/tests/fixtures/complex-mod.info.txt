@@ -5,6 +5,7 @@ Loader: Forge
   Name: Complex Mod / Forge
   ID: omnibus
   Version: 3.2.1+forge
+  Source: complex-mod.jar
   Dependencies:
     required: forge: >=52 [side=both; ordering=none]
     required: minecraft: (>=1.21 && <1.22) [side=both; ordering=none]
@@ -14,39 +15,46 @@ Loader: Forge
   Name: Forge Tools
   ID: forge_tools
   Version: 3.2.1
+  Source: complex-mod.jar
   Dependencies:
     optional: preferred_api: recommended(2.0) [side=both; ordering=none]
 
   Name: Nested Module
   ID: omnibus_nested
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/child.jar
   Dependencies:
     required: omnibus_leaf: >=1 [side=both; ordering=none]
 
   Name: Leaf with no dependencies
   ID: omnibus_leaf
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar
   Dependencies: none
 
   Name: Extension One
   ID: omnibus_extension
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none
 
   Name: Extension Two
   ID: extension_two
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none
 
   Name: Extension Three
   ID: extension_three
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none
 
 Loader: NeoForge
   Name: Complex Mod / NeoForge
   ID: omnibus
   Version: 3.2.1
+  Source: complex-mod.jar
   Dependencies:
     required: neoforge: >=21.1 [side=both; ordering=none]
     required: minecraft: (>=1.21.1 && <1.22) [side=both; ordering=none]
@@ -57,38 +65,45 @@ Loader: NeoForge
   Name: NeoForge Tools
   ID: neo_tools
   Version: 1.0.0
+  Source: complex-mod.jar
   Dependencies: none
 
   Name: Nested Module
   ID: omnibus_nested
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/child.jar
   Dependencies:
     required: omnibus_leaf: >=1 [side=both; ordering=none]
 
   Name: Leaf with no dependencies
   ID: omnibus_leaf
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar
   Dependencies: none
 
   Name: Extension One
   ID: omnibus_extension
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none
 
   Name: Extension Two
   ID: extension_two
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none
 
   Name: Extension Three
   ID: extension_three
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none
 
 Loader: Fabric
   Name: Complex Mod / Fabric
   ID: omnibus
   Version: 3.2.1+fabric
+  Source: complex-mod.jar
   Dependencies:
     required: api: ((>=1.0 && <2.0) || ^3.0)
     required: bounded_api: (>1.0 && <=2.0)
@@ -107,15 +122,18 @@ Loader: Fabric
   Name: Nested Module
   ID: omnibus_nested
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/child.jar
   Dependencies:
     required: omnibus_leaf: >=1
 
   Name: Leaf with no dependencies
   ID: omnibus_leaf
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/child.jar!META-INF/jars/grandchild.jar
   Dependencies: none
 
   Name: Extension One
   ID: omnibus_extension
   Version: 1.0.0
+  Source: complex-mod.jar!META-INF/jars/extension.jar
   Dependencies: none
