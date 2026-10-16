@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, path::PathBuf};
 
-use anyhow::{Context, Result, ensure};
+use thiserror::Error;
 
 /// A Java launch parsed without executing the script. Paths are absolute and resolved
 /// against the statically known JVM working directory. Application and JVM arguments
@@ -25,37 +25,6 @@ pub struct ServerLaunch {
 }
 
 impl ServerLaunch {
-    /// Extracts one option from `--name value` or `--name=value` declarations.
-    /// Repeated identical values are accepted; conflicting values remain ambiguous.
-    /// This queries identity evidence without validating the command as a whole.
-    pub fn option(&self, name: &str) -> Result<Option<&str>> {
-        let mut found = None;
-        for (index, arg) in self.game_arguments.iter().enumerate() {
-            let value = if arg == name {
-                Some(
-                    self.game_arguments
-                        .get(index + 1)
-                        .with_context(|| format!("missing game option value for {name}"))?
-                        .as_str(),
-                )
-            } else {
-                arg.strip_prefix(&format!("{name}="))
-            };
-            if let Some(value) = value {
-                ensure!(
-                    !value.trim().is_empty() && !value.starts_with('-'),
-                    "no extractable game option value for {name}"
-                );
-                ensure!(
-                    found.is_none_or(|previous| previous == value),
-                    "conflicting game option {name}"
-                );
-                found = Some(value);
-            }
-        }
-        Ok(found)
-    }
-
     pub fn resolve(&self, path: &str) -> PathBuf {
         self.directory.join(if self.path_separator == ';' {
             path.replace('\\', "/")
@@ -63,4 +32,66 @@ impl ServerLaunch {
             path.to_owned()
         })
     }
+
+    /// Extracts one option from `--name value` or `--name=value` declarations.
+    /// Repeated identical values are accepted; conflicting values remain ambiguous.
+    /// This queries identity evidence without validating the command as a whole.
+    ///
+    /// # Errors
+    /// Returns [`ServerOptionError`] when a declaration has no extractable value
+    /// or when repeated declarations contain conflicting values.
+    pub fn option(&self, name: &str) -> Result<Option<&str>, ServerOptionError> {
+        let mut found: Option<&str> = None;
+        for (index, arg) in self.game_arguments.iter().enumerate() {
+            let value = if arg == name {
+                Some(
+                    self.game_arguments
+                        .get(index + 1)
+                        .ok_or_else(|| ServerOptionError::MissingValue {
+                            name: name.to_owned(),
+                        })?
+                        .as_str(),
+                )
+            } else {
+                arg.strip_prefix(&format!("{name}="))
+            };
+            if let Some(value) = value {
+                if value.trim().is_empty() || value.starts_with('-') {
+                    return Err(ServerOptionError::UnextractableValue {
+                        name: name.to_owned(),
+                        value: value.to_owned(),
+                    });
+                }
+                if let Some(previous) = found
+                    && previous != value
+                {
+                    return Err(ServerOptionError::ConflictingValues {
+                        name: name.to_owned(),
+                        first: previous.to_owned(),
+                        second: value.to_owned(),
+                    });
+                }
+                found = Some(value);
+            }
+        }
+        Ok(found)
+    }
+}
+
+/// Failures to extract one option's identity evidence from a server command.
+#[derive(Debug, Error)]
+pub enum ServerOptionError {
+    /// A separate option declaration has no following argument.
+    #[error("missing game option value for {name}")]
+    MissingValue { name: String },
+    /// The following argument is empty or begins another option.
+    #[error("no extractable game option value for {name}: {value:?}")]
+    UnextractableValue { name: String, value: String },
+    /// Repeated declarations disagree and no precedence rule is assumed.
+    #[error("conflicting game option {name}: {first:?} versus {second:?}")]
+    ConflictingValues {
+        name: String,
+        first: String,
+        second: String,
+    },
 }

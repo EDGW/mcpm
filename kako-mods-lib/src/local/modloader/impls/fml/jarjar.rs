@@ -10,9 +10,7 @@ pub(super) const DOCUMENT: &str = "META-INF/jarjar/metadata.json";
 pub(super) fn paths(contents: &str) -> Result<Vec<String>> {
     let data: Value = serde_json::from_str(contents)?;
     metadata::object(&data, DOCUMENT, "root")?;
-    let jars = data
-        .get("jars")
-        .ok_or_else(|| metadata::invalid(DOCUMENT, "jars", "an array"))?;
+    let jars = metadata::required(&data, "jars", DOCUMENT)?;
     metadata::array(jars, DOCUMENT, "jars")?
         .iter()
         .map(|jar| {
@@ -21,9 +19,7 @@ pub(super) fn paths(contents: &str) -> Result<Vec<String>> {
                 ("identifier", ["group", "artifact"]),
                 ("version", ["range", "artifactVersion"]),
             ] {
-                let value = jar
-                    .get(field)
-                    .ok_or_else(|| metadata::invalid(DOCUMENT, field, "an object"))?;
+                let value = metadata::required(jar, field, DOCUMENT)?;
                 metadata::object(value, DOCUMENT, field)?;
                 for key in keys {
                     metadata::required_string(value, key, DOCUMENT)?;
@@ -33,7 +29,7 @@ pub(super) fn paths(contents: &str) -> Result<Vec<String>> {
                 .get("isObfuscated")
                 .is_some_and(|value| !value.is_boolean())
             {
-                return Err(metadata::invalid(DOCUMENT, "isObfuscated", "a boolean"));
+                return Err(metadata::invalid(DOCUMENT, "isObfuscated", "a boolean").into());
             }
             Ok(metadata::required_string(jar, "path", DOCUMENT)?.to_owned())
         })

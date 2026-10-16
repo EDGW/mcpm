@@ -54,7 +54,7 @@ fn identify_shim(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
     let option = |name: &str| -> Result<Option<&str>> {
         match launch.option(name)? {
             Some(value) => Ok(Some(value)),
-            None => defaults.option(name),
+            None => Ok(defaults.option(name)?),
         }
     };
     if let Some(target) = option("--launchTarget")? {

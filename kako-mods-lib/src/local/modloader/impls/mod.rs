@@ -20,3 +20,4 @@ mod utils;
 // Preserve the existing public paths while implementations live under FML.
 pub use fml::{forge, neoforge};
 pub use utils::coordinate::ClientLibraryError;
+pub use utils::metadata::MetadataFieldError;

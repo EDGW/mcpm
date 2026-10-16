@@ -39,16 +39,10 @@ pub(super) fn parse(
     let native: toml::Value =
         toml::from_str(contents).with_context(|| format!("failed to parse {document}"))?;
     let data = serde_json::to_value(native)?;
-    let declarations = data
-        .get("mods")
-        .ok_or_else(|| anyhow::anyhow!("{document}: missing mods field"))?;
+    let declarations = metadata::required(&data, "mods", document)?;
     let declarations = metadata::array(declarations, document, "mods")?;
     if declarations.is_empty() {
-        return Err(metadata::invalid(
-            document,
-            "mods",
-            "at least one mod declaration",
-        ));
+        return Err(metadata::invalid(document, "mods", "at least one mod declaration").into());
     }
     let mut mods = Vec::new();
     for declaration in declarations {
@@ -84,8 +78,9 @@ fn dependency_clauses<'a>(
     modid: &str,
     document: &str,
 ) -> Result<Option<&'a Vec<Value>>> {
-    data.get("dependencies")
+    Ok(data
+        .get("dependencies")
         .and_then(|dependencies| dependencies.get(modid))
         .map(|clauses| metadata::array(clauses, document, &format!("dependencies.{modid}")))
-        .transpose()
+        .transpose()?)
 }

@@ -16,7 +16,7 @@ use crate::local::{
 pub mod identify;
 mod launch;
 
-pub use launch::ServerLaunch;
+pub use launch::{ServerLaunch, ServerOptionError};
 mod metadata;
 
 pub use metadata::{MinecraftServerMetadata, ServerModLoader, ServerStartCommand};
