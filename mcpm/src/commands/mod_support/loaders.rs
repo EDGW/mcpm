@@ -1,3 +1,5 @@
+//! CLI loader selection and stable ordering of identified metadata.
+
 use std::collections::HashMap;
 
 use clap::{Args, ValueEnum};
@@ -7,7 +9,7 @@ use kako_mods_lib::local::{
 };
 
 #[derive(Args)]
-pub(super) struct LoaderArgs {
+pub(in crate::commands) struct LoaderArgs {
     /// Select one loader; repeat to select multiple loaders.
     #[arg(long = "loader", value_enum, value_name = "LOADER")]
     loader: Vec<Loader>,
@@ -39,11 +41,11 @@ impl Loader {
 }
 
 impl LoaderArgs {
-    pub(super) fn is_filtered(&self) -> bool {
+    pub(in crate::commands) fn is_filtered(&self) -> bool {
         !self.loader.is_empty() || !self.loaders.is_empty()
     }
 
-    pub(super) fn select(&self) -> HashMap<LoaderId, ModLoaderMeta> {
+    pub(in crate::commands) fn select(&self) -> HashMap<LoaderId, ModLoaderMeta> {
         if !self.is_filtered() {
             return BUILTIN_LOADERS.clone();
         }
@@ -61,7 +63,7 @@ impl LoaderArgs {
 }
 
 /// Keeps console output stable independently of hash map iteration order.
-pub(super) fn sort_metadata(file: &mut ModFile) {
+pub(in crate::commands) fn sort_metadata(file: &mut ModFile) {
     file.metadata.sort_by(|left, right| {
         display_order(left.loader.id())
             .cmp(&display_order(right.loader.id()))

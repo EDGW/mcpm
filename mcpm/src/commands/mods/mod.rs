@@ -1,16 +1,18 @@
-mod dep_graph;
-mod dependency_output;
-mod deps;
-mod ignored_output;
-mod info;
-mod list;
-mod loaders;
-mod mod_records;
-use super::output_style;
-mod source_path;
+//! Commands for inspecting user-selected mod files and directories.
+
+use super::{
+    mod_support::{ignored_output, loaders, mod_records, source_path},
+    output_style,
+};
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
+
+mod dep_graph;
+mod dependency_output;
+mod deps;
+mod info;
+mod list;
 
 #[derive(Args)]
 pub(crate) struct ModArgs {

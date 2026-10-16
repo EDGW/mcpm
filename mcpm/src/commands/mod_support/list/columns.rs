@@ -1,3 +1,5 @@
+//! Column selection for shared mod list rendering.
+
 use clap::{Args, ValueEnum};
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]

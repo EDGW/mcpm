@@ -1,3 +1,5 @@
+//! Terminal summaries for mod files excluded by loader selection.
+
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -5,7 +7,7 @@ use owo_colors::Style;
 
 use crate::terminal;
 
-pub(super) fn write_loader_filtered(
+pub(in crate::commands) fn write_loader_filtered(
     output: &mut impl Write,
     count: usize,
     files: &[PathBuf],

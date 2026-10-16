@@ -1,4 +1,7 @@
+//! CLI command dispatch and shared presentation support.
+
 pub(crate) mod client;
+mod mod_support;
 pub(crate) mod mods;
 mod output_style;
 pub(crate) mod server;

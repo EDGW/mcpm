@@ -5,7 +5,7 @@ use kako_mods_lib::local::{
     modloader::ModLoaderMeta,
 };
 
-pub(super) struct ModRecord<'a> {
+pub(in crate::commands) struct ModRecord<'a> {
     pub index: String,
     pub loader: &'a ModLoaderMeta,
     pub info: &'a ModInfo,
@@ -14,7 +14,7 @@ pub(super) struct ModRecord<'a> {
     pub native_index: Option<usize>,
 }
 
-pub(super) fn collect<'a>(metadata: &'a ModMeta, prefix: &str) -> Vec<ModRecord<'a>> {
+pub(in crate::commands) fn collect<'a>(metadata: &'a ModMeta, prefix: &str) -> Vec<ModRecord<'a>> {
     let mut records = Vec::new();
     append(
         metadata,

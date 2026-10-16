@@ -1,3 +1,5 @@
+//! Flat and tree indices for mod list records.
+
 use clap::ValueEnum;
 use owo_colors::Style;
 use unicode_width::UnicodeWidthStr;

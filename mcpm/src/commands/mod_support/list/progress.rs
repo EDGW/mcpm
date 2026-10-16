@@ -1,3 +1,5 @@
+//! Delayed progress display and diagnostics for mod listing.
+
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;

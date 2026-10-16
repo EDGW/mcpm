@@ -1,9 +1,11 @@
+//! Shared archive path display options for mod commands.
+
 use std::path::Path;
 
 use clap::{Args, ValueEnum};
 
 #[derive(Args)]
-pub(super) struct PathArgs {
+pub(in crate::commands) struct PathArgs {
     /// Show the innermost filename, full archive chain, or outer filename.
     #[arg(long, value_enum, default_value = "full", value_name = "STYLE")]
     path_style: PathStyle,
@@ -18,7 +20,7 @@ enum PathStyle {
 
 impl PathArgs {
     /// Separate archive levels so renderers can highlight only the separators.
-    pub(super) fn parts(&self, outer: &Path, nested: &[String]) -> Vec<String> {
+    pub(in crate::commands) fn parts(&self, outer: &Path, nested: &[String]) -> Vec<String> {
         let outer_filename = || {
             outer
                 .file_name()

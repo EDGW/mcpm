@@ -1,3 +1,5 @@
+//! Width-aware terminal layout for mod list rows.
+
 use std::io::{self, Write};
 
 use textwrap::{Options, WordSeparator, WordSplitter, WrapAlgorithm};

@@ -1,3 +1,5 @@
+//! Resolves user-supplied files and directories into mod entries.
+
 use std::fs;
 use std::path::PathBuf;
 

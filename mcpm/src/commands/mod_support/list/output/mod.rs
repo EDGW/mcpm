@@ -1,3 +1,5 @@
+//! Mod list rows, styles and rendering independent of command input.
+
 use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::Path;
