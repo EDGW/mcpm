@@ -135,6 +135,36 @@ fn fml_uses_command_evidence_without_opening_dependency_jars() {
 }
 
 #[test]
+fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
+    for case in ["fabric", "fabric-version-conflict", "fabric-auto"] {
+        let temp = TempDir::new().unwrap();
+        copy(&fixture(case), temp.path());
+        let libraries = temp.path().join("libraries");
+        if libraries.exists() {
+            fs::remove_dir_all(libraries).unwrap();
+            // The intermediary coordinate already supplies the game version.
+            fs::remove_file(temp.path().join("server.jar")).unwrap();
+        }
+        let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
+        assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1", "{case}");
+        assert_eq!(
+            candidates[0].metadata.loader.as_ref().unwrap().version,
+            "0.16.10",
+            "{case}"
+        );
+    }
+    // A direct KnotServer command has identity evidence, but still needs versions.
+    let temp = TempDir::new().unwrap();
+    copy(&fixture("fabric"), temp.path());
+    fs::write(temp.path().join("run.sh"), "java -cp libraries/net/fabricmc/fabric-loader/0.16.10/fabric-loader-0.16.10.jar net.fabricmc.loader.impl.launch.knot.KnotServer\n").unwrap();
+    fs::remove_dir_all(temp.path().join("libraries")).unwrap();
+    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
+    assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1");
+    fs::remove_file(temp.path().join("server.jar")).unwrap();
+    assert!(identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).is_err());
+}
+
+#[test]
 fn identification_logs_explain_command_evidence_on_stderr() {
     let temp = TempDir::new().unwrap();
     copy(&fixture("neoforge"), temp.path());
@@ -198,11 +228,6 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
             "duplicate or invalid game option",
         ),
         ("client-target", "run.sh", "not a production server"),
-        (
-            "fabric-version-conflict",
-            "run.sh",
-            "conflicting Minecraft version",
-        ),
         (
             "fabric-auto-missing-version",
             "run.sh",

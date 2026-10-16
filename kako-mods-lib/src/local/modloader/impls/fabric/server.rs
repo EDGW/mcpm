@@ -5,7 +5,17 @@ use crate::local::{
 };
 use anyhow::{Context, Result, ensure};
 
+/// 1. Reject unsupported overrides on Fabric entries.
+/// 2. Select a supported Fabric server entry.
+///    - Installer entry: call [`automatic`].
+///    - Ordinary server entry: inspect declared Maven paths.
+///    - Other entries: return `None`.
+/// 3. Read loader and Minecraft versions from declared coordinates.
+///    - Missing loader version: read shaded metadata from the launch JAR.
+///    - Missing game version: read metadata from the selected game JAR.
+/// 4. Log and return the identity; missing or conflicting evidence returns an error.
 pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdentity>> {
+    // Overrides that change loader identity or launch mode need their own recognition rules.
     if launch.main_class.starts_with("net.fabricmc.") {
         for property in [
             "fabric.development",
@@ -19,9 +29,11 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
             );
         }
     }
+    // Installer launchers keep their version declarations inside the launch JAR.
     if launch.main_class == "net.fabricmc.installer.ServerLauncher" {
         return automatic(launch).map(Some);
     }
+    // Ordinary Fabric server entry classes are sufficient loader identity evidence.
     if !matches!(
         launch.main_class.as_str(),
         "net.fabricmc.loader.impl.launch.server.FabricServerLauncher"
@@ -34,115 +46,83 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
     let mut loader = None;
     let mut mc = None;
     let mut paths = launch.classpath.clone();
+    // Coordinates provide version evidence without opening dependency JARs.
     if let Some(jar) = &launch.jar {
         paths.push(jar.clone());
-        if let Some(bytes) = archive::read(jar, "fabric-server-launch.properties")? {
-            let props = archive::properties(&bytes)?;
-            ensure!(
-                matches!(
-                    props.get("launch.mainClass").map(String::as_str),
-                    Some(
-                        "net.fabricmc.loader.impl.launch.knot.KnotServer"
-                            | "net.fabricmc.loader.launch.knot.KnotServer"
-                    )
-                ),
-                "unrecognized Fabric launch.mainClass"
-            );
-        }
     }
-    let mut entry_verified = false;
     for path in &paths {
         if let Some(version) = coordinate(path, "net.fabricmc", "fabric-loader") {
-            verify_loader(path, &version)?;
+            tracing::debug!(?path, %version, "found Fabric loader coordinate");
             agree(&mut loader, &version, "Fabric loader version")?;
-            entry_verified |= archive::has(
-                path,
-                &format!("{}.class", launch.main_class.replace('.', "/")),
-            )?;
         } else if let Some(version) = coordinate(path, "net.fabricmc", "intermediary") {
-            ensure!(
-                archive::has(path, "mappings/mappings.tiny")?,
-                "referenced intermediary JAR has no mappings"
-            );
+            tracing::debug!(?path, %version, "found Fabric game version coordinate");
             agree(&mut mc, &version, "Minecraft version")?;
-        } else if Some(path) == launch.jar.as_ref() {
-            // Old installers shaded the loader and intermediary into the launch JAR.
-            if let Some(bytes) = archive::read(path, "fabric.mod.json")? {
-                let json: serde_json::Value = serde_json::from_slice(&bytes)?;
-                if json.get("id").and_then(|v| v.as_str()) == Some("fabricloader") {
-                    let version = json
-                        .get("version")
-                        .and_then(|v| v.as_str())
-                        .context("shaded Fabric version is missing")?;
-                    agree(&mut loader, version, "Fabric loader version")?;
-                    entry_verified |= archive::has(
-                        path,
-                        &format!("{}.class", launch.main_class.replace('.', "/")),
-                    )?;
-                }
+        }
+    }
+    // Older shaded launchers need embedded metadata only when coordinates are insufficient.
+    if loader.is_none()
+        && let Some(jar) = &launch.jar
+    {
+        tracing::debug!(?jar, "reading shaded Fabric loader version");
+        if let Some(bytes) = archive::read(jar, "fabric.mod.json")? {
+            let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+            if json.get("id").and_then(|v| v.as_str()) == Some("fabricloader") {
+                let version = json
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .context("shaded Fabric version is missing")?;
+                agree(&mut loader, version, "Fabric loader version")?;
             }
         }
     }
-    ensure!(
-        entry_verified,
-        "Fabric entry class is absent from the referenced loader"
-    );
-    // The game JAR is selected by a JVM property or loader properties, never by scanning.
-    let game = if let Some(value) = launch.properties.get("fabric.gameJarPath") {
-        launch.resolve(value)
-    } else {
-        let props_path = launch.directory.join("fabric-server-launcher.properties");
-        let props = match std::fs::read(&props_path) {
-            Ok(bytes) => archive::properties(&bytes)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
-            Err(error) => {
-                return Err(error).with_context(|| format!("failed to read {props_path:?}"));
-            }
+    let loader = loader.context("Fabric loader version is missing")?;
+    // Read the selected game JAR only when no intermediary coordinate supplies its version.
+    if mc.is_none() {
+        // The game JAR is selected by a JVM property or loader properties, never by scanning.
+        let game = if let Some(value) = launch.properties.get("fabric.gameJarPath") {
+            launch.resolve(value)
+        } else {
+            let props_path = launch.directory.join("fabric-server-launcher.properties");
+            let props = match std::fs::read(&props_path) {
+                Ok(bytes) => archive::properties(&bytes)?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
+                Err(error) => {
+                    return Err(error).with_context(|| format!("failed to read {props_path:?}"));
+                }
+            };
+            launch.resolve(
+                props
+                    .get("serverJar")
+                    .map(String::as_str)
+                    .unwrap_or("server.jar"),
+            )
         };
-        launch.resolve(
-            props
-                .get("serverJar")
-                .map(String::as_str)
-                .unwrap_or("server.jar"),
-        )
-    };
-    let game_version =
-        archive::minecraft_version(&game)?.context("Fabric's game JAR lacks version metadata")?;
-    agree(&mut mc, &game_version, "Minecraft version")?;
+        tracing::debug!(
+            ?game,
+            "reading Fabric game version because no intermediary coordinate is declared"
+        );
+        let game_version = archive::minecraft_version(&game)?
+            .context("Fabric's game JAR lacks version metadata")?;
+        agree(&mut mc, &game_version, "Minecraft version")?;
+    }
+    let minecraft_version = mc.context("Fabric Minecraft version is missing")?;
+    tracing::debug!(%minecraft_version, loader_version = %loader, "identified Fabric server from launch evidence");
     Ok(Some(ServerLoaderIdentity {
-        minecraft_version: mc.unwrap(),
-        version: loader.context("Fabric loader version is missing")?,
+        minecraft_version,
+        version: loader,
     }))
 }
 
-fn verify_loader(path: &std::path::Path, version: &str) -> Result<()> {
-    let bytes = archive::read(path, "fabric.mod.json")?
-        .context("referenced Fabric loader has no metadata")?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-    ensure!(
-        value.get("id").and_then(|v| v.as_str()) == Some("fabricloader"),
-        "referenced JAR is not Fabric Loader"
-    );
-    ensure!(
-        value.get("version").and_then(|v| v.as_str()) == Some(version),
-        "Fabric loader metadata disagrees with Maven coordinate"
-    );
-    Ok(())
-}
-
+/// 1. Require an explicit installer launch JAR.
+/// 2. Read loader and game versions from its embedded install.properties.
+/// 3. Log and return the identity; missing or empty versions return an error.
 fn automatic(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
     let jar = launch
         .jar
         .as_ref()
         .context("Fabric automatic launcher must be a JAR entry")?;
-    ensure!(
-        archive::has(jar, "net/fabricmc/installer/ServerLauncher.class")?,
-        "Fabric automatic launcher class is missing"
-    );
-    ensure!(
-        !launch.properties.contains_key("fabric.customLoaderPath"),
-        "custom Fabric loader overrides cannot be identified automatically"
-    );
+    // The installer entry establishes identity; embedded properties supply versions.
+    tracing::debug!(?jar, "reading Fabric installer version declarations");
     let props = archive::properties(
         &archive::read(jar, "install.properties")?
             .context("Fabric install.properties is missing")?,
@@ -155,14 +135,8 @@ fn automatic(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
         .get("game-version")
         .filter(|s| !s.trim().is_empty())
         .context("Fabric Minecraft version is missing")?;
-    if let Some(custom_game) = launch.properties.get("fabric.installer.server.gameJar") {
-        let found = archive::minecraft_version(&launch.resolve(custom_game))?
-            .context("custom Fabric game JAR lacks version metadata")?;
-        ensure!(
-            found == *mc,
-            "custom Fabric game JAR version conflicts with install.properties"
-        );
-    }
+    // Installation integrity and custom game JAR contents are outside identification.
+    tracing::debug!(minecraft_version = %mc, loader_version = %version, "identified Fabric installer server");
     Ok(ServerLoaderIdentity {
         minecraft_version: mc.clone(),
         version: version.clone(),

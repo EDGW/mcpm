@@ -98,9 +98,14 @@ Failure examples are intentionally preserved for inspection:
 | `no-java` | Script contains no Java launch |
 | `duplicate-version` | Multiple declarations of the same game version option |
 | `client-target` | Client entry cannot initialize a production server |
-| `fabric-version-conflict` | Fabric intermediary and game JAR versions disagree |
 | `fabric-auto-missing-version` | Automatic launcher lacks loader version configuration |
 
 Every failure is also tried with `--force` to verify that the old configuration
 survives. Multiple candidates are rejected in non-TTY/raw mode. Unknown JVM flags
 are retained in the full command and do not themselves cause rejection.
+
+Fabric server identification trusts declared loader/intermediary coordinates without
+opening dependency JARs. `fabric-version-conflict` succeeds using the intermediary
+version; the selected game JAR is read only if that version evidence is absent.
+Installer launchers read embedded install.properties; shaded loader metadata is
+read only when no loader coordinate supplies a version.
