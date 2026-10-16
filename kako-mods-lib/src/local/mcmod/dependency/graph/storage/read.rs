@@ -1,3 +1,5 @@
+//! Reads and validates versioned snapshots, restoring graph data and diagnostics.
+
 use std::{collections::HashMap, io::Read, sync::Arc};
 
 use serde::{Deserialize, de::DeserializeOwned};
@@ -9,8 +11,8 @@ use crate::local::{
 
 use super::super::{
     DependencyGraph,
-    build::IdentificationFailure,
     candidate::{DependencyCandidate, ExternalCandidate, NestedModCandidate, PrimaryModCandidate},
+    diagnostic::IdentificationFailure,
     edge::{NestedEdge, PrimaryEdge},
     identifier::DependencyIdentifier,
     node::DependencyNode,

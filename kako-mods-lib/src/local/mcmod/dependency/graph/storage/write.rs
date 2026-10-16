@@ -8,13 +8,14 @@ use serde::Serialize;
 use crate::local::mcmod::{ModInfo, dependency::Dependency};
 
 use super::super::{
-    DependencyGraph, candidate::DependencyCandidate, identifier::DependencyIdentifier,
+    DependencyGraph, candidate::DependencyCandidate, diagnostic::IdentificationFailure,
+    identifier::DependencyIdentifier,
 };
 
 #[derive(Serialize)]
 struct Snapshot<'a> {
     format_version: u64,
-    identification_failures: &'a [super::super::build::IdentificationFailure],
+    identification_failures: &'a [IdentificationFailure],
     nodes: Vec<Node<'a>>,
 }
 

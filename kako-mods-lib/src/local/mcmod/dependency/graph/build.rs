@@ -1,7 +1,8 @@
-use std::{collections::HashMap, path::PathBuf};
+//! Builds dependency graphs from directories, retaining skipped identification failures.
+
+use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 
 use crate::local::{
     mcmod::{self, IdentificationErrorAction, ModDirectory},
@@ -10,15 +11,8 @@ use crate::local::{
 
 use super::DependencyGraph;
 
-/// A skipped identification failure, retained as snapshot diagnostics.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct IdentificationFailure {
-    pub path: PathBuf,
-    pub loader: String,
-    /// Context and cause chain supplied by the loader.
-    pub error: String,
-}
+// Preserve the original public path for graph diagnostics.
+pub use super::diagnostic::IdentificationFailure;
 
 /// Builds a declaration graph from a directory and its declared nested archives.
 /// Files not recognized by the supplied loaders are ignored. Identification

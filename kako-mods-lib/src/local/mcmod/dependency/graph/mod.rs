@@ -1,15 +1,19 @@
+//! Dependency declaration graph and access to its candidates, relations and diagnostics.
+
 use std::{collections::HashMap, sync::Arc};
 
 use crate::local::mcmod::ModMeta;
 
 use self::{
     candidate::{DependencyCandidate, ExternalCandidate, to_candidates},
+    diagnostic::IdentificationFailure,
     identifier::DependencyIdentifier,
     node::{DependencyNode, IncomingEdge},
 };
 
 pub mod build;
 pub mod candidate;
+pub mod diagnostic;
 pub mod edge;
 pub mod identifier;
 pub mod node;
@@ -20,7 +24,7 @@ mod traversal;
 #[derive(Debug, Default)]
 pub struct DependencyGraph {
     nodes: HashMap<DependencyIdentifier, DependencyNode>,
-    identification_failures: Vec<build::IdentificationFailure>,
+    identification_failures: Vec<IdentificationFailure>,
 }
 
 impl DependencyGraph {
@@ -81,7 +85,7 @@ impl DependencyGraph {
         self.nodes.values()
     }
 
-    pub fn identification_failures(&self) -> &[build::IdentificationFailure] {
+    pub fn identification_failures(&self) -> &[IdentificationFailure] {
         &self.identification_failures
     }
 }
