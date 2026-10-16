@@ -1,4 +1,8 @@
 //! Fabric mod metadata, schema-specific dependencies and declared nested JARs.
+//!
+//! Version strings follow Fabric's VersionParser: nonempty text is preserved,
+//! including non-SemVer strings; neither Manifest lookup nor FML expansion applies.
+//! <https://github.com/FabricMC/fabric-loader/blob/master/src/main/java/net/fabricmc/loader/impl/util/version/VersionParser.java>
 
 use std::path::Path;
 
@@ -60,7 +64,13 @@ fn parse(contents: &str) -> Result<ModInfo> {
     let data: Value = serde_json::from_str(contents)?;
     metadata::object(&data, document, "root")?;
     let modid = metadata::required_string(&data, "id", document)?.to_owned();
-    let version = metadata::required_string(&data, "version", document)?.to_owned();
+    // Fabric VersionParser requires a nonempty string, then accepts either
+    // SemanticVersion or StringVersion. It does not expand FML placeholders.
+    let version = metadata::required_string(&data, "version", document)?;
+    if version.is_empty() {
+        return Err(metadata::invalid(document, "version", "a non-empty string").into());
+    }
+    let version = version.to_owned();
     let name = metadata::optional_string(&data, "name", document)?
         .unwrap_or(&modid)
         .to_owned();

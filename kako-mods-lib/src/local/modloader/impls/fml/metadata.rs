@@ -50,6 +50,7 @@ pub(super) fn parse(
         let name = metadata::optional_string(declaration, "displayName", document)?
             .unwrap_or(&modid)
             .to_owned();
+        // Forge and NeoForge ModInfo both default an absent version to "1".
         let version = metadata::optional_string(declaration, "version", document)?
             .unwrap_or("1")
             .to_owned();

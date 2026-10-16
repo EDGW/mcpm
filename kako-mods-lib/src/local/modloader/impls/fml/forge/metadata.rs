@@ -63,16 +63,21 @@ pub(super) fn read_archive(
             }
         })?;
     for info in &mut mods {
-        info.version = version::resolve(&info.version, &contents, || {
-            archive::read(archive, "META-INF/MANIFEST.MF").map_err(|source| {
-                ForgeError::ReadMetadata {
-                    path: path.to_owned(),
-                    document: "META-INF/MANIFEST.MF",
-                    source,
-                }
-                .into()
-            })
-        })
+        info.version = version::resolve(
+            version::VersionFormat::Forge,
+            &info.version,
+            &contents,
+            || {
+                archive::read(archive, "META-INF/MANIFEST.MF").map_err(|source| {
+                    ForgeError::ReadMetadata {
+                        path: path.to_owned(),
+                        document: "META-INF/MANIFEST.MF",
+                        source,
+                    }
+                    .into()
+                })
+            },
+        )
         .map_err(|source| ForgeError::ResolveVersion {
             path: path.to_owned(),
             document,

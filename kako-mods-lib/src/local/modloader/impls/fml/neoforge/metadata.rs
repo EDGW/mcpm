@@ -76,16 +76,21 @@ pub(super) fn read_archive(
         }
     })?;
     for info in &mut mods {
-        info.version = version::resolve(&info.version, &contents, || {
-            archive::read(archive, "META-INF/MANIFEST.MF").map_err(|source| {
-                NeoForgeError::ReadMetadata {
-                    path: path.to_owned(),
-                    document: "META-INF/MANIFEST.MF",
-                    source,
-                }
-                .into()
-            })
-        })
+        info.version = version::resolve(
+            version::VersionFormat::NeoForge,
+            &info.version,
+            &contents,
+            || {
+                archive::read(archive, "META-INF/MANIFEST.MF").map_err(|source| {
+                    NeoForgeError::ReadMetadata {
+                        path: path.to_owned(),
+                        document: "META-INF/MANIFEST.MF",
+                        source,
+                    }
+                    .into()
+                })
+            },
+        )
         .map_err(|source| NeoForgeError::ResolveVersion {
             path: path.to_owned(),
             document,
