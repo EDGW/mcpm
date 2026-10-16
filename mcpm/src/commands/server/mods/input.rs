@@ -11,7 +11,7 @@ use kako_mods_lib::local::{
 };
 use thiserror::Error;
 
-use crate::commands::mod_support::selection::{Scope, SelectionArgs};
+use crate::commands::mod_support::selection::{Scope, SelectionArgs, StdinArgs};
 
 /// Registered server and loader scope shared by server mod commands.
 pub(super) struct ServerMods {
@@ -54,12 +54,14 @@ pub(super) struct FileArgs {
     path: PathBuf,
     #[command(flatten)]
     files: SelectionArgs,
+    #[command(flatten)]
+    stdin: StdinArgs,
 }
 
 impl FileArgs {
-    /// Appends stdin queries using automatic filename, modid, then name matching.
+    /// Appends stdin queries using the requested interpretation.
     pub(super) fn with_stdin(mut self) -> Result<Self> {
-        self.files = self.files.with_stdin()?;
+        self.files = self.stdin.read(self.files)?;
         Ok(self)
     }
 

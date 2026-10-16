@@ -3,7 +3,7 @@
 use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::Result;
-use clap::{ArgMatches, Args, Command, FromArgMatches};
+use clap::{ArgMatches, Args, Command, FromArgMatches, ValueEnum};
 use thiserror::Error;
 
 use super::{Query, QueryKind};
@@ -15,13 +15,17 @@ pub(in crate::commands) struct SelectionArgs {
 }
 
 impl SelectionArgs {
-    pub(in crate::commands) fn with_stdin(mut self) -> Result<Self> {
+    pub(in crate::commands) fn with_stdin(self) -> Result<Self> {
+        self.with_stdin_kind(QueryKind::Auto)
+    }
+
+    fn with_stdin_kind(mut self, kind: QueryKind) -> Result<Self> {
         let paths = super::super::stdin::append(Vec::new())?;
         if self.all && !paths.is_empty() {
             return Err(AllWithQueries.into());
         }
         self.queries.extend(paths.into_iter().map(|value| Query {
-            kind: QueryKind::Auto,
+            kind,
             value: value.into_os_string(),
         }));
         Ok(self)
@@ -34,6 +38,34 @@ impl SelectionArgs {
     pub(in crate::commands) fn is_empty(&self) -> bool {
         !self.all && self.queries.is_empty()
     }
+}
+
+/// Interpretation of stdin lines, independent of positional and explicit CLI selectors.
+#[derive(Args)]
+pub(in crate::commands) struct StdinArgs {
+    /// Interpret stdin lines as names, files, modids, or automatic filename/modid/name queries.
+    #[arg(long, value_enum, default_value = "unspecified", value_name = "TYPE")]
+    input: StdinKind,
+}
+
+impl StdinArgs {
+    pub(in crate::commands) fn read(&self, selection: SelectionArgs) -> Result<SelectionArgs> {
+        let kind = match self.input {
+            StdinKind::Name => QueryKind::Name,
+            StdinKind::File => QueryKind::File,
+            StdinKind::Modid => QueryKind::ModId,
+            StdinKind::Unspecified => QueryKind::Auto,
+        };
+        selection.with_stdin_kind(kind)
+    }
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum StdinKind {
+    Name,
+    File,
+    Modid,
+    Unspecified,
 }
 
 #[derive(Args)]

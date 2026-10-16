@@ -9,7 +9,7 @@ use super::input::FileArgs;
 
 #[derive(Args)]
 #[command(
-    after_help = "Additional inputs are read from redirected stdin, one per line, using filename, modid, then name matching."
+    after_help = "Additional inputs are read from redirected stdin, one per line; --input sets their interpretation (default: filename, modid, then name matching)."
 )]
 pub(super) struct InfoArgs {
     #[command(flatten)]

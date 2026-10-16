@@ -16,7 +16,7 @@ use super::{
 };
 
 mod args;
-pub(in crate::commands) use args::SelectionArgs;
+pub(in crate::commands) use args::{SelectionArgs, StdinArgs};
 
 #[derive(Clone, Copy)]
 pub(super) enum QueryKind {
