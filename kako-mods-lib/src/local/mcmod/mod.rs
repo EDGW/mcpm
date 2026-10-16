@@ -17,6 +17,9 @@ pub mod dependency;
 mod version_constraint;
 mod version_operator;
 
+mod container;
+pub use container::*;
+
 pub use version_constraint::VersionConstraint;
 pub use version_operator::VersionOperator;
 

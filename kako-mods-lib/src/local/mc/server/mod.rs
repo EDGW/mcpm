@@ -8,7 +8,10 @@ use std::{
 
 use thiserror::Error;
 
-use crate::local::modloader::{BUILTIN_LOADERS, LoaderInfo};
+use crate::local::{
+    mcmod::{ModContainer, ModDirectory},
+    modloader::{BUILTIN_LOADERS, LoaderInfo},
+};
 
 pub mod identify;
 mod metadata;
@@ -22,10 +25,12 @@ pub struct MinecraftServer {
     path: PathBuf,
     name: String,
     metadata: MinecraftServerMetadata,
+    mods: Option<ModContainer>,
 }
 
 impl MinecraftServer {
-    /// Reads the required metadata without creating files or guessing loader information.
+    /// Reads and validates metadata, then creates a missing `mods` directory for
+    /// a recognized built-in loader. Vanilla and unknown loaders create no directory.
     /// Paths are retained as supplied; `~` is not expanded.
     pub fn load(path: impl Into<PathBuf>) -> Result<Self, MinecraftServerError> {
         let path = path.into();
@@ -35,16 +40,19 @@ impl MinecraftServer {
             path: manifest.clone(),
             source,
         })?;
-        let metadata = serde_json::from_slice(&bytes).map_err(|source| {
-            MinecraftServerError::ParseMetadata {
-                path: manifest,
-                source,
-            }
-        })?;
+        let metadata: MinecraftServerMetadata =
+            serde_json::from_slice(&bytes).map_err(|source| {
+                MinecraftServerError::ParseMetadata {
+                    path: manifest,
+                    source,
+                }
+            })?;
+        let mods = mod_container(&path, &metadata)?;
         Ok(Self {
             path,
             name,
             metadata,
+            mods,
         })
     }
 
@@ -76,12 +84,15 @@ impl MinecraftServer {
         let mut bytes = serde_json::to_vec_pretty(&metadata)
             .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
         // Validate public, caller-constructed metadata before writing anything.
-        let metadata = serde_json::from_slice(&bytes).map_err(|source| {
-            MinecraftServerError::ParseMetadata {
-                path: manifest.clone(),
-                source,
-            }
-        })?;
+        let metadata: MinecraftServerMetadata =
+            serde_json::from_slice(&bytes).map_err(|source| {
+                MinecraftServerError::ParseMetadata {
+                    path: manifest.clone(),
+                    source,
+                }
+            })?;
+        // Validate the optional mod directory before changing registration metadata.
+        let mods = mod_container(&path, &metadata)?;
         bytes.push(b'\n');
         let write = || -> io::Result<()> {
             let directory = path.join(".mcpm");
@@ -105,6 +116,7 @@ impl MinecraftServer {
             path,
             name,
             metadata,
+            mods,
         })
     }
 
@@ -137,6 +149,55 @@ impl MinecraftServer {
     pub fn metadata(&self) -> &MinecraftServerMetadata {
         &self.metadata
     }
+
+    /// Mod directory associated with the declared built-in loader at load time.
+    /// Returns `None` for vanilla or unknown loaders.
+    /// Entries are scanned afresh by the container.
+    pub fn mods(&self) -> Option<&ModContainer> {
+        self.mods.as_ref()
+    }
+}
+
+fn mod_container(
+    root: &Path,
+    metadata: &MinecraftServerMetadata,
+) -> Result<Option<ModContainer>, MinecraftServerError> {
+    let Some(declaration) = &metadata.loader else {
+        return Ok(None);
+    };
+    let Some(loader) = BUILTIN_LOADERS.get(declaration.loader_type.as_str()) else {
+        return Ok(None);
+    };
+    let path = root.join("mods");
+    // Create only after metadata validation and built-in loader resolution.
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            match fs::create_dir(&path) {
+                Ok(()) => {}
+                // Another caller may have created the entry; validate it below.
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(source) => {
+                    return Err(MinecraftServerError::CreateModDirectory { path, source });
+                }
+            }
+        }
+        Err(source) => {
+            return Err(MinecraftServerError::OpenModDirectory {
+                path,
+                source: source.into(),
+            });
+        }
+        Ok(_) => {}
+    }
+    let dir = ModDirectory::new(path.clone())
+        .map_err(|source| MinecraftServerError::OpenModDirectory { path, source })?;
+    Ok(Some(ModContainer::new(
+        LoaderInfo {
+            loader: loader.clone(),
+            version: declaration.version.clone(),
+        },
+        dir,
+    )))
 }
 
 fn directory_name(path: &Path) -> Result<String, MinecraftServerError> {
@@ -164,6 +225,18 @@ fn directory_name(path: &Path) -> Result<String, MinecraftServerError> {
 
 #[derive(Debug, Error)]
 pub enum MinecraftServerError {
+    #[error("failed to create Minecraft server mod directory {path:?}")]
+    CreateModDirectory {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("failed to open Minecraft server mod directory {path:?}")]
+    OpenModDirectory {
+        path: PathBuf,
+        #[source]
+        source: anyhow::Error,
+    },
     #[error("failed to inspect Minecraft server directory {path:?}")]
     InspectDirectory {
         path: PathBuf,

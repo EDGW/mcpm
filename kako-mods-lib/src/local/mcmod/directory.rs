@@ -10,7 +10,7 @@ use super::ModEntry;
 ///
 /// Stores the supplied path and scans the filesystem on each call to
 /// [`Self::entries`]. Changes to the directory are visible on subsequent scans.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModDirectory {
     path: PathBuf,
 }

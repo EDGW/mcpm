@@ -139,3 +139,89 @@ fn invalid_registration_does_not_write_metadata_and_roots_must_be_directories() 
         Err(MinecraftServerError::NotDirectory { .. })
     ));
 }
+
+#[test]
+fn mod_container_tracks_declared_loader_and_rescans_entries() {
+    let root = TempDir::new().unwrap();
+    let metadata = MinecraftServerMetadata {
+        version: 1,
+        minecraft_version: "1.21.1".into(),
+        loader: Some(ServerModLoader {
+            loader_type: "fabric".into(),
+            version: "0.16.10".into(),
+        }),
+        start: None,
+    };
+    let server = MinecraftServer::create(root.path(), metadata.clone()).unwrap();
+    assert!(server.mods().is_some());
+    let mods = root.path().join("mods");
+    assert!(mods.is_dir());
+    fs::remove_dir(&mods).unwrap();
+    let server = MinecraftServer::load(root.path()).unwrap();
+    let container = server.mods().unwrap();
+    assert_eq!(container.directory().path(), mods);
+    assert_eq!(container.loader().loader.id().as_str(), "fabric");
+    assert_eq!(container.loader().version, "0.16.10");
+    assert!(container.mods().unwrap().is_empty());
+    fs::write(mods.join("example.jar.disabled"), "").unwrap();
+    assert_eq!(container.mods().unwrap().len(), 1);
+    assert!(
+        MinecraftServer::replace(root.path(), metadata.clone())
+            .unwrap()
+            .mods()
+            .is_some()
+    );
+    for loader in [
+        None,
+        Some(ServerModLoader {
+            loader_type: "custom".into(),
+            version: "1".into(),
+        }),
+    ] {
+        let server = MinecraftServer::replace(
+            root.path(),
+            MinecraftServerMetadata {
+                loader,
+                ..metadata.clone()
+            },
+        )
+        .unwrap();
+        assert!(server.mods().is_none());
+        fs::remove_dir_all(&mods).ok();
+        assert!(MinecraftServer::load(root.path()).unwrap().mods().is_none());
+        assert!(!mods.exists());
+    }
+}
+
+#[test]
+fn invalid_mod_directory_preserves_registration_on_failed_replace() {
+    let root = TempDir::new().unwrap();
+    let metadata = MinecraftServerMetadata {
+        version: 1,
+        minecraft_version: "1.21.1".into(),
+        loader: Some(ServerModLoader {
+            loader_type: "forge".into(),
+            version: "52.0.1".into(),
+        }),
+        start: None,
+    };
+    let server = MinecraftServer::create(root.path(), metadata.clone()).unwrap();
+    let before = fs::read(server.metadata_path()).unwrap();
+    fs::remove_dir(root.path().join("mods")).unwrap();
+    fs::write(root.path().join("mods"), "not a directory").unwrap();
+    assert!(matches!(
+        MinecraftServer::load(root.path()),
+        Err(MinecraftServerError::OpenModDirectory { .. })
+    ));
+    assert!(matches!(
+        MinecraftServer::replace(
+            root.path(),
+            MinecraftServerMetadata {
+                minecraft_version: "changed".into(),
+                ..metadata
+            }
+        ),
+        Err(MinecraftServerError::OpenModDirectory { .. })
+    ));
+    assert_eq!(fs::read(server.metadata_path()).unwrap(), before);
+}
