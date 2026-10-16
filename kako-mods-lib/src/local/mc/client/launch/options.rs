@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, ffi::OsString, path::PathBuf};
 
-use super::Identity;
+use super::{EnvName, Identity};
 use crate::local::mc::client::{CheckOptions, RuleEnvironment};
 
 /// Required inputs are explicit; remaining groups have conservative defaults.
@@ -184,7 +184,7 @@ pub struct ProcessOptions {
     /// Preserve the parent environment unless explicitly requested otherwise.
     pub clear_environment: bool,
     /// Some(value) sets a variable; None removes it.
-    pub environment: BTreeMap<OsString, Option<OsString>>,
+    pub environment: BTreeMap<EnvName, Option<OsString>>,
     pub stdin: ProcessStream,
     pub stdout: ProcessStream,
     pub stderr: ProcessStream,

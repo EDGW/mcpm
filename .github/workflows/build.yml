@@ -43,6 +43,9 @@ jobs:
           - runner: macos-15
             target: aarch64-apple-darwin
             asset: mcpm-macos-arm64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: mcpm-windows-x86_64.exe
     steps:
       - uses: actions/checkout@v4
 
@@ -54,7 +57,9 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: mcpm -> target
+          workspaces: |
+            mcpm -> target
+            kako-mods-lib -> target
           key: ${{ matrix.target }}
 
       - name: Install Zig
@@ -74,8 +79,13 @@ jobs:
           ZIG_TARGET: ${{ matrix.zig_target }}
         run: cargo zigbuild --release --locked --target "$ZIG_TARGET"
 
-      - name: Build macOS binary
-        if: runner.os == 'macOS'
+      - name: Test Windows environment names
+        if: runner.os == 'Windows'
+        run: cargo test --manifest-path kako-mods-lib/Cargo.toml --locked --lib env_name
+
+      - name: Build macOS or Windows binary
+        if: runner.os != 'Linux'
+        shell: bash
         working-directory: mcpm
         env:
           TARGET: ${{ matrix.target }}
@@ -88,7 +98,11 @@ jobs:
           ASSET: ${{ matrix.asset }}
         run: |
           binary="mcpm/target/$TARGET/release/mcpm"
-          file "$binary"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            binary="$binary.exe"
+          else
+            file "$binary"
+          fi
           "$binary" --version
           "$binary" --help
           if [[ "$TARGET" == *-linux-musl ]]; then

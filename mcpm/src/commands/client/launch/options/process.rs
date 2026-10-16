@@ -61,10 +61,10 @@ impl ProcessArgs {
             options
                 .process
                 .environment
-                .insert(key.clone(), Some(value.clone()));
+                .insert(key.clone().into(), Some(value.clone()));
         }
         for key in &self.unset_env {
-            options.process.environment.insert(key.clone(), None);
+            options.process.environment.insert(key.clone().into(), None);
         }
         options.verification = match self.verify {
             Verify::None => None,
