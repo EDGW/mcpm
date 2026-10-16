@@ -109,3 +109,15 @@ opening dependency JARs. `fabric-version-conflict` succeeds using the intermedia
 version; the selected game JAR is read only if that version evidence is absent.
 Installer launchers read embedded install.properties; shaded loader metadata is
 read only when no loader coordinate supplies a version.
+
+## Dependency matching problems
+
+[`dependency-problems/mods/`](dependency-problems/README.md) contains metadata-only
+mods covering every loader-supported relation category with matched, unmatched,
+unknown and missing-candidate cases. It also includes cross-loader identity
+mismatches and isolated roots. Its README documents expected states and commands
+for previewing `--rule`, `--problem` and colors. Rebuild with:
+
+```sh
+python3 mcpm/tests/fixtures/build_dependency_problems.py
+```
