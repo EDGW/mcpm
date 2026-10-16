@@ -19,20 +19,6 @@ pub(super) enum DependencyFormat {
     NeoForgeLegacy,
 }
 
-#[derive(Debug, Error)]
-enum DependencyParseError {
-    #[error("missing required dependency field mandatory")]
-    MissingMandatory,
-    #[error(
-        "invalid dependency type {value:?}: expected required, optional, incompatible, or discouraged (case-insensitive)"
-    )]
-    InvalidType { value: String },
-    #[error("invalid dependency side {value:?}: expected CLIENT, SERVER, or BOTH")]
-    InvalidSide { value: String },
-    #[error("invalid dependency ordering {value:?}: expected NONE, BEFORE, or AFTER")]
-    InvalidOrdering { value: String },
-}
-
 pub(super) fn parse(
     clause: &Value,
     document: &str,
@@ -111,4 +97,18 @@ fn ordering(clause: &Value, document: &str) -> Result<DependencyOrdering> {
         }
         .into()),
     }
+}
+
+#[derive(Debug, Error)]
+enum DependencyParseError {
+    #[error("missing required dependency field mandatory")]
+    MissingMandatory,
+    #[error(
+        "invalid dependency type {value:?}: expected required, optional, incompatible, or discouraged (case-insensitive)"
+    )]
+    InvalidType { value: String },
+    #[error("invalid dependency side {value:?}: expected CLIENT, SERVER, or BOTH")]
+    InvalidSide { value: String },
+    #[error("invalid dependency ordering {value:?}: expected NONE, BEFORE, or AFTER")]
+    InvalidOrdering { value: String },
 }

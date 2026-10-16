@@ -1,78 +1,23 @@
+//! Local launch preparation: prerequisites, natives, asset mappings and Java probing.
+
 use std::{
     fs,
     io::{self, Read},
-    path::{Path, PathBuf},
+    path::Path,
     process::Command,
 };
 
-use thiserror::Error;
 use zip::ZipArchive;
 
 use super::{JavaVersionCheck, LaunchPlan};
-use crate::local::mc::client::CheckReport;
+
+mod error;
+pub use error::PreparationError;
 
 /// A ready-to-run plan. Prepared native files remain on disk.
 #[derive(Debug)]
 pub struct PreparedLaunch {
     pub(super) plan: LaunchPlan,
-}
-
-#[derive(Debug, Error)]
-pub enum PreparationError {
-    #[error("{operation}: {path:?}")]
-    Io {
-        operation: &'static str,
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("required launch file {path:?} is not a regular file")]
-    NotFile { path: PathBuf },
-    #[error("selected resources did not pass verification")]
-    Verification { report: Box<CheckReport> },
-    #[error("cannot read native archive {path:?}")]
-    Archive {
-        path: PathBuf,
-        #[source]
-        source: zip::result::ZipError,
-    },
-    #[error("native archive {archive:?} has an unsafe entry {entry:?}")]
-    UnsafeEntry { archive: PathBuf, entry: String },
-    #[error("native extraction exceeds the {maximum_bytes} byte limit")]
-    ExtractionLimit { maximum_bytes: u64 },
-    #[error("refusing to write through a symlink or non-directory at {path:?}")]
-    UnsafeDestination { path: PathBuf },
-    #[error(
-        "Java version probe {executable:?} in {working_directory:?} failed with {status}; stderr: {stderr:?}; stdout: {stdout:?}"
-    )]
-    JavaVersionProbe {
-        executable: PathBuf,
-        working_directory: PathBuf,
-        status: std::process::ExitStatus,
-        stdout: String,
-        stderr: String,
-    },
-    #[error(
-        "Java version probe {executable:?} returned no recognizable version; stderr: {stderr:?}; stdout: {stdout:?}"
-    )]
-    JavaVersionUnknown {
-        executable: PathBuf,
-        stdout: String,
-        stderr: String,
-    },
-    #[error("failed to probe Java {executable:?} in {working_directory:?}")]
-    JavaVersionIo {
-        executable: PathBuf,
-        working_directory: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("Java {actual} does not satisfy {policy:?} requirement {required}")]
-    JavaVersionMismatch {
-        actual: u32,
-        required: u32,
-        policy: JavaVersionCheck,
-    },
 }
 
 impl LaunchPlan {
