@@ -1,3 +1,5 @@
+//! Validates saved dependency graphs and prints their statistics.
+
 use std::{
     fs::File,
     io::{self, Write},

@@ -1,10 +1,5 @@
 //! Commands for inspecting user-selected mod files and directories.
 
-use super::{
-    mod_support::{dependency_output, loaders},
-    output_style,
-};
-
 use anyhow::Result;
 use clap::{Args, Subcommand};
 

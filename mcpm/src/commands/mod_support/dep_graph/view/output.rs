@@ -1,19 +1,22 @@
+//! Renders dependency trees after rule filtering, retaining paths to matching descendants.
+
 use std::{
     collections::{HashMap, HashSet},
     io::{self, Write},
 };
 
 use kako_mods_lib::local::mcmod::dependency::{
-    Dependency, DependencyKind,
+    Dependency, DependencyKind, DependencyMatch,
     graph::{DependencyGraph, candidate::DependencyCandidate, identifier::DependencyIdentifier},
 };
 
-use super::super::super::{
-    dependency_output::{format_details, format_kind, text},
+use crate::commands::{
+    mod_support::dependency_output::{format_details, text},
     output_style::OutputStyle,
 };
 
-use super::filter::ViewFilter;
+use super::{filter::visibility::Visibility, matching};
+use owo_colors::Style;
 
 #[derive(Clone, Copy)]
 enum Entry<'a> {
@@ -21,9 +24,11 @@ enum Entry<'a> {
         identifier: &'a DependencyIdentifier,
         dependency: Option<&'a Dependency>,
         source_candidate: Option<&'a DependencyCandidate>,
+        target: Option<&'a DependencyIdentifier>,
         depth: usize,
     },
     Candidate {
+        dependency: Option<&'a Dependency>,
         candidate: &'a DependencyCandidate,
         depth: usize,
     },
@@ -39,12 +44,34 @@ enum Task<'a> {
     Leave(&'a DependencyIdentifier),
 }
 
+/// Uses the renderer's child expansion so isolation follows the actual displayed tree.
+pub(super) fn has_children(
+    graph: &DependencyGraph,
+    root: &DependencyIdentifier,
+    visibility: &Visibility,
+    reverse: bool,
+) -> bool {
+    !children(
+        graph,
+        Entry::Node {
+            identifier: root,
+            dependency: None,
+            source_candidate: None,
+            target: None,
+            depth: 0,
+        },
+        visibility,
+        reverse,
+    )
+    .is_empty()
+}
+
 pub(super) fn write_view(
     output: &mut impl Write,
     graph: &DependencyGraph,
     root: &DependencyIdentifier,
     depths: HashMap<DependencyIdentifier, usize>,
-    filter: &ViewFilter,
+    visibility: &Visibility,
     reverse: bool,
 ) -> io::Result<()> {
     let style = OutputStyle::new();
@@ -65,6 +92,7 @@ pub(super) fn write_view(
             identifier: root,
             dependency: None,
             source_candidate: None,
+            target: None,
             depth: 0,
         },
         prefix: String::new(),
@@ -108,7 +136,7 @@ pub(super) fn write_view(
         let children = if folded.is_some() {
             Vec::new()
         } else {
-            children(graph, entry, filter, reverse)
+            children(graph, entry, visibility, reverse)
         };
         if children.is_empty() {
             continue;
@@ -146,35 +174,51 @@ fn label(
     reverse: bool,
 ) -> String {
     match entry {
-        Entry::Candidate { candidate, .. } => candidate_label(candidate, style),
+        Entry::Candidate {
+            candidate,
+            dependency,
+            ..
+        } => {
+            let state = dependency.map(|dependency| {
+                matching::candidate_match(candidate, candidate.identifier().loader(), dependency)
+            });
+            candidate_label(
+                candidate,
+                dependency.zip(state).map(|(d, s)| (d.kind, s)),
+                style,
+            )
+        }
         Entry::Node {
             identifier,
             dependency,
             source_candidate,
+            target,
             depth,
         } => {
             let node = graph
                 .node(identifier)
                 .expect("validated target node exists");
-            let id = if depth == 0 {
-                identifier.to_string()
+            let prefix = if depth == 0 {
+                style.loader(
+                    identifier.loader().as_str(),
+                    &format!("{}:", text(identifier.loader().as_str())),
+                )
             } else {
-                identifier.id().to_owned()
+                String::new()
             };
-            let mut value = format!(
-                "{}{}{}",
-                style.important("["),
-                style.loader(identifier.loader().as_str(), &text(&id)),
-                style.important("]")
-            );
+            let mut value = format!("[{prefix}{}]", style.important(text(identifier.id())));
+            let state = dependency.map(|dependency| {
+                let target = target.unwrap_or(identifier);
+                (dependency.kind, matching::target(graph, target, dependency))
+            });
             if let Some(candidate) = source_candidate {
-                value.push_str(&candidate_suffix(candidate, style));
+                value.push_str(&candidate_suffix(candidate, state, style));
             } else {
                 match node.candidates() {
                     [] => value.push_str(&style.warning(" [no candidate]")),
-                    [candidate] => value.push_str(&candidate_suffix(candidate, style)),
+                    [candidate] => value.push_str(&candidate_suffix(candidate, state, style)),
                     candidates => value
-                        .push_str(&style.warning(format!(" [{} candidates]", candidates.len()))),
+                        .push_str(&style.suggested(format!(" [{} candidates]", candidates.len()))),
                 }
             }
             if let Some(dependency) = dependency {
@@ -207,58 +251,121 @@ fn label(
     }
 }
 
-fn candidate_suffix(candidate: &DependencyCandidate, style: &OutputStyle) -> String {
-    match candidate {
-        DependencyCandidate::External(_) => style.secondary(" [external]"),
-        DependencyCandidate::PrimaryMod(candidate) => {
-            style.important(format!("@{}", text(&candidate.modinfo.version)))
-        }
-        DependencyCandidate::NestedMod(candidate) => format!(
-            "{}{}",
-            style.important(format!("@{}", text(&candidate.modinfo.version))),
-            style.secondary(" [nested]")
-        ),
-    }
+/// Tree relation labels have their own palette, separate from info/deps output.
+fn format_kind(kind: DependencyKind, style: &OutputStyle) -> String {
+    let (label, paint) = match kind {
+        DependencyKind::Required => ("required", Style::new()),
+        DependencyKind::Optional => ("optional", Style::new().bright_black()),
+        DependencyKind::Recommended => ("recommended", Style::new().bright_black()),
+        DependencyKind::Suggested => ("suggested", Style::new().bright_black()),
+        DependencyKind::Breaks => ("breaks", Style::new().bright_red().bold()),
+        DependencyKind::Conflicts => ("conflicts", Style::new().bright_red()),
+    };
+    style.paint(label, paint)
 }
 
-fn candidate_label(candidate: &DependencyCandidate, style: &OutputStyle) -> String {
-    match candidate {
-        DependencyCandidate::External(_) => style.secondary("[external]"),
+fn candidate_suffix(
+    candidate: &DependencyCandidate,
+    state: Option<(DependencyKind, DependencyMatch)>,
+    style: &OutputStyle,
+) -> String {
+    let value = match candidate {
+        DependencyCandidate::External(candidate) => candidate.version.as_ref().map_or_else(
+            || " [external]".to_owned(),
+            |version| format!("@{} [external]", text(version)),
+        ),
         DependencyCandidate::PrimaryMod(candidate) => {
-            style.important(format!("[primary @{}]", text(&candidate.modinfo.version)))
+            format!("@{}", text(&candidate.modinfo.version))
         }
         DependencyCandidate::NestedMod(candidate) => {
-            style.secondary(format!("[nested @{}]", text(&candidate.modinfo.version)))
+            format!("@{} [nested]", text(&candidate.modinfo.version))
         }
-    }
+    };
+    paint_candidate(value, state, style)
+}
+
+fn candidate_label(
+    candidate: &DependencyCandidate,
+    state: Option<(DependencyKind, DependencyMatch)>,
+    style: &OutputStyle,
+) -> String {
+    let value = match candidate {
+        DependencyCandidate::External(candidate) => candidate.version.as_ref().map_or_else(
+            || "[external]".to_owned(),
+            |version| format!("[external @{}]", text(version)),
+        ),
+        DependencyCandidate::PrimaryMod(candidate) => {
+            format!("[primary @{}]", text(&candidate.modinfo.version))
+        }
+        DependencyCandidate::NestedMod(candidate) => {
+            format!("[nested @{}]", text(&candidate.modinfo.version))
+        }
+    };
+    paint_candidate(value, state, style)
+}
+
+fn paint_candidate(
+    value: String,
+    state: Option<(DependencyKind, DependencyMatch)>,
+    style: &OutputStyle,
+) -> String {
+    let paint = match state {
+        None => Style::new().bright_white(),
+        Some((_, DependencyMatch::Unknown)) => Style::new().bright_yellow(),
+        Some((kind, state)) => {
+            let incompatible = matches!(kind, DependencyKind::Breaks | DependencyKind::Conflicts);
+            if (state == DependencyMatch::Matched) != incompatible {
+                Style::new().bright_green()
+            } else {
+                Style::new().bright_red()
+            }
+        }
+    };
+    style.paint(value, paint)
 }
 
 fn children<'a>(
     graph: &'a DependencyGraph,
     entry: Entry<'a>,
-    filter: &ViewFilter,
+    visibility: &Visibility,
     reverse: bool,
 ) -> Vec<Entry<'a>> {
     match entry {
-        Entry::Candidate { candidate, depth } => edges(candidate, depth, filter),
+        Entry::Candidate {
+            candidate, depth, ..
+        } => edges(candidate, depth, visibility),
         Entry::Node {
-            identifier, depth, ..
+            identifier,
+            depth,
+            dependency,
+            ..
         } => {
             if reverse {
-                return reverse_edges(graph, identifier, depth, filter);
+                return reverse_edges(graph, identifier, depth, visibility);
             }
             let candidates = graph
                 .node(identifier)
                 .expect("validated target node exists")
                 .candidates();
             if let [candidate] = candidates {
-                return edges(candidate, depth, filter);
+                return edges(candidate, depth, visibility);
             }
             let mut candidates = candidates.iter().map(|c| c.as_ref()).collect::<Vec<_>>();
-            candidates.sort_by_key(|candidate| candidate_label(candidate, &OutputStyle::plain()));
+            if dependency.map_or_else(
+                || visibility.filtered(),
+                |dependency| !visibility.own(dependency),
+            ) {
+                candidates.retain(|candidate| visibility.candidate(candidate));
+            }
+            candidates
+                .sort_by_key(|candidate| candidate_label(candidate, None, &OutputStyle::plain()));
             candidates
                 .into_iter()
-                .map(|candidate| Entry::Candidate { candidate, depth })
+                .map(|candidate| Entry::Candidate {
+                    candidate,
+                    depth,
+                    dependency,
+                })
                 .collect()
         }
     }
@@ -267,11 +374,11 @@ fn children<'a>(
 fn edges<'a>(
     candidate: &'a DependencyCandidate,
     depth: usize,
-    filter: &ViewFilter,
+    visibility: &Visibility,
 ) -> Vec<Entry<'a>> {
     let mut edges = candidate
         .outgoing()
-        .filter(|(target, dependency)| filter.includes(target, dependency))
+        .filter(|(_, dependency)| visibility.edge(dependency))
         .collect::<Vec<_>>();
     edges.sort_by_key(|(target, dependency)| {
         (
@@ -286,6 +393,7 @@ fn edges<'a>(
             identifier,
             dependency: Some(dependency),
             source_candidate: None,
+            target: None,
             depth: depth + 1,
         })
         .collect()
@@ -293,26 +401,27 @@ fn edges<'a>(
 
 fn reverse_edges<'a>(
     graph: &'a DependencyGraph,
-    identifier: &DependencyIdentifier,
+    identifier: &'a DependencyIdentifier,
     depth: usize,
-    filter: &ViewFilter,
+    visibility: &Visibility,
 ) -> Vec<Entry<'a>> {
     let mut edges = graph.incoming_relations(identifier);
-    edges.retain(|(source, _, dependency)| filter.includes(source, dependency));
+    edges.retain(|(_, _, dependency)| visibility.edge(dependency));
     edges.sort_by_key(|(source, candidate, dependency)| {
         (
             relation_order(dependency.kind),
             source.id(),
-            candidate_label(candidate, &OutputStyle::plain()),
+            candidate_label(candidate, None, &OutputStyle::plain()),
             format_details(dependency, &OutputStyle::plain()),
         )
     });
     edges
         .into_iter()
-        .map(|(identifier, candidate, dependency)| Entry::Node {
-            identifier,
+        .map(|(source, candidate, dependency)| Entry::Node {
+            identifier: source,
             dependency: Some(dependency),
             source_candidate: Some(candidate),
+            target: Some(identifier),
             depth: depth + 1,
         })
         .collect()

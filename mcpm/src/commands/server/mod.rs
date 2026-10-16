@@ -5,6 +5,7 @@ use clap::{Args, Subcommand};
 
 mod info;
 mod init;
+mod mod_source;
 mod mods;
 mod output;
 

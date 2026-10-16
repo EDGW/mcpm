@@ -1,3 +1,5 @@
+//! Base edge filters and per-relation match rules for dependency tree presentation.
+
 use std::str::FromStr;
 
 use clap::{Args, ValueEnum};
@@ -6,28 +8,39 @@ use kako_mods_lib::local::mcmod::dependency::{
 };
 use thiserror::Error;
 
-#[derive(Args)]
+mod rule;
+pub(super) mod visibility;
+use rule::Rule;
+
+#[derive(Args, Default)]
 pub(super) struct FilterArgs {
     /// Ignore a displayed neighboring mod; repeat to add more. Use loader:id, :id, or id.
-    #[arg(long, value_name = "MOD")]
+    #[arg(short = 'g', long, value_name = "MOD")]
     ignore: Vec<IgnoreSelector>,
     /// Ignore comma-separated targets; combined with --ignore and default ignores.
-    #[arg(long, value_delimiter = ',', value_name = "MODS")]
+    #[arg(short = 'G', long, value_delimiter = ',', value_name = "MODS")]
     ignores: Vec<IgnoreSelector>,
     /// Disable the default ignore for minecraft; explicit ignores still apply.
-    #[arg(long)]
+    #[arg(short = 'X', long)]
     no_default_ignores: bool,
     /// Show this relation type; repeat to select more. Overrides the default types.
-    #[arg(long = "type", value_enum, value_name = "TYPE")]
+    #[arg(short = 't', long = "type", value_enum, value_name = "TYPE")]
     kind: Vec<RelationType>,
     /// Show comma-separated relation types; combined with --type.
     #[arg(
+        short = 'T',
         long = "types",
         value_enum,
         value_delimiter = ',',
         value_name = "TYPES"
     )]
     kinds: Vec<RelationType>,
+    /// Match states for TYPE; defaults to all. Last rule per type wins, overriding --problem.
+    #[arg(short = 'r', long = "rule", value_name = "TYPE:MATCH[,MATCH...]")]
+    rules: Vec<Rule>,
+    /// Shortcut for required:unmatched,unknown; breaks/conflicts:matched,unknown; hide isolated roots; disable default ignores.
+    #[arg(short = 'p', long)]
+    problem: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -101,9 +114,21 @@ pub(super) struct ViewFilter {
     ignores: Vec<IgnoreSelector>,
     ignore_minecraft: bool,
     kinds: Vec<DependencyKind>,
+    rules: Vec<Rule>,
 }
 
 impl FilterArgs {
+    pub(super) fn problem() -> Self {
+        Self {
+            problem: true,
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn hides_isolated_roots(&self) -> bool {
+        self.problem
+    }
+
     pub(super) fn into_filter(self) -> ViewFilter {
         let kinds = if self.kind.is_empty() && self.kinds.is_empty() {
             vec![
@@ -118,15 +143,47 @@ impl FilterArgs {
                 .map(RelationType::kind)
                 .collect()
         };
+        let mut rules = if self.problem {
+            Rule::problem()
+        } else {
+            Vec::new()
+        };
+        // Explicit rules override the shortcut; the last rule for a type wins.
+        rules.extend(self.rules);
         ViewFilter {
             ignores: self.ignore.into_iter().chain(self.ignores).collect(),
-            ignore_minecraft: !self.no_default_ignores,
+            ignore_minecraft: !(self.no_default_ignores || self.problem),
             kinds,
+            rules,
         }
     }
 }
 
 impl ViewFilter {
+    pub(super) fn accepts(
+        &self,
+        kind: DependencyKind,
+        state: kako_mods_lib::local::mcmod::dependency::DependencyMatch,
+    ) -> bool {
+        self.rules
+            .iter()
+            .rev()
+            .find(|rule| rule.kind == kind)
+            .is_none_or(|rule| rule.accepts(state))
+    }
+
+    pub(super) fn has_rules(&self) -> bool {
+        self.kinds.iter().any(|kind| !self.unrestricted(*kind))
+    }
+
+    pub(super) fn unrestricted(&self, kind: DependencyKind) -> bool {
+        self.rules
+            .iter()
+            .rev()
+            .find(|rule| rule.kind == kind)
+            .is_none_or(Rule::is_all)
+    }
+
     /// Filters declared edges only; an explicitly selected root remains visible.
     pub(super) fn includes(&self, target: &DependencyIdentifier, dependency: &Dependency) -> bool {
         self.kinds.contains(&dependency.kind)

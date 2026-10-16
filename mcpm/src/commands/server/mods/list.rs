@@ -10,7 +10,7 @@ use crate::commands::mod_support::{
     selection::SelectionArgs,
 };
 
-use super::input::ServerMods;
+use super::super::mod_source::ServerMods;
 
 #[derive(Args)]
 #[command(
