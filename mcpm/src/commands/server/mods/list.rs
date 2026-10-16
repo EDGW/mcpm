@@ -1,41 +1,33 @@
-//! Resolves a server's mod container for the shared CLI mod listing pipeline.
+//! Resolves ordered server mod queries for the shared CLI listing pipeline.
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Args;
 
-use kako_mods_lib::local::mcmod::ModEntry;
-
 use crate::commands::mod_support::{
     list::{self, ListDisplayArgs},
-    stdin,
+    selection::SelectionArgs,
 };
 
 use super::input::ServerMods;
 
 #[derive(Args)]
 #[command(
-    after_help = "Mod filenames or mods/FILE paths may be read from redirected stdin, one per line, to select files within this server."
+    after_help = "Additional inputs are read from redirected stdin, one per line, using filename, modid, then name matching. Paths are relative to the server's mods directory; mods/ prefixes are also accepted. With no inputs, list all mods."
 )]
 pub(super) struct ListArgs {
     /// Registered server directory; defaults to the current directory.
-    #[arg(value_name = "SERVER_DIR_PATH", default_value = ".")]
+    #[arg(long = "server", value_name = "PATH", default_value = ".")]
     path: PathBuf,
+    #[command(flatten)]
+    selection: SelectionArgs,
     #[command(flatten)]
     display: ListDisplayArgs,
 }
 
 pub(super) fn run(args: ListArgs) -> Result<()> {
+    let selection = args.selection.with_stdin()?;
     let source = ServerMods::load(args.path)?;
-    let files = stdin::append(Vec::new())?;
-    if files.is_empty() {
-        list::run([source.entries()], source.loaders(), true, args.display)
-    } else {
-        let inputs = source
-            .files(files)?
-            .into_iter()
-            .map(|path| ModEntry::new(path).map(|entry| vec![entry]));
-        list::run(inputs, source.loaders(), true, args.display)
-    }
+    list::run_selection(selection, source.scope(), source.loaders(), args.display)
 }

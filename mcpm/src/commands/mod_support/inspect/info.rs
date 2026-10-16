@@ -3,12 +3,16 @@
 use std::io::{self, Write};
 
 use super::super::dependency_output::{format_dependency, text};
-use super::super::mod_records;
+use super::super::mod_records::{self, RecordKey};
 use crate::commands::output_style::OutputStyle;
 
 use kako_mods_lib::local::mcmod::{ModFile, ModStatus};
 
-pub(super) fn write_info(output: &mut impl Write, file: &ModFile) -> io::Result<()> {
+pub(super) fn write_info(
+    output: &mut impl Write,
+    file: &ModFile,
+    selected: Option<&[RecordKey]>,
+) -> io::Result<()> {
     let style = OutputStyle::new();
     writeln!(
         output,
@@ -24,14 +28,18 @@ pub(super) fn write_info(output: &mut impl Write, file: &ModFile) -> io::Result<
     };
     writeln!(output, "{}", style.secondary(format!("Status: {status}")))?;
 
-    for metadata in &file.metadata {
+    for (metadata_index, metadata) in file.metadata.iter().enumerate() {
+        let records = mod_records::selected(metadata, metadata_index, "", selected);
+        if selected.is_some() && records.is_empty() {
+            continue;
+        }
         writeln!(
             output,
             "\n{}{}",
             style.secondary("Loader: "),
             style.loader(metadata.loader.id().as_str(), &text(metadata.loader.name()))
         )?;
-        for (index, record) in mod_records::collect(metadata, "").iter().enumerate() {
+        for (index, record) in records.iter().enumerate() {
             let info = record.info;
             if index > 0 {
                 writeln!(output)?;

@@ -6,19 +6,23 @@ use std::io::{self, Write};
 use anyhow::{Context, Result};
 use clap::Args;
 use kako_mods_lib::local::{
-    mcmod::{self, IdentificationErrorAction, ModEntry, ModFile},
+    mcmod::ModEntry,
     modloader::{LoaderId, ModLoaderMeta},
 };
 use thiserror::Error;
 
 use crate::terminal;
 
-use super::source_path::PathArgs;
+use super::{
+    progress,
+    scan::ScanSession,
+    selection::{Resolver, Scope, SelectedFile, SelectionArgs},
+    source_path::PathArgs,
+};
 use columns::ColumnArgs;
 
 mod columns;
 mod output;
-mod progress;
 
 #[derive(Args)]
 pub(in crate::commands) struct ListDisplayArgs {
@@ -37,15 +41,7 @@ pub(in crate::commands) struct ListDisplayArgs {
     paths_output: PathArgs,
 }
 
-struct ListedFile {
-    file: ModFile,
-    failures: Vec<FailedIdentification>,
-}
-
-struct FailedIdentification {
-    loader: ModLoaderMeta,
-    reason: String,
-}
+type ListedFile = SelectedFile;
 
 /// Lists batches of entries supplied by a command, retaining per-input diagnostics.
 /// Loader selection and input resolution belong to the caller.
@@ -69,51 +65,97 @@ pub(in crate::commands) fn run(
         }
     }
     progress.set_total(entries.len());
-    let columns = args.columns.selected();
 
+    let mut session = ScanSession::new(loaders);
     let mut files = Vec::new();
-    let mut failed = 0;
-    let mut ignored = 0;
-    let mut ignored_files = Vec::new();
     for entry in entries {
         let path = entry.path().to_owned();
-        let mut failures = Vec::new();
-        let identified = mcmod::open(entry, loaders.clone(), |_, loader, _, error| {
-            progress.report(error);
-            failures.push(FailedIdentification {
-                loader: loader.clone(),
-                reason: error.root_cause().to_string(),
-            });
-            IdentificationErrorAction::Skip
-        });
+        let identified = session.read(path.clone(), Some(&progress));
         progress.advance();
-        let file = match identified {
-            Ok(mut file) => {
-                super::loaders::sort_metadata(&mut file);
-                file
-            }
-            Err(error) => {
-                progress.report(&error.context(format!("failed to identify {path:?}")));
-                failed += 1;
-                continue;
-            }
-        };
-        if !failures.is_empty() {
-            failed += 1;
-        }
-        if hide_unrecognized
-            && failures.is_empty()
-            && file.metadata.iter().all(|metadata| !metadata.has_mods())
-        {
-            ignored += 1;
-            if args.expanded && formatted {
-                ignored_files.push(path);
-            }
+        let Some(scanned) = identified else {
             continue;
-        }
-        files.push(ListedFile { file, failures });
+        };
+        files.push(SelectedFile {
+            scanned,
+            records: None,
+        });
     }
     drop(progress);
+    present(
+        files,
+        hide_unrecognized,
+        args,
+        input_errors,
+        session.failed_count(),
+    )
+}
+
+/// Resolves server list queries through the same lazy indexes as info/deps.
+pub(in crate::commands) fn run_selection(
+    selection: SelectionArgs,
+    scope: Scope,
+    loaders: HashMap<LoaderId, ModLoaderMeta>,
+    args: ListDisplayArgs,
+) -> Result<()> {
+    let mut resolver = Resolver::new(ScanSession::new(loaders), scope);
+    let mut files = Vec::new();
+    let mut input_errors = 0;
+    let queries = match selection.into_queries() {
+        Some(queries) if !queries.is_empty() => queries.into_iter().map(Some).collect(),
+        _ => vec![None],
+    };
+    for query in queries {
+        let result = match query {
+            Some(query) => resolver.resolve_list(query),
+            None => resolver.all(),
+        };
+        match result {
+            Ok(selected) => files.extend(selected),
+            Err(error) => {
+                crate::diagnostics::error(&error);
+                input_errors += 1;
+            }
+        }
+    }
+    present(
+        files,
+        true,
+        args,
+        input_errors,
+        resolver.scan.failed_count(),
+    )
+}
+
+/// Shared filtering, layout and summary for path-based and query-based listing.
+fn present(
+    files: Vec<ListedFile>,
+    hide_unrecognized: bool,
+    args: ListDisplayArgs,
+    input_errors: usize,
+    failed: usize,
+) -> Result<()> {
+    let formatted = terminal::is_interactive();
+    let mut ignored = 0;
+    let mut ignored_files = Vec::new();
+    let files: Vec<_> = files
+        .into_iter()
+        .filter(|listed| {
+            let file = &listed.scanned.file;
+            if hide_unrecognized
+                && listed.scanned.failures.is_empty()
+                && file.metadata.iter().all(|metadata| !metadata.has_mods())
+            {
+                ignored += 1;
+                if args.expanded && formatted {
+                    ignored_files.push(file.entry.path().to_owned());
+                }
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
+    let columns = args.columns.selected();
     let color = terminal::color_enabled();
     let width = formatted.then(|| {
         args.width

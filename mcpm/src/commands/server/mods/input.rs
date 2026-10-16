@@ -1,11 +1,8 @@
 //! Resolves server mod containers and paths using registered server metadata.
 
-use std::{
-    collections::HashMap,
-    path::{Component, PathBuf},
-};
+use std::{collections::HashMap, path::PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
 use kako_mods_lib::local::{
     mc::server::MinecraftServer,
@@ -13,6 +10,8 @@ use kako_mods_lib::local::{
     modloader::{LoaderId, ModLoaderMeta},
 };
 use thiserror::Error;
+
+use crate::commands::mod_support::selection::{Scope, SelectionArgs};
 
 /// Registered server and loader scope shared by server mod commands.
 pub(super) struct ServerMods {
@@ -42,35 +41,8 @@ impl ServerMods {
         [(loader.id().clone(), loader)].into_iter().collect()
     }
 
-    pub(super) fn entries(&self) -> Result<Vec<kako_mods_lib::local::mcmod::ModEntry>> {
-        self.container.mods().with_context(|| {
-            format!(
-                "failed to read server mod directory {:?}",
-                self.container.directory().path()
-            )
-        })
-    }
-
-    pub(super) fn files(&self, files: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
-        files
-            .into_iter()
-            .map(|path| {
-                if path.as_os_str().is_empty()
-                    || path
-                        .components()
-                        .any(|part| !matches!(part, Component::Normal(_) | Component::CurDir))
-                {
-                    return Err(ServerModsError::InvalidModPath { path }.into());
-                }
-                let relative: PathBuf = path
-                    .components()
-                    .filter(|part| !matches!(part, Component::CurDir))
-                    .collect();
-                // Accept both a mods-relative name and a server-relative mods/name.
-                let relative = relative.strip_prefix("mods").unwrap_or(&relative);
-                Ok(self.container.directory().path().join(relative))
-            })
-            .collect()
+    pub(super) fn scope(&self) -> Scope {
+        Scope::container(self.container.directory().path().to_owned())
     }
 }
 
@@ -81,31 +53,23 @@ pub(super) struct FileArgs {
     #[arg(long = "server", value_name = "PATH", default_value = ".")]
     path: PathBuf,
     #[command(flatten)]
-    files: crate::commands::mod_support::inspect::FileSelectionArgs,
+    files: SelectionArgs,
 }
 
 impl FileArgs {
-    /// Reads stdin only for callers that support line-based file arguments.
+    /// Appends stdin queries using automatic filename, modid, then name matching.
     pub(super) fn with_stdin(mut self) -> Result<Self> {
         self.files = self.files.with_stdin()?;
         Ok(self)
     }
 
-    pub(super) fn resolve(self) -> Result<Option<(ServerMods, Vec<PathBuf>)>> {
+    pub(super) fn resolve(self) -> Result<Option<(ServerMods, SelectionArgs)>> {
         if self.files.is_empty() {
             crate::commands::mod_support::inspect::prompt_for_input()?;
             return Ok(None);
         }
         let source = ServerMods::load(self.path)?;
-        let files = match self.files.into_files() {
-            Some(files) => source.files(files)?,
-            None => source
-                .entries()?
-                .into_iter()
-                .map(|entry| entry.path().to_owned())
-                .collect(),
-        };
-        Ok(Some((source, files)))
+        Ok(Some((source, self.files)))
     }
 }
 
@@ -115,8 +79,4 @@ enum ServerModsError {
     NoLoader { path: PathBuf },
     #[error("server {path:?} declares unsupported mod loader {loader:?}")]
     UnsupportedLoader { path: PathBuf, loader: String },
-    #[error(
-        "mod file {path:?} must be relative to the server's mods directory without parent traversal"
-    )]
-    InvalidModPath { path: PathBuf },
 }

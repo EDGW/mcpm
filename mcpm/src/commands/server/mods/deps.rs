@@ -9,7 +9,7 @@ use super::input::FileArgs;
 
 #[derive(Args)]
 #[command(
-    after_help = "Additional mod filenames or mods/FILE paths are read from redirected stdin, one per line."
+    after_help = "Additional inputs are read from redirected stdin, one per line, using filename, modid, then name matching."
 )]
 pub(super) struct DepsArgs {
     #[command(flatten)]
@@ -19,11 +19,12 @@ pub(super) struct DepsArgs {
 }
 
 pub(super) fn run(args: DepsArgs) -> Result<()> {
-    let Some((source, paths)) = args.files.with_stdin()?.resolve()? else {
+    let Some((source, selection)) = args.files.with_stdin()?.resolve()? else {
         return Ok(());
     };
     inspect::run(
-        paths,
+        selection,
+        source.scope(),
         source.loaders(),
         true,
         inspect::Display::Dependencies(&args.paths_output),

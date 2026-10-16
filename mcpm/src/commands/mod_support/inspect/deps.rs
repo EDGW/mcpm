@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use kako_mods_lib::local::mcmod::ModFile;
 
 use super::super::dependency_output::{format_dependency, text};
-use super::super::mod_records;
+use super::super::mod_records::{self, RecordKey};
 use super::super::source_path::PathArgs;
 use crate::commands::output_style::OutputStyle;
 
@@ -14,6 +14,7 @@ pub(super) fn write_deps(
     file: &ModFile,
     failed_loaders: &[String],
     paths: &PathArgs,
+    selected: Option<&[RecordKey]>,
 ) -> io::Result<()> {
     let style = OutputStyle::new();
     let outer_path = text(&file.entry.path().display().to_string());
@@ -32,14 +33,18 @@ pub(super) fn write_deps(
             ))
         )?;
     }
-    for metadata in &file.metadata {
+    for (metadata_index, metadata) in file.metadata.iter().enumerate() {
+        let records = mod_records::selected(metadata, metadata_index, "", selected);
+        if selected.is_some() && records.is_empty() {
+            continue;
+        }
         writeln!(
             output,
             "\n{}{}",
             style.secondary("Loader: "),
             style.loader(metadata.loader.id().as_str(), &text(metadata.loader.name()))
         )?;
-        for (index, record) in mod_records::collect(metadata, "").into_iter().enumerate() {
+        for (index, record) in records.into_iter().enumerate() {
             if index > 0 {
                 writeln!(output)?;
             }

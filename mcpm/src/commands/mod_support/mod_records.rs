@@ -5,6 +5,13 @@ use kako_mods_lib::local::{
     modloader::ModLoaderMeta,
 };
 
+/// Stable positions within collect() for one loader of one file.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in crate::commands) struct RecordKey {
+    pub metadata: usize,
+    pub record: usize,
+}
+
 pub(in crate::commands) struct ModRecord<'a> {
     pub index: String,
     pub loader: &'a ModLoaderMeta,
@@ -24,6 +31,33 @@ pub(in crate::commands) fn collect<'a>(metadata: &'a ModMeta, prefix: &str) -> V
         &mut records,
     );
     records
+}
+
+/// Selects each matched declaration's owning archive and all of its descendants.
+pub(in crate::commands) fn selected<'a>(
+    metadata: &'a ModMeta,
+    metadata_index: usize,
+    prefix: &str,
+    keys: Option<&[RecordKey]>,
+) -> Vec<ModRecord<'a>> {
+    let records = collect(metadata, prefix);
+    let Some(keys) = keys else {
+        return records;
+    };
+    let roots: Vec<_> = keys
+        .iter()
+        .filter(|key| key.metadata == metadata_index)
+        .filter_map(|key| records.get(key.record))
+        .map(|record| record.nested_indices.clone())
+        .collect();
+    records
+        .into_iter()
+        .filter(|record| {
+            roots
+                .iter()
+                .any(|root| record.nested_indices.starts_with(root))
+        })
+        .collect()
 }
 
 fn append<'a>(

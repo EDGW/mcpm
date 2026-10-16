@@ -99,38 +99,33 @@ pub(super) fn write_list(
 }
 
 fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options: &ListOptions<'_>) {
-    let file = &listed.file;
+    let file = &listed.scanned.file;
     let file_index = number.to_string();
-    let multiple_loaders = file.metadata.len() + listed.failures.len() > 1;
+    let multiple_loaders = file.metadata.len() + listed.scanned.failures.len() > 1;
     let mut indices = index::Formatter::new(options.index_type);
     let records: Vec<_> = file
         .metadata
         .iter()
-        .flat_map(|metadata| {
+        .enumerate()
+        .flat_map(|(metadata_index, metadata)| {
             let prefix = if !multiple_loaders {
                 file_index.clone()
             } else {
                 format!("{file_index}-{}", metadata.loader.id().as_str())
             };
-            mod_records::collect(metadata, &prefix)
+            mod_records::selected(metadata, metadata_index, &prefix, listed.records.as_deref())
         })
         .collect();
-    let outer_filename = file
-        .entry
-        .path()
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
     if records.is_empty() {
         let mut loaders = vec![Piece::new("[unrecognized]", Style::new().bright_black())];
-        if !listed.failures.is_empty() {
-            loaders.push(failure_count(listed.failures.len()));
+        if !listed.scanned.failures.is_empty() {
+            loaders.push(failure_count(listed.scanned.failures.len()));
         }
         rows.push(Row::new(
             indices.file(number),
             file.entry.name(),
             "",
-            vec![Piece::new(&outer_filename, Style::new().bright_black())],
+            filename(&[], file.entry.path(), options.paths),
             loaders,
             0,
         ));
@@ -151,12 +146,12 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
                 },
             ));
         }
-        for failure in &listed.failures {
+        for failure in &listed.scanned.failures {
             rows.push(Row::new(
                 indices.failure(number, failure.loader.id().as_str()),
                 file.entry.name(),
                 "",
-                vec![Piece::new(&outer_filename, Style::new().bright_black())],
+                filename(&[], file.entry.path(), options.paths),
                 vec![
                     loader_piece(&failure.loader),
                     Piece::new(" [failed]", warning()),
@@ -183,15 +178,15 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
                 loaders.push(loader_piece(loader));
             }
         }
-        if !listed.failures.is_empty() {
+        if !listed.scanned.failures.is_empty() {
             loaders.push(space());
-            for (index, failure) in listed.failures.iter().enumerate() {
+            for (index, failure) in listed.scanned.failures.iter().enumerate() {
                 if index > 0 {
                     loaders.push(space());
                 }
                 loaders.push(loader_piece(&failure.loader));
             }
-            loaders.push(failure_count(listed.failures.len()));
+            loaders.push(failure_count(listed.scanned.failures.len()));
         }
         rows.push(Row::new(
             indices.record(record, number, multiple_loaders),

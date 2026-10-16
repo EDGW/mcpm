@@ -1,4 +1,4 @@
-//! Delayed progress display and diagnostics for mod listing.
+//! Shared delayed scan progress and diagnostics for mod inspection.
 
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
@@ -6,14 +6,14 @@ use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
-pub(super) struct Progress {
+pub(in crate::commands) struct Progress {
     bar: ProgressBar,
     stop: Option<Sender<()>>,
     worker: Option<JoinHandle<()>>,
 }
 
 impl Progress {
-    pub(super) fn new(enabled: bool) -> Self {
+    pub(in crate::commands) fn new(enabled: bool) -> Self {
         let bar = ProgressBar::hidden().with_style(
             ProgressStyle::with_template("{spinner} Scanning mod directory...")
                 .expect("scanning progress template must be valid"),
@@ -38,7 +38,7 @@ impl Progress {
         Self { bar, stop, worker }
     }
 
-    pub(super) fn set_total(&self, total: usize) {
+    pub(in crate::commands) fn set_total(&self, total: usize) {
         self.bar.set_length(total as u64);
         self.bar.set_style(
             ProgressStyle::with_template(
@@ -48,11 +48,11 @@ impl Progress {
         );
     }
 
-    pub(super) fn advance(&self) {
+    pub(in crate::commands) fn advance(&self) {
         self.bar.inc(1);
     }
 
-    pub(super) fn report(&self, error: &anyhow::Error) {
+    pub(in crate::commands) fn report(&self, error: &anyhow::Error) {
         self.bar.suspend(|| crate::diagnostics::error(error));
     }
 }
