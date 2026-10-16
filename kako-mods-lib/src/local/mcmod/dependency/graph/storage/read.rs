@@ -59,7 +59,10 @@ struct Node {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Candidate {
-    External {},
+    External {
+        #[serde(default)]
+        version: Option<String>,
+    },
     PrimaryMod {
         modinfo: ModIdentity,
         outgoing: Vec<Edge>,
@@ -161,9 +164,10 @@ fn restore_candidate(
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
 ) -> Result<DependencyCandidate, GraphValidationError> {
     let (nested, modinfo, outgoing) = match candidate {
-        Candidate::External {} => {
+        Candidate::External { version } => {
             return Ok(DependencyCandidate::External(ExternalCandidate {
                 identifier: identifier.clone(),
+                version,
             }));
         }
         Candidate::PrimaryMod { modinfo, outgoing } => (false, modinfo, outgoing),

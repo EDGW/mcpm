@@ -43,7 +43,10 @@ struct Node<'a> {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Candidate<'a> {
-    External,
+    External {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        version: Option<&'a str>,
+    },
     PrimaryMod {
         modinfo: ModIdentity<'a>,
         outgoing: Vec<Edge<'a>>,
@@ -106,7 +109,9 @@ pub fn write_json(graph: &DependencyGraph, mut output: impl Write) -> Result<()>
                 .candidates()
                 .iter()
                 .map(|candidate| match candidate.as_ref() {
-                    DependencyCandidate::External(_) => Candidate::External,
+                    DependencyCandidate::External(candidate) => Candidate::External {
+                        version: candidate.version.as_deref(),
+                    },
                     DependencyCandidate::PrimaryMod(candidate) => Candidate::PrimaryMod {
                         modinfo: candidate.modinfo.as_ref().into(),
                         outgoing: candidate

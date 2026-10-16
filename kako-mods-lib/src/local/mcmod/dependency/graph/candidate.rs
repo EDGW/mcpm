@@ -14,6 +14,8 @@ use super::{
 #[derive(Debug)]
 pub struct ExternalCandidate {
     pub identifier: DependencyIdentifier,
+    /// Version interpreted by this component's loader; None bypasses version checking.
+    pub version: Option<String>,
 }
 
 #[derive(Debug)]
