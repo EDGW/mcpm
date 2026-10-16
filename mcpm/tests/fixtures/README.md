@@ -73,6 +73,15 @@ Forge shim, both Fabric installer layouts, vanilla and bundled vanilla,
 nested shell/BAT scripts, multiple verified entries, and ignored unknown JVM
 options. The CLI tests copy each fixture to a temporary directory before writing.
 
+Forge/NeoForge identification uses the entry point and FML arguments without
+opening dependency JARs. Forge shim reads its embedded properties and dependency
+list for versions, without checking the listed JARs. The `loader-version-conflict`,
+`game-version-conflict`, `missing-loader`, and `fake-loader` fixtures now succeed:
+installation integrity is outside server identification.
+
+Use `--log-level debug` to see scripts, argument-file expansion, identity evidence,
+and failure reasons; `info` shows identification progress and recognized versions.
+
 Failure examples are intentionally preserved for inspection:
 
 | Fixture | Reason initialization must fail |
@@ -87,8 +96,6 @@ Failure examples are intentionally preserved for inspection:
 | `missing-jar` / `corrupt-jar` | Missing archive or invalid ZIP |
 | `fake-vanilla` | Manifest naming vanilla without its entry class |
 | `no-java` | Script contains no Java launch |
-| `loader-version-conflict` / `game-version-conflict` | Launch version disagrees with referenced artifact |
-| `missing-loader` / `fake-loader` | Loader JAR absent or lacking implementation marker |
 | `duplicate-version` | Multiple declarations of the same game version option |
 | `client-target` | Client entry cannot initialize a production server |
 | `fabric-version-conflict` | Fabric intermediary and game JAR versions disagree |

@@ -19,7 +19,7 @@ const MAX_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_ARCHIVES: usize = 4096;
 
 #[derive(Default)]
-pub(in super::super) struct ArchiveNode {
+pub(in crate::local::modloader::impls) struct ArchiveNode {
     pub mods: Vec<ModInfo>,
     pub jars: Vec<String>,
 }
@@ -36,7 +36,7 @@ enum NestedArchiveError {
     ByteLimit { limit: u64 },
 }
 
-pub(in super::super) fn collect(
+pub(in crate::local::modloader::impls) fn collect(
     archive: &mut Archive,
     root: ArchiveNode,
     path: &Path,

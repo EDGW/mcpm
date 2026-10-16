@@ -81,6 +81,7 @@ pub(super) fn parse(
                 "escaped @ arguments are unsupported"
             );
             let path = script::resolve(&directory, &arg[1..], syntax);
+            tracing::debug!(?path, "expanding Java argument file");
             let text = fs::read_to_string(&path)
                 .with_context(|| format!("failed to read Java argument file {path:?}"))?;
             let values = tokens::split(&text, Syntax::Java, &HashMap::new(), &script)?;
@@ -127,6 +128,7 @@ pub(super) fn parse(
         if arg == "-jar" {
             i += 1;
             let path = launch.resolve(arguments.get(i).context("-jar has no path")?);
+            tracing::debug!(?path, "reading launch JAR manifest to determine Java entry");
             let manifest = archive::manifest(&path)?;
             launch.main_class = manifest
                 .get("main-class")

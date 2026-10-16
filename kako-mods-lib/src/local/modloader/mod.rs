@@ -88,8 +88,8 @@ pub trait ModLoader: Send + Sync + Debug {
 lazy_static! {
     /// Built-in loaders indexed by their stable identifiers.
     pub static ref BUILTIN_LOADERS: HashMap<LoaderId, ModLoaderMeta> = [
-        impls::forge::ForgeLoader.metadata(),
-        impls::neoforge::NeoForgeLoader.metadata(),
+        impls::fml::forge::ForgeLoader.metadata(),
+        impls::fml::neoforge::NeoForgeLoader.metadata(),
         impls::fabric::FabricLoader.metadata(),
     ]
     .into_iter()

@@ -55,6 +55,7 @@ fn visit(
     stack: &mut HashSet<PathBuf>,
     launches: &mut Vec<ServerLaunch>,
 ) -> Result<bool> {
+    tracing::debug!(?path, "reading server start script");
     let canonical =
         fs::canonicalize(path).with_context(|| format!("failed to resolve script {path:?}"))?;
     if stack.len() >= 32 || !stack.insert(canonical.clone()) {

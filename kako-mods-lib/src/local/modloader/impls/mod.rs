@@ -13,16 +13,10 @@
 //! - [Fabric metadata](https://docs.fabricmc.net/develop/loader/fabric-mod-json)
 //! - [Fabric nested JARs](https://docs.fabricmc.net/develop/loader/#nested-jars)
 
-mod archive;
-mod client;
-pub use client::ClientLibraryError;
-mod constraints;
-mod fml;
-mod jarjar;
-mod metadata;
-mod server;
-mod version;
-
 pub mod fabric;
-pub mod forge;
-pub mod neoforge;
+pub mod fml;
+mod utils;
+
+// Preserve the existing public paths while implementations live under FML.
+pub use fml::{forge, neoforge};
+pub use utils::coordinate::ClientLibraryError;

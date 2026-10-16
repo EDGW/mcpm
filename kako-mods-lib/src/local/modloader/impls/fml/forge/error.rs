@@ -2,24 +2,24 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-/// Errors reported by the NeoForge identification boundary.
+/// Errors reported by the Forge identification boundary.
 #[derive(Debug, Error)]
-pub enum NeoForgeError {
-    #[error("NeoForge: failed to verify server launch")]
+pub enum ForgeError {
+    #[error("Forge: failed to verify server launch")]
     ServerIdentification {
         #[source]
         source: anyhow::Error,
     },
 
     /// Recognized client library declarations are invalid.
-    #[error("NeoForge: failed to identify client loader version")]
+    #[error("Forge: failed to identify client loader version")]
     ClientIdentification {
         #[source]
-        source: super::super::ClientLibraryError,
+        source: crate::local::modloader::impls::ClientLibraryError,
     },
 
     /// The archive could not be opened or decoded as ZIP.
-    #[error("NeoForge: failed to open mod archive {path:?}")]
+    #[error("Forge: failed to open mod archive {path:?}")]
     OpenArchive {
         /// The mod file's path.
         path: PathBuf,
@@ -28,7 +28,7 @@ pub enum NeoForgeError {
         source: anyhow::Error,
     },
     /// A recognized metadata document could not be read.
-    #[error("NeoForge: failed to read {document} in {path:?}")]
+    #[error("Forge: failed to read {document} in {path:?}")]
     ReadMetadata {
         /// The mod file's path.
         path: PathBuf,
@@ -39,7 +39,7 @@ pub enum NeoForgeError {
         source: anyhow::Error,
     },
     /// A recognized document could not be parsed into identification metadata.
-    #[error("NeoForge: failed to parse {document} in {path:?}")]
+    #[error("Forge: failed to parse {document} in {path:?}")]
     ParseMetadata {
         /// The mod file's path.
         path: PathBuf,
@@ -50,7 +50,7 @@ pub enum NeoForgeError {
         source: anyhow::Error,
     },
     /// A version reference is missing, malformed, cyclic, or cannot be read.
-    #[error("NeoForge: failed to resolve version {expression:?} for mod {modid} in {path:?}")]
+    #[error("Forge: failed to resolve version {expression:?} for mod {modid} in {path:?}")]
     ResolveVersion {
         /// The mod file's path.
         path: PathBuf,
@@ -65,7 +65,7 @@ pub enum NeoForgeError {
         source: anyhow::Error,
     },
     /// A declared nested archive could not be read or identified.
-    #[error("NeoForge: failed to identify nested JARs in {path:?}")]
+    #[error("Forge: failed to identify nested JARs in {path:?}")]
     NestedIdentification {
         /// The outer mod file's path.
         path: PathBuf,

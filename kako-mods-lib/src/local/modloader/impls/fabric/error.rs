@@ -14,7 +14,7 @@ pub enum FabricError {
     #[error("Fabric: failed to identify client loader version")]
     ClientIdentification {
         #[source]
-        source: super::super::ClientLibraryError,
+        source: crate::local::modloader::impls::ClientLibraryError,
     },
 
     /// The archive could not be opened or decoded as ZIP.

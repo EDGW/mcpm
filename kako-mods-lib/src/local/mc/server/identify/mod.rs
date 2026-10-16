@@ -1,4 +1,4 @@
-//! Conservative, read-only identification from a statically understood start script.
+//! Read-only identification from a statically understood start script.
 //! This never runs shell commands, Java, installers, or downloads.
 
 pub(crate) mod archive;
@@ -17,7 +17,8 @@ use thiserror::Error;
 
 pub use java::ServerLaunch;
 
-/// A fully identified launch. Source location and Java entry point explain its provenance.
+/// An identified launch. Source location and Java entry point explain its provenance.
+/// Identification does not guarantee that dependencies are installed or launchable.
 #[derive(Debug, Clone)]
 pub struct ServerCandidate {
     pub metadata: MinecraftServerMetadata,
@@ -37,7 +38,7 @@ pub enum ServerIdentificationError {
 }
 
 /// `script` is relative to `root` unless absolute. All script/file paths are resolved
-/// without executing anything. Unknown syntax, missing evidence, conflicting versions,
+/// without executing anything. Unknown syntax, missing identity evidence, conflicting versions,
 /// or any unrecognized Java launch fail the entire operation without partial results.
 /// Loader implementations are supplied by the caller; no built-ins are assumed.
 pub fn identify(
@@ -45,8 +46,25 @@ pub fn identify(
     script: impl AsRef<Path>,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
 ) -> Result<Vec<ServerCandidate>> {
-    let root =
-        std::fs::canonicalize(root.as_ref()).context("failed to resolve server directory")?;
+    tracing::info!(root = ?root.as_ref(), script = ?script.as_ref(), "identifying Minecraft server");
+    let result = identify_inner(root.as_ref(), script.as_ref(), loaders);
+    match &result {
+        Ok(candidates) => {
+            tracing::info!(count = candidates.len(), "server identification completed")
+        }
+        Err(error) => {
+            tracing::debug!(error = %format_args!("{error:#}"), "server identification failed")
+        }
+    }
+    result
+}
+
+fn identify_inner(
+    root: &Path,
+    script: &Path,
+    loaders: &HashMap<LoaderId, ModLoaderMeta>,
+) -> Result<Vec<ServerCandidate>> {
+    let root = std::fs::canonicalize(root).context("failed to resolve server directory")?;
     anyhow::ensure!(root.is_dir(), "server root is not a directory: {root:?}");
     let path = root.join(script);
     let launches = script::read(&root, &path)?;
@@ -57,8 +75,10 @@ pub fn identify(
     ordered.sort_by(|a, b| a.id().cmp(b.id()));
     let mut candidates: Vec<ServerCandidate> = Vec::new();
     for launch in launches {
+        tracing::debug!(script = ?launch.script, line = launch.line, main_class = %launch.main_class, "inspecting Java server entry");
         let mut recognized = Vec::new();
         for loader in &ordered {
+            tracing::trace!(loader = %loader.name(), "checking server loader evidence");
             if let Some(identity) = loader
                 .instance()
                 .try_identify_server(&launch)
@@ -71,6 +91,7 @@ pub fn identify(
                     )
                 })?
             {
+                tracing::info!(loader = %loader.name(), minecraft_version = %identity.minecraft_version, loader_version = %identity.version, "identified server loader");
                 recognized.push(MinecraftServerMetadata {
                     version: 1,
                     minecraft_version: identity.minecraft_version,

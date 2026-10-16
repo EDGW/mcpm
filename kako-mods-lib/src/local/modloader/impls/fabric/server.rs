@@ -1,4 +1,4 @@
-use super::super::server::{agree, coordinate};
+use super::super::utils::coordinate::{agree, coordinate};
 use crate::local::{
     mc::server::identify::{ServerLaunch, archive},
     modloader::ServerLoaderIdentity,

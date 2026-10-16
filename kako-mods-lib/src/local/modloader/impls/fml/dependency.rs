@@ -8,10 +8,11 @@ use crate::local::mcmod::dependency::{
     Dependency, DependencyKind, DependencyOrdering, DependencySide,
 };
 
-use super::super::{constraints, metadata};
+use super::super::utils::metadata;
+use super::constraints;
 
 #[derive(Clone, Copy)]
-pub(in super::super) enum DependencyFormat {
+pub(super) enum DependencyFormat {
     Forge,
     NeoForge,
     /// Older mods.toml can contain either mandatory or type declarations.

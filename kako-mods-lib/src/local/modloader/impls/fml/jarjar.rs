@@ -3,7 +3,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::metadata;
+use super::super::utils::metadata;
 
 pub(super) const DOCUMENT: &str = "META-INF/jarjar/metadata.json";
 

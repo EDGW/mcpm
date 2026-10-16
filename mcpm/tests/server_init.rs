@@ -39,7 +39,7 @@ fn run(root: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
-fn init_verifies_referenced_loaders_and_retains_flattened_command() {
+fn init_identifies_loaders_and_retains_flattened_command() {
     for (case, loader, mc, version) in [
         ("forge", Some("forge"), "1.20.1", "47.3.12"),
         ("neoforge", Some("neoforge"), "1.21.1", "21.1.77"),
@@ -96,6 +96,87 @@ fn init_verifies_referenced_loaders_and_retains_flattened_command() {
 }
 
 #[test]
+fn fml_uses_command_evidence_without_opening_dependency_jars() {
+    for (case, mc, version) in [
+        ("forge", "1.20.1", "47.3.12"),
+        ("neoforge", "1.21.1", "21.1.77"),
+        ("early-neoforge", "1.20.1", "47.1.79"),
+        ("forge-shim", "1.21.1", "52.0.1"),
+        ("loader-version-conflict", "1.20.1", "47.4.0"),
+        ("game-version-conflict", "1.20.1", "47.3.12"),
+        ("missing-loader", "1.20.1", "47.3.12"),
+        ("fake-loader", "1.20.1", "47.3.12"),
+    ] {
+        let temp = TempDir::new().unwrap();
+        copy(&fixture(case), temp.path());
+        fs::remove_dir_all(temp.path().join("libraries")).unwrap();
+        for script in ["run.sh", "run.bat"] {
+            if !temp.path().join(script).is_file() {
+                continue;
+            }
+            let candidates = identify::identify(temp.path(), script, &BUILTIN_LOADERS).unwrap();
+            // Conflict fixtures change only the shell argument file.
+            let expected_version = if case == "loader-version-conflict" && script == "run.bat" {
+                "47.3.12"
+            } else {
+                version
+            };
+            assert_eq!(
+                candidates[0].metadata.minecraft_version, mc,
+                "{case}: {script}"
+            );
+            assert_eq!(
+                candidates[0].metadata.loader.as_ref().unwrap().version,
+                expected_version,
+                "{case}: {script}"
+            );
+        }
+    }
+}
+
+#[test]
+fn identification_logs_explain_command_evidence_on_stderr() {
+    let temp = TempDir::new().unwrap();
+    copy(&fixture("neoforge"), temp.path());
+    fs::remove_dir_all(temp.path().join("libraries")).unwrap();
+    let output = run(
+        temp.path(),
+        &[
+            "--log-level",
+            "debug",
+            "server",
+            "init",
+            "--start-script",
+            "run.bat",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let logs = String::from_utf8(output.stderr).unwrap();
+    for message in [
+        "reading server start script",
+        "expanding Java argument file",
+        "inspecting Java server entry",
+        "identified FML server from launch arguments",
+        "identified server loader",
+        "server identification completed",
+    ] {
+        assert!(logs.contains(message), "missing {message}: {logs}");
+    }
+    assert_eq!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .trim_end()
+            .split('\t')
+            .count(),
+        6
+    );
+}
+
+#[test]
 fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configuration() {
     for (case, script, reason) in [
         ("dynamic-control", "run.sh", "control flow are unsupported"),
@@ -111,18 +192,6 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
         ("no-java", "run.sh", "no Java server launch"),
         ("dynamic-batch", "run.bat", "unsupported command"),
         ("delayed-batch", "run.bat", "delayed batch expansion"),
-        (
-            "loader-version-conflict",
-            "run.sh",
-            "artifact version disagrees",
-        ),
-        (
-            "game-version-conflict",
-            "run.sh",
-            "Minecraft JAR version disagrees",
-        ),
-        ("missing-loader", "run.sh", "failed to open"),
-        ("fake-loader", "run.sh", "loader class is missing"),
         (
             "duplicate-version",
             "run.sh",
