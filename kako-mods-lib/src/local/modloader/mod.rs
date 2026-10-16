@@ -1,4 +1,9 @@
-//! Mod loader identification interfaces and loader maps.
+//! Mod loader identification interfaces and management of the complete loader registry.
+//!
+//! This module defines the interfaces and manages loader implementations, so it
+//! assembles [`BUILTIN_LOADERS`] here. Every loader must be registered in that
+//! collection; behavior for unregistered loaders is undefined by the library's
+//! API contract.
 
 use std::{collections::HashMap, fmt::Debug};
 
@@ -86,7 +91,11 @@ pub trait ModLoader: Send + Sync + Debug {
 }
 
 lazy_static! {
-    /// Built-in loaders indexed by their stable identifiers.
+    /// The complete set of all loaders, indexed by their stable identifiers.
+    ///
+    /// Every loader must be registered here. Loader maps passed to identification
+    /// APIs select from this set; they do not extend it. Behavior for loaders
+    /// outside this registry is undefined by the library's API contract.
     pub static ref BUILTIN_LOADERS: HashMap<LoaderId, ModLoaderMeta> = [
         impls::fml::forge::ForgeLoader.metadata(),
         impls::fml::neoforge::NeoForgeLoader.metadata(),

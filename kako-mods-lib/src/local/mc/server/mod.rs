@@ -130,8 +130,10 @@ impl MinecraftServer {
         &self.name
     }
 
-    /// Resolves the declared loader against the built-in loader registry.
+    /// Resolves the declared loader against the complete [`BUILTIN_LOADERS`] registry.
     /// `None` means vanilla or unrecognized; declarations remain in `metadata()`.
+    /// All loaders must be registered there; behavior for unregistered loaders
+    /// is undefined by the library's API contract.
     pub fn loader(&self) -> Option<LoaderInfo> {
         let declaration = self.metadata.loader.as_ref()?;
         let loader = BUILTIN_LOADERS.get(declaration.loader_type.as_str())?;
