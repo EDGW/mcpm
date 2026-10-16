@@ -5,7 +5,7 @@ use thiserror::Error;
 /// Errors reported by the NeoForge identification boundary.
 #[derive(Debug, Error)]
 pub enum NeoForgeError {
-    #[error("NeoForge: failed to verify server launch")]
+    #[error("NeoForge: failed to identify server launch")]
     ServerIdentification {
         #[source]
         source: anyhow::Error,

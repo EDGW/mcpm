@@ -13,16 +13,25 @@ pub(super) fn resolve_libraries(
 ) -> Result<(Vec<PathBuf>, Vec<NativeArchive>), LaunchPlanError> {
     let mut selected = BTreeMap::new();
     for (index, library) in manifest.libraries().enumerate() {
+        let context = |source| LaunchPlanError::Library {
+            library: library.name.clone(),
+            source,
+        };
         if library.clientreq == Some(false)
             || !options
                 .rules
                 .allows(&library.rules)
-                .map_err(LibraryError::from)?
+                .map_err(LibraryError::from)
+                .map_err(context)?
         {
             continue;
         }
         selected.insert(
-            library.coordinate().map_err(LibraryError::from)?.key(),
+            library
+                .coordinate()
+                .map_err(LibraryError::from)
+                .map_err(context)?
+                .key(),
             (index, library),
         );
     }
@@ -31,7 +40,13 @@ pub(super) fn resolve_libraries(
     let mut classpath = Vec::new();
     let mut natives = Vec::new();
     for (_, library) in selected {
-        for file in libraries.resolve(library, &options.rules)? {
+        for file in libraries
+            .resolve(library, &options.rules)
+            .map_err(|source| LaunchPlanError::Library {
+                library: library.name.clone(),
+                source,
+            })?
+        {
             tracing::debug!(library = ?file.name, kind = ?file.kind, path = ?file.path, "Selected launch library");
             match file.kind {
                 LibraryFileKind::Artifact => classpath.push(file.path),

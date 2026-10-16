@@ -30,7 +30,7 @@ pub enum ServerIdentificationError {
     #[error("no Java server launch found in {path:?}")]
     NoLaunch { path: PathBuf },
     #[error(
-        "cannot accurately identify server at {path:?}:{line}; no verified loader or vanilla entry"
+        "cannot accurately identify server at {path:?}:{line}; no recognized loader or vanilla entry"
     )]
     Unrecognized { path: PathBuf, line: usize },
     #[error("multiple loader implementations recognized the same Java launch at {path:?}:{line}")]
@@ -64,7 +64,8 @@ fn identify_inner(
     script: &Path,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
 ) -> Result<Vec<ServerCandidate>> {
-    let root = std::fs::canonicalize(root).context("failed to resolve server directory")?;
+    let root = std::fs::canonicalize(root)
+        .with_context(|| format!("failed to resolve server directory {root:?}"))?;
     anyhow::ensure!(root.is_dir(), "server root is not a directory: {root:?}");
     let path = root.join(script);
     let launches = script::read(&root, &path)?;
@@ -84,7 +85,7 @@ fn identify_inner(
                 .try_identify_server(&launch)
                 .with_context(|| {
                     format!(
-                        "failed to verify {} at {:?}:{}",
+                        "failed to identify {} at {:?}:{}",
                         loader.name(),
                         launch.script,
                         launch.line
@@ -113,7 +114,13 @@ fn identify_inner(
         let mut metadata = match recognized.pop() {
             Some(metadata) => metadata,
             None => {
-                let Some(version) = java::vanilla(&launch)? else {
+                let Some(version) = java::vanilla(&launch).with_context(|| {
+                    format!(
+                        "failed to identify vanilla server at {:?}:{}",
+                        launch.script, launch.line
+                    )
+                })?
+                else {
                     return Err(ServerIdentificationError::Unrecognized {
                         path: launch.script,
                         line: launch.line,

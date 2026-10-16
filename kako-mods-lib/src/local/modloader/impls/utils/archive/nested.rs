@@ -27,11 +27,11 @@ pub(in crate::local::modloader::impls) struct ArchiveNode {
 #[derive(Debug, Error)]
 enum NestedArchiveError {
     #[error("invalid nested JAR path {path:?}: expected a relative archive member path")]
-    InvalidPath { path: String },
-    #[error("nested JAR traversal exceeds the {limit} level depth limit")]
-    DepthLimit { limit: usize },
-    #[error("nested JAR traversal exceeds the {limit} archive limit")]
-    ArchiveLimit { limit: usize },
+    InvalidPath { path: PathBuf },
+    #[error("nested JAR traversal exceeds the {limit} level depth limit at {path:?}")]
+    DepthLimit { limit: usize, path: PathBuf },
+    #[error("nested JAR traversal exceeds the {limit} archive limit at {path:?}")]
+    ArchiveLimit { limit: usize, path: PathBuf },
     #[error("nested JAR traversal exceeds the {limit} byte read limit")]
     ByteLimit { limit: u64 },
 }
@@ -74,26 +74,35 @@ fn visit(
         if !seen.insert(member.clone()) {
             continue;
         }
+        let child_display_path = PathBuf::from(format!("{}!{member}", path.display()));
         if member.is_empty()
             || member.starts_with('/')
             || member.split('/').any(|part| part == "..")
         {
-            return Err(NestedArchiveError::InvalidPath { path: member }.into());
+            return Err(NestedArchiveError::InvalidPath {
+                path: child_display_path,
+            }
+            .into());
         }
         if depth >= MAX_DEPTH {
-            return Err(NestedArchiveError::DepthLimit { limit: MAX_DEPTH }.into());
+            return Err(NestedArchiveError::DepthLimit {
+                limit: MAX_DEPTH,
+                path: child_display_path,
+            }
+            .into());
         }
         if budget.archives >= MAX_ARCHIVES {
             return Err(NestedArchiveError::ArchiveLimit {
                 limit: MAX_ARCHIVES,
+                path: child_display_path,
             }
             .into());
         }
         budget.archives += 1;
-        let child_display_path = PathBuf::from(format!("{}!{member}", path.display()));
         let mut nested = read_nested(archive, &member, budget)
             .with_context(|| format!("failed to open nested JAR {child_display_path:?}"))?;
-        let node = identify(&mut nested, &child_display_path)?;
+        let node = identify(&mut nested, &child_display_path)
+            .with_context(|| format!("failed to identify nested JAR {child_display_path:?}"))?;
         let meta = visit(
             &mut nested,
             node,

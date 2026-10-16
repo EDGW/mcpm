@@ -19,8 +19,20 @@ pub enum ArgumentError {
         #[source]
         source: serde_json::Error,
     },
-    #[error(transparent)]
-    Rule(#[from] LibraryRuleError),
+    #[error("invalid rule for {kind} argument at index {index}")]
+    Rule {
+        kind: &'static str,
+        index: usize,
+        #[source]
+        source: LibraryRuleError,
+    },
+    #[error("failed to expand {kind} argument at index {index}")]
+    Expansion {
+        kind: &'static str,
+        index: usize,
+        #[source]
+        source: Box<ArgumentError>,
+    },
     #[error("legacy minecraftArguments contains unmatched quotes or escapes")]
     LegacySyntax,
     #[error("unknown launch placeholder ${{{name}}}")]
@@ -64,12 +76,21 @@ pub(super) fn evaluate(
             Argument::Conditional {
                 rules: conditions,
                 value,
-            } if rules.allows(&conditions)? => match value {
-                ArgumentValue::One(value) => output.push(value.into()),
-                ArgumentValue::Many(values) => {
-                    output.extend(values.into_iter().map(OsString::from))
+            } if rules
+                .allows(&conditions)
+                .map_err(|source| ArgumentError::Rule {
+                    kind,
+                    index,
+                    source,
+                })? =>
+            {
+                match value {
+                    ArgumentValue::One(value) => output.push(value.into()),
+                    ArgumentValue::Many(values) => {
+                        output.extend(values.into_iter().map(OsString::from))
+                    }
                 }
-            },
+            }
             Argument::Conditional { .. } => {}
         }
     }
@@ -113,12 +134,20 @@ pub(super) fn expand(
 }
 
 pub(super) fn expand_all(
+    kind: &'static str,
     values: Vec<OsString>,
     variables: &BTreeMap<String, OsString>,
     policy: UnknownVariablePolicy,
 ) -> Result<Vec<OsString>, ArgumentError> {
     values
         .iter()
-        .map(|value| expand(value, variables, policy))
+        .enumerate()
+        .map(|(index, value)| {
+            expand(value, variables, policy).map_err(|source| ArgumentError::Expansion {
+                kind,
+                index,
+                source: Box::new(source),
+            })
+        })
         .collect()
 }

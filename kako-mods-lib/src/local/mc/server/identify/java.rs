@@ -34,7 +34,7 @@ impl ServerLaunch {
                 Some(
                     self.game_arguments
                         .get(index + 1)
-                        .context("missing game option value")?
+                        .with_context(|| format!("missing game option value for {name}"))?
                         .as_str(),
                 )
             } else {
@@ -42,9 +42,10 @@ impl ServerLaunch {
             };
             if let Some(value) = value {
                 ensure!(
-                    !value.trim().is_empty() && !value.starts_with('-') && found.is_none(),
-                    "duplicate or invalid game option {name}"
+                    !value.trim().is_empty() && !value.starts_with('-'),
+                    "invalid game option value for {name}"
                 );
+                ensure!(found.is_none(), "duplicate game option {name}");
                 found = Some(value);
             }
         }
@@ -84,10 +85,11 @@ pub(super) fn parse(
             tracing::debug!(?path, "expanding Java argument file");
             let text = fs::read_to_string(&path)
                 .with_context(|| format!("failed to read Java argument file {path:?}"))?;
-            let values = tokens::split(&text, Syntax::Java, &HashMap::new(), &script)?;
+            let values = tokens::split(&text, Syntax::Java, &HashMap::new(), &script)
+                .with_context(|| format!("failed to parse Java argument file {path:?}"))?;
             ensure!(
                 !values.iter().any(|v| v.starts_with('@')),
-                "nested Java @argument files are unsupported"
+                "nested Java @argument files are unsupported in {path:?}"
             );
             argument_files.push(path);
             for value in values {
@@ -132,7 +134,7 @@ pub(super) fn parse(
             let manifest = archive::manifest(&path)?;
             launch.main_class = manifest
                 .get("main-class")
-                .context("launch JAR has no Main-Class")?
+                .with_context(|| format!("launch JAR {path:?} has no Main-Class"))?
                 .clone();
             // -jar ignores explicit JVM classpath; only the manifest applies.
             launch.classpath = archive::manifest_paths(&path, &manifest)?;
@@ -159,7 +161,9 @@ pub(super) fn parse(
             }
         } else if is_operand(arg) {
             i += 1;
-            let value = arguments.get(i).context("missing JVM option operand")?;
+            let value = arguments
+                .get(i)
+                .with_context(|| format!("missing JVM option operand for {arg}"))?;
             if is_classpath(arg) {
                 mark_classpath(arg, &mut classpath_seen, &mut modulepath_seen)?;
                 add_paths(&mut launch, value);

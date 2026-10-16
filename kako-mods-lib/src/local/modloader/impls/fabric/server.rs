@@ -31,7 +31,9 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
     }
     // Installer launchers keep their version declarations inside the launch JAR.
     if launch.main_class == "net.fabricmc.installer.ServerLauncher" {
-        return automatic(launch).map(Some);
+        return automatic(launch)
+            .map(Some)
+            .with_context(|| format!("failed to identify Fabric installer JAR {:?}", launch.jar));
     }
     // Ordinary Fabric server entry classes are sufficient loader identity evidence.
     if !matches!(
@@ -65,12 +67,15 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
     {
         tracing::debug!(?jar, "reading shaded Fabric loader version");
         if let Some(bytes) = archive::read(jar, "fabric.mod.json")? {
-            let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+            let json: serde_json::Value = serde_json::from_slice(&bytes)
+                .with_context(|| format!("failed to parse fabric.mod.json in {jar:?}"))?;
             if json.get("id").and_then(|v| v.as_str()) == Some("fabricloader") {
                 let version = json
                     .get("version")
                     .and_then(|v| v.as_str())
-                    .context("shaded Fabric version is missing")?;
+                    .with_context(|| {
+                        format!("shaded Fabric version is missing in {jar:?}!fabric.mod.json")
+                    })?;
                 agree(&mut loader, version, "Fabric loader version")?;
             }
         }
@@ -84,7 +89,8 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
         } else {
             let props_path = launch.directory.join("fabric-server-launcher.properties");
             let props = match std::fs::read(&props_path) {
-                Ok(bytes) => archive::properties(&bytes)?,
+                Ok(bytes) => archive::properties(&bytes)
+                    .with_context(|| format!("failed to parse {props_path:?}"))?,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
                 Err(error) => {
                     return Err(error).with_context(|| format!("failed to read {props_path:?}"));
@@ -126,7 +132,8 @@ fn automatic(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
     let props = archive::properties(
         &archive::read(jar, "install.properties")?
             .context("Fabric install.properties is missing")?,
-    )?;
+    )
+    .with_context(|| format!("failed to parse install.properties in {jar:?}"))?;
     let version = props
         .get("fabric-loader-version")
         .filter(|s| !s.trim().is_empty())

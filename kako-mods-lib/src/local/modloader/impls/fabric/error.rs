@@ -5,7 +5,7 @@ use thiserror::Error;
 /// Errors reported by the Fabric identification boundary.
 #[derive(Debug, Error)]
 pub enum FabricError {
-    #[error("Fabric: failed to verify server launch")]
+    #[error("Fabric: failed to identify server launch")]
     ServerIdentification {
         #[source]
         source: anyhow::Error,

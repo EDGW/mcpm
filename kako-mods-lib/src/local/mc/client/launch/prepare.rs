@@ -42,8 +42,31 @@ pub enum PreparationError {
     ExtractionLimit { maximum_bytes: u64 },
     #[error("refusing to write through a symlink or non-directory at {path:?}")]
     UnsafeDestination { path: PathBuf },
-    #[error("Java version probe did not return a recognizable successful version")]
-    JavaVersionUnknown,
+    #[error(
+        "Java version probe {executable:?} in {working_directory:?} failed with {status}; stderr: {stderr:?}; stdout: {stdout:?}"
+    )]
+    JavaVersionProbe {
+        executable: PathBuf,
+        working_directory: PathBuf,
+        status: std::process::ExitStatus,
+        stdout: String,
+        stderr: String,
+    },
+    #[error(
+        "Java version probe {executable:?} returned no recognizable version; stderr: {stderr:?}; stdout: {stdout:?}"
+    )]
+    JavaVersionUnknown {
+        executable: PathBuf,
+        stdout: String,
+        stderr: String,
+    },
+    #[error("failed to probe Java {executable:?} in {working_directory:?}")]
+    JavaVersionIo {
+        executable: PathBuf,
+        working_directory: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("Java {actual} does not satisfy {policy:?} requirement {required}")]
     JavaVersionMismatch {
         actual: u32,
@@ -293,9 +316,21 @@ fn check_java(plan: &LaunchPlan) -> Result<(), PreparationError> {
         .arg("-version")
         .current_dir(&plan.working)
         .output()
-        .map_err(|source| io_error("probe Java version", &plan.executable, source))?;
+        .map_err(|source| PreparationError::JavaVersionIo {
+            executable: plan.executable.clone(),
+            working_directory: plan.working.clone(),
+            source,
+        })?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     if !output.status.success() {
-        return Err(PreparationError::JavaVersionUnknown);
+        return Err(PreparationError::JavaVersionProbe {
+            executable: plan.executable.clone(),
+            working_directory: plan.working.clone(),
+            status: output.status,
+            stdout,
+            stderr,
+        });
     }
     let text = format!(
         "{}\n{}",
@@ -328,7 +363,11 @@ fn check_java(plan: &LaunchPlan) -> Result<(), PreparationError> {
                 Some(first)
             }
         })
-        .ok_or(PreparationError::JavaVersionUnknown)?;
+        .ok_or_else(|| PreparationError::JavaVersionUnknown {
+            executable: plan.executable.clone(),
+            stdout,
+            stderr,
+        })?;
     let policy = plan.options.java.version_check;
     tracing::debug!(actual, required, ?policy, "Resolved Java major version");
     if actual < required || (policy == JavaVersionCheck::ExactManifest && actual != required) {

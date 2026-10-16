@@ -16,7 +16,9 @@ use anyhow::{Context, Result, ensure};
 pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdentity>> {
     // Expand shim metadata because its versions reside in the launch JAR.
     if launch.main_class == "net.minecraftforge.bootstrap.shim.Main" {
-        return identify_shim(launch).map(Some);
+        return identify_shim(launch)
+            .map(Some)
+            .with_context(|| format!("failed to identify Forge shim JAR {:?}", launch.jar));
     }
     // Check ordinary launch evidence using the Forge family rules.
     server::identify(launch, Family::Forge)
@@ -51,7 +53,8 @@ fn identify_shim(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
     let props = archive::properties(
         &archive::read(jar, "bootstrap-shim.properties")?
             .context("Forge shim properties are missing")?,
-    )?;
+    )
+    .with_context(|| format!("failed to parse bootstrap-shim.properties in {jar:?}"))?;
     ensure!(
         props.get("Main-Class").map(String::as_str)
             == Some("net.minecraftforge.bootstrap.ForgeBootstrap"),
@@ -66,16 +69,24 @@ fn identify_shim(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
         .context("Forge shim dependency list is missing")?;
     let mut mc = None;
     let mut loader = None;
-    for line in std::str::from_utf8(&list)?.lines() {
+    for (index, line) in std::str::from_utf8(&list)
+        .with_context(|| format!("invalid UTF-8 in bootstrap-shim.list in {jar:?}"))?
+        .lines()
+        .enumerate()
+    {
         // Check the list structure without validating hashes or dependency existence.
         let columns: Vec<_> = line.split('\t').collect();
-        ensure!(columns.len() == 3, "invalid Forge shim library list");
+        ensure!(
+            columns.len() == 3,
+            "invalid Forge shim library list in {jar:?}!bootstrap-shim.list at line {}",
+            index + 1
+        );
         let path = launch.directory.join("libraries").join(columns[2]);
         if let Some(version) = coordinate(&path, "net.minecraftforge", "forge") {
             // Extract Minecraft-loader versions from Forge coordinates; skip other artifacts.
             let (game, version) = version
                 .split_once('-')
-                .context("Forge coordinate has no Minecraft version")?;
+                .with_context(|| format!("Forge coordinate {path:?} has no Minecraft version in {jar:?}!bootstrap-shim.list at line {}", index + 1))?;
             // Require version declarations from multiple Forge artifacts to agree.
             agree(&mut mc, game, "Minecraft version")?;
             agree(&mut loader, version, "Forge version")?;

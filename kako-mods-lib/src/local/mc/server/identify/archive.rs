@@ -37,24 +37,27 @@ fn entry<R: Read + std::io::Seek>(
         .read_to_end(&mut bytes)?;
     ensure!(
         bytes.len() as u64 <= limit,
-        "archive member exceeds identification size limit"
+        "archive member {member:?} exceeds identification size limit"
     );
     Ok(Some(bytes))
 }
 
 pub(crate) fn has(path: &Path, member: &str) -> Result<bool> {
     let mut archive =
-        ZipArchive::new(File::open(path).with_context(|| format!("failed to open {path:?}"))?)?;
+        ZipArchive::new(File::open(path).with_context(|| format!("failed to open {path:?}"))?)
+            .with_context(|| format!("invalid JAR {path:?}"))?;
     match archive.by_name(member) {
         Ok(_) => Ok(true),
         Err(ZipError::FileNotFound) => Ok(false),
-        Err(error) => Err(error.into()),
+        Err(error) => Err(error).with_context(|| format!("failed to inspect {member} in {path:?}")),
     }
 }
 
 pub(crate) fn manifest(path: &Path) -> Result<HashMap<String, String>> {
-    let bytes = read(path, "META-INF/MANIFEST.MF")?.context("JAR has no manifest")?;
-    attributes(std::str::from_utf8(&bytes)?)
+    let bytes = read(path, "META-INF/MANIFEST.MF")?
+        .with_context(|| format!("JAR {path:?} has no manifest"))?;
+    (|| attributes(std::str::from_utf8(&bytes)?))()
+        .with_context(|| format!("failed to parse META-INF/MANIFEST.MF in {path:?}"))
 }
 
 /// Main section only; continuation lines belong to their preceding attribute.
@@ -91,26 +94,28 @@ fn attributes(text: &str) -> Result<HashMap<String, String>> {
 /// Parses a conservative subset of java.util.Properties; exotic escapes are rejected.
 pub(crate) fn properties(bytes: &[u8]) -> Result<HashMap<String, String>> {
     let mut values = HashMap::new();
-    for line in std::str::from_utf8(bytes)?.lines() {
+    for (index, line) in std::str::from_utf8(bytes)?.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() || line.starts_with(['#', '!']) {
             continue;
         }
         ensure!(
             !line.contains('\\'),
-            "escaped or continued Java properties are unsupported"
+            "escaped or continued Java properties are unsupported at line {}",
+            index + 1
         );
         let index = line
             .find(['=', ':'])
             .or_else(|| line.find(char::is_whitespace))
-            .context("invalid Java property")?;
+            .with_context(|| format!("invalid Java property at line {}", index + 1))?;
         let key = line[..index].trim();
         let value = line[index..]
             .trim_start_matches(|ch: char| ch.is_whitespace() || ch == '=' || ch == ':')
             .trim_end();
         ensure!(
             !key.is_empty() && values.insert(key.to_owned(), value.to_owned()).is_none(),
-            "duplicate or empty property {key:?}"
+            "duplicate or empty property {key:?} at line {}",
+            index + 1
         );
     }
     Ok(values)
@@ -127,7 +132,7 @@ pub(crate) fn manifest_paths(
                 .map(|value| {
                     ensure!(
                         !value.contains(':') && !value.contains('%'),
-                        "URI or encoded manifest classpaths are unsupported"
+                        "URI or encoded manifest classpaths are unsupported in {jar:?}!META-INF/MANIFEST.MF: {value:?}"
                     );
                     Ok(jar.parent().unwrap().join(value))
                 })
@@ -137,37 +142,53 @@ pub(crate) fn manifest_paths(
 }
 
 pub(crate) fn minecraft_version(path: &Path) -> Result<Option<String>> {
+    minecraft_version_inner(path)
+        .with_context(|| format!("failed to read Minecraft version from {path:?}"))
+}
+
+fn minecraft_version_inner(path: &Path) -> Result<Option<String>> {
     if let Some(bytes) = read(path, "version.json")? {
-        return Ok(Some(version_json(&bytes)?));
+        return Ok(Some(
+            version_json(&bytes).context("failed to parse version.json")?,
+        ));
     }
-    let mut archive = ZipArchive::new(File::open(path)?)?;
-    let Some(list) = entry(&mut archive, "META-INF/versions.list", MAX_DOCUMENT)? else {
+    let list_member = "META-INF/versions.list";
+    let Some(list) = read(path, list_member)? else {
         return Ok(None);
     };
-    let text = std::str::from_utf8(&list)?;
+    let text =
+        std::str::from_utf8(&list).with_context(|| format!("invalid UTF-8 in {list_member}"))?;
     let rows: Vec<_> = text.lines().filter(|s| !s.trim().is_empty()).collect();
-    ensure!(rows.len() == 1, "ambiguous bundled Minecraft versions");
+    ensure!(
+        rows.len() == 1,
+        "ambiguous bundled Minecraft versions in {list_member}: expected one row, got {}",
+        rows.len()
+    );
     let row: Vec<_> = rows[0].split('\t').collect();
     ensure!(
         row.len() == 3 && !row[1].is_empty(),
-        "invalid bundled versions list"
+        "invalid bundled versions list {list_member}"
     );
-    let bytes = entry(
-        &mut archive,
-        &format!("META-INF/versions/{}", row[2]),
-        64 * 1024 * 1024,
-    )?
-    .context("bundled Minecraft JAR is missing")?;
-    let mut inner = ZipArchive::new(Cursor::new(bytes))?;
-    let version = version_json(
-        &entry(&mut inner, "version.json", MAX_DOCUMENT)?
-            .context("bundled game version.json is missing")?,
-    )?;
+    let member = format!("META-INF/versions/{}", row[2]);
+    let bundled_version = (|| -> Result<String> {
+        let mut archive = ZipArchive::new(File::open(path)?)?;
+        let bytes = entry(&mut archive, &member, 64 * 1024 * 1024)?
+            .context("bundled Minecraft JAR is missing")?;
+        let mut inner =
+            ZipArchive::new(Cursor::new(bytes)).context("invalid bundled Minecraft JAR")?;
+        let bytes = entry(&mut inner, "version.json", MAX_DOCUMENT)
+            .context("failed to read bundled version.json")?
+            .context("bundled game version.json is missing")?;
+        version_json(&bytes).context("failed to parse bundled version.json")
+    })()
+    .with_context(|| format!("failed to inspect bundled JAR {member:?}"))?;
     ensure!(
-        version == row[1],
-        "bundled Minecraft version disagrees with version.json"
+        bundled_version == row[1],
+        "bundled Minecraft version disagrees with version.json: {} declares {:?}, {member}!version.json declares {bundled_version:?}",
+        list_member,
+        row[1]
     );
-    Ok(Some(version))
+    Ok(Some(bundled_version))
 }
 
 fn version_json(bytes: &[u8]) -> Result<String> {

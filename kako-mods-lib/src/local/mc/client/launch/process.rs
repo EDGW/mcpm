@@ -12,12 +12,33 @@ use super::{LaunchPlan, PreparedLaunch, ProcessOptions, ProcessStream};
 pub enum SpawnError {
     #[error("cannot launch target OS {target:?} on host OS {host:?}")]
     Platform { target: String, host: &'static str },
-    #[error("failed to start Java {executable:?}")]
+    #[error("failed to start Java {executable:?} in {working_directory:?}")]
     Io {
         executable: PathBuf,
+        working_directory: PathBuf,
         #[source]
         source: io::Error,
     },
+}
+
+#[derive(Debug, Error)]
+#[error("failed to {operation} Java process {pid}")]
+struct ProcessIoError {
+    operation: &'static str,
+    pid: u32,
+    #[source]
+    source: io::Error,
+}
+
+fn process_error(operation: &'static str, pid: u32, source: io::Error) -> io::Error {
+    io::Error::new(
+        source.kind(),
+        ProcessIoError {
+            operation,
+            pid,
+            source,
+        },
+    )
 }
 
 /// Owns the child and launch plan. Native files remain on disk after exit.
@@ -58,6 +79,7 @@ impl PreparedLaunch {
         tracing::debug!(stdin = ?options.stdin, stdout = ?options.stdout, stderr = ?options.stderr, clear_environment = options.clear_environment, environment_overrides = options.environment.len(), "Configured process streams and environment");
         let child = command.spawn().map_err(|source| SpawnError::Io {
             executable: self.plan.executable.clone(),
+            working_directory: self.plan.working.clone(),
             source,
         })?;
         let pid = child.id();
@@ -91,16 +113,24 @@ impl LaunchProcess {
     }
     pub fn kill(&mut self) -> io::Result<()> {
         tracing::info!(pid = self.pid, version = ?self.prepared.plan.version.name(), "Requesting Java process termination");
-        self.child_mut().kill()
+        self.child_mut()
+            .kill()
+            .map_err(|source| process_error("kill", self.pid, source))
     }
     pub fn wait(&mut self) -> io::Result<ExitStatus> {
         tracing::debug!(pid = self.pid, version = ?self.prepared.plan.version.name(), "Waiting for Java process");
-        let status = self.child_mut().wait()?;
+        let status = self
+            .child_mut()
+            .wait()
+            .map_err(|source| process_error("wait for", self.pid, source))?;
         self.record_exit(status);
         Ok(status)
     }
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
-        let status = self.child_mut().try_wait()?;
+        let status = self
+            .child_mut()
+            .try_wait()
+            .map_err(|source| process_error("poll", self.pid, source))?;
         if let Some(status) = status {
             self.record_exit(status);
         }
@@ -112,7 +142,8 @@ impl LaunchProcess {
             .child
             .take()
             .expect("child is owned until wait_with_output")
-            .wait_with_output();
+            .wait_with_output()
+            .map_err(|source| process_error("collect output from", self.pid, source));
         if let Ok(output) = &result {
             self.record_exit(output.status);
         }

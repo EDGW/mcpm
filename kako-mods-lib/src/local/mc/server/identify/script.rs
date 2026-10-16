@@ -232,9 +232,13 @@ fn statement(
             })
             .collect();
         ensure!(args.len() == 1, "directory change needs one literal path");
-        let new = fs::canonicalize(resolve(&state.cwd, args[0], syntax))
-            .context("failed to resolve script working directory")?;
-        ensure!(new.is_dir(), "script working directory is not a directory");
+        let target = resolve(&state.cwd, args[0], syntax);
+        let new = fs::canonicalize(&target)
+            .with_context(|| format!("failed to resolve script working directory {target:?}"))?;
+        ensure!(
+            new.is_dir(),
+            "script working directory {new:?} is not a directory"
+        );
         if command == "pushd" {
             state.directories.push(state.cwd.clone());
         }

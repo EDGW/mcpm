@@ -5,7 +5,7 @@ use thiserror::Error;
 /// Errors reported by the Forge identification boundary.
 #[derive(Debug, Error)]
 pub enum ForgeError {
-    #[error("Forge: failed to verify server launch")]
+    #[error("Forge: failed to identify server launch")]
     ServerIdentification {
         #[source]
         source: anyhow::Error,

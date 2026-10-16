@@ -61,14 +61,23 @@ pub enum LaunchPlanError {
         field: &'static str,
         reason: &'static str,
     },
-    #[error("cannot resolve launch library")]
-    Library(#[from] LibraryError),
+    #[error("cannot resolve launch library {library:?}")]
+    Library {
+        library: String,
+        #[source]
+        source: LibraryError,
+    },
     #[error(transparent)]
     Argument(#[from] ArgumentError),
     #[error(transparent)]
     Path(#[from] ResourcePathError),
-    #[error("cannot resolve launch filesystem path")]
-    Io(#[from] std::io::Error),
+    #[error("{operation}: {path:?}")]
+    Io {
+        operation: &'static str,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("cannot load asset index for legacy resource mapping")]
     Assets(#[from] crate::local::mc::client::AssetError),
 }
@@ -142,8 +151,22 @@ impl MinecraftDirectory {
     ) -> Result<LaunchPlan, LaunchPlanError> {
         tracing::info!(root = ?self.path(), "Building launch plan");
         validate(options)?;
-        let root = self.path().canonicalize()?;
-        if version.root_path().canonicalize()? != root {
+        let canonicalize = |path: &Path| {
+            path.canonicalize().map_err(|source| LaunchPlanError::Io {
+                operation: "canonicalize launch root",
+                path: path.to_owned(),
+                source,
+            })
+        };
+        let absolute = |path: &Path| {
+            std::path::absolute(path).map_err(|source| LaunchPlanError::Io {
+                operation: "resolve absolute launch path",
+                path: path.to_owned(),
+                source,
+            })
+        };
+        let root = canonicalize(self.path())?;
+        if canonicalize(version.root_path())? != root {
             return Err(LaunchPlanError::RootMismatch {
                 version: version.name().into(),
             });
@@ -202,7 +225,7 @@ impl MinecraftDirectory {
         {
             options.java.executable.clone()
         } else {
-            std::path::absolute(&options.java.executable)?
+            absolute(&options.java.executable)?
         };
         let main_class = options
             .arguments
@@ -223,8 +246,8 @@ impl MinecraftDirectory {
         let jar = if let Some(path) = &options.directories.client_jar {
             resolve(path)
         } else {
-            std::path::absolute(
-                version
+            absolute(
+                &version
                     .launch_jar_path()
                     .map_err(|source| LaunchPlanError::Version { source })?,
             )?
@@ -426,9 +449,14 @@ impl MinecraftDirectory {
         };
         append_game(&mut game_args, &options)?;
         game_args = decorate(&options.arguments.game, game_args);
-        let jvm = arguments::expand_all(jvm, &variables, options.arguments.unknown_variables)?;
-        let game_args =
-            arguments::expand_all(game_args, &variables, options.arguments.unknown_variables)?;
+        let jvm =
+            arguments::expand_all("JVM", jvm, &variables, options.arguments.unknown_variables)?;
+        let game_args = arguments::expand_all(
+            "game",
+            game_args,
+            &variables,
+            options.arguments.unknown_variables,
+        )?;
         required.extend(mappings.iter().map(|(source, _)| source.clone()));
         let mut seen = BTreeSet::new();
         required.retain(|path| seen.insert(path.clone()));

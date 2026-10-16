@@ -49,14 +49,14 @@ pub(super) fn identify(
         // Shared entry classes require an explicit Forge group.
         ensure!(
             group == Some("net.minecraftforge"),
-            "Forge group is absent or unrecognized"
+            "Forge group is absent or unrecognized: expected net.minecraftforge, got {group:?}"
         );
     }
     if neo && let Some(group) = group {
         // Allow an omitted NeoForge group, but reject contradictory declarations.
         ensure!(
             group == "net.neoforged",
-            "NeoForge version conflicts with Forge group"
+            "NeoForge version conflicts with Forge group: expected net.neoforged, got {group:?}"
         );
     }
     if let Some(target) = launch.option("--launchTarget")? {
@@ -66,7 +66,7 @@ pub(super) fn identify(
                 target,
                 "forgeserver" | "neoforgeserver" | "forge_server" | "neoforge_server"
             ),
-            "entry is not a production server launch"
+            "entry is not a production server launch: unsupported --launchTarget {target:?}"
         );
     } else {
         // Only the direct server entry establishes its purpose without a target.
@@ -86,7 +86,7 @@ pub(super) fn identify(
         // Require old and new loader version arguments to agree when both occur.
         ensure!(
             neo == forge,
-            "conflicting Forge and NeoForge version arguments"
+            "conflicting Forge and NeoForge version arguments: forgeVersion={forge:?}, neoForgeVersion={neo:?}"
         );
     }
     // Record the sufficient identity evidence without inspecting dependency JARs.
