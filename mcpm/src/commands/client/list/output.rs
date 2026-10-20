@@ -1,4 +1,4 @@
-//! Client list presentation using semantic console styles.
+//! Client list presentation with selectable columns.
 
 use std::io::{self, Write};
 
@@ -8,7 +8,11 @@ use super::{Row, State};
 
 use super::super::output::text;
 
-pub(super) fn write_list(output: &mut impl Write, rows: &[Row]) -> io::Result<()> {
+pub(super) fn write_list(
+    output: &mut impl Write,
+    rows: &[Row],
+    columns: &super::columns::ColumnArgs,
+) -> io::Result<()> {
     let formatted = terminal::stdout_is_tty();
     let style = OutputStyle::new();
     let width = textwrap::termwidth().max(1);
@@ -20,6 +24,62 @@ pub(super) fn write_list(output: &mut impl Write, rows: &[Row]) -> io::Result<()
         };
         let name = text(&row.name);
         let detail = text(&row.detail);
+        if columns.is_explicit() {
+            use super::columns::Column;
+            let values: Vec<_> = columns
+                .selected()
+                .iter()
+                .map(|column| match column {
+                    Column::Index => (index + 1).to_string(),
+                    Column::Name => name.clone(),
+                    Column::State => state.to_owned(),
+                    Column::Loaders => row
+                        .loaders
+                        .iter()
+                        .map(|l| format!("{} {}", text(l.loader.name()), text(&l.version)))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    Column::Detail => detail.clone(),
+                })
+                .collect();
+            if formatted {
+                let styled: Vec<_> = columns
+                    .selected()
+                    .iter()
+                    .zip(&values)
+                    .map(|(column, value)| match column {
+                        Column::Name => style.primary(value),
+                        Column::Loaders => row
+                            .loaders
+                            .iter()
+                            .map(|loader| {
+                                format!(
+                                    "{} {}",
+                                    style.loader(
+                                        loader.loader.id().as_str(),
+                                        &text(loader.loader.name())
+                                    ),
+                                    style.secondary(text(&loader.version))
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        Column::State => match row.state {
+                            State::Normal => style.success(value),
+                            State::Broken => style.danger(value),
+                            State::Failed => style.warning(value),
+                        },
+                        _ => style.muted(value),
+                    })
+                    .collect();
+                for line in textwrap::wrap(&styled.join("  "), width) {
+                    writeln!(output, "{line}")?;
+                }
+            } else {
+                writeln!(output, "{}", values.join("\t"))?;
+            }
+            continue;
+        }
         if !formatted {
             let loaders = row
                 .loaders

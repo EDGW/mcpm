@@ -1,3 +1,6 @@
+//! Local client profile listing and column selection.
+
+mod columns;
 mod output;
 
 use std::{
@@ -21,6 +24,8 @@ pub(super) struct ListArgs {
     /// Pass . explicitly to force the current directory.
     #[arg(value_name = "PATH")]
     path: Option<PathBuf>,
+    #[command(flatten)]
+    columns: columns::ColumnArgs,
 }
 
 #[derive(Clone, Copy)]
@@ -97,7 +102,7 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
         rows.push(row);
     }
     let mut stdout = io::stdout().lock();
-    output::write_list(&mut stdout, &rows).context("failed to write client list")?;
+    output::write_list(&mut stdout, &rows, &args.columns).context("failed to write client list")?;
     stdout.flush().context("failed to flush client list")?;
     if failed > 0 {
         return Err(ListError::LoaderInspection { count: failed }.into());
