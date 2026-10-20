@@ -1,0 +1,82 @@
+# 服务端 Mod 来源
+
+搜索远端项目、浏览发布文件，或根据本地文件内容反查来源：
+
+```sh
+mcpm server mods source search create --server ./my-server --source modrinth
+mcpm server mods source files create --server ./my-server --source curseforge
+mcpm server mods source identify --server ./my-server --source modrinth --all
+```
+
+三个命令均支持 `--server PATH`，默认当前目录，要求服务端已注册且声明了受支持的
+mod loader。`--source` 支持 `modrinth`、`curseforge`（Curse.tools）和
+`curseforge@KEY`（官方 API）。
+
+## Search 和 files
+
+默认使用服务端元数据中的 Minecraft 版本和 loader 过滤。
+显式的 `--game-version`、`--loader` 分别覆盖对应默认值。
+`--all-versions` 同时取消这两个过滤，不能与显式过滤同时使用。
+这些条件只筛选声明的兼容性，不检查 Mod 依赖。
+
+Search 接受可选的纯文本关键词，多词需要引号。Files 接受远端 project ID 或精确
+slug，也会追加读取 stdin，每行一个项目。这些参数不是本地 modid。
+
+```sh
+mcpm server mods source search "Steam 'n' Rails" --source modrinth
+mcpm server mods source files 688231 --source curseforge --all-versions
+mcpm server mods source files create --source modrinth --game-version 1.21.1
+printf '%s\n' create ZzjhlDgM | mcpm server mods source files --source modrinth
+```
+
+终端中 search 和单项目 files 默认使用 TUI。搜索界面按 Enter 进入选中项目的 files，
+保留兼容性过滤；Esc 返回搜索。多项目、`-N/--no-ui`、指定列或流重定向时使用列表。
+排序、翻页和发布类型过滤沿用 `mcpm mod source`。
+
+单项目可用 `--selected FILE_ID` 按 ID 直接获取文件，并在顶部的 `Selected` 区域显示，
+不受当前页和兼容性过滤限制。`--loader`（别名 `--loaders`）支持逗号分隔和重复指定，匹配任意一个 loader。翻页时保持显示，其他文件列表中遇到同一文件会去重。
+分页和总数仍对应原始筛选结果，置顶文件不占用每页数量；文件不存在或不属于指定项目时
+报错。独立的 `mcpm mod source files` 同样支持此选项。
+
+```sh
+mcpm mod source files sodium --source modrinth --selected yaoBL9D9
+mcpm --raw mod source files sodium --source modrinth --selected yaoBL9D9 --columns selected,id,filename
+```
+
+Raw 输出先列出选中文件，默认 TSV 列不变。可用 `--columns selected`（或 `-C S`）
+添加 `true`/`false` 选中标记；选中文件不参与分页，因此其 `index` 为空。
+
+## Identify
+
+沿用现有服务端 Mod 选择规则：依次匹配文件名、精确 modid、精确显示名称。
+`--file`、`--modid`、`--name` 可以明确指定解释方式。
+路径相对于服务端 mods 目录，也接受 `mods/` 前缀；不接受绝对路径或向上跳转。
+识别任意本地路径请使用独立的 `mcpm mod source identify`。
+
+```sh
+mcpm server mods source identify create.jar --source curseforge
+mcpm server mods source identify --modid create --source modrinth
+printf '%s\n' create | mcpm server mods source identify --source modrinth --input modid
+```
+
+`--all` 选择 mods 目录内全部 `.jar` 和 `.jar.disabled` 文件。
+无选择条件时不发起请求，在终端 stderr 显示提示。
+stdin 每行追加一个选择条件，`--input` 控制其解释方式；同一文件重复选中只识别一次。
+
+识别会计算完整本地文件的哈希，不按 Minecraft 版本或 loader 过滤。
+文件选择和 `--all` 无需成功解析 Mod 元数据；名称和 modid 选择需要解析元数据以定位文件，
+嵌套声明会选择其所在的最外层归档。
+
+未匹配文件输出 `unmatched`。选择、读取或请求失败会写入 stderr，继续处理其他输入，
+最终以非零状态退出。
+
+## 输出
+
+三个列表均支持 `-C` 列字母和 `--columns` 列名，具体列见各命令 `--help`。
+Raw 或 stdout 重定向时输出转义后的 TSV，不含表头；`--raw` 同时关闭进度提示。
+
+```sh
+mcpm server mods source search create --source modrinth -N --columns name,id,url
+mcpm server mods source files create --source modrinth --columns id,filename,size
+mcpm --raw server mods source identify --source modrinth --all --columns path,project,id,status
+```

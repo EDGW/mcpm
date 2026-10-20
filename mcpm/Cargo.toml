@@ -12,11 +12,13 @@ terminal-colorsaurus = "1"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "unstable-rendered-line-info"] }
 kako-mods-lib = { path = "../kako-mods-lib" }
 owo-colors = "4"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 toml = "1"
 dirs = "6"
 shlex = "1.3"
 thiserror = "2"
+tokio = { version = "1", features = ["rt", "net", "time", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi", "registry"] }
 unicode-width = "0.2"

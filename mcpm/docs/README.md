@@ -6,7 +6,7 @@ are read without modifying them; graph snapshots can be written to a separate fi
 
 [Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
 
-[Server init](server/init.md) · [server info](server/info.md)
+[Server init](server/init.md) · [server info](server/info.md) · [server mod sources](server/source.md)
 
 [Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 

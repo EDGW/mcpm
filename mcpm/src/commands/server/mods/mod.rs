@@ -10,6 +10,7 @@ mod graph_input;
 mod info;
 mod input;
 mod list;
+mod source;
 
 #[derive(Args)]
 pub(super) struct ModsArgs {
@@ -29,6 +30,8 @@ enum ModsCommand {
     Info(info::InfoArgs),
     /// Show direct dependency declarations from server mod files.
     Deps(deps::DepsArgs),
+    /// Search remote sources, browse compatible files, and identify server mods.
+    Source(source::SourceArgs),
 }
 
 pub(super) fn run(args: ModsArgs) -> Result<()> {
@@ -38,5 +41,6 @@ pub(super) fn run(args: ModsArgs) -> Result<()> {
         ModsCommand::List(args) => list::run(args),
         ModsCommand::Info(args) => info::run(args),
         ModsCommand::Deps(args) => deps::run(args),
+        ModsCommand::Source(args) => source::run(args),
     }
 }

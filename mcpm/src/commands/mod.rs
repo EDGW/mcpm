@@ -7,6 +7,7 @@ mod mod_support;
 pub(crate) mod mods;
 mod output_style;
 pub(crate) mod server;
+mod source_support;
 
 use anyhow::Result;
 

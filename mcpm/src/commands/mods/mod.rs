@@ -1,4 +1,4 @@
-//! Commands for inspecting user-selected mod files and directories.
+//! Commands for inspecting local mods and searching remote mod sources.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -7,6 +7,7 @@ mod dep_graph;
 mod deps;
 mod info;
 mod list;
+mod source;
 
 #[derive(Args)]
 pub(crate) struct ModArgs {
@@ -24,6 +25,8 @@ enum ModCommand {
     Info(info::InfoArgs),
     /// List local mod files with loader colors.
     List(list::ListArgs),
+    /// Search remote mod sources.
+    Source(source::SourceArgs),
 }
 
 pub(crate) fn run(args: ModArgs) -> Result<()> {
@@ -32,5 +35,6 @@ pub(crate) fn run(args: ModArgs) -> Result<()> {
         ModCommand::Deps(args) => deps::run(args),
         ModCommand::Info(args) => info::run(args),
         ModCommand::List(args) => list::run(args),
+        ModCommand::Source(args) => source::run(args),
     }
 }

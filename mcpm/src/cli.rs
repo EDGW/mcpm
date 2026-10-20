@@ -31,7 +31,7 @@ pub(crate) enum Command {
     Client(ClientArgs),
     /// Inspect local Minecraft servers.
     Server(ServerArgs),
-    /// Inspect and manage local mod files.
+    /// Inspect local mod files and search remote sources.
     #[command(name = "mod")]
     Mod(ModArgs),
 }

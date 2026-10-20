@@ -4,7 +4,7 @@
 
 [客户端列表](client/list.md) · [完整性检查](client/check.md) · [启动客户端](client/launch.md)
 
-[初始化服务端](server/init.md) · [服务端信息](server/info.md)
+[初始化服务端](server/init.md) · [服务端信息](server/info.md) · [服务端 Mod 来源](server/source.md)
 
 [Mod 命令](mod/README.md)：[list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
