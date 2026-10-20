@@ -209,10 +209,7 @@ fn wrap_cell(
             let mut offset = 0;
             let mut result = Vec::new();
             if indentation > 0 {
-                result.push(Piece::new(
-                    " ".repeat(indentation),
-                    owo_colors::Style::new(),
-                ));
+                result.push(Piece::new(" ".repeat(indentation), super::Paint::Plain));
             }
             for piece in pieces {
                 let piece_end = offset + piece.text.len();
@@ -221,7 +218,7 @@ fn wrap_cell(
                 if slice_start < slice_end {
                     result.push(Piece {
                         text: piece.text[slice_start - offset..slice_end - offset].to_owned(),
-                        style: piece.style,
+                        style: piece.style.clone(),
                     });
                 }
                 offset = piece_end;
@@ -242,7 +239,7 @@ fn piece_width(pieces: &[Piece]) -> usize {
 fn write_pieces(output: &mut impl Write, pieces: &[Piece], color: bool) -> io::Result<()> {
     for piece in pieces {
         if color {
-            write!(output, "{}", piece.style.style(&piece.text))?;
+            write!(output, "{}", super::paint(&piece.style).style(&piece.text))?;
         } else {
             write!(output, "{}", piece.text)?;
         }

@@ -6,6 +6,22 @@ mcpm mod list [OPTIONS] [PATH]...
 
 列出 Mod 文件，可混合传入多个文件和目录。不传路径时使用当前目录（`.`）。
 
+终端中默认打开 TUI：上方是可滚动的 Mod 树，下方是紧凑的 Details 卡片。每个 Mod 占两行，File 移到第二行并与 Mod ID 左对齐，第一行不再单列 File；选中项的两行以背景色标识；`>` 表示可展开分支，`v` 表示已展开，叶子不显示箭头。→ 展开一级，← 收起当前分支或移至父项，Space 切换当前分支，`e` 展开全部。`--expanded` 会在启动时展开全部分支。
+
+仅 TUI 会自动按列表顺序识别外层 JAR：每个文件查询 Modrinth，并通过 Curse.tools 查询 CurseForge。默认最多同时执行 10 个平台反查请求，期间仍可操作列表；`--identify-parallelism <COUNT>` 指定正整数并行度，设为 `1` 则顺序识别。Index 下方的第一位对应 Modrinth，第二位对应 CurseForge；识别时显示加载动画，验证匹配后显示平台色勾选。Details 显示各平台状态，成功时包括 Project ID、File ID、文件名、匹配类型和大小，支持选择和复制。单次请求失败后继续处理其他文件，退出 TUI 会取消剩余请求。重复文件路径共享识别结果。嵌套 JAR 不参与识别，也不会继承外层文件的成功标记。Console 和 Raw 不执行远程识别。
+
+在 Details 中选中已识别成功的 Modrinth 或 CurseForge 字段，按 Enter 进入该项目的 files，自动将识别到的版本置顶为 `Selected`。命令行的 `--loader/--loaders` 筛选会一并传递，多选按任意匹配；未指定时不限制 loader。Esc 或 q 返回原列表，保留选中行、Details 字段和筛选条件。加载时可按 Esc 取消；请求失败会返回列表并显示错误。尚未匹配的来源和嵌套 JAR 不提供此入口。
+
+平台颜色从 `~/.mcpm/source_colors.toml` 读取，缺失项使用 `mcpm/config/source_colors.toml` 默认值。`source_colors.tui` 和 `source_colors.console` 表包含 `modrinth`、`curseforge` 的颜色；这些颜色不属于 `mcpm customize` 编辑项。
+
+↑/↓、PageUp/PageDown、Home/End 和触控板用于导航。`F` 在 Mods 和 Details 之间打开 Filter 卡片。普通文本默认搜索 Name、Mod ID、File、Loaders，包括隐藏子项；Index 不参与筛选。输入 `@name Fabric API @file fabric`，表示名称包含 `Fabric API` 且文件名包含 `fabric`。支持 `@name`、`@modid`、`@file`、`@loaders`，各字段的内容持续到下一个 `@`，多个条件必须同时满足，匹配不区分大小写。字段标记使用主色，后续带特殊含义的内容使用附色。用 `\@` 表示字面量 `@`，例如 `@file user\@host.jar`，其他反斜杠保持原样；不支持 `@ name`，未知标记（包括 `@index`）会提示警告且不匹配任何行。
+
+搜索会显示命中的隐藏子项，但仍可用 ←/→、Space、鼠标箭头逐级折叠/展开，`e` 展开全部；手动折叠会在筛选期间保留，清空筛选后恢复普通列表原有的展开状态。
+
+筛选实时生效。Enter 应用并返回 Mods 焦点；Esc 或大写 `Q` 关闭筛选卡片并保留条件，小写 `q` 作为普通筛选文本输入。在筛选框外按 `r` 清空条件。Tab/Shift-Tab 在可见的 Mods、Filter、Details 卡片间切换；Details 内用 ↑/↓ 选择字段，`c` 复制完整字段值，即使显示内容已被 `...` 截断。状态栏反馈复制成功或失败。除已匹配的来源字段外，Enter 打开/关闭完整 Details，`i` 查看跳过的文件；筛选框外按 `q`、Esc 或 Ctrl-C 退出。鼠标点击可选择行和字段，点击箭头可切换分支。
+
+`--no-ui` 使用 Console 列表；`--raw` 或 stdout 重定向使用 TSV 原始输出，`--no-ui --raw` 同样使用 Raw。TUI 和 Console 分别使用与当前终端深浅模式对应的配色，NO_COLOR 关闭颜色。
+
 路径按参数顺序处理。目录只提供其直接包含的 `.jar` 和 `.jar.disabled` 文件，并按路径排序；跳过子目录和其他文件，不进行递归扫描。直接传入的文件也必须使用上述后缀，后缀区分大小写。支持跟随指向普通文件和目录的符号链接。
 
 重复路径会重复处理。例如，一个文件同时作为独立参数传入并通过目录扫描发现时，会出现两次。文件编号按合并后的显示顺序分配。
@@ -13,15 +29,17 @@ mcpm mod list [OPTIONS] [PATH]...
 ```sh
 mcpm mod list first.jar mods/ second.jar other-mods/
 mcpm mod list --expanded mods/ --loaders forge,neoforge
-mcpm mod list --width 100 mods/
+mcpm mod list --no-ui --width 100 mods/
 mcpm mod list -- -leading-dash.jar
 ```
 
 | 选项 | 说明 |
 | --- | --- |
+| `--no-ui` | 使用 Console 列表，不打开 TUI。 |
+| `--identify-parallelism <COUNT>` | TUI 平台反查并行度，默认 10，必须为正整数。Console 和 Raw 忽略此项。 |
 | `--expanded` | 显示全部 Mod 声明，包括已识别的嵌套 Mod。在终端输出中还列出因 Loader 筛选而跳过的文件名。 |
 | `--index-type <TYPE>` | `flat`（默认）显示完整且左对齐的编号；`tree` 对齐文件编号后的第一项，其余层级紧凑缩进，并缩进嵌套 Mod 名称。 |
-| `--width <WIDTH>` | 覆盖终端排版宽度，范围为 1–65535 列。原始输出或重定向时忽略此选项。 |
+| `--width <WIDTH>` | 覆盖 Console 排版宽度，范围为 1–65535 列。TUI、原始输出或重定向时忽略此选项。 |
 | `--path-style <STYLE>` | 使用 `inner`、`full`（默认）或 `outer` 格式化嵌套归档路径，详见[归档路径样式](README.md#归档路径样式)。 |
 | `-C <LETTERS>` | 使用大写字母选择列，可重复指定或与长选项组合。 |
 | `--columns <COLUMNS>` | 使用逗号分隔的列名选择多列。 |

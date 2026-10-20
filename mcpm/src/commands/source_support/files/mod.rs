@@ -9,6 +9,7 @@ use kako_mods_lib::source::{FileId, FilePage, FileQuery, FileRef, ProjectFile, R
 mod columns;
 mod output;
 pub(super) mod tui;
+pub(in crate::commands) use tui::open_selected;
 
 #[derive(Args)]
 #[command(

@@ -1,3 +1,5 @@
+//! Real CLI and parser coverage for composite archives and their list output.
+
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -134,7 +136,7 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
             .current_dir(&fixtures)
             .args(["mod", command, "complex-mod.jar"]);
         if let Some(index_type) = index_type {
-            process.args(["--expanded", "--index-type", index_type]);
+            process.args(["--no-ui", "--expanded", "--index-type", index_type]);
         }
         let status = process
             .stdin(Stdio::inherit())

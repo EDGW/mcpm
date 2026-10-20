@@ -1,11 +1,11 @@
 //! Flat and tree indices for mod list records.
 
+use crate::theme::Role;
 use clap::ValueEnum;
-use owo_colors::Style;
 use unicode_width::UnicodeWidthStr;
 
 use super::super::super::mod_records::ModRecord;
-use super::{Piece, Row, loader_style};
+use super::{Paint, Piece, Row, loader_style};
 
 #[derive(Clone, Copy, ValueEnum)]
 pub(crate) enum IndexType {
@@ -20,7 +20,7 @@ pub(super) enum Value {
     Tree {
         parts: Vec<String>,
         shared: usize,
-        loader: Option<Style>,
+        loader: Option<Paint>,
     },
 }
 
@@ -44,11 +44,11 @@ pub(super) fn align(rows: &mut [Row]) {
             } => {
                 let mut pieces = Vec::new();
                 if *shared == 0 {
-                    pieces.push(Piece::new(&parts[0], Style::new()));
+                    pieces.push(Piece::new(&parts[0], Paint::Plain));
                     if parts.len() > 1 {
                         pieces.push(Piece::new(
                             " ".repeat(file_width - parts[0].width()),
-                            Style::new(),
+                            Paint::Plain,
                         ));
                     }
                 } else {
@@ -57,13 +57,13 @@ pub(super) fn align(rows: &mut [Row]) {
                         " ".repeat(file_width.saturating_sub(1)),
                         "· ".repeat(shared - 1),
                     );
-                    pieces.push(Piece::new(guides, Style::new().bright_black()));
+                    pieces.push(Piece::new(guides, Paint::Role(Role::Muted)));
                 }
                 for (position, part) in parts.iter().enumerate().skip((*shared).max(1)) {
                     let style = if position == 1 {
-                        loader.unwrap_or_default()
+                        loader.clone().unwrap_or_default()
                     } else {
-                        Style::new()
+                        Paint::Plain
                     };
                     pieces.push(Piece::new(part, style));
                 }
@@ -97,7 +97,7 @@ impl Formatter {
             if !multiple_loaders {
                 return Value::Flat(vec![Piece::new(
                     format!("[{}]", record.index),
-                    Style::new(),
+                    Paint::Plain,
                 )]);
             }
             let mut suffix = record
@@ -109,12 +109,12 @@ impl Formatter {
                 suffix.push_str(&format!("-{index}"));
             }
             return Value::Flat(vec![
-                Piece::new(format!("[{file}-"), Style::new()),
+                Piece::new(format!("[{file}-"), Paint::Plain),
                 Piece::new(
                     record.loader.id().as_str(),
                     loader_style(record.loader.id().as_str()),
                 ),
-                Piece::new(format!("{suffix}]"), Style::new()),
+                Piece::new(format!("{suffix}]"), Paint::Plain),
             ]);
         }
         let mut parts = vec![format!("[{file}]")];
@@ -138,7 +138,7 @@ impl Formatter {
 
     pub(super) fn file(&mut self, file: usize) -> Value {
         match self.kind {
-            IndexType::Flat => Value::Flat(vec![Piece::new(format!("[{file}]"), Style::new())]),
+            IndexType::Flat => Value::Flat(vec![Piece::new(format!("[{file}]"), Paint::Plain)]),
             IndexType::Tree => self.tree(vec![format!("[{file}]")], None),
         }
     }
@@ -146,9 +146,9 @@ impl Formatter {
     pub(super) fn failure(&mut self, file: usize, loader: &str) -> Value {
         match self.kind {
             IndexType::Flat => Value::Flat(vec![
-                Piece::new(format!("[{file}-"), Style::new()),
+                Piece::new(format!("[{file}-"), Paint::Plain),
                 Piece::new(loader, loader_style(loader)),
-                Piece::new("]", Style::new()),
+                Piece::new("]", Paint::Plain),
             ]),
             IndexType::Tree => self.tree(
                 vec![format!("[{file}]"), format!("[{loader}]")],
@@ -157,7 +157,7 @@ impl Formatter {
         }
     }
 
-    fn tree(&mut self, parts: Vec<String>, loader: Option<Style>) -> Value {
+    fn tree(&mut self, parts: Vec<String>, loader: Option<Paint>) -> Value {
         let shared = self
             .previous
             .iter()

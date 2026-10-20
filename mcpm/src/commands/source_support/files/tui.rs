@@ -10,7 +10,7 @@ use crossterm::{
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use kako_mods_lib::source::{
-    FilePage, FileQuery, ProjectFile, ProjectRef, ReleaseType, Source,
+    FilePage, FileQuery, FileRef, ProjectFile, ProjectRef, ReleaseType, Source,
 };
 use ratatui::{
     Terminal,
@@ -42,6 +42,45 @@ pub(in crate::commands::source_support) fn run(
         selected_file,
         Screen::new()?,
     )
+}
+
+/// Opens an identified publication without resolving its already canonical project.
+pub(in crate::commands) fn open_selected(
+    runtime: &Runtime,
+    reference: &FileRef,
+    loaders: &[String],
+) -> Result<()> {
+    let source = super::super::build_source(&reference.project.source.0)?;
+    let query = FileQuery {
+        loaders: loaders.to_vec(),
+        ..Default::default()
+    };
+    let mut screen = Screen::new()?;
+    let result = request::wait(
+        runtime,
+        async {
+            let selected = source.get_file(reference).await?;
+            let page = source.list_files(&reference.project, &query).await?;
+            Ok((selected, page))
+        },
+        "Fetching selected file and project files...",
+        |status| screen.loading(status),
+    )?;
+    if let Some((selected, page)) = result {
+        browse(
+            source.as_ref(),
+            runtime,
+            query,
+            vec![(
+                reference.project.id.0.clone(),
+                reference.project.clone(),
+                page,
+            )],
+            Some(selected),
+            screen,
+        )?;
+    }
+    Ok(())
 }
 
 fn browse(
@@ -205,6 +244,18 @@ impl Screen {
         execute!(screen.terminal.backend_mut(), EnterAlternateScreen, Hide)?;
         screen.terminal.clear()?;
         Ok(screen)
+    }
+
+    fn loading(&mut self, status: &str) -> io::Result<()> {
+        self.terminal.draw(|frame| {
+            frame.render_widget(
+                Paragraph::new(text(status))
+                    .style(widgets::style(Role::Muted))
+                    .wrap(Wrap { trim: false }),
+                frame.area(),
+            );
+        })?;
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]

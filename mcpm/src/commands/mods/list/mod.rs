@@ -14,6 +14,9 @@ use crate::commands::mod_support::{
 mod input;
 
 #[derive(Args)]
+#[command(
+    after_help = "Modes:\n  TUI (default in a terminal): browse, search and inspect mods; identify outer JARs on Modrinth and CurseForge (default parallelism: 10).\n  Console (--no-ui): print a formatted list.\n  Raw (--raw or redirected stdout): tab-separated output.\n\nTUI keys: Up/Down, PageUp/PageDown, Home/End; F opens Filter (@name, @modid, @file, @loaders; Esc/Q closes); Left/Right or Space expands/collapses one level; e expands all; Tab switches cards; c copies the selected Details field; Enter opens files for a matched source Details field, or toggles full details; i shows skipped files; q/Esc quits."
+)]
 pub(super) struct ListArgs {
     /// Mod files or directories; append paths from stdin, one per line. Defaults to . when empty.
     #[arg(value_name = "PATH", num_args = 0..)]

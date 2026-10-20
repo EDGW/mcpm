@@ -1,6 +1,7 @@
 //! Shared remote source requests and presentation for command entry points.
 
 mod config;
+pub(super) use config::build_source;
 pub(super) mod files;
 pub(super) mod identify;
 mod progress;

@@ -7,6 +7,67 @@ mcpm mod list [OPTIONS] [PATH]...
 List mod files, accepting any mixture of file and directory paths. With no
 paths, the current directory (`.`) is used.
 
+In a terminal, the default TUI shows a scrollable mod tree and a compact Details
+card below it. Each mod occupies two lines: its file path is on the second line,
+left-aligned with Mod ID. File is omitted from the first-line columns. The selected
+item has a background highlight across both lines. `>` marks a collapsed
+branch and `v` an open branch; leaves have no arrow. Right expands one level,
+Left collapses or selects the parent, Space toggles the branch, and `e` expands
+all branches. `--expanded` starts with every branch open.
+
+In TUI mode, outer JARs are queued automatically in list order, with
+Modrinth and CurseForge (through Curse.tools) lookups for each file. Up to 10 provider lookups run concurrently by default while navigation remains
+available. `--identify-parallelism <COUNT>` sets a positive concurrency limit;
+use `1` for sequential identification. Below Index, the first position
+belongs to Modrinth and the second to CurseForge: a spinner means identification
+is running, and a checkmark means a verified match. Details shows each provider's
+status and, on success, project ID, file ID, filename, match type and size. These
+fields can be selected and copied. Failed requests do not stop later files;
+exiting the TUI cancels pending work. Repeated file paths share identification
+results. Nested JARs are not identified and do not inherit outer-file badges.
+Console and Raw do not perform remote identification.
+
+Select a matched Modrinth or CurseForge field in Details and press Enter to open
+the project's files, with the identified version pinned as `Selected`. Command-line
+`--loader/--loaders` filters carry over, matching any selected loader; an unfiltered
+list leaves files unrestricted. Esc or q returns to the original row, Details field
+and filter state. Esc cancels loading; request failures return to the list with an
+error. Unmatched sources and nested JARs do not offer this action.
+
+Provider colors come from `source_colors.toml` in `~/.mcpm`, with bundled defaults
+in `mcpm/config/source_colors.toml`. The `source_colors.tui` and
+`source_colors.console` tables contain `modrinth` and `curseforge` colors. These
+colors are not editable through `mcpm customize`.
+
+Use Up/Down, PageUp/PageDown, Home/End or a trackpad to navigate. `F` opens a
+Filter card between Mods and Details. Plain text searches Name, Mod ID, File
+and Loaders, including hidden descendants; Index is never searched. Use
+`@name Fabric API @file fabric` to require both a name containing `Fabric API`
+and a filename containing `fabric`. Supported markers are `@name`, `@modid`,
+`@file`, and `@loaders`; each value continues until the next `@`. Markers use
+the primary color and their scoped values use the secondary color. Escape a literal
+`@` as `\@`, for example `@file user\@host.jar`. Other backslashes remain literal. Spaces
+between `@` and its field are not supported. Unknown markers (including
+`@index`) show a warning and match no rows. Matching is case-insensitive.
+
+Search reveals matching descendants, and its branches can be collapsed and expanded
+with Left/Right, Space, mouse arrows and `e`, just like the normal tree. Manual
+folds persist while filtering; clearing the filter restores the normal expansion
+state.
+
+Filter updates live. Enter applies and returns focus to Mods; Esc or uppercase
+`Q` closes the Filter card while retaining its conditions. Lowercase `q` is
+ordinary filter text. `r` outside the filter clears it. Tab/Shift-Tab cycles
+through the visible Mods, Filter and Details cards. In Details, Up/Down selects
+a field and `c` copies its full value, even when displayed text ends with `...`.
+The status line reports clipboard success or failure. On other fields, Enter opens/closes full
+Details, `i` shows skipped files, and `q`, Esc or Ctrl-C exits outside the filter.
+Mouse clicks select rows and fields; clicking an arrow toggles its branch.
+
+`--no-ui` prints the Console list. `--raw` or redirected stdout produces TSV;
+`--no-ui --raw` also uses Raw. TUI mode uses the detected terminal's TUI palette,
+while Console uses its Console palette. NO_COLOR disables colors.
+
 Paths are processed in argument order. A directory contributes its immediate
 `.jar` and `.jar.disabled` files, sorted by path; subdirectories and other
 filenames are skipped. Scanning is not recursive. A file argument is inspected
@@ -20,15 +81,17 @@ combined displayed file sequence.
 ```sh
 mcpm mod list first.jar mods/ second.jar other-mods/
 mcpm mod list --expanded mods/ --loaders forge,neoforge
-mcpm mod list --width 100 mods/
+mcpm mod list --no-ui --width 100 mods/
 mcpm mod list -- -leading-dash.jar
 ```
 
 | Option | Description |
 | --- | --- |
+| `--no-ui` | Print the Console list instead of opening the TUI. |
+| `--identify-parallelism <COUNT>` | Maximum simultaneous provider lookups in TUI (default: 10; must be positive). Ignored by Console and Raw. |
 | `--expanded` | Show every mod declaration, including recognized nested mods. In terminal output, also list filenames skipped by loader filtering. |
 | `--index-type <TYPE>` | Use `flat` (default) for full, left-aligned indices, or `tree` to align the first item after file numbers, with compact nesting and nested name indentation. |
-| `--width <WIDTH>` | Override terminal layout width, from 1 to 65535 columns. Ignored for raw or redirected output. |
+| `--width <WIDTH>` | Override Console layout width, from 1 to 65535 columns. Ignored by TUI, raw or redirected output. |
 | `--path-style <STYLE>` | Format nested archive paths as `inner`, `full` (default), or `outer`. See [Archive path styles](README.md#archive-path-styles). |
 | `-C <LETTERS>` | Select columns using uppercase letters. Repeat or combine with the long options. |
 | `--columns <COLUMNS>` | Select comma-separated column names. |

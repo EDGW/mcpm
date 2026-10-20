@@ -23,7 +23,7 @@ enum ModCommand {
     Deps(deps::DepsArgs),
     /// Show metadata and dependencies from a local mod file.
     Info(info::InfoArgs),
-    /// List local mod files with loader colors.
+    /// Browse local mod files (TUI, Console, Raw).
     List(list::ListArgs),
     /// Search remote mod sources.
     Source(source::SourceArgs),
