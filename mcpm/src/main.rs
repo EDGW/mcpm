@@ -1,8 +1,11 @@
+//! CLI entry point and initialization of terminal policy, theme and logging.
+
 mod cli;
 mod commands;
 mod diagnostics;
 mod logging;
 mod terminal;
+mod theme;
 
 use std::process::ExitCode;
 
@@ -26,6 +29,10 @@ fn main() -> ExitCode {
         .get_matches_from(args);
     let cli = cli::Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     if let Err(error) = logging::init(cli.log_level) {
+        diagnostics::error(&error);
+        return ExitCode::FAILURE;
+    }
+    if let Err(error) = theme::init() {
         diagnostics::error(&error);
         return ExitCode::FAILURE;
     }

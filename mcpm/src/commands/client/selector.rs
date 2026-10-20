@@ -1,3 +1,5 @@
+//! Interactive client selection rendered through the shared TUI theme.
+
 use std::io::{self, IsTerminal, Write};
 
 use anyhow::{Context, Result};
@@ -5,7 +7,7 @@ use crossterm::{
     cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute, queue,
-    style::{Attribute, Color, ContentStyle, Print, PrintStyledContent},
+    style::{Print, PrintStyledContent},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use kako_mods_lib::local::mc::client::MinecraftVersion;
@@ -102,12 +104,7 @@ impl Screen {
         action: &str,
     ) -> io::Result<()> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
-        let color = policy::stdout_color_enabled();
-        let title = if color {
-            content_style(Color::Cyan, true)
-        } else {
-            ContentStyle::new()
-        };
+        let title = crate::theme::tui(crate::theme::Role::Primary);
         queue!(
             self.output,
             Clear(ClearType::All),
@@ -129,20 +126,13 @@ impl Screen {
                 text(version.name()),
                 if broken { "broken" } else { "normal" }
             );
-            let style = if color {
-                content_style(
-                    if index == selected {
-                        Color::Cyan
-                    } else if broken {
-                        Color::Red
-                    } else {
-                        Color::White
-                    },
-                    index == selected,
-                )
+            let style = crate::theme::tui(if index == selected {
+                crate::theme::Role::Primary
+            } else if broken {
+                crate::theme::Role::Danger
             } else {
-                ContentStyle::new()
-            };
+                crate::theme::Role::Normal
+            });
             queue!(
                 self.output,
                 MoveTo(0, (offset + 2) as u16),
@@ -167,15 +157,6 @@ impl Drop for Screen {
         let _ = execute!(self.output, Show, LeaveAlternateScreen);
         let _ = terminal::disable_raw_mode();
     }
-}
-
-fn content_style(color: Color, bold: bool) -> ContentStyle {
-    let mut style = ContentStyle::new();
-    style.foreground_color = Some(color);
-    if bold {
-        style.attributes.set(Attribute::Bold);
-    }
-    style
 }
 
 fn clip(value: &str, width: u16) -> String {

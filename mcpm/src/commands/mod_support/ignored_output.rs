@@ -3,7 +3,7 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use owo_colors::Style;
+use crate::theme::{self, Role};
 
 use crate::terminal;
 
@@ -32,7 +32,7 @@ pub(in crate::commands) fn write_loader_filtered(
 
 fn write_line(output: &mut impl Write, value: &str, color: bool) -> io::Result<()> {
     if color {
-        writeln!(output, "{}", Style::new().bright_black().style(value))
+        writeln!(output, "{}", theme::console(Role::Muted).style(value))
     } else {
         writeln!(output, "{value}")
     }

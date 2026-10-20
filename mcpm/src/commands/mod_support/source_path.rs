@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use crate::theme::{self, Role};
 use clap::{Args, ValueEnum};
 use owo_colors::Style;
 
@@ -24,9 +25,9 @@ impl PathArgs {
         let mut pieces = Vec::new();
         for (index, part) in self.parts(outer, nested).into_iter().enumerate() {
             if index > 0 {
-                pieces.push(("!".to_owned(), Style::new().bright_white().bold()));
+                pieces.push(("!".to_owned(), theme::console(Role::Important)));
             }
-            pieces.push((part, Style::new().bright_black()));
+            pieces.push((part, theme::console(Role::Muted)));
         }
         pieces
     }
@@ -44,7 +45,7 @@ impl PathArgs {
     }
 
     /// Separate archive levels so renderers can highlight only the separators.
-    fn parts(&self, outer: &Path, nested: &[String]) -> Vec<String> {
+    pub(super) fn parts(&self, outer: &Path, nested: &[String]) -> Vec<String> {
         let outer_filename = || {
             outer
                 .file_name()

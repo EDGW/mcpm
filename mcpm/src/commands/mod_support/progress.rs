@@ -11,8 +11,10 @@ pub(in crate::commands) struct Progress {
 impl Progress {
     pub(in crate::commands) fn new() -> Self {
         let bar = ProgressBar::hidden().with_style(
-            ProgressStyle::with_template("{spinner} Scanning mod directory...")
-                .expect("scanning progress template must be valid"),
+            ProgressStyle::with_template(&crate::theme::progress_template(
+                "{spinner} Scanning mod directory...",
+            ))
+            .expect("scanning progress template must be valid"),
         );
         if crate::terminal::stderr_is_tty() {
             bar.set_draw_target(ProgressDrawTarget::stderr_with_hz(10));
@@ -25,9 +27,9 @@ impl Progress {
     pub(in crate::commands) fn set_total(&self, total: usize) {
         self.bar.set_length(total as u64);
         self.bar.set_style(
-            ProgressStyle::with_template(
+            ProgressStyle::with_template(&crate::theme::progress_template(
                 "{spinner} Identifying mods {pos}/{len} [{wide_bar}] {elapsed_precise}",
-            )
+            ))
             .expect("identification progress template must be valid"),
         );
     }

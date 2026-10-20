@@ -4,7 +4,6 @@ use std::io::{self, Write};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use owo_colors::Style;
 
 use crate::commands::{mod_support::dep_graph, output_style::OutputStyle};
 
@@ -24,7 +23,7 @@ pub(super) fn run(args: CheckArgs) -> Result<()> {
     if dep_graph::write_problems(&graph, &mut output)? == 0 {
         let style = OutputStyle::new();
         let result = if graph.identification_failures().is_empty() {
-            style.paint("Check passed. No problems found.", Style::new().green())
+            style.success("Check passed. No problems found.")
         } else {
             style.warning("Check incomplete. Some mod files could not be identified.")
         };

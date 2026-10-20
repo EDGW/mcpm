@@ -1,3 +1,5 @@
+//! Console and Raw presentation for client check output.
+
 use std::{
     io::{self, Write},
     path::Path,
@@ -56,12 +58,12 @@ pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io:
     if formatted {
         let badge = format!("[{state}]");
         let badge = match state {
-            "intact" => style.required(badge),
+            "intact" => style.success(badge),
             "failed" => style.danger(badge),
             _ => style.warning(badge),
         };
-        writeln!(output, "{} {badge}", style.important(text(&report.version)))?;
-        writeln!(output, "  {}", style.secondary(&summary))?;
+        writeln!(output, "{} {badge}", style.primary(text(&report.version)))?;
+        writeln!(output, "  {}", style.muted(&summary))?;
     } else {
         raw_row(output, report, state, "summary", None, &summary)?;
     }
@@ -79,7 +81,7 @@ pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io:
                 writeln!(
                     output,
                     "    {}",
-                    style.secondary(text(&path.display().to_string()))
+                    style.muted(text(&path.display().to_string()))
                 )?;
             }
             writeln!(output, "    {}", style.warning(reason))?;
@@ -115,7 +117,7 @@ pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io:
             writeln!(
                 output,
                 "    {}",
-                style.secondary(text(&file.path.display().to_string()))
+                style.muted(text(&file.path.display().to_string()))
             )?;
             writeln!(
                 output,

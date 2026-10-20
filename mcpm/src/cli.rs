@@ -1,3 +1,5 @@
+//! Top-level CLI arguments and command selection.
+
 use clap::{Parser, Subcommand};
 
 use crate::commands::{client::ClientArgs, mods::ModArgs, server::ServerArgs};
@@ -21,6 +23,8 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
+    /// Customize terminal themes and loader colors (TUI, Console, Raw).
+    Customize(crate::commands::customize::CustomizeArgs),
     /// Inspect and launch local Minecraft clients.
     Client(ClientArgs),
     /// Inspect local Minecraft servers.

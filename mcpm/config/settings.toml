@@ -1,0 +1,6 @@
+[settings]
+version = 1
+console_style_dark = "default_dark"
+console_style_light = "default_light"
+tui_style_dark = "default_dark"
+tui_style_light = "default_light"

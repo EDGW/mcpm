@@ -1,0 +1,11 @@
+[loader_colors.console]
+forge = "bright_red"
+fabric = "bright_magenta"
+neoforge = "bright_yellow"
+vanilla = "bright_cyan"
+
+[loader_colors.tui]
+forge = "Red"
+fabric = "Magenta"
+neoforge = "Yellow"
+vanilla = "Cyan"

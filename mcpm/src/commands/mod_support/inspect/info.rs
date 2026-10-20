@@ -18,7 +18,7 @@ pub(super) fn write_info(
     writeln!(
         output,
         "{}",
-        style.secondary(format!(
+        style.muted(format!(
             "File: {}",
             text(&file.entry.path().display().to_string())
         ))
@@ -27,7 +27,7 @@ pub(super) fn write_info(
         ModStatus::Enabled => "enabled",
         ModStatus::Disabled => "disabled",
     };
-    writeln!(output, "{}", style.secondary(format!("Status: {status}")))?;
+    writeln!(output, "{}", style.muted(format!("Status: {status}")))?;
 
     for (metadata_index, metadata) in file.metadata.iter().enumerate() {
         let records = mod_records::selected(metadata, metadata_index, "", selected);
@@ -37,7 +37,7 @@ pub(super) fn write_info(
         writeln!(
             output,
             "\n{}{}",
-            style.secondary("Loader: "),
+            style.muted("Loader: "),
             style.loader(metadata.loader.id().as_str(), &text(metadata.loader.name()))
         )?;
         for (index, record) in records.iter().enumerate() {
@@ -48,29 +48,29 @@ pub(super) fn write_info(
             writeln!(
                 output,
                 "{}{}",
-                style.secondary("  Name: "),
-                style.important(text(&info.name))
+                style.muted("  Name: "),
+                style.primary(text(&info.name))
             )?;
             writeln!(
                 output,
                 "{}{}",
-                style.secondary("  ID: "),
+                style.muted("  ID: "),
                 style.important(text(&info.modid))
             )?;
             writeln!(
                 output,
                 "{}{}",
-                style.secondary("  Version: "),
-                style.important(text(&info.version))
+                style.muted("  Version: "),
+                style.secondary(text(&info.version))
             )?;
             writeln!(
                 output,
                 "{}{}",
-                style.secondary("  Source: "),
+                style.muted("  Source: "),
                 source_path::full(file.entry.path(), &record.source, &style)
             )?;
             if info.dependencies.is_empty() {
-                writeln!(output, "{}", style.secondary("  Dependencies: none"))?;
+                writeln!(output, "{}", style.muted("  Dependencies: none"))?;
             } else {
                 writeln!(output, "{}", style.important("  Dependencies:"))?;
                 for dependency in &info.dependencies {

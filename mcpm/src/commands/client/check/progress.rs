@@ -1,3 +1,5 @@
+//! Client verification progress rendered on stderr with the configured theme.
+
 use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
@@ -27,16 +29,12 @@ impl BatchProgress {
         });
         let overall = (total > 1).then(|| {
             let bar = display.add(ProgressBar::new(total as u64));
-            let template = if terminal::stderr_color_enabled() {
-                "{prefix} {pos}/{len} {wide_bar:.cyan} {percent}% {msg}"
-            } else {
-                "{prefix} {pos}/{len} {wide_bar} {percent}% {msg}"
-            };
+            let template = "{prefix} {pos}/{len} {wide_bar} {percent}% {msg}";
             bar.set_style(
-                ProgressStyle::with_template(template)
+                ProgressStyle::with_template(&crate::theme::progress_template(template))
                     .expect("batch check progress template must be valid"),
             );
-            bar.set_prefix(OutputStyle::stderr().theme("Versions"));
+            bar.set_prefix(OutputStyle::stderr().primary("Versions"));
             bar
         });
         let logging = crate::logging::attach_progress(enabled.then(|| display.clone()));
@@ -92,13 +90,9 @@ impl Progress {
         let display = batch.display.clone();
         let main = display.add(ProgressBar::new(1));
         let step = display.add(ProgressBar::new_spinner());
-        let template = if terminal::stderr_color_enabled() {
-            "{prefix}\n{wide_bar:.cyan} {percent}%"
-        } else {
-            "{prefix}\n{wide_bar} {percent}%"
-        };
+        let template = "{prefix}\n{wide_bar} {percent}%";
         main.set_style(
-            ProgressStyle::with_template(template)
+            ProgressStyle::with_template(&crate::theme::progress_template(template))
                 .expect("main check progress template must be valid"),
         );
         step.enable_steady_tick(Duration::from_millis(100));
@@ -139,7 +133,7 @@ impl Progress {
         let style = OutputStyle::stderr();
         self.main.set_prefix(format!(
             "{} ({})",
-            style.theme(format!(
+            style.primary(format!(
                 "Step {}/{} {name}",
                 progress.step_number, progress.total_steps
             )),
@@ -191,21 +185,16 @@ impl Progress {
                 )
             })
             .unwrap_or_else(|| "-".into());
-        self.step
-            .set_message(style.important(format!("[{filename}]")));
+        self.step.set_message(style.muted(format!("[{filename}]")));
         let determinate = progress.step_total_files.is_some();
         if self.determinate != Some(determinate) {
             let template = if determinate {
-                if terminal::stderr_color_enabled() {
-                    "{prefix} {wide_msg}\n{wide_bar:.cyan} {percent}%"
-                } else {
-                    "{prefix} {wide_msg}\n{wide_bar} {percent}%"
-                }
+                "{prefix} {wide_msg}\n{wide_bar} {percent}%"
             } else {
                 "{prefix} {wide_msg}\n{spinner}"
             };
             self.step.set_style(
-                ProgressStyle::with_template(template)
+                ProgressStyle::with_template(&crate::theme::progress_template(template))
                     .expect("step check progress template must be valid"),
             );
             self.determinate = Some(determinate);

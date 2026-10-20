@@ -17,12 +17,12 @@ pub(in crate::commands) fn format_kind(kind: DependencyKind, style: &OutputStyle
         DependencyKind::Conflicts => "conflicts",
     };
     match kind {
-        DependencyKind::Required => style.required(label),
-        DependencyKind::Recommended => style.recommended(label),
-        DependencyKind::Suggested => style.suggested(label),
+        DependencyKind::Required => style.important(label),
+        DependencyKind::Recommended => style.secondary(label),
+        DependencyKind::Suggested => style.normal(label),
         DependencyKind::Breaks => style.danger(label),
         DependencyKind::Conflicts => style.warning(label),
-        _ => style.secondary(label),
+        _ => style.muted(label),
     }
 }
 
@@ -65,7 +65,7 @@ pub(in crate::commands) fn format_details(dependency: &Dependency, style: &Outpu
         rules.push(format!("reason={}", text(reason)));
     }
     if !rules.is_empty() {
-        value.push_str(&style.secondary(format!(" [{}]", rules.join("; "))));
+        value.push_str(&style.muted(format!(" [{}]", rules.join("; "))));
     }
     value
 }

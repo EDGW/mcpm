@@ -1,0 +1,32 @@
+[[style]]
+version = 1
+id = "default_dark"
+name = "Default Dark"
+types = ["tui", "console"]
+primary = "Cyan"
+secondary = "Blue"
+
+[[style]]
+version = 1
+id = "default_light"
+name = "Default Light"
+types = ["tui", "console"]
+primary = "Blue"
+secondary = "Cyan"
+
+
+[[style]]
+version = 1
+id = "default_red"
+name = "Red"
+types = ["tui", "console"]
+primary = "Red"
+secondary = "DarkYellow"
+
+[[style]]
+version = 1
+id = "default_magenta"
+name = "Magenta"
+types = ["tui", "console"]
+primary = "Magenta"
+secondary = "Cyan"

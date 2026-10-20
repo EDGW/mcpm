@@ -1,13 +1,12 @@
-use crate::{
-    commands::output_style::{OutputStyle, text},
-    terminal as policy,
-};
+//! Interactive server launch selection with shared TUI colors and loader styles.
+
+use crate::{commands::output_style::text, terminal as policy};
 use anyhow::{Context, Result, ensure};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute, queue,
-    style::Print,
+    style::{Print, PrintStyledContent},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use kako_mods_lib::local::mc::server::identify::ServerCandidate;
@@ -59,12 +58,13 @@ struct Screen {
 impl Screen {
     fn render(&mut self, candidates: &[ServerCandidate], selected: usize) -> io::Result<()> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
-        let style = OutputStyle::new();
+        let theme = crate::theme::get();
+        let enabled = policy::stderr_color_enabled();
         queue!(
             self.output,
             Clear(ClearType::All),
             MoveTo(0, 0),
-            Print(style.theme(clip(
+            PrintStyledContent(theme.tui(crate::theme::Role::Primary, enabled).apply(clip(
                 "Select an identified server launch to initialize",
                 width
             )))
@@ -87,7 +87,18 @@ impl Screen {
             queue!(
                 self.output,
                 MoveTo(0, (offset + 2) as u16),
-                Print(style.important(prefix))
+                PrintStyledContent(
+                    theme
+                        .tui(
+                            if start + offset == selected {
+                                crate::theme::Role::Primary
+                            } else {
+                                crate::theme::Role::Important
+                            },
+                            enabled
+                        )
+                        .apply(prefix)
+                )
             )?;
             let (id, name, version) = match &candidate.metadata.loader {
                 Some(loader) => {
@@ -101,7 +112,10 @@ impl Screen {
             };
             let loader = clip(&text(name), remaining);
             remaining = remaining.saturating_sub(display_width(&loader));
-            queue!(self.output, Print(style.loader(id, &loader)))?;
+            queue!(
+                self.output,
+                PrintStyledContent(theme.tui_loader(id, enabled).apply(loader))
+            )?;
             let detail = clip(
                 &format!(
                     " {}  {}:{} [{}]",
@@ -112,7 +126,10 @@ impl Screen {
                 ),
                 remaining,
             );
-            queue!(self.output, Print(style.secondary(detail)))?;
+            queue!(
+                self.output,
+                PrintStyledContent(theme.tui(crate::theme::Role::Muted, enabled).apply(detail))
+            )?;
         }
         queue!(
             self.output,

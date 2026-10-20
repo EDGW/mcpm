@@ -1,3 +1,5 @@
+//! Console and Raw presentation for server output.
+
 use std::io::{self, Write};
 
 use kako_mods_lib::local::mc::server::MinecraftServer;
@@ -43,41 +45,36 @@ pub(super) fn write_info(
                 .saturating_sub(1),
         )
     };
-    writeln!(
-        output,
-        "{} {}",
-        style.theme("Server:"),
-        style.important(name)
-    )?;
-    writeln!(output, "{}{}", style.secondary("Path: "), path)?;
+    writeln!(output, "{} {}", style.muted("Server:"), style.primary(name))?;
+    writeln!(output, "{}{}", style.muted("Path: "), style.muted(path))?;
     writeln!(
         output,
         "{}{}",
-        style.secondary("Minecraft: "),
-        style.important(version)
+        style.muted("Minecraft: "),
+        style.secondary(version)
     )?;
     let loader_name = match &loader {
         Some(info) => style.loader(info.loader.id().as_str(), &loader_name),
-        None => style.secondary(loader_name),
+        None => style.muted(loader_name),
     };
-    write!(output, "{}{}", style.secondary("Loader: "), loader_name)?;
+    write!(output, "{}{}", style.muted("Loader: "), loader_name)?;
     if loader.is_some() {
-        write!(output, " {}", style.important(loader_version))?;
+        write!(output, " {}", style.secondary(loader_version))?;
     }
     writeln!(output)?;
     if let Some(start) = &metadata.start {
         writeln!(
             output,
             "{}{}",
-            style.secondary("Working directory: "),
-            text(&start.directory.display().to_string())
+            style.muted("Working directory: "),
+            style.muted(text(&start.directory.display().to_string()))
         )?;
     }
     writeln!(
         output,
         "{}{}",
-        style.secondary("Full command: "),
-        style.secondary(command)
+        style.muted("Full command: "),
+        style.muted(command)
     )
 }
 

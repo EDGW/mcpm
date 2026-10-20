@@ -18,7 +18,7 @@ pub(super) fn write_deps(
 ) -> io::Result<()> {
     let style = OutputStyle::new();
     let outer_path = text(&file.entry.path().display().to_string());
-    writeln!(output, "{}", style.secondary(format!("File: {outer_path}")))?;
+    writeln!(output, "{}", style.muted(format!("File: {outer_path}")))?;
     if !failed_loaders.is_empty() {
         writeln!(
             output,
@@ -41,7 +41,7 @@ pub(super) fn write_deps(
         writeln!(
             output,
             "\n{}{}",
-            style.secondary("Loader: "),
+            style.muted("Loader: "),
             style.loader(metadata.loader.id().as_str(), &text(metadata.loader.name()))
         )?;
         for (index, record) in records.into_iter().enumerate() {
@@ -52,19 +52,15 @@ pub(super) fn write_deps(
             writeln!(
                 output,
                 "{}{} ({}) {}",
-                style.secondary("  Mod: "),
-                style.important(text(&info.name)),
+                style.muted("  Mod: "),
+                style.primary(text(&info.name)),
                 style.important(text(&info.modid)),
-                style.important(text(&info.version))
+                style.secondary(text(&info.version))
             )?;
             let source = paths.format(file.entry.path(), &record.source, &style);
-            writeln!(output, "{}{source}", style.secondary("  Source: "))?;
+            writeln!(output, "{}{source}", style.muted("  Source: "))?;
             if info.dependencies.is_empty() {
-                writeln!(
-                    output,
-                    "{}",
-                    style.secondary("  Dependencies: none declared")
-                )?;
+                writeln!(output, "{}", style.muted("  Dependencies: none declared"))?;
             } else {
                 writeln!(output, "{}", style.important("  Dependencies:"))?;
                 for dependency in &info.dependencies {

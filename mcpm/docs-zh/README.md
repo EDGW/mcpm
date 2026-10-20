@@ -8,6 +8,8 @@
 
 [Mod 命令](mod/README.md)：[list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
+[自定义界面](customize.md)
+
 [English](../docs/README.md)
 
 ## 快速开始
@@ -60,11 +62,11 @@ mcpm mod dep-graph view --help
 
 ## 终端输出
 
-当标准输出连接到终端时，`list` 根据终端宽度对齐列并换行。`info` 和 `deps` 高亮 Mod 身份信息和依赖目标，路径与补充信息使用灰色。依赖标签的颜色分别为：`required` 绿色、`recommended` 蓝色、`suggested` 亮白色、`optional` 灰色、`breaks` 红色、`conflicts` 黄色。
+当标准输出连接到终端时，`list` 根据终端宽度对齐列并换行。Mod 名等关键内容使用主色加粗，二级信息使用附色，路径和补充说明使用白色弱化；警告、成功、错误分别使用亮黄、亮绿、亮红。Loader 使用配置中的专属颜色。通过 [`mcpm customize`](customize.md) 调整主题。依赖类型 `required` 使用白色加粗，`recommended` 使用附色，`suggested` 使用普通白色，`optional` 使用弱化文字，`breaks` 使用错误色，`conflicts` 使用警告色。
 
 当 Loader 筛选跳过文件时，`list` 和 `info` 会在输出结束后空一行显示忽略文件的提示。`list --expanded` 还会列出被跳过的文件名。这些提示仅在标准输出连接到终端时显示，使用 `--raw` 时隐藏。
 
-所有命令和诊断使用统一终端策略：显式传入 `--raw`，或标准输入、标准输出、标准错误中任一个不是 TTY 时，自动进入 raw 模式，禁用全部 TUI 交互、颜色、终端排版、进度指示和终端专属提示。`list` 使用制表符分列，不对齐和换行。客户端命令需要显式指定版本 ID，或对 `check` 使用 `--all`。
+所有命令和诊断使用统一终端策略：显式传入 `--raw` 时禁用样式与交互；stdout 非 TTY 时，命令结果自动使用 Raw 格式。stderr 独立控制诊断颜色与进度显示，stdin 不参与模式检测。Raw 列表使用制表符分列，不对齐和换行；客户端命令需要显式指定版本 ID，或对 `check` 使用 `--all`。
 
 设置 `NO_COLOR` 可禁用颜色，同时保留终端排版和提示：
 

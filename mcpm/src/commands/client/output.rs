@@ -1,3 +1,5 @@
+//! Shared client metadata escaping and quiet inferred-directory hints.
+
 use std::{
     error::Error as StdError,
     io::{self, Write},
@@ -13,24 +15,14 @@ pub(super) fn write_inferred_root(
     if !terminal::stdout_is_tty() {
         return Ok(());
     }
-    if terminal::stdout_color_enabled() {
-        let theme = owo_colors::Style::new().bright_cyan().bold();
-        let white = owo_colors::Style::new().bright_white().bold();
-        writeln!(
-            output,
-            "{}{}{}{}{}",
-            theme.style("Using Minecraft root "),
-            white.style(format!("{path:?}")),
-            theme.style("; use `"),
-            white.style(command),
-            theme.style("` to use the current directory."),
-        )?;
-    } else {
-        writeln!(
-            output,
+    let style = crate::commands::output_style::OutputStyle::new();
+    writeln!(
+        output,
+        "{}",
+        style.muted(format!(
             "Using Minecraft root {path:?}; use `{command}` to use the current directory."
-        )?;
-    }
+        ))
+    )?;
     writeln!(output)
 }
 

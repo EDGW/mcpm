@@ -1,3 +1,5 @@
+//! Console and Raw presentation for client launch output.
+
 use std::{
     io::{self, Write},
     process::ExitStatus,
@@ -48,27 +50,27 @@ fn write(output: &mut impl Write, name: &str, event: Event) -> io::Result<()> {
             Event::Preparing => writeln!(
                 output,
                 "{} {}",
-                style.theme("Preparing"),
-                style.important(name)
+                style.primary("Preparing"),
+                style.primary(name)
             ),
             Event::Started { pid } => writeln!(
                 output,
                 "{} {}  {} {}",
-                style.required("Started"),
-                style.important(name),
-                style.secondary("PID"),
+                style.success("Started"),
+                style.primary(name),
+                style.muted("PID"),
                 style.important(pid)
             ),
             Event::Exited { status } => writeln!(
                 output,
                 "{} {}  {}",
                 if status.success() {
-                    style.required("Exited")
+                    style.success("Exited")
                 } else {
                     style.danger("Exited")
                 },
-                style.important(name),
-                style.secondary(status)
+                style.primary(name),
+                style.muted(status)
             ),
         }?;
     }

@@ -1,0 +1,7 @@
+[source_colors.tui]
+curseforge = "Yellow"
+modrinth = "Green"
+
+[source_colors.console]
+curseforge = "Yellow"
+modrinth = "Green"

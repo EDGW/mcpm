@@ -10,6 +10,8 @@ are read without modifying them; graph snapshots can be written to a separate fi
 
 [Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
+[Customize presentation](customize.md)
+
 [简体中文](../docs-zh/README.md)
 
 ## Quick start
@@ -65,20 +67,21 @@ mcpm mod dep-graph view --help
 ## Terminal output
 
 For terminal stdout, `list` aligns and wraps columns to the terminal width.
-`info` and `deps` highlight mod identity and dependency targets; paths and
-supplementary information use gray. Dependency labels use green for `required`,
-blue for `recommended`, bright white for `suggested`, gray for `optional`,
-red for `breaks`, and yellow for `conflicts`.
+Key browsing content uses bold primary color; secondary content uses the secondary color.
+Paths and descriptions use dim white. Warning, success and error use bright yellow,
+green and red. Loaders use configured colors. See [`mcpm customize`](customize.md).
+Dependency labels use bold white for `required`, secondary color for `recommended`,
+white for `suggested`, dim white for `optional`, error color for `breaks`, and warning color for `conflicts`.
 
 `list` and `info` print an ignored-file hint after a blank line when loader
 filtering skips files. `list --expanded` also lists the skipped filenames.
 These hints appear only on terminal stdout and are hidden with `--raw`.
 
-A shared terminal policy enables raw output whenever `--raw` is supplied or any
-of stdin, stdout, or stderr is not a terminal. This disables all TUI interaction,
-colors, terminal layout, progress indicators, and terminal-only hints across commands
-and diagnostics. `list` uses unaligned, unwrapped, tab-separated columns. Client
-commands require explicit version IDs (or `check --all`) when selection is disabled.
+A shared terminal policy disables styling and interaction with `--raw`.
+Redirected stdout automatically uses Raw result formatting. Stderr independently
+controls diagnostic colors and progress; stdin does not determine the mode.
+Raw lists use unaligned, unwrapped, tab-separated columns. Client commands require
+explicit version IDs (or `check --all`) when selection is disabled.
 
 Setting `NO_COLOR` disables colors while retaining terminal layout and hints:
 

@@ -16,6 +16,7 @@ use crate::commands::{
 };
 
 use super::{filter::visibility::Visibility, matching};
+use crate::theme::{self, Role};
 use owo_colors::Style;
 
 #[derive(Clone, Copy)]
@@ -111,12 +112,7 @@ pub(super) fn write_view(
             continue;
         };
         if let Some((prefix, branch)) = branch {
-            write!(
-                output,
-                "{}{}",
-                style.secondary(prefix),
-                style.secondary(branch)
-            )?;
+            write!(output, "{}{}", style.muted(prefix), style.muted(branch))?;
         }
         let mut folded = None;
         if let Entry::Node {
@@ -217,8 +213,9 @@ fn label(
                 match node.candidates() {
                     [] => value.push_str(&style.warning(" [no candidate]")),
                     [candidate] => value.push_str(&candidate_suffix(candidate, state, style)),
-                    candidates => value
-                        .push_str(&style.suggested(format!(" [{} candidates]", candidates.len()))),
+                    candidates => {
+                        value.push_str(&style.normal(format!(" [{} candidates]", candidates.len())))
+                    }
                 }
             }
             if let Some(dependency) = dependency {
@@ -226,9 +223,9 @@ fn label(
                     format!(
                         "({} by){value} {}{}{}",
                         format_kind(dependency.kind, style),
-                        style.secondary("(parent: "),
+                        style.muted("(parent: "),
                         format_details(dependency, style),
-                        style.secondary(")")
+                        style.muted(")")
                     )
                 } else {
                     format!(
@@ -243,7 +240,7 @@ fn label(
                 value.push_str(&if folded == "cycle" {
                     style.warning(marker)
                 } else {
-                    style.secondary(marker)
+                    style.muted(marker)
                 });
             }
             value
@@ -255,11 +252,11 @@ fn label(
 fn format_kind(kind: DependencyKind, style: &OutputStyle) -> String {
     let (label, paint) = match kind {
         DependencyKind::Required => ("required", Style::new()),
-        DependencyKind::Optional => ("optional", Style::new().bright_black()),
-        DependencyKind::Recommended => ("recommended", Style::new().bright_black()),
-        DependencyKind::Suggested => ("suggested", Style::new().bright_black()),
-        DependencyKind::Breaks => ("breaks", Style::new().bright_red().bold()),
-        DependencyKind::Conflicts => ("conflicts", Style::new().bright_red()),
+        DependencyKind::Optional => ("optional", theme::console(Role::Muted)),
+        DependencyKind::Recommended => ("recommended", theme::console(Role::Muted)),
+        DependencyKind::Suggested => ("suggested", theme::console(Role::Muted)),
+        DependencyKind::Breaks => ("breaks", theme::console(Role::Danger)),
+        DependencyKind::Conflicts => ("conflicts", theme::console(Role::Danger)),
     };
     style.paint(label, paint)
 }
@@ -310,14 +307,14 @@ fn paint_candidate(
     style: &OutputStyle,
 ) -> String {
     let paint = match state {
-        None => Style::new().bright_white(),
-        Some((_, DependencyMatch::Unknown)) => Style::new().bright_yellow(),
+        None => theme::console(Role::Normal),
+        Some((_, DependencyMatch::Unknown)) => theme::console(Role::Warning),
         Some((kind, state)) => {
             let incompatible = matches!(kind, DependencyKind::Breaks | DependencyKind::Conflicts);
             if (state == DependencyMatch::Matched) != incompatible {
-                Style::new().bright_green()
+                theme::console(Role::Success)
             } else {
-                Style::new().bright_red()
+                theme::console(Role::Danger)
             }
         }
     };

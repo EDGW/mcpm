@@ -1,3 +1,5 @@
+//! Client list presentation using semantic console styles.
+
 use std::io::{self, Write};
 
 use crate::{commands::output_style::OutputStyle, terminal};
@@ -34,15 +36,15 @@ pub(super) fn write_list(output: &mut impl Write, rows: &[Row]) -> io::Result<()
         }
         let badge = format!("[{state}]");
         let badge = match row.state {
-            State::Normal => style.required(badge),
+            State::Normal => style.success(badge),
             State::Broken => style.danger(badge),
             State::Failed => style.warning(badge),
         };
         writeln!(
             output,
             "{}  {}  {badge}",
-            style.secondary(index + 1),
-            style.important(name)
+            style.muted(index + 1),
+            style.primary(name)
         )?;
         if !row.loaders.is_empty() {
             // One loader per line keeps each version legible in narrow terminals.
@@ -50,9 +52,9 @@ pub(super) fn write_list(output: &mut impl Write, rows: &[Row]) -> io::Result<()
                 writeln!(
                     output,
                     "   {}{} {}",
-                    style.secondary("Loader: "),
+                    style.muted("Loader: "),
                     style.loader(loader.loader.id().as_str(), &text(loader.loader.name())),
-                    style.important(text(&loader.version))
+                    style.secondary(text(&loader.version))
                 )?;
             }
         } else {
@@ -72,7 +74,7 @@ pub(super) fn write_list(output: &mut impl Write, rows: &[Row]) -> io::Result<()
                     output,
                     "{}",
                     match row.state {
-                        State::Normal => style.secondary(line),
+                        State::Normal => style.loader("vanilla", &line),
                         _ => style.warning(line),
                     }
                 )?;
