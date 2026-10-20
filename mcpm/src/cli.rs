@@ -2,7 +2,7 @@
 
 use clap::{Parser, Subcommand};
 
-use crate::commands::{client::ClientArgs, mods::ModArgs, server::ServerArgs};
+use crate::commands::{client::ClientArgs, debug::DebugArgs, mods::ModArgs, server::ServerArgs};
 
 #[derive(Parser)]
 #[command(
@@ -25,6 +25,8 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Customize terminal themes and loader colors (TUI, Console, Raw).
     Customize(crate::commands::customize::CustomizeArgs),
+    /// Inspect mcpm's terminal presentation and diagnostics.
+    Debug(DebugArgs),
     /// Inspect and launch local Minecraft clients.
     Client(ClientArgs),
     /// Inspect local Minecraft servers.

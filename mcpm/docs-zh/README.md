@@ -8,7 +8,7 @@
 
 [Mod 命令](mod/README.md)：[list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
-[自定义界面](customize.md)
+[自定义界面](customize.md) · [调试调色板](debug/palette.md)
 
 [English](../docs/README.md)
 

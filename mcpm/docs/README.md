@@ -10,7 +10,7 @@ are read without modifying them; graph snapshots can be written to a separate fi
 
 [Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
-[Customize presentation](customize.md)
+[Customize presentation](customize.md) · [Debug palette](debug/palette.md)
 
 [简体中文](../docs-zh/README.md)
 
