@@ -6,6 +6,8 @@ mcpm mod list [OPTIONS] [PATH]...
 
 列出 Mod 文件，可混合传入多个文件和目录。不传路径时使用当前目录（`.`）。
 
+Help 依次将选项分为全局参数（Global options）、模式参数（Mode options）、Filter、样式参数（Style options）、TUI 模式专有参数（TUI-only options）和 Console 模式专有参数（Console-only options）。模式专有参数在其他模式中仍可传入，但会被忽略。`--expanded` 属于样式参数：TUI 中初始展开全部分支，Console 和 Raw 中输出全部声明，Console 还会列出被忽略的文件名。
+
 终端中默认打开 TUI：上方是可滚动的 Mod 树，下方是紧凑的 Details 卡片。每个 Mod 占两行，File 移到第二行并与 Mod ID 左对齐，第一行不再单列 File；选中项的两行以背景色标识；`>` 表示可展开分支，`v` 表示已展开，叶子不显示箭头。→ 展开一级，← 收起当前分支或移至父项，Space 切换当前分支，`e` 展开全部。`--expanded` 会在启动时展开全部分支。
 
 仅 TUI 会自动按列表顺序识别外层 JAR：每个文件查询 Modrinth，并通过 Curse.tools 查询 CurseForge。默认最多同时执行 10 个平台反查请求，期间仍可操作列表；`--identify-parallelism <COUNT>` 指定正整数并行度，设为 `1` 则顺序识别。Index 下方的第一位对应 Modrinth，第二位对应 CurseForge；识别时显示加载动画，验证匹配后显示平台色勾选。Details 显示各平台状态，成功时包括 Project ID、File ID、文件名、匹配类型和大小，支持选择和复制。单次请求失败后继续处理其他文件，退出 TUI 会取消剩余请求。重复文件路径共享识别结果。嵌套 JAR 不参与识别，也不会继承外层文件的成功标记。Console 和 Raw 不执行远程识别。

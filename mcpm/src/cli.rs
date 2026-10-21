@@ -12,10 +12,16 @@ use crate::commands::{client::ClientArgs, debug::DebugArgs, mods::ModArgs, serve
 )]
 pub(crate) struct Cli {
     /// Disable TUI interaction, formatting, colors, progress, and hints; otherwise each output stream follows its own TTY status.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Mode options")]
     pub(crate) raw: bool,
     /// Diagnostic log level on stderr; does not filter game stdout/stderr.
-    #[arg(long, global = true, value_enum, default_value = "warn")]
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value = "warn",
+        help_heading = "Global options"
+    )]
     pub(crate) log_level: crate::logging::LogLevel,
     #[command(subcommand)]
     pub(crate) command: Command,

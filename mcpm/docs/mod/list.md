@@ -7,6 +7,12 @@ mcpm mod list [OPTIONS] [PATH]...
 List mod files, accepting any mixture of file and directory paths. With no
 paths, the current directory (`.`) is used.
 
+Help groups options into Global options, Mode options, Filter, Style options,
+TUI-only options and Console-only options, in that order. Mode-specific options
+are still accepted in other modes and ignored there. `--expanded` belongs to
+Style options: it opens all TUI branches, prints all declarations in Console and
+Raw, and additionally lists ignored filenames in Console.
+
 In a terminal, the default TUI shows a scrollable mod tree and a compact Details
 card below it. Each mod occupies two lines: its file path is on the second line,
 left-aligned with Mod ID. File is omitted from the first-line columns. The selected

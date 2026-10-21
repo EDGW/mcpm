@@ -29,23 +29,34 @@ mod tui;
 #[derive(Args)]
 pub(in crate::commands) struct ListDisplayArgs {
     /// Print a Console list instead of opening the TUI.
-    #[arg(long)]
+    #[arg(long, help_heading = "Mode options")]
     no_ui: bool,
     /// Maximum simultaneous source lookups in TUI; ignored by Console and Raw.
-    #[arg(long, default_value = "10", value_name = "COUNT")]
+    #[arg(
+        long,
+        default_value = "10",
+        value_name = "COUNT",
+        help_heading = "TUI-only options"
+    )]
     identify_parallelism: std::num::NonZeroUsize,
-    /// Show every mod declaration and list ignored filenames in formatted terminal output.
-    #[arg(long)]
+    /// Expand all branches in TUI; print every mod declaration in Console and Raw. Console also lists ignored filenames.
+    #[arg(long, help_heading = "Style options")]
     expanded: bool,
     /// Index layout: full indices or aligned first items with compact nesting and indented names.
-    #[arg(long, value_enum, default_value = "flat", value_name = "TYPE")]
+    #[arg(
+        long,
+        value_enum,
+        default_value = "flat",
+        value_name = "TYPE",
+        help_heading = "Style options"
+    )]
     index_type: rows::IndexType,
     /// Override Console layout width; ignored by TUI, --raw or redirected output.
-    #[arg(long, value_name = "WIDTH", value_parser = clap::value_parser!(u16).range(1..))]
+    #[arg(long, value_name = "WIDTH", value_parser = clap::value_parser!(u16).range(1..), help_heading = "Console-only options")]
     width: Option<u16>,
-    #[command(flatten)]
+    #[command(flatten, next_help_heading = "Style options")]
     columns: ColumnArgs,
-    #[command(flatten)]
+    #[command(flatten, next_help_heading = "Style options")]
     paths_output: PathArgs,
 }
 
