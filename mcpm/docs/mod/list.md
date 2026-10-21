@@ -50,10 +50,13 @@ the primary color and their scoped values use the secondary color. Escape a lite
 between `@` and its field are not supported. Unknown markers (including
 `@index`) show a warning and match no rows. Matching is case-insensitive.
 
-Search reveals matching descendants, and its branches can be collapsed and expanded
-with Left/Right, Space, mouse arrows and `e`, just like the normal tree. Manual
-folds persist while filtering; clearing the filter restores the normal expansion
-state.
+Search automatically opens only the ancestor paths needed to reveal matching rows.
+Matching a parent alone does not automatically open its children. Branches retain
+their normal expansion state underneath the search view and restore it as soon as
+they leave the matching paths, even before the filter is cleared.
+Left/Right, Space, mouse arrows and `e` still control branches while filtering.
+These manual overrides take priority over automatic expansion and last until the
+branch leaves the search results; clearing the filter restores the normal tree.
 
 Filter updates live. Enter applies and returns focus to Mods; Esc or uppercase
 `Q` closes the Filter card while retaining its conditions. Lowercase `q` is

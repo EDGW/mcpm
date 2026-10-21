@@ -136,7 +136,8 @@ struct Browser {
     matches: Vec<usize>,
     table: TableState,
     query: String,
-    search_expansion: HashMap<usize, bool>,
+    search_overrides: HashMap<usize, bool>,
+    search_included: Vec<bool>,
     filter_open: bool,
     query_cursor: usize,
     filter_area: ratatui::layout::Rect,
@@ -165,7 +166,8 @@ impl Browser {
             matches: Vec::new(),
             table: TableState::default(),
             query: String::new(),
-            search_expansion: HashMap::new(),
+            search_overrides: HashMap::new(),
+            search_included: Vec::new(),
             filter_open: false,
             query_cursor: 0,
             filter_area: ratatui::layout::Rect::default(),
@@ -224,12 +226,6 @@ impl Browser {
             .selected()
             .and_then(|index| self.matches.get(index))
             .copied();
-        if self.query.trim().is_empty() {
-            self.search_expansion.clear();
-        }
-        let expanded: Vec<_> = (0..self.nodes.len())
-            .map(|index| self.is_expanded(index))
-            .collect();
         let query = self.query.trim();
         let parsed = filter::Query::parse(query);
         let mut included = vec![false; self.nodes.len()];
@@ -245,6 +241,14 @@ impl Browser {
                 }
             }
         }
+        // Search is a temporary projection: only ancestors of matching rows
+        // need opening, and overrides expire when their branch leaves the results.
+        self.search_overrides
+            .retain(|&index, _| !query.is_empty() && included[index]);
+        self.search_included = included;
+        let expanded: Vec<_> = (0..self.nodes.len())
+            .map(|index| self.is_expanded(index))
+            .collect();
         fn visit(
             nodes: &[tree::Node],
             index: usize,
@@ -270,7 +274,7 @@ impl Browser {
                     &self.nodes,
                     index,
                     query,
-                    &included,
+                    &self.search_included,
                     &expanded,
                     &mut self.matches,
                 );
@@ -314,14 +318,23 @@ impl Browser {
         if self.query.trim().is_empty() {
             self.nodes[index].expanded
         } else {
-            self.search_expansion.get(&index).copied().unwrap_or(true)
+            self.search_overrides
+                .get(&index)
+                .copied()
+                .unwrap_or_else(|| {
+                    self.nodes[index].expanded
+                        || self.nodes[index]
+                            .children
+                            .iter()
+                            .any(|&child| self.search_included[child])
+                })
         }
     }
     fn set_expanded(&mut self, index: usize, open: bool) {
         if self.query.trim().is_empty() {
             self.nodes[index].expanded = open;
         } else {
-            self.search_expansion.insert(index, open);
+            self.search_overrides.insert(index, open);
         }
     }
     fn toggle(&mut self) -> bool {
@@ -358,7 +371,11 @@ impl Browser {
                 node.expanded = true;
             }
         } else {
-            self.search_expansion.clear();
+            for (index, node) in self.nodes.iter().enumerate() {
+                if self.search_included[index] && !node.children.is_empty() {
+                    self.search_overrides.insert(index, true);
+                }
+            }
         }
         self.filter();
     }

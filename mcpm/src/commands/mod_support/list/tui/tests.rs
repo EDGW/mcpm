@@ -352,6 +352,132 @@ fn search_branches_can_fold_and_keep_normal_expansion_separate() {
     assert!(!browser.nodes[0].expanded);
 }
 
+/// Give every row an independent name so matching a parent cannot match its children.
+fn name_search_rows(browser: &mut Browser) {
+    use super::super::rows::{Paint, Piece};
+    for (index, node) in browser.nodes.iter_mut().enumerate() {
+        node.row.cells[Column::Name.position()] =
+            vec![Piece::new(format!("node-{index};"), Paint::Plain)];
+    }
+}
+
+#[test]
+fn search_opens_only_paths_to_matches_and_restores_each_branch_immediately() {
+    let mut browser = fixture(false);
+    name_search_rows(&mut browser);
+    let parent = browser.nodes[0]
+        .children
+        .iter()
+        .copied()
+        .find(|&index| !browser.nodes[index].children.is_empty())
+        .unwrap();
+    let child = browser.nodes[parent].children[0];
+    // Preserve a mix of open and closed states, including hidden descendants.
+    browser.nodes[child].expanded = true;
+    let original: Vec<_> = browser.nodes.iter().map(|node| node.expanded).collect();
+    browser.query = format!("@name node-{parent};");
+    browser.filter();
+    assert_eq!(browser.matches, vec![0, parent]);
+    assert!(browser.is_expanded(0));
+    assert!(
+        !browser.is_expanded(parent),
+        "a matching parent stays folded"
+    );
+
+    browser.query = format!("@name node-{child};");
+    browser.filter();
+    assert!(browser.matches.contains(&child));
+    assert!(browser.is_expanded(parent));
+
+    browser.query = format!("@name node-{parent};");
+    browser.filter();
+    assert!(
+        !browser.is_expanded(parent),
+        "restore before clearing search"
+    );
+    browser.query = "@name no-such-row".into();
+    browser.filter();
+    assert!(browser.matches.is_empty());
+    for (index, &open) in original.iter().enumerate() {
+        assert_eq!(browser.is_expanded(index), open);
+        assert_eq!(browser.nodes[index].expanded, open);
+    }
+    browser.query.clear();
+    browser.filter();
+    assert_eq!(browser.matches, vec![0]);
+    assert!(browser.is_expanded(child));
+}
+
+#[test]
+fn search_manual_overrides_expire_only_when_the_branch_leaves_results() {
+    use super::super::rows::{Paint, Piece};
+    let mut browser = fixture(false);
+    name_search_rows(&mut browser);
+    let parents: Vec<_> = browser.nodes[0]
+        .children
+        .iter()
+        .copied()
+        .filter(|&index| !browser.nodes[index].children.is_empty())
+        .take(2)
+        .collect();
+    assert_eq!(parents.len(), 2);
+    let (first, second) = (parents[0], parents[1]);
+    for (parent, name) in [(first, "target-alpha"), (second, "target-beta")] {
+        let child = browser.nodes[parent].children[0];
+        browser.nodes[child].row.cells[Column::Name.position()] =
+            vec![Piece::new(name, Paint::Plain)];
+    }
+    browser.nodes[second].expanded = true;
+    browser.query = "@name target-alpha".into();
+    browser.filter();
+    browser.select(
+        browser
+            .matches
+            .iter()
+            .position(|&index| index == first)
+            .unwrap(),
+    );
+    assert!(browser.expand(false));
+    browser.query = "@name target-".into();
+    browser.filter();
+    assert!(
+        !browser.is_expanded(first),
+        "keep override while still matching"
+    );
+    assert!(browser.is_expanded(second));
+    browser.expand_all();
+    assert!(browser.is_expanded(first));
+    assert!(browser.expand(false));
+    browser.query = "@name target-beta".into();
+    browser.filter();
+    assert!(!browser.search_overrides.contains_key(&first));
+    assert!(!browser.is_expanded(first));
+    browser.select(
+        browser
+            .matches
+            .iter()
+            .position(|&index| index == second)
+            .unwrap(),
+    );
+    assert!(browser.expand(false));
+    browser.query = "@name target-alpha".into();
+    browser.filter();
+    assert!(
+        browser.is_expanded(first),
+        "returning match gets a fresh auto expansion"
+    );
+    assert!(
+        browser.is_expanded(second),
+        "restore original open state off-path"
+    );
+    assert!(!browser.search_overrides.contains_key(&second));
+    browser.query.clear();
+    browser.filter();
+    assert!(!browser.is_expanded(first));
+    assert!(browser.is_expanded(second));
+    assert!(browser.search_overrides.is_empty());
+}
+
 #[test]
 fn escaped_at_is_literal_in_plain_and_scoped_values() {
     use super::super::rows::{Paint, Piece};
