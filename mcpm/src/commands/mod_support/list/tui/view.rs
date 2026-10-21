@@ -11,16 +11,17 @@ use crate::theme::{
 };
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::Rect,
     style::Style,
     text::{Line, Span, Text},
-    widgets::{
-        Block, Cell, List, ListItem, ListState, Padding, Paragraph, Row as TableRow, Table, Wrap,
-    },
+    widgets::{Cell, ListItem, Padding, Paragraph, Row as TableRow, Wrap},
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::widgets::{MatchedText, Overflow};
+use crate::widgets::{
+    MatchedText,
+    browser::{self, BrowserLayout, TableColumns, panel, short_line},
+};
 
 pub(super) fn draw(
     frame: &mut Frame,
@@ -28,12 +29,15 @@ pub(super) fn draw(
     columns: &[Column],
     summary: &Summary<'_>,
 ) -> usize {
-    let [title, content, footer] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(0),
-        Constraint::Length(3),
-    ])
-    .areas(frame.area());
+    let layout = BrowserLayout::new(
+        frame.area(),
+        browser.details || browser.ignored,
+        browser.focus == Focus::Details,
+        if browser.filter_open { 3 } else { 0 },
+        0,
+        10,
+    );
+    let (title, footer) = (layout.title, layout.footer);
     let title_text = format!(
         "Mod List · {} / {} rows{}",
         browser.matches.len(),
@@ -56,29 +60,15 @@ pub(super) fn draw(
     browser.filter_area = Rect::default();
     let page;
     if browser.details || browser.ignored {
-        draw_details(frame, content, browser, summary);
-        page = content.height.saturating_sub(2).max(1) as usize;
+        draw_details(frame, layout.details, browser, summary);
+        page = layout.details.height.saturating_sub(2).max(1) as usize;
     } else {
-        // Details remain below the list, including in wide terminals.
-        let detail_height = if content.height >= 14 {
-            8
-        } else if browser.focus == Focus::Details {
-            content.height.min(8)
-        } else {
-            0
-        };
-        let [table, filter_area, detail] = Layout::vertical([
-            Constraint::Min(0),
-            Constraint::Length(if browser.filter_open { 3 } else { 0 }),
-            Constraint::Length(detail_height),
-        ])
-        .areas(content);
-        if filter_area.height > 0 {
-            draw_filter(frame, filter_area, browser);
+        if layout.accessory.height > 0 {
+            draw_filter(frame, layout.accessory, browser);
         }
-        page = draw_table(frame, table, browser, columns);
-        if detail.height > 0 {
-            draw_details(frame, detail, browser, summary);
+        page = draw_table(frame, layout.table, browser, columns);
+        if layout.details.height > 0 {
+            draw_details(frame, layout.details, browser, summary);
         }
     }
     let status = browser
@@ -102,7 +92,7 @@ pub(super) fn draw(
         "@field · = Exact · ~ Regex · & AND · | OR · () Group · Enter Apply · Esc / Q Close"
     } else if browser.focus == Focus::Details {
         if browser.selected_source_file().is_some() {
-            "↑/↓ Field · c Copy · Enter Files · Tab Mods"
+            "↑/↓ Field · c Copy · Enter View Release Files · Tab Mods"
         } else {
             "↑/↓ Field · c Copy · Tab Mods · Enter Full Details"
         }
@@ -128,19 +118,21 @@ fn draw_filter(frame: &mut Frame, area: Rect, browser: &mut Browser) {
     browser.filter_area = area;
     let focused = browser.focus == Focus::Filter;
     let parsed = &browser.parsed;
-    let block = Block::bordered()
-        .title(parsed.error().map_or_else(
+    let block = panel(
+        parsed.error().map_or_else(
             || " Filter ".to_owned(),
             |error| format!(" Filter · {error} "),
-        ))
-        .border_style(style(if parsed.invalid() {
-            Role::Warning
-        } else if focused {
-            Role::Primary
-        } else {
-            Role::Muted
-        }))
-        .padding(Padding::horizontal(1));
+        ),
+        focused,
+    )
+    .border_style(style(if parsed.invalid() {
+        Role::Warning
+    } else if focused {
+        Role::Primary
+    } else {
+        Role::Muted
+    }))
+    .padding(Padding::horizontal(1));
     let inner = block.inner(area);
     let line = if browser.query.is_empty() && !focused {
         Line::from(Span::styled(
@@ -208,14 +200,7 @@ fn filter_line(parsed: &filter::Filter) -> Line<'_> {
 
 fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[Column]) -> usize {
     browser.table_area = area;
-    let block =
-        Block::bordered()
-            .title(" Mods ")
-            .border_style(style(if browser.focus == Focus::Mods {
-                Role::Primary
-            } else {
-                Role::Muted
-            }));
+    let block = panel(" Mods ", browser.focus == Focus::Mods);
     let inner = block.inner(area);
     let show_file = columns.contains(&Column::Filename);
     let visible_columns: Vec<_> = columns
@@ -224,52 +209,25 @@ fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[C
         .filter(|column| *column != Column::Filename)
         .collect();
     let columns = visible_columns.as_slice();
-    let marker_width = inner.width.min(2);
-    let spacing = if inner.width > columns.len() as u16 * 3 {
-        1
-    } else {
-        0
-    };
-    let available = inner
-        .width
-        .saturating_sub(marker_width)
-        .saturating_sub(spacing * columns.len() as u16);
-    let constraints = columns
+    let weights = columns
         .iter()
-        .map(|column| {
-            Constraint::Fill(match column {
-                Column::Index => 12,
-                Column::Name => 28,
-                Column::Modid => 20,
-                Column::Filename => 28,
-                Column::Loaders => 16,
-            })
+        .map(|column| match column {
+            Column::Index => 12,
+            Column::Name => 28,
+            Column::Modid => 20,
+            Column::Filename => 28,
+            Column::Loaders => 16,
         })
         .collect::<Vec<_>>();
-    // Allocate exact lengths once for both clipping and table rendering, so styled
-    // suffixes such as (+X mods) cannot escape their cell's rectangle.
-    let allocations = Layout::horizontal(constraints).split(Rect::new(0, 0, available, 1));
-    let mut widths = vec![Constraint::Length(marker_width)];
-    widths.extend(
-        allocations
+    let sizing = TableColumns::new(inner.width, &weights, 2);
+    let allocations = &sizing.areas;
+    let (marker_width, spacing) = (sizing.marker_width, sizing.spacing);
+    let header = sizing.header(
+        &columns
             .iter()
-            .map(|area| Constraint::Length(area.width)),
+            .map(|&column| label(column))
+            .collect::<Vec<_>>(),
     );
-    let mut header_cells = vec![Cell::from("")];
-    header_cells.extend(
-        columns
-            .iter()
-            .zip(allocations.iter())
-            .map(|(&column, area)| {
-                Cell::from(short_line(
-                    vec![Span::raw(label(column))],
-                    area.width as usize,
-                ))
-            }),
-    );
-    let header = TableRow::new(header_cells)
-        .style(style(Role::Muted))
-        .bottom_margin(1);
     let expanded: Vec<_> = (0..browser.nodes.len())
         .map(|index| browser.is_expanded(index))
         .collect();
@@ -329,15 +287,7 @@ fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[C
             TableRow::new(cells).height(2)
         })
         .collect::<Vec<_>>();
-    let table = Table::new(rows, widths)
-        .block(block)
-        .header(header)
-        .column_spacing(spacing)
-        .row_highlight_style(if browser.focus == Focus::Mods {
-            widgets::selection()
-        } else {
-            Style::default()
-        });
+    let table = sizing.table(rows, header, block, browser.focus == Focus::Mods);
     frame.render_stateful_widget(table, area, &mut browser.table);
     if show_file {
         let file_column = columns
@@ -405,18 +355,15 @@ fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[C
 
 fn draw_details(frame: &mut Frame, area: Rect, browser: &mut Browser, summary: &Summary<'_>) {
     browser.detail_area = area;
-    let block = Block::bordered()
-        .title(if browser.ignored {
+    let block = panel(
+        if browser.ignored {
             " Skipped files "
         } else {
             " Details "
-        })
-        .border_style(style(if browser.focus == Focus::Details {
-            Role::Primary
-        } else {
-            Role::Muted
-        }))
-        .padding(Padding::horizontal(1));
+        },
+        browser.focus == Focus::Details,
+    )
+    .padding(Padding::horizontal(1));
     let inner = block.inner(area);
     if browser.ignored {
         let lines = summary
@@ -452,68 +399,131 @@ fn draw_details(frame: &mut Frame, area: Rect, browser: &mut Browser, summary: &
     let query = &browser.parsed;
     let items = DETAIL_FIELDS
         .iter()
-        .map(|&field| {
+        .enumerate()
+        .map(|(index, &field)| {
+            if let DetailField::Source(platform) = field {
+                return source_item(
+                    platform,
+                    &browser.identification[node.file][platform.index()],
+                    node.outer,
+                    &browser.spinner(),
+                    inner.width as usize,
+                    browser.focus == Focus::Details && browser.field == index,
+                );
+            }
+            let DetailField::Column(column) = field else {
+                unreachable!()
+            };
             let mut spans = vec![Span::styled(
                 format!("{}: ", field.label()),
-                match field {
-                    DetailField::Source(platform) => widgets::source(platform.id()),
-                    _ => style(Role::Muted),
-                },
+                style(Role::Muted),
             )];
-            match field {
-                DetailField::Column(column) => {
-                    let label_width = spans.iter().map(Span::width).sum::<usize>();
-                    spans.extend(
-                        field_text(query, column, &node.row)
-                            .line((inner.width as usize).saturating_sub(label_width))
-                            .spans,
-                    );
-                }
-                DetailField::Source(platform) => {
-                    let state = &browser.identification[node.file][platform.index()];
-                    let color = if !node.outer {
-                        style(Role::Muted)
-                    } else {
-                        match state {
-                            identify::State::Matched(_) | identify::State::Loading => {
-                                widgets::source(platform.id())
-                            }
-                            identify::State::Failed(_) => style(Role::Danger),
-                            _ => style(Role::Muted),
-                        }
-                    };
-                    let value =
-                        crate::commands::output_style::text(&browser.detail_value(field).unwrap());
-                    if node.outer
-                        && matches!(
-                            state,
-                            identify::State::Matched(_) | identify::State::Loading
-                        )
-                    {
-                        let end = value.chars().next().map_or(0, char::len_utf8);
-                        spans.push(Span::styled(value[..end].to_owned(), color));
-                        spans.push(Span::styled(value[end..].to_owned(), style(Role::Muted)));
-                    } else {
-                        spans.push(Span::styled(value, color));
-                    }
-                }
-            }
+            let label_width = spans.iter().map(Span::width).sum::<usize>();
+            spans.extend(
+                field_text(query, column, &node.row)
+                    .line((inner.width as usize).saturating_sub(label_width))
+                    .spans,
+            );
             ListItem::new(short_line(spans, inner.width as usize))
         })
         .collect::<Vec<_>>();
-    let mut state = ListState::default()
-        .with_offset(browser.detail_offset)
-        .with_selected(Some(browser.field));
-    let list = List::new(items)
-        .block(block)
-        .highlight_style(if browser.focus == Focus::Details {
-            widgets::selection()
-        } else {
-            Style::default()
-        });
-    frame.render_stateful_widget(list, area, &mut state);
-    browser.detail_offset = state.offset();
+    browser::draw_fields(
+        frame,
+        area,
+        block,
+        items,
+        browser.field,
+        &mut browser.detail_offset,
+        browser.focus == Focus::Details,
+    );
     browser.scroll_limit = 0;
+}
+
+fn source_item(
+    platform: identify::Platform,
+    state: &identify::State,
+    outer: bool,
+    spinner: &str,
+    width: usize,
+    focused: bool,
+) -> ListItem<'static> {
+    let (status, explanation, role, actionable) = if !outer {
+        (
+            "Not checked".into(),
+            "Nested JAR identification is not supported".into(),
+            Role::Muted,
+            false,
+        )
+    } else {
+        match state {
+            identify::State::Matched(_) => (
+                "✓ Identified".into(),
+                "↳ Enter to view release files →".into(),
+                Role::Normal,
+                true,
+            ),
+            identify::State::Queued => (
+                "Waiting".into(),
+                "Identification queued".into(),
+                Role::Muted,
+                false,
+            ),
+            identify::State::Loading => (
+                format!("{spinner} Identifying…"),
+                "Looking up this file".into(),
+                Role::Muted,
+                false,
+            ),
+            identify::State::Unmatched => (
+                "No match".into(),
+                "No matching release file found".into(),
+                Role::Muted,
+                false,
+            ),
+            identify::State::Failed(error) => (
+                "Failed".into(),
+                crate::commands::output_style::text(error),
+                Role::Danger,
+                false,
+            ),
+        }
+    };
+    let status_style = if actionable {
+        widgets::source(platform.id())
+    } else {
+        style(role)
+    };
+    let mut heading = vec![
+        Span::styled(
+            format!("{}: ", platform.name()),
+            widgets::source(platform.id()),
+        ),
+        Span::styled(status, status_style),
+    ];
+    if outer && let identify::State::Matched(found) = state {
+        heading.push(Span::styled(
+            format!(
+                " · Project ID: {} · File ID: {}",
+                crate::commands::output_style::text(&found.reference.project.id.0),
+                crate::commands::output_style::text(&found.reference.id.0)
+            ),
+            style(Role::Muted),
+        ));
+    }
+    ListItem::new(Text::from(vec![
+        short_line(heading, width),
+        short_line(
+            vec![Span::styled(
+                format!("  {explanation}"),
+                style(if actionable && focused {
+                    Role::Primary
+                } else {
+                    Role::Muted
+                }),
+            )],
+            width,
+        ),
+    ]))
 }
 
 fn piece(value: &Piece) -> Span<'_> {
@@ -536,14 +546,6 @@ fn field_text<'a>(query: &filter::Filter, column: Column, row: &'a Row) -> Match
         .matches(query.ranges(row, column))
         .match_style(style(Role::Secondary))
         .ellipsis_style(style(Role::Muted))
-}
-
-/// Non-search labels share the same Unicode-safe clipping implementation.
-fn short_line(spans: Vec<Span<'_>>, width: usize) -> Line<'static> {
-    MatchedText::new(Line::from(spans))
-        .overflow(Overflow::Ellipsis)
-        .ellipsis_style(style(Role::Muted))
-        .line(width)
 }
 
 pub(super) fn label(column: Column) -> &'static str {

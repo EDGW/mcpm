@@ -27,8 +27,10 @@ available. `--identify-parallelism <COUNT>` sets a positive concurrency limit;
 use `1` for sequential identification. Below Index, the first position
 belongs to Modrinth and the second to CurseForge: a spinner means identification
 is running, and a checkmark means a verified match. Details shows each provider's
-status and, on success, project ID, file ID, filename, match type and size. These
-fields can be selected and copied. Failed requests do not stop later files;
+status in two-line entries. The first line shows the status and, on success,
+dimmed project and file IDs. The second shows `Enter to view release files →`
+for a match, or explains why the source is unavailable. Both lines select as one
+field; copying retains the full result, including filename, match type and size. Failed requests do not stop later files;
 exiting the TUI cancels pending work. Repeated file paths share identification
 results. Nested JARs are not identified and do not inherit outer-file badges.
 Console and Raw do not perform remote identification.

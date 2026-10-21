@@ -44,11 +44,24 @@ Esc returns to search. Multiple projects, `-N/--no-ui`, explicit columns, or
 redirected streams use list output. Sorting, pagination, and file release filters
 work like `mcpm mod source`.
 
+Files uses the shared mod list layout, with a compact list above a Details panel
+and no interactive Filter card. Headers and files occupy two lines: Index, Name,
+Minecraft, and Loaders on the first; Version and Release on the second. Values
+align with their headers without repeating field labels in each row. Filenames
+are available in Details. Tab / Shift+Tab switches between the list and Details;
+Up/Down or j/k moves through files or detail fields, and PageUp/PageDown moves by
+a screen. Left/Right or p/n fetches the previous/next remote page. Home/End moves
+to the first/last file or field. Enter expands/collapses Details, c copies the
+selected detail field, and Esc closes expanded Details before returning to the
+previous screen; q returns immediately. Mouse clicks and scrolling are supported.
+
 For a single project, `--selected FILE_ID` fetches that file directly and shows
 it first under `Selected`, even outside the current page or compatibility filters.
 `--loader` (alias `--loaders`) accepts comma-separated or repeated loaders, matching any of them.
-It stays visible while paging through other files and is omitted from the other
-file cards when duplicated. Pagination and totals still describe the original
+It stays visible while paging through files. In the TUI, the same publication also
+keeps its original list position: its Name uses primary color, while other file
+names use secondary color. Without `--selected`, names use primary color.
+Console and Raw output continue to omit the duplicate pinned publication. Pagination and totals still describe the original
 filtered results; the pinned file does not consume the page limit. A missing file
 or a file belonging to another project is an error. This also works with standalone
 `mcpm mod source files`.

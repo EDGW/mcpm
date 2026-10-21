@@ -10,7 +10,7 @@ Help 依次将选项分为全局参数（Global options）、模式参数（Mode
 
 终端中默认打开 TUI：上方是可滚动的 Mod 树，下方是紧凑的 Details 卡片。每个 Mod 占两行，File 移到第二行并与 Mod ID 左对齐，第一行不再单列 File；选中项的两行以背景色标识；`>` 表示可展开分支，`v` 表示已展开，叶子不显示箭头。→ 展开一级，← 收起当前分支或移至父项，Space 切换当前分支，`e` 展开全部。`--expanded` 会在启动时展开全部分支。
 
-仅 TUI 会自动按列表顺序识别外层 JAR：每个文件查询 Modrinth，并通过 Curse.tools 查询 CurseForge。默认最多同时执行 10 个平台反查请求，期间仍可操作列表；`--identify-parallelism <COUNT>` 指定正整数并行度，设为 `1` 则顺序识别。Index 下方的第一位对应 Modrinth，第二位对应 CurseForge；识别时显示加载动画，验证匹配后显示平台色勾选。Details 显示各平台状态，成功时包括 Project ID、File ID、文件名、匹配类型和大小，支持选择和复制。单次请求失败后继续处理其他文件，退出 TUI 会取消剩余请求。重复文件路径共享识别结果。嵌套 JAR 不参与识别，也不会继承外层文件的成功标记。Console 和 Raw 不执行远程识别。
+仅 TUI 会自动按列表顺序识别外层 JAR：每个文件查询 Modrinth，并通过 Curse.tools 查询 CurseForge。默认最多同时执行 10 个平台反查请求，期间仍可操作列表；`--identify-parallelism <COUNT>` 指定正整数并行度，设为 `1` 则顺序识别。Index 下方的第一位对应 Modrinth，第二位对应 CurseForge；识别时显示加载动画，验证匹配后显示平台色勾选。Details 中各平台占两行：首行显示状态，成功时的 Project ID 和 File ID 使用 dimmed；第二行在匹配成功时显示英文入口 `Enter to view release files →`，否则说明不可用原因。两行作为一个字段整体选择；复制仍包含文件名、匹配类型和大小等完整结果。单次请求失败后继续处理其他文件，退出 TUI 会取消剩余请求。重复文件路径共享识别结果。嵌套 JAR 不参与识别，也不会继承外层文件的成功标记。Console 和 Raw 不执行远程识别。
 
 在 Details 中选中已识别成功的 Modrinth 或 CurseForge 字段，按 Enter 进入该项目的 files，自动将识别到的版本置顶为 `Selected`。命令行的 `--loader/--loaders` 筛选会一并传递，多选按任意匹配；未指定时不限制 loader。Esc 或 q 返回原列表，保留选中行、Details 字段和筛选条件。加载时可按 Esc 取消；请求失败会返回列表并显示错误。尚未匹配的来源和嵌套 JAR 不提供此入口。
 
