@@ -58,14 +58,17 @@ pub struct ProjectId(pub String);
 
 /// Common search criteria for remote mod projects.
 ///
-/// All supplied filters are combined with AND. Version and loader strings are
+/// Fields are combined with AND; alternatives within each list use OR.
+/// Version and loader strings are
 /// interpreted by the source; an unfiltered search does not establish that a
 /// particular downloadable release is compatible with the caller's environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchQuery {
     pub query: String,
-    pub game_version: Option<String>,
-    pub loader: Option<String>,
+    /// Match any listed Minecraft version; empty means unrestricted.
+    pub game_versions: Vec<String>,
+    /// Match any listed loader; empty means unrestricted.
+    pub loaders: Vec<String>,
     pub sort: SearchSort,
     /// Number of matching projects to skip, not a page number.
     pub offset: u64,
@@ -77,8 +80,8 @@ impl Default for SearchQuery {
     fn default() -> Self {
         Self {
             query: String::new(),
-            game_version: None,
-            loader: None,
+            game_versions: Vec::new(),
+            loaders: Vec::new(),
             sort: SearchSort::default(),
             offset: 0,
             limit: 20,

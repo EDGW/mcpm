@@ -93,7 +93,7 @@ pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
     let mut selected_file = None;
     let mut output = io::stdout().lock();
     let query = FileQuery {
-        game_version: args.game_version,
+        game_versions: args.game_version.into_iter().collect(),
         loaders: args.loader,
         release_type: args.release_type.map(Into::into),
         offset: args.offset,

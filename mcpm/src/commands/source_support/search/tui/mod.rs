@@ -8,6 +8,7 @@ use kako_mods_lib::source::{FileQuery, SearchPage, SearchQuery, Source};
 use tokio::runtime::Runtime;
 
 use super::super::request;
+use super::expression::{Expression, ParseError};
 use input::Action;
 use view::Screen;
 
@@ -26,6 +27,8 @@ enum Focus {
 
 struct Browser {
     draft: String,
+    committed: String,
+    parse_error: Option<ParseError>,
     cursor: usize,
     focus: Focus,
     selected: usize,
@@ -38,6 +41,8 @@ impl Browser {
     fn new(query: &str) -> Self {
         Self {
             draft: query.to_owned(),
+            committed: query.to_owned(),
+            parse_error: None,
             cursor: query.len(),
             focus: Focus::Results,
             selected: 0,
@@ -46,16 +51,36 @@ impl Browser {
             detail_limit: 0,
         }
     }
+
+    fn prepare(&mut self, defaults: &SearchQuery) -> Result<SearchQuery, ParseError> {
+        match Expression::parse(&self.draft) {
+            Ok(expression) => {
+                self.parse_error = None;
+                Ok(expression.apply(defaults))
+            }
+            Err(error) => {
+                self.cursor = self
+                    .draft
+                    .char_indices()
+                    .nth(error.column.saturating_sub(1))
+                    .map_or(self.draft.len(), |(index, _)| index);
+                self.parse_error = Some(error.clone());
+                Err(error)
+            }
+        }
+    }
 }
 
 pub(super) fn run(
     source: &dyn Source,
     runtime: &Runtime,
+    defaults: SearchQuery,
+    expression: String,
     mut query: SearchQuery,
     mut page: SearchPage,
 ) -> Result<()> {
     let mut screen = Screen::new().context("failed to open search results")?;
-    let mut browser = Browser::new(&query.query);
+    let mut browser = Browser::new(&expression);
     let mut status = String::new();
     let mut held_page_key = None;
     loop {
@@ -78,14 +103,18 @@ pub(super) fn run(
             continue;
         }
         held_page_key = None;
-        let action = browser.handle(key, &query.query, &page, query.limit);
+        let action = browser.handle(key, &page, query.limit);
         let next_offset = match action {
             Action::Quit => return Ok(()),
             Action::Search => {
                 held_page_key = Some(KeyCode::Enter);
-                let mut pending = query.clone();
-                pending.query = browser.draft.clone();
-                pending.offset = 0;
+                let pending = match browser.prepare(&defaults) {
+                    Ok(query) => query,
+                    Err(error) => {
+                        status = error.to_string();
+                        continue;
+                    }
+                };
                 match request::wait(
                     runtime,
                     source.search(&pending),
@@ -96,6 +125,7 @@ pub(super) fn run(
                 ) {
                     Ok(Some(next)) => {
                         query = pending;
+                        browser.committed = browser.draft.clone();
                         page = next;
                         browser.selected = 0;
                         browser.result_offset = 0;
@@ -112,8 +142,8 @@ pub(super) fn run(
             Action::OpenFiles => {
                 if let Some(project) = page.projects.get(browser.selected) {
                     let files_query = FileQuery {
-                        game_version: query.game_version.clone(),
-                        loaders: query.loader.iter().cloned().collect(),
+                        game_versions: query.game_versions.clone(),
+                        loaders: query.loaders.clone(),
                         ..Default::default()
                     };
                     screen.render(

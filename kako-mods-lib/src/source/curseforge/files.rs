@@ -31,9 +31,9 @@ impl CurseForgeSource {
         let id = self.file_project_id(project)?;
         ensure!(query.limit > 0, "file limit must be positive");
         // The files endpoint returns newest publications first. Use native
-        // pagination unless channel or multiple-loader filtering needs a matching offset.
+        // pagination unless channel or version/loader alternatives need a matching offset.
         let mut params = Vec::new();
-        if let Some(version) = &query.game_version {
+        if let [version] = query.game_versions.as_slice() {
             params.push(("gameVersion", version.clone()));
         }
         for loader in &query.loaders {
@@ -50,7 +50,8 @@ impl CurseForgeSource {
             }
         }
         let multiple_loaders = query.loaders.len() > 1;
-        let filtered = query.release_type.is_some() || multiple_loaders;
+        let multiple_versions = query.game_versions.len() > 1;
+        let filtered = query.release_type.is_some() || multiple_loaders || multiple_versions;
         let mut index = if filtered { 0 } else { query.offset };
         let mut matched = 0u64;
         let mut files = Vec::new();
@@ -82,6 +83,14 @@ impl CurseForgeSource {
                     other => anyhow::bail!("unknown CurseForge release type: {other}"),
                 };
                 if query.release_type.is_some_and(|r| r != channel) {
+                    continue;
+                }
+                if multiple_versions
+                    && !version.sortable_game_versions.iter().any(|tag| {
+                        tag.game_version_type_id != Some(68441)
+                            && query.game_versions.contains(&tag.game_version)
+                    })
+                {
                     continue;
                 }
                 if multiple_loaders

@@ -61,10 +61,11 @@ impl ModrinthSource {
                 "Modrinth version belongs to a different project"
             );
             let kind = release_type(&version.version_type)?;
-            if query
-                .game_version
-                .as_ref()
-                .is_some_and(|v| !version.game_versions.contains(v))
+            if (!query.game_versions.is_empty()
+                && !query
+                    .game_versions
+                    .iter()
+                    .any(|v| version.game_versions.contains(v)))
                 || (!query.loaders.is_empty()
                     && !query
                         .loaders

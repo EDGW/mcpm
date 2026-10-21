@@ -81,7 +81,7 @@ pub(super) fn draw(
         Constraint::Length(3),
     ])
     .areas(area);
-    draw_search(frame, search, browser, query);
+    draw_search(frame, search, browser);
 
     let range = if page.projects.is_empty() {
         "0".into()
@@ -96,13 +96,13 @@ pub(super) fn draw(
         .total
         .map_or_else(|| "?".into(), |total| total.to_string());
     let mut filters = vec![Span::styled(text(source), widgets::source(source))];
-    if let Some(version) = &query.game_version {
+    if !query.game_versions.is_empty() {
         filters.push(Span::styled(
-            format!(" · Minecraft {}", text(version)),
+            format!(" · Minecraft {}", text(&query.game_versions.join(" | "))),
             style(Role::Muted),
         ));
     }
-    if let Some(loader) = &query.loader {
+    for loader in &query.loaders {
         filters.push(Span::raw(" · "));
         filters.push(Span::styled(text(loader), widgets::loader(loader)));
     }
@@ -148,14 +148,22 @@ pub(super) fn draw(
     );
 }
 
-fn draw_search(frame: &mut Frame, area: Rect, browser: &Browser, query: &SearchQuery) {
+fn draw_search(frame: &mut Frame, area: Rect, browser: &Browser) {
     let focused = browser.focus == Focus::Search;
-    let title = if browser.draft != query.query {
-        " Search · edited · Enter to search "
+    let title = if let Some(error) = &browser.parse_error {
+        format!(" Search · error at column {} ", error.column)
+    } else if browser.draft != browser.committed {
+        " Search · edited · Enter to search ".into()
     } else {
-        " Search · / to edit "
+        " Search · / to edit ".into()
     };
-    let block = panel(title, focused);
+    let block = panel(title, focused).border_style(style(if browser.parse_error.is_some() {
+        Role::Danger
+    } else if focused {
+        Role::Primary
+    } else {
+        Role::Muted
+    }));
     let inner = block.inner(area);
     let value = text(&browser.draft);
     let prefix = text(&browser.draft[..browser.cursor]).width();

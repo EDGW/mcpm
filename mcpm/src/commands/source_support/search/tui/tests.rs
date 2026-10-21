@@ -20,8 +20,7 @@ fn editing_defers_search_until_enter_and_escape_restores_committed_query() {
         total: Some(40),
     };
     let mut browser = Browser::new("create");
-    let mut press =
-        |code| browser.handle(KeyEvent::new(code, KeyModifiers::NONE), "create", &page, 20);
+    let mut press = |code| browser.handle(KeyEvent::new(code, KeyModifiers::NONE), &page, 20);
     assert_eq!(press(KeyCode::Char('/')), Action::Redraw);
     for ch in " qjknp/".chars() {
         assert_eq!(press(KeyCode::Char(ch)), Action::Redraw);
@@ -30,12 +29,7 @@ fn editing_defers_search_until_enter_and_escape_restores_committed_query() {
     assert_eq!(browser.draft, "create qjknp/");
     assert_eq!(browser.selected, 0);
     assert_eq!(
-        browser.handle(
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-            "create",
-            &page,
-            20
-        ),
+        browser.handle(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &page, 20),
         Action::Redraw
     );
     assert_eq!(browser.draft, "create");
@@ -44,14 +38,39 @@ fn editing_defers_search_until_enter_and_escape_restores_committed_query() {
     browser.draft.clear();
     browser.cursor = 0;
     assert_eq!(
-        browser.handle(
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-            "create",
-            &page,
-            20
-        ),
+        browser.handle(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &page, 20),
         Action::Search
     );
+}
+
+#[test]
+fn invalid_expression_preserves_selection_and_can_be_corrected_without_losing_defaults() {
+    let defaults = SearchQuery {
+        game_versions: vec!["1.20.1".into()],
+        loaders: vec!["forge".into()],
+        ..Default::default()
+    };
+    let mut browser = Browser::new("机械动力 @loader fabric");
+    browser.focus = Focus::Search;
+    browser.selected = 7;
+    browser.result_offset = 4;
+    browser.draft = "机械动力 @version (1.21.1 |)".into();
+    let error = browser.prepare(&defaults).unwrap_err();
+    assert_eq!(
+        browser.draft[..browser.cursor].chars().count() + 1,
+        error.column
+    );
+    assert!(browser.parse_error.is_some());
+    assert_eq!(browser.committed, "机械动力 @loader fabric");
+    assert_eq!((browser.selected, browser.result_offset), (7, 4));
+
+    browser.draft = "机械动力 @loader *".into();
+    let pending = browser.prepare(&defaults).unwrap();
+    assert!(browser.parse_error.is_none());
+    assert_eq!(pending.game_versions, ["1.20.1"]);
+    assert!(pending.loaders.is_empty());
+    assert_eq!(pending.offset, 0);
+    assert_eq!(browser.committed, "机械动力 @loader fabric");
 }
 
 #[test]
@@ -70,7 +89,7 @@ fn unicode_editing_keeps_cursor_on_character_boundaries() {
         KeyCode::Delete,
     ] {
         assert_eq!(
-            browser.handle(KeyEvent::new(code, KeyModifiers::NONE), "", &page, 20),
+            browser.handle(KeyEvent::new(code, KeyModifiers::NONE), &page, 20),
             Action::Redraw
         );
         assert!(browser.draft.is_char_boundary(browser.cursor));
@@ -137,7 +156,6 @@ fn result_list_keeps_selection_visible_and_details_scroll_to_full_url() {
         browser.focus = Focus::Details;
         browser.handle(
             KeyEvent::new(KeyCode::End, KeyModifiers::NONE),
-            &query.query,
             &page,
             query.limit,
         );

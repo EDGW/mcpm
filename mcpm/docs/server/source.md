@@ -19,7 +19,10 @@ Explicit `--game-version` and `--loader` values override the corresponding defau
 `--all-versions` disables both filters and conflicts with either explicit filter.
 These filters select declared compatibility; they do not check mod dependencies.
 
-Search takes an optional plain-text query; quote multiple words as one argument.
+Search accepts an optional [search expression](../mod/source-search.md): keywords
+followed by `@version VALUE` and/or `@loader VALUE`. Use `(A | B)` for alternatives
+and `*` to clear a field. Expression fields override CLI options and server defaults;
+quote the entire expression for your shell.
 Files takes remote project IDs or exact slugs, with additional projects read from
 redirected stdin, one per line. These identifiers refer to remote projects, not
 local mod IDs.

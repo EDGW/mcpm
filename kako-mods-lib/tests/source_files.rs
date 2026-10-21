@@ -1,4 +1,4 @@
-//! Provider HTTP regressions for multiple-loader filtering before file pagination.
+//! Provider HTTP regressions for combined version/loader alternatives before file pagination.
 
 use std::{
     io::{Read, Write},
@@ -22,12 +22,15 @@ fn multiple_loaders_filter_before_pagination_on_both_providers() {
         vec!["neoforge"],
         vec!["fabric", "neoforge"],
     ];
-    for curseforge in [false, true] {
+    for (curseforge, multiple_versions) in
+        [(false, false), (true, false), (false, true), (true, true)]
+    {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let endpoint = format!("http://{}/", listener.local_addr().unwrap());
         let versions: Vec<_> = loader_sets.iter().enumerate().map(|(index, loaders)| {
             let id = index + 1;
+            let game_version = if id == 2 { "1.19.2" } else if id == 4 { "1.20.1" } else { "1.21.1" };
             if curseforge {
                 json!({
                     "id": id, "modId": 123, "displayName": format!("file-{id}"),
@@ -35,14 +38,16 @@ fn multiple_loaders_filter_before_pagination_on_both_providers() {
                     "fileLength": 1, "downloadUrl": null, "hashes": [], "dependencies": [],
                     "sortableGameVersions": loaders.iter().map(|loader| json!({
                         "gameVersionName": loader, "gameVersionTypeId": 68441, "gameVersion": ""
-                    })).collect::<Vec<_>>()
+                    })).chain(std::iter::once(json!({
+                        "gameVersionName": game_version, "gameVersionTypeId": 999, "gameVersion": game_version
+                    }))).collect::<Vec<_>>()
                 })
             } else {
                 json!({
                     "id": format!("v{id}"), "project_id": "123", "name": format!("file-{id}"),
                     "version_number": id.to_string(), "version_type": "release",
                     "date_published": format!("2026-10-{:02}T00:00:00Z", 21-index),
-                    "game_versions": ["1.21.1"], "loaders": loaders, "dependencies": [],
+                    "game_versions": [game_version], "loaders": loaders, "dependencies": [],
                     "files": [{"filename": format!("file-{id}.jar"), "size": 1,
                         "url": format!("https://example.com/file-{id}.jar"), "primary": true, "hashes": {}}]
                 })
@@ -147,6 +152,11 @@ fn multiple_loaders_filter_before_pagination_on_both_providers() {
                     },
                     &FileQuery {
                         loaders: vec!["fabric".into(), "neoforge".into()],
+                        game_versions: if multiple_versions {
+                            vec!["1.20.1".into(), "1.21.1".into()]
+                        } else {
+                            vec![]
+                        },
                         offset: 1,
                         limit: 2,
                         ..Default::default()
@@ -161,13 +171,14 @@ fn multiple_loaders_filter_before_pagination_on_both_providers() {
                 .collect();
             assert_eq!(
                 ids,
-                if curseforge {
-                    vec!["4", "5"]
-                } else {
-                    vec!["v4", "v5"]
+                match (curseforge, multiple_versions) {
+                    (true, false) => vec!["4", "5"],
+                    (false, false) => vec!["v4", "v5"],
+                    (true, true) => vec!["5"],
+                    (false, true) => vec!["v5"],
                 }
             );
-            assert_eq!(page.total, Some(3));
+            assert_eq!(page.total, Some(if multiple_versions { 2 } else { 3 }));
             assert_eq!(page.offset, 1);
         });
         server.join().unwrap();

@@ -149,19 +149,35 @@ impl Source for CurseForgeSource {
             ("index", query.offset.to_string()),
             ("pageSize", query.limit.to_string()),
         ];
-        if let Some(version) = &query.game_version {
-            params.push(("gameVersion", version.clone()));
+        ensure!(
+            query.game_versions.len() <= 4,
+            "CurseForge search supports at most 4 Minecraft versions"
+        );
+        ensure!(
+            query.loaders.len() <= 5,
+            "CurseForge search supports at most 5 loaders"
+        );
+        match query.game_versions.as_slice() {
+            [] => {}
+            [version] => params.push(("gameVersion", version.clone())),
+            versions => params.push(("gameVersions", serde_json::to_string(versions)?)),
         }
-        if let Some(loader) = &query.loader {
-            let value = match loader.as_str() {
-                "forge" => "1",
-                "fabric" => "4",
-                "quilt" => "5",
-                "neoforge" => "6",
-                "liteloader" => "3",
+        let loaders = query
+            .loaders
+            .iter()
+            .map(|loader| match loader.as_str() {
+                "forge" => Ok(1),
+                "liteloader" => Ok(3),
+                "fabric" => Ok(4),
+                "quilt" => Ok(5),
+                "neoforge" => Ok(6),
                 _ => anyhow::bail!("unsupported CurseForge loader: {loader}"),
-            };
-            params.push(("modLoaderType", value.to_owned()));
+            })
+            .collect::<Result<Vec<u8>>>()?;
+        match loaders.as_slice() {
+            [] => {}
+            [loader] => params.push(("modLoaderType", loader.to_string())),
+            loaders => params.push(("modLoaderTypes", serde_json::to_string(loaders)?)),
         }
         let sort = match query.sort {
             SearchSort::SourceDefault => None,

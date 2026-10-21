@@ -15,13 +15,7 @@ pub(super) enum Action {
 }
 
 impl Browser {
-    pub(super) fn handle(
-        &mut self,
-        key: KeyEvent,
-        committed: &str,
-        page: &SearchPage,
-        limit: u32,
-    ) -> Action {
+    pub(super) fn handle(&mut self, key: KeyEvent, page: &SearchPage, limit: u32) -> Action {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Action::Quit;
         }
@@ -34,7 +28,7 @@ impl Browser {
             return Action::Redraw;
         }
         if self.focus == Focus::Search {
-            return self.edit(key, committed);
+            return self.edit(key);
         }
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => return Action::Quit,
@@ -92,11 +86,12 @@ impl Browser {
         Action::Redraw
     }
 
-    fn edit(&mut self, key: KeyEvent, committed: &str) -> Action {
+    fn edit(&mut self, key: KeyEvent) -> Action {
+        self.parse_error = None;
         match key.code {
             KeyCode::Enter => return Action::Search,
             KeyCode::Esc => {
-                self.draft = committed.to_owned();
+                self.draft = self.committed.clone();
                 self.cursor = self.draft.len();
                 self.focus = Focus::Results;
             }

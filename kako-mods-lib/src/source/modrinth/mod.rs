@@ -110,12 +110,26 @@ impl Source for ModrinthSource {
             "Modrinth search offset exceeds its supported range"
         );
         let mut facets = vec![vec!["project_type:mod".to_owned()]];
-        if let Some(version) = &query.game_version {
-            facets.push(vec![format!("versions:{version}")]);
+        if !query.game_versions.is_empty() {
+            facets.push(
+                query
+                    .game_versions
+                    .iter()
+                    .map(|version| format!("versions:{version}"))
+                    .collect(),
+            );
         }
-        if let Some(loader) = &query.loader {
+        for loader in &query.loaders {
             check_loader(loader)?;
-            facets.push(vec![format!("categories:{loader}")]);
+        }
+        if !query.loaders.is_empty() {
+            facets.push(
+                query
+                    .loaders
+                    .iter()
+                    .map(|loader| format!("categories:{loader}"))
+                    .collect(),
+            );
         }
         let sort = match query.sort {
             SearchSort::SourceDefault => "relevance",

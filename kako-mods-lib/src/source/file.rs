@@ -74,10 +74,11 @@ pub enum DependencyKind {
     Include,
 }
 
-/// AND-combined filters applied before pagination; newest publications first.
+/// AND-combined fields, OR within each list, applied before pagination; newest first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileQuery {
-    pub game_version: Option<String>,
+    /// Match any listed Minecraft version; empty means unrestricted.
+    pub game_versions: Vec<String>,
     /// Match any of these loaders; empty means no loader filter.
     pub loaders: Vec<String>,
     pub release_type: Option<ReleaseType>,
@@ -89,7 +90,7 @@ pub struct FileQuery {
 impl Default for FileQuery {
     fn default() -> Self {
         Self {
-            game_version: None,
+            game_versions: Vec::new(),
             loaders: Vec::new(),
             release_type: None,
             offset: 0,

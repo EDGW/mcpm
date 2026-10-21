@@ -19,7 +19,10 @@ mod loader。`--source` 支持 `modrinth`、`curseforge`（Curse.tools）和
 `--all-versions` 同时取消这两个过滤，不能与显式过滤同时使用。
 这些条件只筛选声明的兼容性，不检查 Mod 依赖。
 
-Search 接受可选的纯文本关键词，多词需要引号。Files 接受远端 project ID 或精确
+Search 接受可选的[搜索表达式](../mod/source-search.md)：关键词放在前面，
+后接 `@version VALUE`、`@loader VALUE`；括号内用 `|` 表示候选值，`*` 清除对应限制。
+表达式字段覆盖显式命令行选项及服务端默认条件。Shell 中应引用整条表达式。
+Files 接受远端 project ID 或精确
 slug，也会追加读取 stdin，每行一个项目。这些参数不是本地 modid。
 
 ```sh

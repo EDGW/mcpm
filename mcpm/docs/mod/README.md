@@ -12,6 +12,7 @@ mcpm mod <COMMAND>
 | [`info`](info.md) | Inspect metadata and dependencies in one or more files. |
 | [`deps`](deps.md) | Show direct dependency declarations and their archive sources. |
 | [`dep-graph`](dep-graph.md) | Build graphs, validate snapshots, or display a mod dependency tree. |
+| [`source search`](source-search.md) | Search CurseForge / Modrinth projects with shared expressions. |
 
 ## Loader selection
 
