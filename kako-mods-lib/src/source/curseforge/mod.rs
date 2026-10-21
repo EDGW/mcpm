@@ -16,6 +16,7 @@ use super::{
 };
 
 mod api;
+mod catalog;
 mod files;
 mod identify;
 
@@ -127,6 +128,10 @@ impl CurseForgeSource {
 impl Source for CurseForgeSource {
     fn id(&self) -> &SourceId {
         &self.id
+    }
+
+    async fn game_versions(&self) -> Result<Vec<String>> {
+        self.fetch_game_versions().await
     }
 
     async fn identify_file(&self, path: &std::path::Path) -> Result<Option<super::FileMatch>> {

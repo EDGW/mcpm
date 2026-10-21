@@ -1,10 +1,28 @@
-//! Character-aware tokenization and bounded OR groups for remote search fields.
+//! Character-aware tokens, editor spans and bounded OR groups for remote search fields.
+
+use std::ops::Range;
 
 use super::ParseError;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::commands::source_support::search) enum SyntaxKind {
+    Field,
+    Value,
+    Operator,
+    Delimiter,
+    Escape,
+}
+
+#[derive(Debug)]
+pub(in crate::commands::source_support::search) struct SyntaxSpan {
+    pub(in crate::commands::source_support::search) range: Range<usize>,
+    pub(in crate::commands::source_support::search) kind: SyntaxKind,
+}
 
 pub(super) struct Parser<'a> {
     source: &'a str,
     position: usize,
+    pub(super) syntax: Vec<SyntaxSpan>,
 }
 
 impl<'a> Parser<'a> {
@@ -12,12 +30,23 @@ impl<'a> Parser<'a> {
         Self {
             source,
             position: 0,
+            syntax: Vec::new(),
         }
     }
 
     pub(super) fn error(&self, start: usize, message: &'static str) -> ParseError {
+        let end = start
+            + self.source[start..]
+                .chars()
+                .next()
+                .map_or(0, char::len_utf8);
         ParseError {
             column: self.source[..start].chars().count() + 1,
+            range: self
+                .syntax
+                .iter()
+                .find(|span| span.range.contains(&start))
+                .map_or(start..end, |span| span.range.clone()),
             message,
         }
     }
@@ -30,7 +59,30 @@ impl<'a> Parser<'a> {
         let Some(ch) = self.take() else {
             return Ok(None);
         };
-        let kind = match ch {
+        let span_index = self.syntax.len();
+        let kind = self.token(start, ch);
+        self.syntax.insert(
+            span_index,
+            SyntaxSpan {
+                range: start..self.position,
+                kind: match ch {
+                    '@' => SyntaxKind::Field,
+                    '(' | ')' => SyntaxKind::Delimiter,
+                    '|' | '&' => SyntaxKind::Operator,
+                    '*' if &self.source[start..self.position] == "*" => SyntaxKind::Operator,
+                    _ => SyntaxKind::Value,
+                },
+            },
+        );
+        kind.map(|kind| Some(Token { start, kind }))
+    }
+
+    pub(super) fn position(&self) -> usize {
+        self.position
+    }
+
+    fn token(&mut self, start: usize, ch: char) -> Result<Kind, ParseError> {
+        Ok(match ch {
             '(' => Kind::Open,
             ')' => Kind::Close,
             '|' => Kind::Or,
@@ -38,11 +90,21 @@ impl<'a> Parser<'a> {
                 return Err(self.error(start, "fields are combined with AND automatically; omit &"));
             }
             '"' | '\'' => {
+                self.syntax.push(SyntaxSpan {
+                    range: start..self.position,
+                    kind: SyntaxKind::Delimiter,
+                });
                 let mut value = String::new();
                 loop {
                     match self.take() {
                         None => return Err(self.error(start, "unclosed quote")),
-                        Some(end) if end == ch => break,
+                        Some(end) if end == ch => {
+                            self.syntax.push(SyntaxSpan {
+                                range: self.position - ch.len_utf8()..self.position,
+                                kind: SyntaxKind::Delimiter,
+                            });
+                            break;
+                        }
                         Some('\\') => value.push(self.escaped(start)?),
                         Some(ch) => value.push(ch),
                     }
@@ -76,8 +138,7 @@ impl<'a> Parser<'a> {
                     Kind::Word(value)
                 }
             }
-        };
-        Ok(Some(Token { start, kind }))
+        })
     }
 
     pub(super) fn values(&mut self, loader: bool) -> Result<Vec<String>, ParseError> {
@@ -147,8 +208,13 @@ impl<'a> Parser<'a> {
     }
 
     fn escaped(&mut self, start: usize) -> Result<char, ParseError> {
-        self.take()
-            .ok_or_else(|| self.error(start, "trailing escape"))
+        let escape_start = self.position - 1;
+        let ch = self.take();
+        self.syntax.push(SyntaxSpan {
+            range: escape_start..self.position,
+            kind: SyntaxKind::Escape,
+        });
+        ch.ok_or_else(|| self.error(start, "trailing escape"))
     }
 }
 

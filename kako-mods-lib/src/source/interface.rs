@@ -29,6 +29,13 @@ pub trait Source: Send + Sync {
     /// than silently ignoring them. `limit` must be greater than zero.
     async fn search(&self, query: &SearchQuery) -> Result<SearchPage>;
 
+    /// Fetches the source's Minecraft version catalog in provider order.
+    ///
+    /// Values are unique, nonempty search filter identifiers. This catalog is
+    /// advisory: a version absent from it must not be rejected locally. Callers
+    /// control caching and refresh policy; fetching does not search for projects.
+    async fn game_versions(&self) -> Result<Vec<String>>;
+
     /// Fetches project details, performing multiple requests if necessary.
     ///
     /// The implementation must reject references whose source differs from

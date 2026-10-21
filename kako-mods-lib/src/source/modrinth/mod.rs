@@ -13,6 +13,7 @@ use super::{
 };
 
 mod api;
+mod catalog;
 mod files;
 mod identify;
 
@@ -94,6 +95,10 @@ impl ModrinthSource {
 impl Source for ModrinthSource {
     fn id(&self) -> &SourceId {
         &self.id
+    }
+
+    async fn game_versions(&self) -> Result<Vec<String>> {
+        self.fetch_game_versions().await
     }
 
     async fn identify_file(&self, path: &std::path::Path) -> Result<Option<super::FileMatch>> {

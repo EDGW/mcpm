@@ -39,6 +39,21 @@ mcpm mod source search "\"Steam 'n' Rails\" @loader forge" --source curseforge
 CurseForge 每次搜索最多支持 4 个版本、5 个 Loader；来源不支持的 Loader 会明确报错。
 
 TUI 中按 `/` 编辑顶部表达式，回车才搜索并回到第一页；Esc 放弃编辑。
+编辑器沿用 mod list 的语法配色：字段名和转义符用主色、值用附色、运算符用重要文本样式、
+括号和引号用 dimmed。编辑时即时用红色下划线标出语法错误，不会触发网络请求。
 语法错误会在搜索框标出列号，并将光标移到对应位置，保留原结果。
 取消请求或请求失败也会保留原结果及筛选条件。进入 Files 时保留版本和 Loader 的候选值，
 文件列表先筛选再分页。
+
+光标位于 `@loader` 或 `@version` 的值区域时，搜索框下方会弹出候选列表，也支持
+`(A | B)` 中的候选值。Loader 沿用现有 Forge、NeoForge、Fabric 三个选项；
+Version 首次需要时从当前来源的 API 获取，并在本次搜索会话内缓存，加载期间仍可输入。
+输入前缀筛选候选，↑↓ 或 PageUp/PageDown 选择，Enter/Tab 或鼠标点击填入。
+补全只修改草稿，再次 Enter 才搜索。Esc 先关闭候选框，再按一次才放弃编辑。
+版本加载失败时仍可手动输入，Ctrl-R 重试。两个候选框均使用附色边框，版本条目使用普通样式。
+
+Results 和 Details 复用 mod list / Files 的共享浏览组件。Tab 切换搜索框、结果列表
+和 Details，支持鼠标点击与滚轮导航。在 Details 中，↑↓ 或 j/k 选择字段，
+PageUp/PageDown 移动一屏，Home/End 跳到首尾字段。长内容使用省略号，c 可复制
+当前字段的完整值。Enter 展开/收起 Details，Esc 先收起完整详情再退出。
+在结果列表中按 Enter 进入 Files。

@@ -9,9 +9,15 @@ use tokio::runtime::Runtime;
 
 use super::super::request;
 use super::expression::{Expression, ParseError};
+use crate::{
+    theme::Role,
+    widgets::browser::{self, Screen},
+};
+use completion::Completion;
 use input::Action;
-use view::Screen;
+use ratatui::{layout::Rect, widgets::TableState};
 
+mod completion;
 mod input;
 mod view;
 
@@ -31,10 +37,17 @@ struct Browser {
     parse_error: Option<ParseError>,
     cursor: usize,
     focus: Focus,
-    selected: usize,
-    result_offset: usize,
-    detail_scroll: u16,
-    detail_limit: u16,
+    table: TableState,
+    field: usize,
+    detail_offset: usize,
+    full_details: bool,
+    search_area: Rect,
+    table_area: Rect,
+    detail_area: Rect,
+    row_height: u16,
+    clipboard: Option<arboard::Clipboard>,
+    status: Option<(String, Role)>,
+    completion: Completion,
 }
 
 impl Browser {
@@ -45,10 +58,48 @@ impl Browser {
             parse_error: None,
             cursor: query.len(),
             focus: Focus::Results,
-            selected: 0,
-            result_offset: 0,
-            detail_scroll: 0,
-            detail_limit: 0,
+            table: TableState::default(),
+            field: 0,
+            detail_offset: 0,
+            full_details: false,
+            search_area: Rect::default(),
+            table_area: Rect::default(),
+            detail_area: Rect::default(),
+            row_height: 2,
+            clipboard: None,
+            status: None,
+            completion: Completion::default(),
+        }
+    }
+
+    fn select(&mut self, index: usize, count: usize) {
+        self.table
+            .select((count > 0).then_some(index.min(count.saturating_sub(1))));
+        self.detail_offset = 0;
+    }
+
+    fn refresh_completion(&mut self) {
+        self.completion
+            .refresh(&self.draft, self.cursor, self.focus == Focus::Search);
+    }
+
+    fn complete(&mut self) -> bool {
+        let accepted = self.completion.accept(&mut self.draft, &mut self.cursor);
+        if accepted {
+            self.parse_error = None;
+            self.status = None;
+        }
+        accepted
+    }
+
+    fn project<'a>(&self, page: &'a SearchPage) -> Option<&'a kako_mods_lib::source::ProjectInfo> {
+        page.projects.get(self.table.selected()?)
+    }
+
+    fn copy_field(&mut self, page: &SearchPage) {
+        if let Some(project) = self.project(page) {
+            let (label, value) = view::field_value(project, self.field);
+            self.status = Some(browser::copy_field(&mut self.clipboard, value, label));
         }
     }
 
@@ -81,37 +132,74 @@ pub(super) fn run(
 ) -> Result<()> {
     let mut screen = Screen::new().context("failed to open search results")?;
     let mut browser = Browser::new(&expression);
-    let mut status = String::new();
     let mut held_page_key = None;
+    let mut versions_request = None;
     loop {
-        screen.render(source.id().0.as_str(), &query, &page, &mut browser, &status)?;
+        browser.refresh_completion();
+        if browser.completion.needs_versions() {
+            browser.completion.loading();
+            versions_request = Some(source.game_versions());
+        }
+        if let Some(pending) = versions_request.as_mut() {
+            // Drive the borrowed request without spawning a task or blocking typing.
+            let result = runtime.block_on(async {
+                tokio::select! {
+                    result = pending => Some(result),
+                    _ = tokio::time::sleep(Duration::from_millis(30)) => None,
+                }
+            });
+            if let Some(result) = result {
+                versions_request = None;
+                browser.completion.finish_versions(result);
+                browser.refresh_completion();
+            }
+        }
+        view::render(
+            &mut screen,
+            source.id().0.as_str(),
+            &query,
+            &page,
+            &mut browser,
+            "",
+        )?;
+        if versions_request.is_some() && !event::poll(Duration::ZERO)? {
+            continue;
+        }
         // Legacy terminals report auto-repeat as fresh presses and provide no
         // release event. A quiet interval marks the end of that repeat stream.
         if held_page_key.is_some() && !event::poll(Duration::from_millis(180))? {
             held_page_key = None;
         }
-        let Event::Key(key) = event::read().context("failed to read search input")? else {
-            continue;
-        };
-        if held_page_key == Some(key.code) {
-            if key.kind == KeyEventKind::Release {
-                held_page_key = None;
+        let next = event::read().context("failed to read search input")?;
+        if let Event::Key(key) = &next {
+            if held_page_key == Some(key.code) {
+                if key.kind == KeyEventKind::Release {
+                    held_page_key = None;
+                }
+                continue;
             }
-            continue;
+            if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                continue;
+            }
+            held_page_key = None;
         }
-        if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-            continue;
-        }
-        held_page_key = None;
-        let action = browser.handle(key, &page, query.limit);
+        let action = input::handle(&mut browser, next.clone(), &page, query.limit);
         let next_offset = match action {
             Action::Quit => return Ok(()),
+            Action::Complete => {
+                held_page_key = if let Event::Key(key) = next {
+                    Some(key.code)
+                } else {
+                    None
+                };
+                None
+            }
             Action::Search => {
                 held_page_key = Some(KeyCode::Enter);
                 let pending = match browser.prepare(&defaults) {
                     Ok(query) => query,
                     Err(error) => {
-                        status = error.to_string();
+                        browser.status = Some((error.to_string(), Role::Danger));
                         continue;
                     }
                 };
@@ -120,33 +208,40 @@ pub(super) fn run(
                     source.search(&pending),
                     "Searching projects...",
                     |loading| {
-                        screen.render(source.id().0.as_str(), &query, &page, &mut browser, loading)
+                        view::render(
+                            &mut screen,
+                            source.id().0.as_str(),
+                            &query,
+                            &page,
+                            &mut browser,
+                            loading,
+                        )
                     },
                 ) {
                     Ok(Some(next)) => {
                         query = pending;
                         browser.committed = browser.draft.clone();
                         page = next;
-                        browser.selected = 0;
-                        browser.result_offset = 0;
-                        browser.detail_scroll = 0;
+                        browser.table = TableState::default();
+                        browser.select(0, page.projects.len());
                         browser.focus = Focus::Results;
-                        status.clear();
+                        browser.status = None;
                     }
-                    Ok(None) => status = "Cancelled.".into(),
+                    Ok(None) => browser.status = Some(("Cancelled.".into(), Role::Muted)),
                     Err(error) if request::is_interrupted(&error) => return Err(error),
-                    Err(error) => status = format!("{error:#}"),
+                    Err(error) => browser.status = Some((format!("{error:#}"), Role::Danger)),
                 }
                 None
             }
             Action::OpenFiles => {
-                if let Some(project) = page.projects.get(browser.selected) {
+                if let Some(project) = browser.project(&page) {
                     let files_query = FileQuery {
                         game_versions: query.game_versions.clone(),
                         loaders: query.loaders.clone(),
                         ..Default::default()
                     };
-                    screen.render(
+                    view::render(
+                        &mut screen,
                         source.id().0.as_str(),
                         &query,
                         &page,
@@ -158,7 +253,8 @@ pub(super) fn run(
                         source.list_files(&project.reference, &files_query),
                         "Fetching files...",
                         |loading| {
-                            screen.render(
+                            view::render(
+                                &mut screen,
                                 source.id().0.as_str(),
                                 &query,
                                 &page,
@@ -182,12 +278,14 @@ pub(super) fn run(
                             if result.as_ref().err().is_some_and(request::is_interrupted) {
                                 return result;
                             }
-                            status = result.err().map(|e| format!("{e:#}")).unwrap_or_default();
+                            browser.status = result
+                                .err()
+                                .map(|error| (format!("{error:#}"), Role::Danger));
                             held_page_key = Some(KeyCode::Enter);
                         }
-                        Ok(None) => status = "Cancelled.".into(),
+                        Ok(None) => browser.status = Some(("Cancelled.".into(), Role::Muted)),
                         Err(error) if request::is_interrupted(&error) => return Err(error),
-                        Err(error) => status = format!("{error:#}"),
+                        Err(error) => browser.status = Some((format!("{error:#}"), Role::Danger)),
                     }
                 }
                 None
@@ -196,8 +294,13 @@ pub(super) fn run(
             Action::Redraw => None,
         };
         if let Some(offset) = next_offset {
-            held_page_key = Some(key.code);
-            screen.render(
+            held_page_key = if let Event::Key(key) = next {
+                Some(key.code)
+            } else {
+                None
+            };
+            view::render(
+                &mut screen,
                 source.id().0.as_str(),
                 &query,
                 &page,
@@ -212,33 +315,42 @@ pub(super) fn run(
                 source.search(&query),
                 "Searching projects...",
                 |loading| {
-                    screen.render(source.id().0.as_str(), &query, &page, &mut browser, loading)
+                    view::render(
+                        &mut screen,
+                        source.id().0.as_str(),
+                        &query,
+                        &page,
+                        &mut browser,
+                        loading,
+                    )
                 },
             ) {
                 Ok(Some(next)) => {
                     if next.projects.is_empty() {
                         query.offset = previous;
-                        status = "No more results.".into();
+                        browser.status = Some(("No more results.".into(), Role::Muted));
                         continue;
                     }
                     page = next;
-                    browser.detail_scroll = 0;
-                    browser.result_offset = 0;
-                    browser.selected = if backwards {
-                        page.projects.len() - 1
-                    } else {
-                        0
-                    };
-                    status.clear();
+                    browser.table = TableState::default();
+                    browser.select(
+                        if backwards {
+                            page.projects.len() - 1
+                        } else {
+                            0
+                        },
+                        page.projects.len(),
+                    );
+                    browser.status = None;
                 }
                 Ok(None) => {
                     query.offset = previous;
-                    status = "Cancelled.".into();
+                    browser.status = Some(("Cancelled.".into(), Role::Muted));
                 }
                 Err(error) if request::is_interrupted(&error) => return Err(error),
                 Err(error) => {
                     query.offset = previous;
-                    status = format!("{error:#}");
+                    browser.status = Some((format!("{error:#}"), Role::Danger));
                 }
             }
         }

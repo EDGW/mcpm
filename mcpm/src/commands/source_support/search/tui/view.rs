@@ -1,23 +1,18 @@
-//! Search field, compact project list, and bottom details following the mod list layout.
+//! Search-specific content rendered with shared browser layout, tables, fields and terminal ownership.
 
 use std::io;
 
-use crossterm::{
-    cursor::{Hide, Show},
-    execute,
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
-};
 use kako_mods_lib::source::{ProjectInfo, SearchPage, SearchQuery};
 use ratatui::{
-    Frame, Terminal,
-    backend::CrosstermBackend,
+    Frame,
     layout::{Constraint, Layout, Rect},
-    style::Style,
+    style::Modifier,
     text::{Line, Span},
-    widgets::{Block, Cell, Padding, Paragraph, Row, Table, TableState, Wrap},
+    widgets::{Cell, ListItem, Padding, Paragraph, Row, Wrap},
 };
 use unicode_width::UnicodeWidthStr;
 
+use super::super::expression::{Expression, ParseError, SyntaxKind, SyntaxSpan};
 use super::{Browser, Focus};
 use crate::{
     commands::output_style::text,
@@ -25,36 +20,44 @@ use crate::{
         Role,
         widgets::{self, style},
     },
-    widgets::{MatchedText, Overflow},
+    widgets::{
+        browser::{self, BrowserLayout, Screen, TableColumns, panel, short_line},
+        highlighted_line,
+    },
 };
 
-pub(super) struct Screen {
-    terminal: Terminal<CrosstermBackend<io::Stderr>>,
+pub(super) const FIELD_COUNT: usize = 6;
+pub(super) const TABLE_HEADER_HEIGHT: u16 = 2;
+
+pub(super) fn field_value(project: &ProjectInfo, field: usize) -> (&'static str, String) {
+    match field {
+        0 => ("Project Name", project.name.clone()),
+        1 => ("slug", project.slug.clone().unwrap_or_else(|| "—".into())),
+        2 => ("Source", project.reference.source.0.clone()),
+        3 => ("ID", project.reference.id.0.clone()),
+        4 => ("Summary", project.summary.clone()),
+        _ => (
+            "Website",
+            project
+                .website_url
+                .as_ref()
+                .map_or_else(|| "—".into(), |url| url.to_string()),
+        ),
+    }
 }
 
-impl Screen {
-    pub(super) fn new() -> io::Result<Self> {
-        let mut screen = Self {
-            terminal: Terminal::new(CrosstermBackend::new(io::stderr()))?,
-        };
-        terminal::enable_raw_mode()?;
-        execute!(screen.terminal.backend_mut(), EnterAlternateScreen, Hide)?;
-        screen.terminal.clear()?;
-        Ok(screen)
-    }
-
-    pub(super) fn render(
-        &mut self,
-        source: &str,
-        query: &SearchQuery,
-        page: &SearchPage,
-        browser: &mut Browser,
-        status: &str,
-    ) -> io::Result<()> {
-        self.terminal
-            .draw(|frame| draw(frame, source, query, page, browser, status))?;
-        Ok(())
-    }
+pub(super) fn render(
+    screen: &mut Screen,
+    source: &str,
+    query: &SearchQuery,
+    page: &SearchPage,
+    browser: &mut Browser,
+    loading: &str,
+) -> io::Result<()> {
+    screen
+        .terminal
+        .draw(|frame| draw(frame, source, query, page, browser, loading))?;
+    Ok(())
 }
 
 pub(super) fn draw(
@@ -63,8 +66,12 @@ pub(super) fn draw(
     query: &SearchQuery,
     page: &SearchPage,
     browser: &mut Browser,
-    status: &str,
+    loading: &str,
 ) {
+    browser.search_area = Rect::default();
+    browser.table_area = Rect::default();
+    browser.detail_area = Rect::default();
+    browser.completion.area = Rect::default();
     let area = frame.area();
     if area.width < 28 || area.height < 16 {
         frame.render_widget(
@@ -73,16 +80,19 @@ pub(super) fn draw(
         );
         return;
     }
-    let [search, metadata, results, details, footer] = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Length(2),
-        Constraint::Min(4),
-        Constraint::Length(8.min(area.height - 12)),
-        Constraint::Length(3),
-    ])
-    .areas(area);
+    // Search is command-specific and stays above the shared browser's title and content.
+    let [search, content] =
+        Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(area);
+    browser.search_area = search;
     draw_search(frame, search, browser);
-
+    let layout = BrowserLayout::new(
+        content,
+        browser.full_details,
+        browser.focus == Focus::Details,
+        0,
+        0,
+        8,
+    );
     let range = if page.projects.is_empty() {
         "0".into()
     } else {
@@ -95,75 +105,103 @@ pub(super) fn draw(
     let total = page
         .total
         .map_or_else(|| "?".into(), |total| total.to_string());
-    let mut filters = vec![Span::styled(text(source), widgets::source(source))];
+    let mut title = vec![
+        Span::styled(
+            format!("Mod Search · {range} / {total} · "),
+            style(Role::Primary),
+        ),
+        Span::styled(text(source), widgets::source(source)),
+    ];
     if !query.game_versions.is_empty() {
-        filters.push(Span::styled(
+        title.push(Span::styled(
             format!(" · Minecraft {}", text(&query.game_versions.join(" | "))),
             style(Role::Muted),
         ));
     }
-    for loader in &query.loaders {
-        filters.push(Span::raw(" · "));
-        filters.push(Span::styled(text(loader), widgets::loader(loader)));
+    for (index, loader) in query.loaders.iter().enumerate() {
+        title.push(Span::styled(
+            if index == 0 { " · " } else { " | " },
+            style(Role::Muted),
+        ));
+        title.push(Span::styled(text(loader), widgets::loader(loader)));
     }
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(filters),
-            Line::styled(
-                format!(
-                    "Results {range} of {total} · Search: {}",
-                    text(&query.query)
-                ),
-                style(Role::Muted),
-            ),
-        ]),
-        metadata,
+        Paragraph::new(short_line(title, layout.title.width as usize)),
+        layout.title,
     );
-
-    draw_results(frame, results, page, browser);
-    draw_details(frame, details, page.projects.get(browser.selected), browser);
+    if !browser.full_details {
+        draw_results(frame, layout.table, page, browser);
+    }
+    if layout.details.height > 0 {
+        draw_details(frame, layout.details, page, browser);
+    }
+    let context = format!(
+        "Selected {} / {} · Search: {}",
+        browser.table.selected().map_or(0, |index| index + 1),
+        page.projects.len(),
+        text(&query.query)
+    );
+    let (status, role) = if !loading.is_empty() {
+        (loading, Role::Muted)
+    } else {
+        browser
+            .status
+            .as_ref()
+            .map_or((context.as_str(), Role::Muted), |(message, role)| {
+                (message.as_str(), *role)
+            })
+    };
     let help = match browser.focus {
-        Focus::Search => "Enter search · Esc discard · Tab switch",
-        Focus::Results => "Enter files · / search · Tab switch · Esc/q quit",
-        Focus::Details => "↑↓ scroll · Home/End · Tab switch · Esc/q quit",
+        Focus::Search if browser.completion.open() => {
+            "↑↓ Suggestion · Enter/Tab Insert · Esc Close · Ctrl-R Retry Versions"
+        }
+        Focus::Search => "Enter Search · Esc Discard · Tab Switch Card",
+        Focus::Results => "↑↓ Select / Cross-page · ←→ / n/p Page · Enter Files",
+        Focus::Details => "↑↓ Field · c Copy · Enter Full Details · Home/End",
     };
     frame.render_widget(
         Paragraph::new(vec![
-            Line::styled(
-                if page.projects.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        "Selected {} / {} · ↑↓ select / cross-page · ←→ page",
-                        browser.selected + 1,
-                        page.projects.len()
-                    )
-                },
-                style(Role::Muted),
+            short_line(
+                vec![Span::styled(text(status), style(role))],
+                layout.footer.width as usize,
             ),
-            Line::styled(text(status), style(Role::Warning)),
-            Line::styled(help, style(Role::Muted)),
+            short_line(
+                vec![Span::styled(help, style(Role::Normal))],
+                layout.footer.width as usize,
+            ),
+            short_line(
+                vec![Span::styled(
+                    "/ Search · Tab Switch Card · q / Esc Quit",
+                    style(Role::Muted),
+                )],
+                layout.footer.width as usize,
+            ),
         ]),
-        footer,
+        layout.footer,
     );
+    browser.completion.draw(frame, browser.search_area);
 }
 
 fn draw_search(frame: &mut Frame, area: Rect, browser: &Browser) {
     let focused = browser.focus == Focus::Search;
-    let title = if let Some(error) = &browser.parse_error {
-        format!(" Search · error at column {} ", error.column)
+    let (parsed, syntax) = Expression::inspect(&browser.draft);
+    let error = parsed.err();
+    let title = if let Some(error) = &error {
+        format!(" Search · {} at column {} ", error.message, error.column)
     } else if browser.draft != browser.committed {
         " Search · edited · Enter to search ".into()
     } else {
         " Search · / to edit ".into()
     };
-    let block = panel(title, focused).border_style(style(if browser.parse_error.is_some() {
-        Role::Danger
-    } else if focused {
-        Role::Primary
-    } else {
-        Role::Muted
-    }));
+    let block = panel(title, focused)
+        .padding(Padding::horizontal(1))
+        .border_style(style(if error.is_some() {
+            Role::Warning
+        } else if focused {
+            Role::Primary
+        } else {
+            Role::Muted
+        }));
     let inner = block.inner(area);
     let value = text(&browser.draft);
     let prefix = text(&browser.draft[..browser.cursor]).width();
@@ -180,7 +218,7 @@ fn draw_search(frame: &mut Frame, area: Rect, browser: &Browser) {
         }
     }
     frame.render_widget(
-        Paragraph::new(&value[start..])
+        Paragraph::new(search_line(&browser.draft, &syntax, error.as_ref(), start))
             .style(style(Role::Normal))
             .block(block),
         area,
@@ -190,142 +228,136 @@ fn draw_search(frame: &mut Frame, area: Rect, browser: &Browser) {
     }
 }
 
+/// Keep parser ranges in the original draft; escape controls and clip only after styling.
+fn search_line(
+    source: &str,
+    syntax: &[SyntaxSpan],
+    error: Option<&ParseError>,
+    start: usize,
+) -> Line<'static> {
+    let spans = syntax.iter().map(|span| {
+        let role = match span.kind {
+            SyntaxKind::Field | SyntaxKind::Escape => Role::Primary,
+            SyntaxKind::Value => Role::Secondary,
+            SyntaxKind::Operator => Role::Important,
+            SyntaxKind::Delimiter => Role::Muted,
+        };
+        (span.range.clone(), style(role))
+    });
+    let danger = style(Role::Danger).add_modifier(Modifier::UNDERLINED);
+    let diagnostic = error.map(|error| (error.range.clone(), danger));
+    let mut line = highlighted_line(source, spans.chain(diagnostic));
+    if error.is_some_and(|error| error.range.is_empty()) {
+        line.spans.push(Span::styled(" ", danger));
+    }
+    let mut remaining = start;
+    Line::from(
+        line.spans
+            .into_iter()
+            .filter_map(|span| {
+                let value = text(&span.content);
+                let skip = remaining.min(value.len());
+                remaining -= skip;
+                (skip < value.len()).then(|| Span::styled(value[skip..].to_owned(), span.style))
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
 fn draw_results(frame: &mut Frame, area: Rect, page: &SearchPage, browser: &mut Browser) {
+    browser.table_area = area;
     let focused = browser.focus == Focus::Results;
     let block = panel(" Results ", focused);
     let inner = block.inner(area);
-    let columns = Layout::horizontal([Constraint::Fill(3), Constraint::Fill(2)]).split(Rect::new(
-        0,
-        0,
-        inner.width.saturating_sub(1),
-        1,
-    ));
-    let cell = |value: &str, role, width| {
-        Cell::from(
-            MatchedText::new(Line::styled(text(value), style(role)))
-                .overflow(Overflow::Ellipsis)
-                .ellipsis_style(style(Role::Muted))
-                .line(usize::from(width)),
-        )
-    };
-    let header = Row::new(vec![
-        cell("Project Name", Role::Muted, columns[0].width),
-        cell("slug", Role::Muted, columns[1].width),
-    ]);
+    let sizing = TableColumns::new(inner.width, &[3, 2], 0);
+    let header = sizing.header(&["Project Name", "slug"]);
+    browser.row_height = if inner.height >= 6 { 2 } else { 1 };
     let rows = page.projects.iter().map(|project| {
-        Row::new(vec![
-            cell(&project.name, Role::Primary, columns[0].width),
-            cell(
-                project.slug.as_deref().unwrap_or("—"),
-                Role::Secondary,
-                columns[1].width,
-            ),
-        ])
-        .height(if inner.height >= 6 { 2 } else { 1 })
+        Row::new(
+            [
+                (project.name.as_str(), Role::Primary),
+                (project.slug.as_deref().unwrap_or("—"), Role::Secondary),
+            ]
+            .into_iter()
+            .zip(&sizing.areas)
+            .map(|((value, role), area)| {
+                Cell::from(short_line(
+                    vec![Span::styled(text(value), style(role))],
+                    area.width as usize,
+                ))
+            })
+            .collect::<Vec<_>>(),
+        )
+        .height(browser.row_height)
     });
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Length(columns[0].width),
-            Constraint::Length(columns[1].width),
-        ],
-    )
-    .header(header)
-    .column_spacing(1)
-    .block(block)
-    .row_highlight_style(if focused {
-        widgets::selection()
-    } else {
-        Style::default()
-    });
-    let mut state = TableState::default()
-        .with_offset(browser.result_offset)
-        .with_selected((!page.projects.is_empty()).then_some(browser.selected));
-    frame.render_stateful_widget(table, area, &mut state);
-    browser.result_offset = state.offset();
+    // The shared Table owns scrolling; the command only provides rows and selection.
+    browser.table.select(
+        (!page.projects.is_empty()).then_some(
+            browser
+                .table
+                .selected()
+                .unwrap_or(0)
+                .min(page.projects.len().saturating_sub(1)),
+        ),
+    );
+    frame.render_stateful_widget(
+        sizing.table(rows, header, block, focused),
+        area,
+        &mut browser.table,
+    );
     if page.projects.is_empty() {
         frame.render_widget(
             Paragraph::new("No mods found. Press / to search.")
                 .style(style(Role::Muted))
                 .wrap(Wrap { trim: false }),
             Rect {
-                y: inner.y + 1,
-                height: inner.height.saturating_sub(1),
+                y: inner.y.saturating_add(TABLE_HEADER_HEIGHT),
+                height: inner.height.saturating_sub(TABLE_HEADER_HEIGHT),
                 ..inner
             },
         );
     }
 }
 
-fn draw_details(
-    frame: &mut Frame,
-    area: Rect,
-    project: Option<&ProjectInfo>,
-    browser: &mut Browser,
-) {
+fn draw_details(frame: &mut Frame, area: Rect, page: &SearchPage, browser: &mut Browser) {
+    browser.detail_area = area;
     let block = panel(" Details ", browser.focus == Focus::Details);
     let inner = block.inner(area);
-    let lines = project.map_or_else(
-        || {
-            vec![Line::styled(
-                "Select a project to view details.",
-                style(Role::Muted),
-            )]
-        },
-        |project| {
-            vec![
-                detail_field("Project Name", &project.name, Role::Primary),
-                detail_field(
-                    "slug",
-                    project.slug.as_deref().unwrap_or("—"),
-                    Role::Secondary,
-                ),
-                Line::from(vec![
-                    Span::styled("Source: ", style(Role::Muted)),
-                    Span::styled(
-                        text(&project.reference.source.0),
-                        widgets::source(&project.reference.source.0),
-                    ),
-                ]),
-                detail_field("ID", &project.reference.id.0, Role::Muted),
-                detail_field("Summary", &project.summary, Role::Normal),
-                detail_field(
-                    "Website",
-                    project.website_url.as_ref().map_or("—", |url| url.as_str()),
-                    Role::Muted,
-                ),
-            ]
-        },
-    );
-    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
-    browser.detail_limit = paragraph
-        .line_count(inner.width)
-        .saturating_sub(usize::from(inner.height))
-        .min(usize::from(u16::MAX)) as u16;
-    browser.detail_scroll = browser.detail_scroll.min(browser.detail_limit);
-    frame.render_widget(
-        paragraph.scroll((browser.detail_scroll, 0)).block(block),
+    let Some(project) = browser.project(page) else {
+        frame.render_widget(
+            Paragraph::new("Select a project to view details.")
+                .style(style(Role::Muted))
+                .block(block),
+            area,
+        );
+        return;
+    };
+    let items = (0..FIELD_COUNT)
+        .map(|field| {
+            let (label, value) = field_value(project, field);
+            let paint = match field {
+                0 => style(Role::Primary),
+                1 => style(Role::Secondary),
+                2 => widgets::source(&project.reference.source.0),
+                4 => style(Role::Normal),
+                _ => style(Role::Muted),
+            };
+            ListItem::new(short_line(
+                vec![
+                    Span::styled(format!("{label}: "), style(Role::Muted)),
+                    Span::styled(text(&value), paint),
+                ],
+                inner.width.saturating_sub(2) as usize,
+            ))
+        })
+        .collect();
+    browser::draw_fields(
+        frame,
         area,
+        block,
+        items,
+        browser.field,
+        &mut browser.detail_offset,
+        browser.focus == Focus::Details,
     );
-}
-
-fn panel(title: impl Into<Line<'static>>, focused: bool) -> Block<'static> {
-    Block::bordered()
-        .border_style(style(if focused { Role::Primary } else { Role::Muted }))
-        .padding(Padding::horizontal(1))
-        .title(title)
-}
-
-fn detail_field(label: &str, value: &str, role: Role) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(format!("{label}: "), style(Role::Muted)),
-        Span::styled(text(value), style(role)),
-    ])
-}
-
-impl Drop for Screen {
-    fn drop(&mut self) {
-        let _ = execute!(self.terminal.backend_mut(), Show, LeaveAlternateScreen);
-        let _ = terminal::disable_raw_mode();
-    }
 }

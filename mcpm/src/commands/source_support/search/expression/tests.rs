@@ -3,6 +3,7 @@
 use kako_mods_lib::source::{SearchQuery, SearchSort};
 
 use super::Expression;
+use super::{CompletionField, completion_context};
 
 #[test]
 fn fields_override_defaults_and_star_clears_each_filter_independently() {
@@ -83,4 +84,79 @@ fn unsupported_or_incomplete_expressions_report_character_columns() {
     }
     let error = Expression::parse("机械 @unknown x").unwrap_err();
     assert_eq!(error.column, 4);
+}
+
+#[test]
+fn draft_inspection_matches_submission_and_keeps_ranges_on_utf8_boundaries() {
+    for source in [
+        r#""机械 @loader" \@literal @version (1.20.1 | 1.21.1) @loader *"#,
+        r#""He said \"hello\"" @loader Fabric"#,
+        "机械 @unknown x @loader fabric",
+        "@version (1.20.1 |) @loader fabric",
+        "@loader fabric & @version 1.21.1",
+        "🦀\\",
+    ] {
+        // Every character boundary is a possible draft while typing or deleting.
+        for end in source
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain([source.len()])
+        {
+            let draft = &source[..end];
+            let (parsed, syntax) = Expression::inspect(draft);
+            assert_eq!(parsed, Expression::parse(draft), "{draft}");
+            for range in syntax
+                .iter()
+                .map(|span| &span.range)
+                .chain(parsed.as_ref().err().map(|error| &error.range))
+            {
+                assert!(
+                    range.start <= range.end && range.end <= draft.len(),
+                    "{draft}"
+                );
+                assert!(
+                    draft.is_char_boundary(range.start) && draft.is_char_boundary(range.end),
+                    "{draft}"
+                );
+            }
+            if !draft.trim().is_empty() {
+                assert!(!syntax.is_empty(), "{draft}");
+            }
+        }
+    }
+}
+
+#[test]
+fn completion_targets_only_field_literals_and_keeps_quotes_and_escapes_literal() {
+    for (source, cursor, expected) in [
+        ("@loader", 7, Some((CompletionField::Loader, ""))),
+        ("@loader ", 8, Some((CompletionField::Loader, ""))),
+        ("@loader faXX", 10, Some((CompletionField::Loader, "fa"))),
+        ("@loader (forge | ", 17, Some((CompletionField::Loader, ""))),
+        (
+            "@version (1.20.1 | 1.2)",
+            22,
+            Some((CompletionField::Version, "1.2")),
+        ),
+        ("'@loader '", 9, None),
+        (r"\@loader ", 9, None),
+        ("@loader 'fa'", 11, None),
+        ("@loader *", 9, None),
+        ("@loader forge ", 14, None),
+        ("@loader (forge) ", 16, None),
+        ("@unknown ", 9, None),
+    ] {
+        let context = completion_context(source, cursor);
+        assert_eq!(
+            context
+                .as_ref()
+                .map(|context| (context.field, context.prefix.as_str())),
+            expected,
+            "{source} at {cursor}"
+        );
+    }
+    let source = "机械 @version (1.20.1 | 1.2x) @loader fabric";
+    let cursor = source.find("1.2x").unwrap() + 3;
+    let context = completion_context(source, cursor).unwrap();
+    assert_eq!(&source[context.range], "1.2x");
 }

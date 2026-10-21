@@ -24,14 +24,14 @@ pub(in crate::commands) struct LoaderArgs {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
-enum Loader {
+pub(in crate::commands) enum Loader {
     Forge,
     Neoforge,
     Fabric,
 }
 
 impl Loader {
-    fn id(self) -> &'static str {
+    pub(in crate::commands) fn id(self) -> &'static str {
         match self {
             Self::Forge => "forge",
             Self::Neoforge => "neoforge",

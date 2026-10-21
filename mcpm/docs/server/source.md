@@ -37,15 +37,24 @@ printf '%s\n' create ZzjhlDgM | mcpm server mods source files --source modrinth
 Search and single-project files use the TUI when all streams are terminals.
 The search field stays at the top: press `/` to edit, Enter to submit a new
 search from the first page, or Esc to discard edits. Tab / Shift+Tab switches
-between Search, Results, and the bottom Details panel. Results follows the mod list
+between Search, Results, and the bottom Details panel. Results reuses the mod list
 layout and shows only Project Name (Primary Color) and slug (Secondary Color).
-Details follows the selection and shows the full summary, source, ID, slug, and
+Details follows the selection and shows the summary, source, ID, slug, and
 project URL. Name and slug retain their primary and secondary colors; sources use
-the configured CurseForge / Modrinth colors, and IDs are dimmed. Focus Details and
-use arrows or PageUp/PageDown to scroll. Enter on a result opens its files with the same compatibility filters;
+the configured CurseForge / Modrinth colors, and IDs are dimmed. Details uses the
+shared field list: arrows or j/k selects fields, PageUp/PageDown moves by a screen,
+and Home/End selects the first/last field. Long values use an ellipsis; c copies
+the full value. Enter expands/collapses Details, and Esc closes expanded Details
+before exiting. Mouse clicks and scrolling are supported.
+Enter on a result opens its files with the same compatibility filters;
 Esc returns to search. Multiple projects, `-N/--no-ui`, explicit columns, or
 redirected streams use list output. Sorting, pagination, and file release filters
 work like `mcpm mod source`.
+
+Search also provides [field value suggestions](../mod/source-search.md): loader
+choices are Forge, NeoForge and Fabric; versions load from the current source API
+and are cached for the session. Up/Down selects, Enter/Tab inserts, and Esc closes
+the popup. Completion only edits the draft; Enter again submits the search.
 
 Files uses the shared mod list layout, with a compact list above a Details panel
 and no interactive Filter card. Headers and files occupy two lines: Index, Name,

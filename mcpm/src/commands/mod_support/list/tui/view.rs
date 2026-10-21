@@ -21,6 +21,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::widgets::{
     MatchedText,
     browser::{self, BrowserLayout, TableColumns, panel, short_line},
+    highlighted_line,
 };
 
 pub(super) fn draw(
@@ -159,43 +160,22 @@ fn draw_filter(frame: &mut Frame, area: Rect, browser: &mut Browser) {
 /// Token and diagnostic ranges originate in the parser; this adapter only assigns theme roles.
 fn filter_line(parsed: &filter::Filter) -> Line<'_> {
     use ratatui::style::Modifier;
-    let text = parsed.as_str();
-    let mut boundaries = vec![0, text.len()];
-    for span in &parsed.syntax {
-        boundaries.extend([span.range.start, span.range.end]);
-    }
-    if let Some(error) = parsed.error() {
-        boundaries.extend([error.range.start, error.range.end]);
-    }
-    boundaries.sort_unstable();
-    boundaries.dedup();
-    let spans = boundaries
-        .windows(2)
-        .map(|range| {
-            let start = range[0];
-            let end = range[1];
-            let role = parsed
-                .syntax
-                .iter()
-                .find(|span| span.range.contains(&start))
-                .map_or(Role::Normal, |span| match span.kind {
-                    filter::SyntaxKind::Field | filter::SyntaxKind::Escape => Role::Primary,
-                    filter::SyntaxKind::Value => Role::Secondary,
-                    filter::SyntaxKind::Operator => Role::Important,
-                    filter::SyntaxKind::Delimiter => Role::Muted,
-                });
-            let paint = if parsed
-                .error()
-                .is_some_and(|error| error.range.contains(&start))
-            {
-                style(Role::Danger).add_modifier(Modifier::UNDERLINED)
-            } else {
-                style(role)
-            };
-            Span::styled(&text[start..end], paint)
-        })
-        .collect::<Vec<_>>();
-    Line::from(spans)
+    let spans = parsed.syntax.iter().map(|span| {
+        let role = match span.kind {
+            filter::SyntaxKind::Field | filter::SyntaxKind::Escape => Role::Primary,
+            filter::SyntaxKind::Value => Role::Secondary,
+            filter::SyntaxKind::Operator => Role::Important,
+            filter::SyntaxKind::Delimiter => Role::Muted,
+        };
+        (span.range.clone(), style(role))
+    });
+    let diagnostic = parsed.error().map(|error| {
+        (
+            error.range.clone(),
+            style(Role::Danger).add_modifier(Modifier::UNDERLINED),
+        )
+    });
+    highlighted_line(parsed.as_str(), spans.chain(diagnostic)).style(style(Role::Normal))
 }
 
 fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[Column]) -> usize {

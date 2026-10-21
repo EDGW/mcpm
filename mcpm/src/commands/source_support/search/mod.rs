@@ -121,8 +121,12 @@ Quote the whole expression as one shell argument. Omit QUERY to browse.
 Use --game-version and --loader for default compatibility filters.
 
 TUI: / edits the top search field; Enter submits, Esc discards edits.
+Value suggestions: Up/Down selects, Enter/Tab inserts, Esc closes; Enter again searches.
+Loader suggestions: Forge, NeoForge, Fabric. Versions load from the current source.
+Version catalogs are cached for this session; Ctrl-R retries failed loads.
 Tab switches Search / Results / Details. Enter on a result opens files.
-Syntax errors show a column and keep previous results. Focus Details to scroll.
+Syntax errors show a column and keep previous results.
+Details: Up/Down selects a field, c copies its full value, Enter expands/collapses.
 
 Examples:
   mcpm mod source search create --source modrinth

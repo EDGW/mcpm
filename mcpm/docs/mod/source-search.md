@@ -44,7 +44,27 @@ matching and sorting. CurseForge accepts at most 4 versions and 5 loaders per
 search; unsupported loaders produce explicit errors.
 
 In the TUI, press `/` to edit the top expression, Enter to search from the first
-page, or Esc to discard edits. Syntax errors show a column in the search field
+page, or Esc to discard edits. Like mod list, the editor colors fields and escapes
+with the primary color, values with the secondary color, operators as important
+text, and delimiters as muted text. Draft syntax errors are underlined in red
+without submitting a request. Syntax errors show a column in the search field
 and move the cursor there while preserving existing results. Cancelling or failing
 a request also preserves previous results and filters. Opening Files keeps all
 version and loader alternatives, applied before file pagination.
+
+At `@loader` or `@version`, a popup below Search suggests values for the field at
+the cursor, including alternatives inside `(A | B)`. Loader suggestions use the
+existing Forge, NeoForge and Fabric choices. Versions come from the current
+source's API, fetched on first use and cached for the search session; typing stays
+responsive while loading. Typing a prefix filters the list. Use Up/Down or
+PageUp/PageDown to select, Enter/Tab to insert, or click a candidate. Inserting
+only changes the draft; press Enter again to search. Esc closes the popup first;
+another Esc discards edits. Failed version loads allow manual input and Ctrl-R to
+retry. Both popup borders use the secondary color; version entries use normal text.
+
+Results and Details reuse the shared mod list / Files browser widgets. Tab switches
+between Search, Results and Details; mouse clicks and scrolling are supported.
+In Details, Up/Down or j/k selects a field, PageUp/PageDown moves by a screen,
+and Home/End selects the first/last field. Long values use an ellipsis; c copies
+the full selected value. Enter expands/collapses Details, and Esc closes expanded
+Details before exiting. Enter on a result opens Files.

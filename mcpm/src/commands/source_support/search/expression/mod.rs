@@ -1,11 +1,17 @@
 //! Provider-independent search expressions compiled into typed remote search criteria.
 
+use std::ops::Range;
+
 use kako_mods_lib::source::SearchQuery;
 use thiserror::Error;
 
 use syntax::{Kind, Parser};
 
+mod completion;
 mod syntax;
+
+pub(super) use completion::{CompletionContext, CompletionField, completion_context};
+pub(super) use syntax::{SyntaxKind, SyntaxSpan};
 
 #[cfg(test)]
 mod tests;
@@ -20,7 +26,19 @@ pub(super) struct Expression {
 
 impl Expression {
     pub(super) fn parse(source: &str) -> Result<Self, ParseError> {
+        Self::parse_with(&mut Parser::new(source))
+    }
+
+    /// Keep token spans even for unfinished drafts; validation never sends a request.
+    pub(super) fn inspect(source: &str) -> (Result<Self, ParseError>, Vec<SyntaxSpan>) {
         let mut parser = Parser::new(source);
+        let result = Self::parse_with(&mut parser);
+        // Semantic errors may stop before the end. Finish lexing for editor colors.
+        while !matches!(parser.next(), Ok(None)) {}
+        (result, parser.syntax)
+    }
+
+    fn parse_with(parser: &mut Parser<'_>) -> Result<Self, ParseError> {
         let mut words = Vec::new();
         let mut expression = Self {
             keywords: String::new(),
@@ -77,6 +95,7 @@ impl Expression {
 #[error("search expression at column {column}: {message}")]
 pub(super) struct ParseError {
     pub(super) column: usize,
+    pub(super) range: Range<usize>,
     pub(super) message: &'static str,
 }
 
