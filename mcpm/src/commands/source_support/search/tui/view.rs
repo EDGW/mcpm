@@ -2,20 +2,22 @@
 
 use std::io;
 
+use clap::ValueEnum;
 use kako_mods_lib::source::{ProjectInfo, SearchPage, SearchQuery};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::Modifier,
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Cell, ListItem, Padding, Paragraph, Row, Wrap},
 };
 use unicode_width::UnicodeWidthStr;
 
 use super::super::expression::{Expression, ParseError, SyntaxKind, SyntaxSpan};
+use super::super::versions;
 use super::{Browser, Focus};
 use crate::{
-    commands::output_style::text,
+    commands::{mod_support::loaders::Loader, output_style::text},
     theme::{
         Role,
         widgets::{self, style},
@@ -26,8 +28,8 @@ use crate::{
     },
 };
 
-pub(super) const FIELD_COUNT: usize = 6;
-pub(super) const TABLE_HEADER_HEIGHT: u16 = 2;
+pub(super) const FIELD_COUNT: usize = 9;
+pub(super) const TABLE_HEADER_HEIGHT: u16 = 3;
 
 pub(super) fn field_value(project: &ProjectInfo, field: usize) -> (&'static str, String) {
     match field {
@@ -35,7 +37,13 @@ pub(super) fn field_value(project: &ProjectInfo, field: usize) -> (&'static str,
         1 => ("slug", project.slug.clone().unwrap_or_else(|| "—".into())),
         2 => ("Source", project.reference.source.0.clone()),
         3 => ("ID", project.reference.id.0.clone()),
-        4 => ("Summary", project.summary.clone()),
+        4 => ("Loaders", values(&visible_loaders(&project.loaders))),
+        5 => (
+            "Minecraft",
+            values(&versions::expanded(&project.game_versions)),
+        ),
+        6 => ("Categories", values(&project.categories)),
+        7 => ("Summary", project.summary.clone()),
         _ => (
             "Website",
             project
@@ -44,6 +52,70 @@ pub(super) fn field_value(project: &ProjectInfo, field: usize) -> (&'static str,
                 .map_or_else(|| "—".into(), |url| url.to_string()),
         ),
     }
+}
+
+fn values(values: &[String]) -> String {
+    if values.is_empty() {
+        "—".into()
+    } else {
+        values.join(", ")
+    }
+}
+
+fn version_spans(value: &str) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    for (index, part) in value.split(',').enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(",", style(Role::Normal)));
+        }
+        spans.push(Span::styled(part.to_owned(), style(Role::Muted)));
+    }
+    spans
+}
+
+fn result_versions(
+    project: &ProjectInfo,
+    catalog: Option<&[String]>,
+    width: usize,
+) -> Line<'static> {
+    let count = versions::expanded(&project.game_versions).len();
+    if count == 0 {
+        return short_line(version_spans("—"), width);
+    }
+    let compact = versions::compact(&project.game_versions, catalog);
+    let summary = compact.into_iter().take(3).collect::<Vec<_>>().join(", ");
+    let total = format!(" (all {count} versions)");
+    // Reserve room for the real version count even when a terminal clips the three items.
+    let mut line = short_line(
+        version_spans(&text(&summary)),
+        width.saturating_sub(total.width()),
+    );
+    line.spans.push(Span::styled(total, style(Role::Muted)));
+    short_line(line.spans, width)
+}
+
+fn visible_loaders(loaders: &[String]) -> Vec<String> {
+    Loader::value_variants()
+        .iter()
+        .map(|loader| loader.id())
+        .filter(|id| loaders.iter().any(|loader| loader.eq_ignore_ascii_case(id)))
+        .map(str::to_owned)
+        .collect()
+}
+
+fn loader_spans(loaders: &[String]) -> Vec<Span<'static>> {
+    let loaders = visible_loaders(loaders);
+    if loaders.is_empty() {
+        return vec![Span::styled("—", style(Role::Muted))];
+    }
+    let mut spans = Vec::new();
+    for (index, loader) in loaders.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(", ", style(Role::Muted)));
+        }
+        spans.push(Span::styled(text(loader), widgets::loader(loader)));
+    }
+    spans
 }
 
 pub(super) fn render(
@@ -269,25 +341,28 @@ fn draw_results(frame: &mut Frame, area: Rect, page: &SearchPage, browser: &mut 
     let focused = browser.focus == Focus::Results;
     let block = panel(" Results ", focused);
     let inner = block.inner(area);
-    let sizing = TableColumns::new(inner.width, &[3, 2], 0);
-    let header = sizing.header(&["Project Name", "slug"]);
-    browser.row_height = if inner.height >= 6 { 2 } else { 1 };
+    let sizing = TableColumns::new(inner.width, &[1], 0);
+    let top = TableColumns::new(inner.width, &[3, 2], 0);
+    let header = Row::new([Cell::from(Text::from(vec![
+        top.line([vec![Span::raw("Project Name")], vec![Span::raw("Loaders")]]),
+        Line::from("Minecraft versions"),
+    ]))])
+    .height(2)
+    .bottom_margin(1)
+    .style(style(Role::Muted));
+    browser.row_height = 2;
     let rows = page.projects.iter().map(|project| {
-        Row::new(
-            [
-                (project.name.as_str(), Role::Primary),
-                (project.slug.as_deref().unwrap_or("—"), Role::Secondary),
-            ]
-            .into_iter()
-            .zip(&sizing.areas)
-            .map(|((value, role), area)| {
-                Cell::from(short_line(
-                    vec![Span::styled(text(value), style(role))],
-                    area.width as usize,
-                ))
-            })
-            .collect::<Vec<_>>(),
-        )
+        Row::new([Cell::from(Text::from(vec![
+            top.line([
+                vec![Span::styled(text(&project.name), style(Role::Primary))],
+                loader_spans(&project.loaders),
+            ]),
+            result_versions(
+                project,
+                browser.completion.version_catalog(),
+                inner.width as usize,
+            ),
+        ]))])
         .height(browser.row_height)
     });
     // The shared Table owns scrolling; the command only provides rows and selection.
@@ -332,31 +407,57 @@ fn draw_details(frame: &mut Frame, area: Rect, page: &SearchPage, browser: &mut 
         );
         return;
     };
-    let items = (0..FIELD_COUNT)
-        .map(|field| {
-            let (label, value) = field_value(project, field);
-            let paint = match field {
-                0 => style(Role::Primary),
-                1 => style(Role::Secondary),
-                2 => widgets::source(&project.reference.source.0),
-                4 => style(Role::Normal),
-                _ => style(Role::Muted),
-            };
-            ListItem::new(short_line(
-                vec![
-                    Span::styled(format!("{label}: "), style(Role::Muted)),
-                    Span::styled(text(&value), paint),
-                ],
-                inner.width.saturating_sub(2) as usize,
-            ))
-        })
-        .collect();
+    let width = inner.width.saturating_sub(2).max(1) as usize;
+    browser.detail_fields.clear();
+    let mut items = Vec::new();
+    for field in 0..FIELD_COUNT {
+        let (label, value) = field_value(project, field);
+        if field == 5 {
+            let label = format!("{label}: ");
+            let content = format!("{label}{}", text(&value));
+            for (index, line) in textwrap::wrap(&content, width).into_iter().enumerate() {
+                let spans = if index == 0 {
+                    let mut spans = vec![Span::styled(label.clone(), style(Role::Muted))];
+                    spans.extend(version_spans(line.strip_prefix(&label).unwrap_or(&line)));
+                    spans
+                } else {
+                    version_spans(&line)
+                };
+                items.push(ListItem::new(Line::from(spans)));
+                browser.detail_fields.push(field);
+            }
+            continue;
+        }
+        let paint = match field {
+            0 => style(Role::Primary),
+            1 => style(Role::Secondary),
+            2 => widgets::source(&project.reference.source.0),
+            6 | 7 => style(Role::Normal),
+            _ => style(Role::Muted),
+        };
+        let mut spans = vec![Span::styled(format!("{label}: "), style(Role::Muted))];
+        if field == 4 {
+            spans.extend(loader_spans(&project.loaders));
+        } else {
+            spans.push(Span::styled(text(&value), paint));
+        }
+        items.push(ListItem::new(short_line(spans, width)));
+        browser.detail_fields.push(field);
+    }
+    // A wrapped field occupies several shared List rows; copying still uses its logical field.
+    if browser.detail_fields.get(browser.detail_row) != Some(&browser.field) {
+        browser.detail_row = browser
+            .detail_fields
+            .iter()
+            .position(|&field| field == browser.field)
+            .unwrap_or(0);
+    }
     browser::draw_fields(
         frame,
         area,
         block,
         items,
-        browser.field,
+        browser.detail_row,
         &mut browser.detail_offset,
         browser.focus == Focus::Details,
     );

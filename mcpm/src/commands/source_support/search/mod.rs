@@ -12,6 +12,7 @@ mod columns;
 mod expression;
 mod output;
 mod tui;
+mod versions;
 
 #[derive(Args)]
 #[command(after_help = format!("{}\n\n{}", expression::HELP, UI_HELP))]

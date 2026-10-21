@@ -47,9 +47,10 @@ pub(super) fn handle(browser: &mut Browser, event: Event, page: &SearchPage, lim
                         browser.full_details = false;
                     } else if browser.detail_area.contains(position) {
                         browser.focus = Focus::Details;
-                        browser.field = (browser.detail_offset
-                            + usize::from(mouse.row.saturating_sub(browser.detail_area.y + 1)))
-                        .min(view::FIELD_COUNT - 1);
+                        browser.select_detail_row(
+                            browser.detail_offset
+                                + usize::from(mouse.row.saturating_sub(browser.detail_area.y + 1)),
+                        );
                     } else if browser.table_area.contains(position)
                         && mouse.row >= browser.table_area.y + 1 + view::TABLE_HEADER_HEIGHT
                         && mouse.row < browser.table_area.bottom().saturating_sub(1)
@@ -70,10 +71,7 @@ pub(super) fn handle(browser: &mut Browser, event: Event, page: &SearchPage, lim
                         1
                     };
                     if browser.detail_area.contains(position) {
-                        browser.field = browser
-                            .field
-                            .saturating_add_signed(amount)
-                            .min(view::FIELD_COUNT - 1);
+                        browser.select_detail_row(browser.detail_row.saturating_add_signed(amount));
                     } else if browser.table_area.contains(position) {
                         browser.select(
                             browser
@@ -156,16 +154,16 @@ impl Browser {
             KeyCode::Char('c') if self.focus == Focus::Details => self.copy_field(page),
             _ if self.focus == Focus::Details => {
                 let amount = self.detail_area.height.saturating_sub(2).max(1) as usize;
-                self.field = match key.code {
-                    KeyCode::Up | KeyCode::Char('k') => self.field.saturating_sub(1),
-                    KeyCode::Down | KeyCode::Char('j') => self.field.saturating_add(1),
-                    KeyCode::PageUp => self.field.saturating_sub(amount),
-                    KeyCode::PageDown => self.field.saturating_add(amount),
+                let row = match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => self.detail_row.saturating_sub(1),
+                    KeyCode::Down | KeyCode::Char('j') => self.detail_row.saturating_add(1),
+                    KeyCode::PageUp => self.detail_row.saturating_sub(amount),
+                    KeyCode::PageDown => self.detail_row.saturating_add(amount),
                     KeyCode::Home => 0,
-                    KeyCode::End => view::FIELD_COUNT - 1,
-                    _ => self.field,
-                }
-                .min(view::FIELD_COUNT - 1);
+                    KeyCode::End => self.detail_fields.len().saturating_sub(1),
+                    _ => self.detail_row,
+                };
+                self.select_detail_row(row);
             }
             KeyCode::Up | KeyCode::Char('k') if selected > 0 => {
                 self.select(selected - 1, page.projects.len())

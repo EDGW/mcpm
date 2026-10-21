@@ -85,6 +85,14 @@ impl ModrinthSource {
             name: project.title,
             summary: project.description,
             slug: Some(project.slug),
+            loaders: project
+                .categories
+                .iter()
+                .filter(|tag| is_loader(tag))
+                .cloned()
+                .collect(),
+            categories: project.categories,
+            game_versions: project.versions,
             icon_url: project.icon_url,
             website_url: Some(website_url),
         })
@@ -238,14 +246,17 @@ impl Source for ModrinthSource {
             response.id == project.id.0,
             "Modrinth returned a different project"
         );
-        let info = self.project_info(api::SearchHit {
+        let mut info = self.project_info(api::SearchHit {
             project_id: response.id,
             project_type: response.project_type,
             slug: response.slug,
             title: response.title,
             description: response.description,
             icon_url: response.icon_url,
+            categories: response.categories,
+            versions: response.game_versions,
         })?;
+        info.loaders = response.loaders;
         Ok(Project {
             info,
             description: Some(ProjectDescription::Markdown(response.body)),
@@ -261,24 +272,25 @@ impl Source for ModrinthSource {
 
 /// Categories include gameplay tags too; accept supported loader identifiers only.
 fn check_loader(loader: &str) -> Result<()> {
-    ensure!(
-        matches!(
-            loader,
-            "forge"
-                | "fabric"
-                | "quilt"
-                | "neoforge"
-                | "liteloader"
-                | "rift"
-                | "babric"
-                | "bta-babric"
-                | "java-agent"
-                | "legacy-fabric"
-                | "modloader"
-                | "nilloader"
-                | "ornithe"
-        ),
-        "unsupported Modrinth loader: {loader}"
-    );
+    ensure!(is_loader(loader), "unsupported Modrinth loader: {loader}");
     Ok(())
+}
+
+fn is_loader(loader: &str) -> bool {
+    matches!(
+        loader,
+        "forge"
+            | "fabric"
+            | "quilt"
+            | "neoforge"
+            | "liteloader"
+            | "rift"
+            | "babric"
+            | "bta-babric"
+            | "java-agent"
+            | "legacy-fabric"
+            | "modloader"
+            | "nilloader"
+            | "ornithe"
+    )
 }

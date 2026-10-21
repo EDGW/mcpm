@@ -254,6 +254,18 @@ fn shared_table_keeps_selection_visible_and_details_support_fields_and_expansion
         name: "机械动力 Create".into(),
         summary: "A detailed description of the selected mod. ".repeat(15),
         slug: Some("create".into()),
+        categories: vec!["technology".into()],
+        loaders: [
+            "quilt",
+            "fabric",
+            "forge",
+            "liteloader",
+            "neoforge",
+            "forge",
+        ]
+        .map(str::to_owned)
+        .into(),
+        game_versions: vec!["1.20.1".into(), "1.21.1".into()],
         icon_url: None,
         website_url: Some(
             "https://www.curseforge.com/minecraft/mc-mods/create"
@@ -286,11 +298,22 @@ fn shared_table_keeps_selection_visible_and_details_support_fields_and_expansion
         assert!(
             result_rows
                 .iter()
-                .any(|row| row.contains("机械19") && row.contains("mod19"))
+                .any(|row| row.contains("机械19") && row.contains("forge"))
         );
+        let selected = result_rows
+            .iter()
+            .position(|row| row.contains("机械19"))
+            .unwrap();
+        assert!(result_rows[selected + 1].contains("(all 2 versions)"));
+        if width >= 80 {
+            assert!(result_rows[selected + 1].contains("1.21.1, 1.20.1"));
+        }
         assert!(!result_rows.iter().any(|row| row.contains("curseforge.com")
             || row.contains("detailed")
-            || row.contains("328085")));
+            || row.contains("328085")
+            || row.contains("quilt")
+            || row.contains("liteloader")
+            || row.contains("mod19")));
         assert!(browser.table.offset() > 0);
 
         browser.focus = Focus::Details;
@@ -329,6 +352,49 @@ fn shared_table_keeps_selection_visible_and_details_support_fields_and_expansion
         assert!(browser.full_details);
         assert_eq!(browser.table_area.height, 0);
         assert!(rows(&terminal)[0].contains("Search"));
+        browser.field = 4;
+        browser.detail_offset = 0;
+        terminal
+            .draw(|frame| view::draw(frame, "curseforge", &query, &page, &mut browser, ""))
+            .unwrap();
+        let rendered = rows(&terminal);
+        for (field, value) in [
+            (4, "forge, neoforge, fabric"),
+            (5, "1.21.1, 1.20.1"),
+            (6, "technology"),
+        ] {
+            assert_eq!(
+                view::field_value(browser.project(&page).unwrap(), field).1,
+                value
+            );
+        }
+        assert!(rendered.iter().any(|row| row.contains("Loaders:")));
+        assert!(
+            !rendered
+                .iter()
+                .any(|row| row.contains("quilt") || row.contains("liteloader"))
+        );
+        assert!(rendered.iter().any(|row| row.contains("Minecraft:")));
+        if width >= 80 {
+            let y = rendered
+                .iter()
+                .position(|row| row.contains("Loaders:"))
+                .unwrap();
+            let x = rendered[y][..rendered[y].find("forge").unwrap()].width();
+            assert_eq!(
+                terminal.backend().buffer()[(x as u16, y as u16)].fg,
+                widgets::loader("forge").fg.unwrap_or_default()
+            );
+            let y = rendered
+                .iter()
+                .position(|row| row.contains("Minecraft:"))
+                .unwrap();
+            let x = rendered[y][..rendered[y].find("1.20.1").unwrap()].width();
+            assert_eq!(
+                terminal.backend().buffer()[(x as u16, y as u16)].fg,
+                widgets::style(Role::Muted).fg.unwrap_or_default()
+            );
+        }
         assert_eq!(
             browser.handle(
                 KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
@@ -362,6 +428,9 @@ fn mouse_navigation_uses_rendered_table_offset_and_never_fetches_pages() {
                 name: "Create".into(),
                 summary: String::new(),
                 slug: Some("create".into()),
+                categories: Vec::new(),
+                loaders: Vec::new(),
+                game_versions: Vec::new(),
                 icon_url: None,
                 website_url: None,
             };
@@ -406,6 +475,16 @@ fn mouse_navigation_uses_rendered_table_offset_and_never_fetches_pages() {
         Action::Redraw
     );
     assert_eq!(browser.table.selected(), Some(offset));
+    assert_eq!(
+        input::handle(
+            &mut browser,
+            mouse(MouseEventKind::Down(MouseButton::Left), x, y + 1),
+            &page,
+            20
+        ),
+        Action::Redraw
+    );
+    assert_eq!(browser.table.selected(), Some(offset));
     browser.select(19, page.projects.len());
     assert_eq!(
         input::handle(
@@ -436,6 +515,88 @@ fn mouse_navigation_uses_rendered_table_offset_and_never_fetches_pages() {
         Action::Redraw
     );
     assert!(browser.focus == Focus::Search);
+}
+
+#[test]
+fn catalog_abbreviates_results_while_details_wrap_and_navigate_full_versions() {
+    let mut versions: Vec<_> = (1..=20)
+        .rev()
+        .map(|patch| format!("1.20.{patch}"))
+        .collect();
+    versions.extend(["1.20", "22.1", "22.2.1", "1.19.4", "24w14a", "1.19.4"].map(str::to_owned));
+    let page = SearchPage {
+        projects: vec![ProjectInfo {
+            reference: ProjectRef {
+                source: SourceId("modrinth".into()),
+                id: ProjectId("test".into()),
+            },
+            name: "Create".into(),
+            summary: String::new(),
+            slug: Some("create".into()),
+            categories: vec!["technology".into()],
+            loaders: vec!["forge".into()],
+            game_versions: versions.clone(),
+            icon_url: None,
+            website_url: None,
+        }],
+        offset: 0,
+        total: Some(1),
+    };
+    let mut browser = Browser::new("create");
+    browser.completion.finish_versions(Ok(versions));
+    let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+    let query = SearchQuery::default();
+    terminal
+        .draw(|frame| view::draw(frame, "modrinth", &query, &page, &mut browser, ""))
+        .unwrap();
+    assert!(
+        rows(&terminal)
+            .iter()
+            .any(|row| row.contains("22.x, 1.20(.x), 1.19.x (all 25 versions)"))
+    );
+    let result_rows = rows(&terminal);
+    let result_rows =
+        &result_rows[usize::from(browser.table_area.y)..usize::from(browser.table_area.bottom())];
+    assert!(!result_rows.iter().any(|row| row.contains("24w14a")));
+
+    browser.focus = Focus::Details;
+    browser.full_details = true;
+    browser.field = 5;
+    terminal
+        .draw(|frame| view::draw(frame, "modrinth", &query, &page, &mut browser, ""))
+        .unwrap();
+    let version_rows: Vec<_> = browser
+        .detail_fields
+        .iter()
+        .enumerate()
+        .filter_map(|(row, &field)| (field == 5).then_some(row))
+        .collect();
+    assert!(version_rows.len() > 2);
+    let rendered = rows(&terminal);
+    assert!(rendered.iter().any(|row| row.contains("1.20.20")));
+    assert!(!rendered.iter().any(|row| row.contains("(.x)")));
+    let full = view::field_value(&page.projects[0], 5).1;
+    assert!(full.contains("1.20.1, 1.20.2, 1.20.3"));
+    assert!(full.contains("24w14a") && full.contains("1.19.4"));
+    assert!(!full.contains('~'));
+    for &row in &version_rows {
+        browser.select_detail_row(row);
+        assert_eq!(browser.field, 5);
+        assert_eq!(view::field_value(&page.projects[0], browser.field).1, full);
+    }
+    browser.handle(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &page, 20);
+    assert_eq!(browser.field, 6);
+    browser.handle(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), &page, 20);
+    assert_eq!(browser.field, 5);
+    assert_eq!(browser.detail_row, *version_rows.last().unwrap());
+    terminal
+        .resize(ratatui::layout::Rect::new(28, 16, 28, 16))
+        .unwrap();
+    terminal
+        .draw(|frame| view::draw(frame, "modrinth", &query, &page, &mut browser, ""))
+        .unwrap();
+    browser.handle(KeyEvent::new(KeyCode::End, KeyModifiers::NONE), &page, 20);
+    assert_eq!(browser.field, view::FIELD_COUNT - 1);
 }
 
 fn rows(terminal: &Terminal<TestBackend>) -> Vec<String> {

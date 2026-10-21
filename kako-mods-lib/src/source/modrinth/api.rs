@@ -18,6 +18,10 @@ pub(super) struct SearchHit {
     pub title: String,
     pub description: String,
     pub icon_url: Option<Url>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub versions: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -33,6 +37,12 @@ pub(super) struct Project {
     pub issues_url: Option<Url>,
     pub wiki_url: Option<Url>,
     pub discord_url: Option<Url>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    #[serde(default)]
+    pub loaders: Vec<String>,
 }
 
 #[derive(Deserialize)]

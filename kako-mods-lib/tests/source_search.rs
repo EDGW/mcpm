@@ -1,4 +1,4 @@
-//! HTTP contract checks for native search alternatives, limits, and unrestricted queries.
+//! HTTP contract checks for search filters, pagination, and provider-reported project metadata.
 
 use std::{
     collections::HashMap,
@@ -113,9 +113,39 @@ fn search_filters_use_native_or_groups_and_keep_platform_pagination() {
                     );
                 }
                 let body = if curseforge {
-                    json!({"data": [], "pagination": {"index": 20, "totalCount": 100}})
+                    let mut project = json!({
+                        "id": 123, "gameId": 432, "classId": 6,
+                        "name": "Create", "summary": "A mod", "slug": "create", "links": {}
+                    });
+                    if mode == 0 {
+                        project["categories"] = json!([{"slug":"technology"}, {"slug":"technology"}]);
+                        project["latestFilesIndexes"] = json!([
+                            {"gameVersion":"1.20.1", "modLoader":1},
+                            {"gameVersion":"1.20.1", "modLoader":null},
+                            {"gameVersion":"1.21.1", "modLoader":999}
+                        ]);
+                        project["latestEarlyAccessFilesIndexes"] = json!([
+                            {"gameVersion":"1.21.1", "modLoader":6}
+                        ]);
+                        project["latestFiles"] = json!([{"sortableGameVersions":[
+                            {"gameVersionName":"Forge", "gameVersion":"", "gameVersionTypeId":68441},
+                            {"gameVersionName":"Fabric", "gameVersion":"", "gameVersionTypeId":68441},
+                            {"gameVersionName":"1.19.2", "gameVersion":"1.19.2", "gameVersionTypeId":73407},
+                            {"gameVersionName":"Client", "gameVersion":"", "gameVersionTypeId":75208},
+                            {"gameVersionName":"Server", "gameVersion":"", "gameVersionTypeId":75208}
+                        ]}]);
+                    }
+                    json!({"data": [project], "pagination": {"index": 20, "totalCount": 100}})
                 } else {
-                    json!({"hits": [], "offset": 20, "total_hits": 100})
+                    let mut project = json!({
+                        "project_id":"abc123", "project_type":"mod", "title":"Create",
+                        "description":"A mod", "slug":"create"
+                    });
+                    if mode == 0 {
+                        project["categories"] = json!(["technology", "forge", "neoforge"]);
+                        project["versions"] = json!(["1.20.1", "1.21.1"]);
+                    }
+                    json!({"hits": [project], "offset": 20, "total_hits": 100})
                 }
                 .to_string();
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
@@ -195,6 +225,22 @@ fn search_filters_use_native_or_groups_and_keep_platform_pagination() {
                 let page = source.search(&query).await.unwrap();
                 assert_eq!(page.offset, 20);
                 assert_eq!(page.total, Some(100));
+                let project = &page.projects[0];
+                if mode == 0 {
+                    if curseforge {
+                        assert_eq!(project.categories, ["technology"]);
+                        assert_eq!(project.loaders, ["forge", "neoforge", "fabric"]);
+                        assert_eq!(project.game_versions, ["1.20.1", "1.21.1", "1.19.2"]);
+                    } else {
+                        assert_eq!(project.categories, ["technology", "forge", "neoforge"]);
+                        assert_eq!(project.loaders, ["forge", "neoforge"]);
+                        assert_eq!(project.game_versions, ["1.20.1", "1.21.1"]);
+                    }
+                } else {
+                    assert!(project.categories.is_empty());
+                    assert!(project.loaders.is_empty());
+                    assert!(project.game_versions.is_empty());
+                }
                 if mode == 0 {
                     query.game_versions.truncate(1);
                     query.loaders.truncate(1);

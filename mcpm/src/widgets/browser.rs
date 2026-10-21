@@ -205,6 +205,26 @@ impl TableColumns {
         }));
         Row::new(cells).style(style(Role::Muted)).bottom_margin(1)
     }
+
+    /// Align styled cells on one line, for rows whose other lines span the table.
+    pub fn line<'a>(&self, cells: impl IntoIterator<Item = Vec<Span<'a>>>) -> Line<'static> {
+        let mut spans = Vec::new();
+        if self.marker {
+            spans.push(Span::raw(
+                " ".repeat(usize::from(self.marker_width + self.spacing)),
+            ));
+        }
+        for (index, (cell, area)) in cells.into_iter().zip(&self.areas).enumerate() {
+            if index > 0 {
+                spans.push(Span::raw(" ".repeat(self.spacing as usize)));
+            }
+            let line = short_line(cell, area.width as usize);
+            let padding = area.width as usize - line.width();
+            spans.extend(line.spans);
+            spans.push(Span::raw(" ".repeat(padding)));
+        }
+        Line::from(spans)
+    }
 }
 
 pub(crate) fn draw_fields(

@@ -34,9 +34,13 @@ printf '%s\n' create ZzjhlDgM | mcpm server mods source files --source modrinth
 
 终端中 search 和单项目 files 默认使用 TUI。搜索界面顶部始终显示搜索框，按 `/`
 进入编辑，修改后按 Enter 才重新搜索，并回到第一页；Esc 放弃修改。Tab / Shift+Tab
-切换搜索框、结果列表和底部 Details。结果列表复用 mod list 的布局，仅显示
-Project Name（Primary Color）和 slug（Secondary Color）。Details 随选中项目显示
-简介、来源、ID、slug 和项目地址；名称和 slug 沿用主色和附色，来源使用对应
+切换搜索框、结果列表和底部 Details。结果列表复用 mod list 的布局，第一行显示
+Project Name（Primary Color）和加载器，第二行使用整行宽度显示来源报告的 Minecraft 版本（dimmed，逗号为灰色）。
+版本最多显示三个[基于完整目录的缩写项](../mod/source-search.md)，后接 `(all N versions)` 表示实际版本总数，
+Details 中使用排序后的完整版本名并自动换行。
+Details 随选中项目显示加载器、Minecraft 版本、分类、简介、来源、ID、slug 和项目地址；
+加载器使用各自的配置色。兼容性信息来自来源响应，CurseForge 可能仅报告近期文件，空值表示未提供。
+名称和 slug 沿用主色和附色，来源使用对应
 CurseForge / Modrinth 色，ID 使用 dimmed。Details 复用共享字段列表：↑↓ 或 j/k
 选择字段，PageUp/PageDown 移动一屏，Home/End 跳至首尾字段。长内容使用省略号，
 c 复制字段完整值；Enter 展开/收起详情，Esc 先收起完整详情再退出。支持鼠标点击与滚轮导航。

@@ -38,9 +38,15 @@ Search and single-project files use the TUI when all streams are terminals.
 The search field stays at the top: press `/` to edit, Enter to submit a new
 search from the first page, or Esc to discard edits. Tab / Shift+Tab switches
 between Search, Results, and the bottom Details panel. Results reuses the mod list
-layout and shows only Project Name (Primary Color) and slug (Secondary Color).
-Details follows the selection and shows the summary, source, ID, slug, and
-project URL. Name and slug retain their primary and secondary colors; sources use
+layout: each result shows Project Name (Primary Color) and loaders on the first
+line, then the reported Minecraft versions (dimmed, with muted commas) across the second line.
+Versions show up to three [catalog-backed abbreviations](../mod/source-search.md)
+followed by `(all N versions)` counting distinct versions; Details wraps
+the full sorted identifiers without abbreviating them.
+Details follows the selection and shows loaders, Minecraft versions, categories,
+summary, source, ID, slug, and project URL. Loaders use their configured colors.
+Compatibility metadata comes from the source response; CurseForge may report only
+recent files, and empty metadata means unreported. Name and slug retain their primary and secondary colors; sources use
 the configured CurseForge / Modrinth colors, and IDs are dimmed. Details uses the
 shared field list: arrows or j/k selects fields, PageUp/PageDown moves by a screen,
 and Home/End selects the first/last field. Long values use an ellipsis; c copies

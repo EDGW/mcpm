@@ -34,7 +34,7 @@ fn loader_selection_only_edits_the_current_value_and_requires_another_enter_to_s
         browser.completion.candidates,
         ["forge", "neoforge", "fabric"]
     );
-    assert!(!browser.completion.needs_versions());
+    assert!(browser.completion.needs_versions());
     assert_eq!(press(&mut browser, KeyCode::Down), Action::Redraw);
     assert_eq!(press(&mut browser, KeyCode::Enter), Action::Complete);
     assert_eq!(browser.draft, "机械动力 @loader neoforge");
@@ -68,7 +68,7 @@ fn loader_selection_only_edits_the_current_value_and_requires_another_enter_to_s
 }
 
 #[test]
-fn versions_load_lazily_cache_per_session_and_allow_manual_input_after_failure() {
+fn versions_cache_per_session_and_allow_manual_input_after_failure() {
     let mut browser = Browser::new("@version");
     browser.focus = Focus::Search;
     browser.refresh_completion();

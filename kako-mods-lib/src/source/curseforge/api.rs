@@ -32,6 +32,34 @@ pub(super) struct Project {
     pub slug: String,
     pub logo: Option<Logo>,
     pub links: Links,
+    #[serde(default)]
+    pub categories: Vec<Category>,
+    #[serde(default)]
+    pub latest_files_indexes: Vec<FileIndex>,
+    #[serde(default)]
+    pub latest_early_access_files_indexes: Vec<FileIndex>,
+    #[serde(default)]
+    pub latest_files: Vec<RecentFile>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct Category {
+    pub slug: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct FileIndex {
+    pub game_version: String,
+    pub mod_loader: Option<u32>,
+}
+
+/// Only the compatibility summary is needed from files embedded in a project.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RecentFile {
+    #[serde(default)]
+    pub sortable_game_versions: Vec<GameVersion>,
 }
 
 #[derive(Deserialize)]

@@ -12,6 +12,15 @@ pub struct ProjectInfo {
     /// Short plain-text description, distinct from the full project body.
     pub summary: String,
     pub slug: Option<String>,
+    /// Source-native category slugs; vocabularies differ between sources.
+    pub categories: Vec<String>,
+    /// Source-reported Minecraft versions, possibly limited to recent files.
+    /// Empty means unreported, not incompatible. These and `loaders` do not
+    /// establish compatibility for every version/loader combination.
+    pub game_versions: Vec<String>,
+    /// Source-reported loader identifiers, normalized to lowercase.
+    /// Empty means unreported; the source may omit historical support.
+    pub loaders: Vec<String>,
     pub icon_url: Option<Url>,
     pub website_url: Option<Url>,
 }

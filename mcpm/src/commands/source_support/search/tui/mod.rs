@@ -40,6 +40,8 @@ struct Browser {
     table: TableState,
     field: usize,
     detail_offset: usize,
+    detail_row: usize,
+    detail_fields: Vec<usize>,
     full_details: bool,
     search_area: Rect,
     table_area: Rect,
@@ -61,6 +63,8 @@ impl Browser {
             table: TableState::default(),
             field: 0,
             detail_offset: 0,
+            detail_row: 0,
+            detail_fields: (0..view::FIELD_COUNT).collect(),
             full_details: false,
             search_area: Rect::default(),
             table_area: Rect::default(),
@@ -101,6 +105,15 @@ impl Browser {
             let (label, value) = view::field_value(project, self.field);
             self.status = Some(browser::copy_field(&mut self.clipboard, value, label));
         }
+    }
+
+    fn select_detail_row(&mut self, row: usize) {
+        self.detail_row = row.min(self.detail_fields.len().saturating_sub(1));
+        self.field = self
+            .detail_fields
+            .get(self.detail_row)
+            .copied()
+            .unwrap_or(0);
     }
 
     fn prepare(&mut self, defaults: &SearchQuery) -> Result<SearchQuery, ParseError> {

@@ -55,7 +55,7 @@ version and loader alternatives, applied before file pagination.
 At `@loader` or `@version`, a popup below Search suggests values for the field at
 the cursor, including alternatives inside `(A | B)`. Loader suggestions use the
 existing Forge, NeoForge and Fabric choices. Versions come from the current
-source's API, fetched on first use and cached for the search session; typing stays
+source's API, fetched in the background when Search opens and cached for the search session; typing stays
 responsive while loading. Typing a prefix filters the list. Use Up/Down or
 PageUp/PageDown to select, Enter/Tab to insert, or click a candidate. Inserting
 only changes the draft; press Enter again to search. Esc closes the popup first;
@@ -64,7 +64,24 @@ retry. Both popup borders use the secondary color; version entries use normal te
 
 Results and Details reuse the shared mod list / Files browser widgets. Tab switches
 between Search, Results and Details; mouse clicks and scrolling are supported.
-In Details, Up/Down or j/k selects a field, PageUp/PageDown moves by a screen,
+Each result shows the project name and loaders, with the reported Minecraft
+versions on a full-width second line. Details includes loaders, versions,
+categories, and slug. Both loader fields show only forge, neoforge and fabric,
+using their configured colors; supported versions are
+dimmed, with muted commas. Series sort by their first two numeric components in
+descending order; numeric patches ascend within each series. Results abbreviate
+patches as `1.20.1/3/5~8/10/6-snapshot`, keeping nonnumeric suffixes last. Complete
+catalog coverage becomes `1.20.x`, or `1.20(.x)` when `1.20` is also supported.
+For non-1 prefixes, complete coverage of every `22.*` identifier becomes `22.x`,
+regardless of segment count. The list shows at most three abbreviated items,
+followed by `(all N versions)` counting distinct original identifiers, not items.
+Unknown formats remain intact at the end. Without
+a loaded catalog, wildcards are not inferred. Details wraps the full sorted
+Minecraft identifiers over multiple lines and copies the complete field.
+Metadata comes from the source response; CurseForge may report
+only recent files. Missing metadata means unreported, and version/loader sets do
+not guarantee every combination is compatible.
+In Details, Up/Down or j/k selects a row (including wrapped Minecraft rows), PageUp/PageDown moves by a screen,
 and Home/End selects the first/last field. Long values use an ellipsis; c copies
 the full selected value. Enter expands/collapses Details, and Esc closes expanded
 Details before exiting. Enter on a result opens Files.

@@ -19,6 +19,7 @@ mod api;
 mod catalog;
 mod files;
 mod identify;
+mod metadata;
 
 /// A configured CurseForge API endpoint and its source identity.
 #[derive(Clone)]
@@ -110,6 +111,7 @@ impl CurseForgeSource {
             project.game_id == 432 && project.class_id == Some(6),
             "CurseForge project is not a Minecraft mod"
         );
+        let (game_versions, loaders) = metadata::compatibility(&project);
         Ok(ProjectInfo {
             reference: ProjectRef {
                 source: self.id.clone(),
@@ -118,6 +120,11 @@ impl CurseForgeSource {
             name: project.name,
             summary: project.summary,
             slug: Some(project.slug),
+            categories: metadata::unique(
+                project.categories.into_iter().map(|category| category.slug),
+            ),
+            game_versions,
+            loaders,
             icon_url: project.logo.map(|logo| logo.url),
             website_url: optional_url(project.links.website_url)?,
         })

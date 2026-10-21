@@ -1,4 +1,4 @@
-//! Search value suggestions, session version cache and draft-only completion state.
+//! Search value suggestions, shared session version catalog and draft-only completion state.
 
 use clap::ValueEnum;
 use ratatui::{layout::Rect, widgets::ListState};
@@ -71,10 +71,14 @@ impl Completion {
     }
 
     pub fn needs_versions(&self) -> bool {
-        self.context
-            .as_ref()
-            .is_some_and(|context| context.field == CompletionField::Version)
-            && matches!(self.versions, Versions::Unloaded)
+        matches!(self.versions, Versions::Unloaded)
+    }
+
+    pub fn version_catalog(&self) -> Option<&[String]> {
+        match &self.versions {
+            Versions::Ready(values) => Some(values),
+            _ => None,
+        }
     }
 
     pub fn loading(&mut self) {
