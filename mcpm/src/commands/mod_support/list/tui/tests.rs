@@ -173,7 +173,7 @@ fn compact_details_stay_below_table_and_selection_uses_background() {
             view::draw(frame, &mut browser, &Column::ALL, &summary());
         })
         .unwrap();
-    assert_eq!(browser.detail_area.height, 8);
+    assert_eq!(browser.detail_area.height, 10);
     assert!(browser.detail_area.y >= browser.table_area.bottom());
     let buffer = terminal.backend().buffer();
     let row_y = browser.table_area.y + 3;
@@ -776,7 +776,7 @@ fn source_badges_and_copyable_details_belong_only_to_outer_archives() {
         .iter()
         .map(|cell| cell.symbol())
         .collect::<String>();
-    assert!(text.contains("Modrinth: ✓ Project ID: project-123"));
+    assert!(text.contains("Modrinth: ✓ Identified · Project ID: project-123"));
     assert!(text.contains("CurseForge:"));
     assert!(text.contains("Identifying…"));
     let value = browser.detail_value(DETAIL_FIELDS[4]).unwrap();
@@ -825,7 +825,7 @@ fn source_badges_and_copyable_details_belong_only_to_outer_archives() {
         .map(|cell| cell.symbol())
         .collect::<String>();
     assert!(!text.contains("project-123"));
-    assert!(text.contains("Modrinth: Not checked (nested JAR)"));
+    assert!(text.contains("Modrinth: Not checked"));
 }
 
 #[test]
@@ -894,4 +894,172 @@ fn enter_opens_the_matched_details_platform_only_and_preserves_selection() {
         input::handle(&mut browser, &summary(), enter, 10),
         input::Update::OpenFiles(_)
     ));
+}
+
+#[test]
+fn two_line_source_entries_highlight_and_click_as_one_field_and_scroll_together() {
+    use crossterm::event::{KeyCode, KeyEvent, MouseButton};
+    use kako_mods_lib::source::{
+        FileId, FileMatch, FileRef, MatchedFileRole, ProjectId, ProjectRef, SourceId,
+    };
+
+    let mut browser = fixture(false);
+    browser.focus = Focus::Details;
+    browser.field = 4;
+    for platform in identify::Platform::ALL {
+        browser.identification[0][platform.index()] = identify::State::Matched(FileMatch {
+            reference: FileRef {
+                project: ProjectRef {
+                    source: SourceId(platform.id().into()),
+                    id: ProjectId("project".into()),
+                },
+                id: FileId("version".into()),
+            },
+            filename: "release.jar".into(),
+            size: 1,
+            hashes: vec![],
+            role: MatchedFileRole::Primary,
+        });
+    }
+    let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+    terminal
+        .draw(|frame| {
+            view::draw(frame, &mut browser, &Column::ALL, &summary());
+        })
+        .unwrap();
+    assert_eq!(browser.detail_offset, 0);
+    let top = browser.detail_area.y + 1;
+    let buffer = terminal.backend().buffer();
+    let line = |y| {
+        (browser.detail_area.x..browser.detail_area.right())
+            .map(|x| buffer[(x, y)].symbol())
+            .collect::<String>()
+    };
+    assert!(line(top + 4).contains("Modrinth: ✓ Identified"));
+    let heading = line(top + 4);
+    for part in ["Project ID: project", "File ID: version"] {
+        let column = heading.find(part).unwrap();
+        let x = browser.detail_area.x
+            + unicode_width::UnicodeWidthStr::width(&heading[..column]) as u16;
+        assert_eq!(
+            buffer[(x, top + 4)].fg,
+            crate::theme::widgets::style(crate::theme::Role::Muted)
+                .fg
+                .unwrap_or_default()
+        );
+        assert_eq!(
+            buffer[(x, top + 4)]
+                .modifier
+                .contains(ratatui::style::Modifier::DIM),
+            crate::theme::widgets::style(crate::theme::Role::Muted)
+                .add_modifier
+                .contains(ratatui::style::Modifier::DIM)
+        );
+    }
+    assert!(line(top + 5).contains("Enter to view release files →"));
+    assert!(line(top + 6).contains("CurseForge: ✓ Identified"));
+    assert!(line(top + 7).contains("Enter to view release files →"));
+    let x = browser.detail_area.x + 2;
+    assert_eq!(buffer[(x, top + 4)].bg, buffer[(x, top + 5)].bg);
+    if std::env::var_os("NO_COLOR").is_none() {
+        assert_ne!(buffer[(x, top + 4)].bg, ratatui::style::Color::Reset);
+        assert_ne!(buffer[(x, top + 5)].bg, buffer[(x, top + 6)].bg);
+    }
+    for (row, field) in [(4, 4), (5, 4), (6, 5), (7, 5)] {
+        input::handle(
+            &mut browser,
+            &summary(),
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: x,
+                row: top + row,
+                modifiers: KeyModifiers::NONE,
+            }),
+            10,
+        );
+        assert_eq!(browser.field, field);
+        assert!(matches!(
+            input::handle(
+                &mut browser,
+                &summary(),
+                Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                10
+            ),
+            input::Update::OpenFiles(_)
+        ));
+    }
+    browser.move_by(-1);
+    assert_eq!(browser.field, 4);
+    browser.move_by(1);
+    assert_eq!(browser.field, 5);
+    // The compact list keeps both lines of a selected source visible after scrolling.
+    let mut short = Terminal::new(TestBackend::new(80, 11)).unwrap();
+    short
+        .draw(|frame| {
+            view::draw(frame, &mut browser, &Column::ALL, &summary());
+        })
+        .unwrap();
+    assert!(browser.detail_offset > 0);
+    let text = short
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(text.contains("CurseForge: ✓ Identified"));
+    assert!(text.contains("Enter to view release files →"));
+    let field_top: usize = DETAIL_FIELDS
+        .iter()
+        .skip(browser.detail_offset)
+        .take(5 - browser.detail_offset)
+        .map(|field| field.height())
+        .sum();
+    assert_eq!(browser.detail_field_at(field_top as u16), Some(5));
+    assert_eq!(browser.detail_field_at(field_top as u16 + 1), Some(5));
+}
+
+#[test]
+fn unavailable_source_entries_explain_their_status_without_an_enter_action() {
+    let mut browser = fixture(false);
+    browser.focus = Focus::Details;
+    browser.details = true;
+    for (state, status, reason) in [
+        (identify::State::Queued, "Waiting", "Identification queued"),
+        (
+            identify::State::Loading,
+            "Identifying…",
+            "Looking up this file",
+        ),
+        (
+            identify::State::Unmatched,
+            "No match",
+            "No matching release file found",
+        ),
+        (
+            identify::State::Failed("Connection refused".into()),
+            "Failed",
+            "Connection refused",
+        ),
+    ] {
+        for platform in identify::Platform::ALL {
+            browser.identification[0][platform.index()] = state.clone();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        terminal
+            .draw(|frame| {
+                view::draw(frame, &mut browser, &Column::ALL, &summary());
+            })
+            .unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(text.contains(status));
+        assert!(text.contains(reason));
+        assert!(!text.contains("Enter to view release files"));
+    }
 }

@@ -429,24 +429,26 @@ impl Browser {
             )
         }
     }
+    fn detail_field_at(&self, row: u16) -> Option<usize> {
+        let mut remaining = usize::from(row);
+        for (index, field) in DETAIL_FIELDS.iter().enumerate().skip(self.detail_offset) {
+            if remaining < field.height() {
+                return Some(index);
+            }
+            remaining -= field.height();
+        }
+        None
+    }
     fn copy_field(&mut self) {
         let field = DETAIL_FIELDS[self.field];
         let Some(value) = self.detail_value(field) else {
             return;
         };
-        let result = (|| {
-            if self.clipboard.is_none() {
-                self.clipboard = Some(arboard::Clipboard::new()?);
-            }
-            self.clipboard.as_mut().unwrap().set_text(value)
-        })();
-        self.status = Some(match result {
-            Ok(()) => (
-                format!("Copied {}", field.label()),
-                crate::theme::Role::Success,
-            ),
-            Err(error) => (format!("Copy failed: {error}"), crate::theme::Role::Danger),
-        });
+        self.status = Some(crate::widgets::browser::copy_field(
+            &mut self.clipboard,
+            value,
+            field.label(),
+        ));
     }
 }
 
@@ -462,6 +464,12 @@ enum DetailField {
     Source(identify::Platform),
 }
 impl DetailField {
+    fn height(self) -> usize {
+        match self {
+            Self::Column(_) => 1,
+            Self::Source(_) => 2,
+        }
+    }
     fn label(self) -> &'static str {
         match self {
             Self::Column(column) => view::label(column),

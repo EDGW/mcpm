@@ -42,8 +42,17 @@ CurseForge / Modrinth 色，ID 使用 dimmed。聚焦 Details 后用方向键或
 多项目、`-N/--no-ui`、指定列或流重定向时使用列表。
 排序、翻页和发布类型过滤沿用 `mcpm mod source`。
 
+Files 复用 mod list 的紧凑列表和底部 Details 布局，不提供交互式 Filter。
+表头和每个文件均占两行：第一行是序号、Name、Minecraft、Loaders，第二行是 Version、Release；
+第二行的值分别与表头中的 Version、Release 对齐，数据行不重复字段标签；
+filename 仅在 Details 中查看。Tab / Shift+Tab 切换列表和 Details；↑↓ 或 j/k 选择
+文件或详情字段，PageUp/PageDown 在当前页移动一屏，←→ 或 p/n 请求前后远程页。
+Home/End 跳至首尾文件或字段；Enter 展开/收起 Details，c 复制当前详情字段。
+Esc 先收起完整详情，再返回上一级；q 直接返回。支持鼠标点击选择和滚轮导航。
+
 单项目可用 `--selected FILE_ID` 按 ID 直接获取文件，并在顶部的 `Selected` 区域显示，
-不受当前页和兼容性过滤限制。`--loader`（别名 `--loaders`）支持逗号分隔和重复指定，匹配任意一个 loader。翻页时保持显示，其他文件列表中遇到同一文件会去重。
+不受当前页和兼容性过滤限制。`--loader`（别名 `--loaders`）支持逗号分隔和重复指定，匹配任意一个 loader。翻页时保持显示。TUI 列表保留同一发布文件的原始位置，其 Name 与置顶文件一样使用 primary，
+其他文件的 Name 使用 secondary；未传入 selected 时 Name 仍使用 primary。Console 和 Raw 输出继续去重。
 分页和总数仍对应原始筛选结果，置顶文件不占用每页数量；文件不存在或不属于指定项目时
 报错。独立的 `mcpm mod source files` 同样支持此选项。
 

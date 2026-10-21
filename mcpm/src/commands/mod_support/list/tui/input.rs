@@ -32,9 +32,13 @@ pub(super) fn handle(
                 }
                 if browser.detail_area.contains(position) {
                     browser.focus = Focus::Details;
-                    browser.field = (browser.detail_offset
-                        + usize::from(mouse.row.saturating_sub(browser.detail_area.y + 1)))
-                    .min(DETAIL_FIELDS.len() - 1);
+                    if mouse.row > browser.detail_area.y
+                        && mouse.row < browser.detail_area.bottom().saturating_sub(1)
+                        && let Some(field) =
+                            browser.detail_field_at(mouse.row - browser.detail_area.y - 1)
+                    {
+                        browser.field = field;
+                    }
                     return Update::Redraw;
                 }
                 if browser.table_area.contains(position)
