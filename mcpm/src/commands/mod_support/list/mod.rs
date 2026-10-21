@@ -20,14 +20,19 @@ use super::{
     source_path::PathArgs,
 };
 use columns::ColumnArgs;
+use filter::Filter;
 
 mod columns;
+mod filter;
 mod output;
 mod rows;
 mod tui;
 
 #[derive(Args)]
 pub(in crate::commands) struct ListDisplayArgs {
+    /// Filter matching rows with the same expression used by the TUI Filter card.
+    #[arg(short = 'F', long, value_name = "FILTER", help_heading = "Filter", long_help = filter::HELP)]
+    filter: Option<Filter>,
     /// Print a Console list instead of opening the TUI.
     #[arg(long, help_heading = "Mode options")]
     no_ui: bool,
@@ -198,6 +203,7 @@ fn present(
             options,
             &source_loaders,
             args.identify_parallelism.get(),
+            args.filter.unwrap_or_default(),
             tui::Summary {
                 ignored,
                 ignored_files: &ignored_files,
@@ -206,7 +212,35 @@ fn present(
             },
         )?;
     } else {
-        let rows = rows::collect(&files, &options);
+        let rows = if let Some(filter) = args
+            .filter
+            .as_ref()
+            .filter(|filter| !filter.as_str().trim().is_empty())
+        {
+            // Search every declaration before applying the compact/expanded view.
+            let settings = rows::RowOptions {
+                expanded: true,
+                ..options
+            };
+            let mut rows: Vec<_> = files
+                .iter()
+                .enumerate()
+                .flat_map(|(index, file)| {
+                    let mut matches = rows::for_file(file, index + 1, &settings)
+                        .into_iter()
+                        .filter(|row| filter.matches(row));
+                    if options.expanded {
+                        matches.collect::<Vec<_>>()
+                    } else {
+                        matches.next().into_iter().collect()
+                    }
+                })
+                .collect();
+            rows::align(&mut rows);
+            rows
+        } else {
+            rows::collect(&files, &options)
+        };
         let mut stdout = io::stdout().lock();
         output::write_list(&mut stdout, &rows, &columns, color, width)
             .context("failed to write mod list")?;

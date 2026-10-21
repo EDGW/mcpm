@@ -1,6 +1,11 @@
 //! Interactive mod browsing, filtering and navigation over shared semantic rows.
 
-use super::{ListedFile, columns::Column, rows::RowOptions};
+use super::{
+    ListedFile,
+    columns::Column,
+    filter::{self, Filter},
+    rows::RowOptions,
+};
 use anyhow::{Context, Result};
 use crossterm::event;
 use kako_mods_lib::source::FileRef;
@@ -11,7 +16,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-mod filter;
 mod identify;
 mod input;
 mod screen;
@@ -34,6 +38,7 @@ pub(super) fn run(
     options: RowOptions<'_>,
     source_loaders: &[String],
     identify_parallelism: usize,
+    filter: Filter,
     summary: Summary<'_>,
 ) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -41,7 +46,7 @@ pub(super) fn run(
         .build()
         .context("failed to create mod identification runtime")?;
     let _guard = runtime.enter();
-    let mut browser = Browser::new(tree::build(files, &options));
+    let mut browser = Browser::new(tree::build(files, &options), filter);
     let updates = identify::start(
         files
             .iter()
@@ -136,6 +141,7 @@ struct Browser {
     matches: Vec<usize>,
     table: TableState,
     query: String,
+    parsed: Filter,
     search_overrides: HashMap<usize, bool>,
     search_included: Vec<bool>,
     filter_open: bool,
@@ -149,7 +155,8 @@ struct Browser {
     detail_area: ratatui::layout::Rect,
 }
 impl Browser {
-    fn new(nodes: Vec<tree::Node>) -> Self {
+    fn new(nodes: Vec<tree::Node>, filter: Filter) -> Self {
+        let query = filter.as_str().to_owned();
         let identification = vec![
             [identify::State::Queued, identify::State::Queued];
             nodes.iter().map(|node| node.file + 1).max().unwrap_or(0)
@@ -165,11 +172,12 @@ impl Browser {
             clipboard: None,
             matches: Vec::new(),
             table: TableState::default(),
-            query: String::new(),
+            query_cursor: query.len(),
+            filter_open: !query.trim().is_empty(),
+            query,
+            parsed: filter,
             search_overrides: HashMap::new(),
             search_included: Vec::new(),
-            filter_open: false,
-            query_cursor: 0,
             filter_area: ratatui::layout::Rect::default(),
             details: false,
             ignored: false,
@@ -226,8 +234,11 @@ impl Browser {
             .selected()
             .and_then(|index| self.matches.get(index))
             .copied();
+        if self.parsed.as_str() != self.query {
+            self.parsed = Filter::parse(&self.query);
+        }
         let query = self.query.trim();
-        let parsed = filter::Query::parse(query);
+        let parsed = &self.parsed;
         let mut included = vec![false; self.nodes.len()];
         if !query.is_empty() {
             for (index, node) in self.nodes.iter().enumerate() {

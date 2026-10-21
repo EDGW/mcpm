@@ -46,15 +46,32 @@ in `mcpm/config/source_colors.toml`. The `source_colors.tui` and
 colors are not editable through `mcpm customize`.
 
 Use Up/Down, PageUp/PageDown, Home/End or a trackpad to navigate. `F` opens a
-Filter card between Mods and Details. Plain text searches Name, Mod ID, File
-and Loaders, including hidden descendants; Index is never searched. Use
-`@name Fabric API @file fabric` to require both a name containing `Fabric API`
-and a filename containing `fabric`. Supported markers are `@name`, `@modid`,
-`@file`, and `@loaders`; each value continues until the next `@`. Markers use
-the primary color and their scoped values use the secondary color. Escape a literal
-`@` as `\@`, for example `@file user\@host.jar`. Other backslashes remain literal. Spaces
-between `@` and its field are not supported. Unknown markers (including
-`@index`) show a warning and match no rows. Matching is case-insensitive.
+Filter card between Mods and Details. `-F/--filter <FILTER>` initializes it with
+the same typed expression accepted by Console and Raw. For example:
+
+```sh
+mcpm mod list mods/ -F "@modid 'Fabric'"
+mcpm mod list mods/ -F "@loaders (=Forge | =Fabric) & @name ~'API$'"
+```
+
+Plain or quoted text performs case-insensitive contains matching. `=` matches a
+whole value; `~` introduces a quoted Rust regex. Whitespace or `&` means AND,
+`|` means OR, AND binds more tightly, and parentheses group conditions. Fields
+are `@name`, `@modid`, `@file`, and `@loaders`; Index is excluded. A field applies
+to the next value or group: `@loaders (Forge | Fabric)` scopes both alternatives,
+but `@loaders Forge | Fabric` leaves the second unscoped. Explicit fields within
+a group override its inherited field. Quote phrases: `@name "Fabric API"`.
+See [Filter syntax](filter.md) or `--help` for complete escaping and regex rules.
+
+Fields use the primary color, values the secondary color, operators the important
+text style, and quote/group delimiters the muted style. Escapes use the primary
+color. Invalid expressions show a diagnostic with a character column, underline
+the invalid token and match no rows. Parsing is shared with CLI validation and
+result highlighting; only satisfied boolean branches contribute highlighted hits.
+
+Console and Raw search all declarations, including hidden descendants, then
+print matching rows. Without `--expanded`, they print the first matching
+declaration per input file. An empty filter preserves normal list output.
 
 Search automatically opens only the ancestor paths needed to reveal matching rows.
 Matching a parent alone does not automatically open its children. Branches retain
@@ -103,6 +120,7 @@ mcpm mod list -- -leading-dash.jar
 
 | Option | Description |
 | --- | --- |
+| `-F, --filter <FILTER>` | Filter rows using the shared [Filter type](filter.md); initializes the editable TUI Filter card. |
 | `--no-ui` | Print the Console list instead of opening the TUI. |
 | `--identify-parallelism <COUNT>` | Maximum simultaneous provider lookups in TUI (default: 10; must be positive). Ignored by Console and Raw. |
 | `--expanded` | Show every mod declaration, including recognized nested mods. In terminal output, also list filenames skipped by loader filtering. |

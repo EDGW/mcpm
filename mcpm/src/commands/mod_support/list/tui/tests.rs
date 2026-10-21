@@ -33,14 +33,17 @@ fn fixture(expanded: bool) -> Browser {
         }),
         records: None,
     }];
-    Browser::new(tree::build(
-        &files,
-        &RowOptions {
-            expanded,
-            paths: &paths,
-            index_type: rows::IndexType::Flat,
-        },
-    ))
+    Browser::new(
+        tree::build(
+            &files,
+            &RowOptions {
+                expanded,
+                paths: &paths,
+                index_type: rows::IndexType::Flat,
+            },
+        ),
+        Filter::default(),
+    )
 }
 fn summary() -> Summary<'static> {
     Summary {
@@ -82,7 +85,7 @@ fn expansion_is_progressive_and_search_finds_hidden_descendants() {
     browser.query = "omnibus_leaf".into();
     browser.filter();
     assert!(browser.matches.iter().any(|&index| {
-        filter::Query::parse("@modid omnibus_leaf").matches(&browser.nodes[index].row)
+        filter::Filter::parse("@modid omnibus_leaf").matches(&browser.nodes[index].row)
     }));
     for &index in &browser.matches {
         if let Some(parent) = browser.nodes[index].parent {
@@ -199,7 +202,7 @@ fn compact_details_stay_below_table_and_selection_uses_background() {
 }
 
 #[test]
-fn scoped_filters_exclude_indices_and_keep_phrases_until_the_next_at() {
+fn scoped_filters_exclude_indices_and_scope_only_the_next_matcher() {
     use super::super::rows::{Paint, Piece};
     let mut browser = fixture(false);
     let row = &mut browser.nodes[0].row;
@@ -220,22 +223,22 @@ fn scoped_filters_exclude_indices_and_keep_phrases_until_the_next_at() {
         "@name Fabric API 中文 @modid fabric_api @file api.jar @loaders Fabric",
         "API @name Fabric API @file fabric",
     ] {
-        assert!(filter::Query::parse(query).matches(row), "{query}");
+        assert!(filter::Filter::parse(query).matches(row), "{query}");
     }
     for query in [
         "only-in-index",
         "@index only-in-index",
         "@ name Fabric",
         "@name fabric_api",
-        "@file Fabric API",
+        "@file \"Fabric API\"",
         "@loaders Forge",
         "@name Fabric API @file unrelated",
     ] {
-        assert!(!filter::Query::parse(query).matches(row), "{query}");
+        assert!(!filter::Filter::parse(query).matches(row), "{query}");
     }
-    assert!(!filter::Query::parse("@name Fabric API 中文 @file fabric").invalid());
-    assert!(filter::Query::parse("@ name Fabric").invalid());
-    assert!(filter::Query::parse("@index").invalid());
+    assert!(!filter::Filter::parse("@name Fabric API 中文 @file fabric").invalid());
+    assert!(filter::Filter::parse("@ name Fabric").invalid());
+    assert!(filter::Filter::parse("@index").invalid());
 }
 
 #[test]
@@ -367,6 +370,85 @@ fn filter_card_keys_keep_text_and_highlight_scopes_and_values_separately() {
             })
             .unwrap();
     }
+}
+
+#[test]
+fn initial_filter_supports_scoped_groups_and_editor_highlights_tokens_and_errors() {
+    use crate::theme::{Role, widgets};
+    use ratatui::style::Modifier;
+    let original = fixture(false);
+    let source = "@loaders (=Forge | =Fabric) & @file ~'complex.*jar$'";
+    let mut browser = Browser::new(original.nodes, source.parse().unwrap());
+    assert!(browser.filter_open);
+    assert_eq!(browser.query, source);
+    assert_eq!(browser.query_cursor, source.len());
+    assert!(browser.focus == Focus::Mods);
+    assert!(!browser.parsed.invalid());
+    assert!(
+        browser
+            .matches
+            .iter()
+            .any(|&index| { browser.nodes[index].row.searchable(Column::Loaders).0 == "[Fabric]" })
+    );
+    let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+    terminal
+        .draw(|frame| {
+            view::draw(frame, &mut browser, &Column::ALL, &summary());
+        })
+        .unwrap();
+    let (x, y) = (browser.filter_area.x + 2, browser.filter_area.y + 1);
+    let buffer = terminal.backend().buffer();
+    for (token, role) in [
+        ("@loaders", Role::Primary),
+        ("(", Role::Muted),
+        ("=", Role::Important),
+        ("Forge", Role::Secondary),
+        ("|", Role::Important),
+        ("&", Role::Important),
+        ("~", Role::Important),
+        ("'", Role::Muted),
+        ("complex", Role::Secondary),
+    ] {
+        let offset = source.find(token).unwrap() as u16;
+        assert_eq!(
+            buffer[(x + offset, y)].fg,
+            widgets::style(role).fg.unwrap_or_default(),
+            "{token}"
+        );
+    }
+    browser.query = "@loaders (Forge | Fabric) & @unknown value".into();
+    browser.filter();
+    assert!(browser.matches.is_empty());
+    terminal
+        .draw(|frame| {
+            view::draw(frame, &mut browser, &Column::ALL, &summary());
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let offset = browser.query.find("@unknown").unwrap() as u16;
+    assert_eq!(
+        buffer[(x + offset, y)].fg,
+        widgets::style(Role::Danger).fg.unwrap_or_default()
+    );
+    assert!(
+        buffer[(x + offset, y)]
+            .modifier
+            .contains(Modifier::UNDERLINED)
+    );
+    let title: String = (0..120)
+        .map(|x| buffer[(x, browser.filter_area.y)].symbol())
+        .collect();
+    assert!(
+        title.contains("unknown field") && title.contains("column 29"),
+        "{title}"
+    );
+    browser.query.clear();
+    browser.filter();
+    assert_eq!(
+        browser.matches.len(),
+        1,
+        "initial filtering must not change normal expansion"
+    );
 }
 
 #[test]
@@ -554,21 +636,26 @@ fn escaped_at_is_literal_in_plain_and_scoped_values() {
         r"@name \@name @file user\@host.jar",
         r"@file C:\mods\user\@host.jar",
     ] {
-        let parsed = filter::Query::parse(query);
+        let parsed = filter::Filter::parse(query);
         assert!(!parsed.invalid(), "{query}");
         assert!(parsed.matches(row), "{query}");
     }
-    let parsed = filter::Query::parse(r"\@name @file user\@host.jar");
+    let parsed = filter::Filter::parse(r"\@name @file user\@host.jar");
     assert_eq!(
         parsed
-            .parts
+            .syntax
             .iter()
-            .filter(|part| part.marker.is_some())
+            .filter(|part| part.kind == filter::SyntaxKind::Field)
             .count(),
         1
     );
-    assert!(parsed.parts[1].field == Some(Column::Filename));
-    assert!(!filter::Query::parse("@name @host").matches(row));
+    let field = parsed
+        .syntax
+        .iter()
+        .find(|part| part.kind == filter::SyntaxKind::Field)
+        .unwrap();
+    assert_eq!(&parsed.as_str()[field.range.clone()], "@file");
+    assert!(!filter::Filter::parse("@name @host").matches(row));
 }
 
 #[test]

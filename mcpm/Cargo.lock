@@ -1131,6 +1131,7 @@ dependencies = [
  "kako-mods-lib",
  "owo-colors",
  "ratatui",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

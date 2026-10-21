@@ -2,7 +2,7 @@
 
 use clap::{Args, ValueEnum};
 
-#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub(super) enum Column {
     Index,
     Name,

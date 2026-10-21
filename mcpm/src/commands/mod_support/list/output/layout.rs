@@ -219,6 +219,7 @@ fn wrap_cell(
                     result.push(Piece {
                         text: piece.text[slice_start - offset..slice_end - offset].to_owned(),
                         style: piece.style.clone(),
+                        value: None,
                     });
                 }
                 offset = piece_end;

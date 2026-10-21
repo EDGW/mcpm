@@ -1,6 +1,7 @@
 //! Shared semantic mod rows used by interactive and line-oriented renderers.
 
 use std::collections::HashSet;
+use std::ops::Range;
 use std::path::Path;
 
 use crate::theme::Role;
@@ -11,12 +12,14 @@ use super::super::{mod_records, source_path::PathArgs};
 use super::{ListedFile, columns::Column};
 
 mod index;
-pub(super) use index::IndexType;
+pub(super) use index::{IndexType, align};
 
 #[derive(Clone)]
 pub(super) struct Piece {
     pub(super) text: String,
     pub(super) style: Paint,
+    /// Semantic value within a decorated fragment, such as a loader name.
+    pub(super) value: Option<Range<usize>>,
 }
 
 impl Piece {
@@ -24,6 +27,7 @@ impl Piece {
         Self {
             text: crate::commands::output_style::text(value.as_ref()),
             style,
+            value: None,
         }
     }
 }
@@ -35,6 +39,22 @@ pub(super) struct Row {
 }
 
 impl Row {
+    /// Return searchable values and their positions in the complete displayed field.
+    pub(super) fn searchable(&self, column: Column) -> (String, Vec<Range<usize>>) {
+        let mut text = String::new();
+        let mut values = Vec::new();
+        for piece in &self.cells[column.position()] {
+            if let Some(value) = &piece.value {
+                values.push(text.len() + value.start..text.len() + value.end);
+            }
+            text.push_str(&piece.text);
+        }
+        if values.is_empty() {
+            values.push(0..text.len());
+        }
+        (text, values)
+    }
+
     fn new(
         index: index::Value,
         name: &str,
@@ -214,10 +234,12 @@ fn filename(source: &[String], outer: &Path, paths: &PathArgs) -> Vec<Piece> {
 }
 
 fn loader_piece(loader: &ModLoaderMeta) -> Piece {
-    Piece::new(
+    let mut piece = Piece::new(
         format!("[{}]", loader.name()),
         loader_style(loader.id().as_str()),
-    )
+    );
+    piece.value = Some(1..piece.text.len() - 1);
+    piece
 }
 
 fn loader_style(id: &str) -> Paint {

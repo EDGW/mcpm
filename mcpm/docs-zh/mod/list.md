@@ -16,7 +16,18 @@ Help 依次将选项分为全局参数（Global options）、模式参数（Mode
 
 平台颜色从 `~/.mcpm/source_colors.toml` 读取，缺失项使用 `mcpm/config/source_colors.toml` 默认值。`source_colors.tui` 和 `source_colors.console` 表包含 `modrinth`、`curseforge` 的颜色；这些颜色不属于 `mcpm customize` 编辑项。
 
-↑/↓、PageUp/PageDown、Home/End 和触控板用于导航。`F` 在 Mods 和 Details 之间打开 Filter 卡片。普通文本默认搜索 Name、Mod ID、File、Loaders，包括隐藏子项；Index 不参与筛选。输入 `@name Fabric API @file fabric`，表示名称包含 `Fabric API` 且文件名包含 `fabric`。支持 `@name`、`@modid`、`@file`、`@loaders`，各字段的内容持续到下一个 `@`，多个条件必须同时满足，匹配不区分大小写。字段标记使用主色，后续带特殊含义的内容使用附色。用 `\@` 表示字面量 `@`，例如 `@file user\@host.jar`，其他反斜杠保持原样；不支持 `@ name`，未知标记（包括 `@index`）会提示警告且不匹配任何行。
+↑/↓、PageUp/PageDown、Home/End 和触控板用于导航。`F` 在 Mods 和 Details 之间打开 Filter 卡片。`-F/--filter <FILTER>` 使用同一 Filter 类型设置初始条件，也适用于 Console 和 Raw：
+
+```sh
+mcpm mod list mods/ -F "@modid 'Fabric'"
+mcpm mod list mods/ -F "@loaders (=Forge | =Fabric) & @name ~'API$'"
+```
+
+普通文本或引号文本默认进行不区分大小写的包含匹配，`=` 表示完整值精确匹配，`~` 后跟带引号的 Rust 正则。空格或 `&` 表示 AND，`|` 表示 OR，AND 优先于 OR，括号改变优先级。支持 `@name`、`@modid`、`@file`、`@loaders`，Index 不参与搜索。字段限定紧随其后的一个值或括号组：`@loaders (Forge | Fabric)` 两项都限定于 Loaders；`@loaders Forge | Fabric` 的第二项不限定字段。组内显式字段覆盖继承字段，短语需要引号，例如 `@name "Fabric API"`。完整转义和正则规则见 [Filter 语法](filter.md) 或 `--help`。
+
+字段使用主色，匹配值使用附色，运算符使用重要文字样式，引号和括号使用陪衬样式，转义使用主色。非法表达式会提示错误及字符列号，并给错误 token 加下划线，此时不匹配任何行。语法高亮、命令行校验和结果高亮共用解析器；只有成立的布尔分支贡献匹配高亮。
+
+Console 和 Raw 搜索全部声明（包括隐藏子项），再输出匹配行；没有 `--expanded` 时，每个输入文件只输出首个匹配声明。空 Filter 保持原来的列表输出。
 
 搜索只自动展开通往匹配项的祖先路径；仅父项自身匹配时，不会连带自动展开其子项。普通列表原有的展开、折叠状态始终保留，分支不再处于匹配路径时立即恢复，无需清空筛选。搜索中仍可用 ←/→、Space、鼠标箭头逐级折叠/展开，`e` 展开全部；这些手动操作优先于自动展开，在分支退出搜索结果后失效。清空筛选后恢复普通列表状态。
 
@@ -39,6 +50,7 @@ mcpm mod list -- -leading-dash.jar
 
 | 选项 | 说明 |
 | --- | --- |
+| `-F, --filter <FILTER>` | 使用共享的 [Filter 类型](filter.md) 筛选输出，并设置 TUI Filter 卡片的可编辑初始条件。 |
 | `--no-ui` | 使用 Console 列表，不打开 TUI。 |
 | `--identify-parallelism <COUNT>` | TUI 平台反查并行度，默认 10，必须为正整数。Console 和 Raw 忽略此项。 |
 | `--expanded` | 显示全部 Mod 声明，包括已识别的嵌套 Mod。在终端输出中还列出因 Loader 筛选而跳过的文件名。 |

@@ -2,7 +2,7 @@
 
 use super::super::{
     columns::Column,
-    rows::{Paint, Piece},
+    rows::{Paint, Piece, Row},
 };
 use super::{Browser, DETAIL_FIELDS, DetailField, Focus, Summary, filter, identify};
 use crate::theme::{
@@ -99,7 +99,7 @@ pub(super) fn draw(
             )
         });
     let help = if browser.focus == Focus::Filter {
-        "@name @modid @file @loaders · Enter Apply · Esc / Q Close"
+        "@field · = Exact · ~ Regex · & AND · | OR · () Group · Enter Apply · Esc / Q Close"
     } else if browser.focus == Focus::Details {
         if browser.selected_source_file().is_some() {
             "↑/↓ Field · c Copy · Enter Files · Tab Mods"
@@ -127,13 +127,12 @@ pub(super) fn draw(
 fn draw_filter(frame: &mut Frame, area: Rect, browser: &mut Browser) {
     browser.filter_area = area;
     let focused = browser.focus == Focus::Filter;
-    let parsed = filter::Query::parse(&browser.query);
+    let parsed = &browser.parsed;
     let block = Block::bordered()
-        .title(if parsed.invalid() {
-            " Filter · Unknown field "
-        } else {
-            " Filter "
-        })
+        .title(parsed.error().map_or_else(
+            || " Filter ".to_owned(),
+            |error| format!(" Filter · {error} "),
+        ))
         .border_style(style(if parsed.invalid() {
             Role::Warning
         } else if focused {
@@ -143,33 +142,14 @@ fn draw_filter(frame: &mut Frame, area: Rect, browser: &mut Browser) {
         }))
         .padding(Padding::horizontal(1));
     let inner = block.inner(area);
-    let mut spans = Vec::new();
-    if browser.query.is_empty() && !focused {
-        spans.push(Span::styled(
+    let line = if browser.query.is_empty() && !focused {
+        Line::from(Span::styled(
             "All names, IDs, files and loaders",
             style(Role::Muted),
-        ));
-    }
-    for part in &parsed.parts {
-        if let Some(marker) = &part.marker {
-            spans.push(Span::styled(
-                &browser.query[marker.clone()],
-                style(if part.field.is_some() {
-                    Role::Primary
-                } else {
-                    Role::Warning
-                }),
-            ));
-        }
-        spans.push(Span::styled(
-            &browser.query[part.content.clone()],
-            style(if part.marker.is_some() {
-                Role::Secondary
-            } else {
-                Role::Normal
-            }),
-        ));
-    }
+        ))
+    } else {
+        filter_line(parsed)
+    };
     let prefix =
         UnicodeWidthStr::width(&browser.query[..browser.query_cursor.min(browser.query.len())]);
     let scroll = if focused {
@@ -177,12 +157,53 @@ fn draw_filter(frame: &mut Frame, area: Rect, browser: &mut Browser) {
     } else {
         0
     };
-    let paragraph =
-        Paragraph::new(Line::from(spans)).scroll((0, scroll.min(u16::MAX as usize) as u16));
+    let paragraph = Paragraph::new(line).scroll((0, scroll.min(u16::MAX as usize) as u16));
     frame.render_widget(paragraph.block(block), area);
     if focused && inner.width > 0 && inner.height > 0 {
         frame.set_cursor_position((inner.x + (prefix - scroll) as u16, inner.y));
     }
+}
+
+/// Token and diagnostic ranges originate in the parser; this adapter only assigns theme roles.
+fn filter_line(parsed: &filter::Filter) -> Line<'_> {
+    use ratatui::style::Modifier;
+    let text = parsed.as_str();
+    let mut boundaries = vec![0, text.len()];
+    for span in &parsed.syntax {
+        boundaries.extend([span.range.start, span.range.end]);
+    }
+    if let Some(error) = parsed.error() {
+        boundaries.extend([error.range.start, error.range.end]);
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    let spans = boundaries
+        .windows(2)
+        .map(|range| {
+            let start = range[0];
+            let end = range[1];
+            let role = parsed
+                .syntax
+                .iter()
+                .find(|span| span.range.contains(&start))
+                .map_or(Role::Normal, |span| match span.kind {
+                    filter::SyntaxKind::Field | filter::SyntaxKind::Escape => Role::Primary,
+                    filter::SyntaxKind::Value => Role::Secondary,
+                    filter::SyntaxKind::Operator => Role::Important,
+                    filter::SyntaxKind::Delimiter => Role::Muted,
+                });
+            let paint = if parsed
+                .error()
+                .is_some_and(|error| error.range.contains(&start))
+            {
+                style(Role::Danger).add_modifier(Modifier::UNDERLINED)
+            } else {
+                style(role)
+            };
+            Span::styled(&text[start..end], paint)
+        })
+        .collect::<Vec<_>>();
+    Line::from(spans)
 }
 
 fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[Column]) -> usize {
@@ -252,7 +273,7 @@ fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[C
     let expanded: Vec<_> = (0..browser.nodes.len())
         .map(|index| browser.is_expanded(index))
         .collect();
-    let query = filter::Query::parse(&browser.query);
+    let query = &browser.parsed;
     let spinner = browser.spinner();
     let rows = browser
         .matches
@@ -275,7 +296,7 @@ fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[C
                 };
                 let mut spans = vec![Span::raw(" ".repeat(indent))];
                 spans.extend(
-                    field_text(&query, column, &node.row.cells[column.position()])
+                    field_text(query, column, &node.row)
                         .line(area.width as usize - indent)
                         .spans,
                 );
@@ -350,11 +371,7 @@ fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[C
             if y >= inner.bottom() {
                 break;
             }
-            let text = field_text(
-                &query,
-                Column::Filename,
-                &browser.nodes[index].row.cells[Column::Filename.position()],
-            );
+            let text = field_text(query, Column::Filename, &browser.nodes[index].row);
             let selected = browser.focus == Focus::Mods
                 && browser.table.selected() == Some(browser.table.offset() + offset);
             frame.render_widget(
@@ -432,7 +449,7 @@ fn draw_details(frame: &mut Frame, area: Rect, browser: &mut Browser, summary: &
         );
         return;
     };
-    let query = filter::Query::parse(&browser.query);
+    let query = &browser.parsed;
     let items = DETAIL_FIELDS
         .iter()
         .map(|&field| {
@@ -447,7 +464,7 @@ fn draw_details(frame: &mut Frame, area: Rect, browser: &mut Browser, summary: &
                 DetailField::Column(column) => {
                     let label_width = spans.iter().map(Span::width).sum::<usize>();
                     spans.extend(
-                        field_text(&query, column, &node.row.cells[column.position()])
+                        field_text(query, column, &node.row)
                             .line((inner.width as usize).saturating_sub(label_width))
                             .spans,
                     );
@@ -512,11 +529,11 @@ fn piece(value: &Piece) -> Span<'_> {
 
 /// Adapt semantic field content to the generic widget; search syntax and theme
 /// selection stay in the command frontend rather than leaking into the widget.
-fn field_text<'a>(query: &filter::Query, column: Column, pieces: &'a [Piece]) -> MatchedText<'a> {
+fn field_text<'a>(query: &filter::Filter, column: Column, row: &'a Row) -> MatchedText<'a> {
+    let pieces = &row.cells[column.position()];
     let spans: Vec<_> = pieces.iter().map(piece).collect();
-    let text: String = pieces.iter().map(|piece| piece.text.as_str()).collect();
     MatchedText::new(Line::from(spans))
-        .matches(query.ranges(column, &text))
+        .matches(query.ranges(row, column))
         .match_style(style(Role::Secondary))
         .ellipsis_style(style(Role::Muted))
 }

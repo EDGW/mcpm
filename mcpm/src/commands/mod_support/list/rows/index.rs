@@ -25,7 +25,20 @@ pub(super) enum Value {
 }
 
 /// Anchor the first item after the file number; deeper ancestors use two spaces.
-pub(super) fn align(rows: &mut [Row]) {
+pub(in crate::commands::mod_support::list) fn align(rows: &mut [Row]) {
+    // Filtering may remove the row that originally supplied a shared prefix.
+    // Recalculate sharing from the rows that will actually be displayed.
+    let mut previous = Vec::new();
+    for row in rows.iter_mut() {
+        if let Value::Tree { parts, shared, .. } = &mut row.index_labels {
+            *shared = previous
+                .iter()
+                .zip(parts.iter())
+                .take_while(|(left, right)| left == right)
+                .count();
+            previous.clone_from(parts);
+        }
+    }
     let file_width = rows
         .iter()
         .filter_map(|row| match &row.index_labels {
