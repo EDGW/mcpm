@@ -32,7 +32,14 @@ printf '%s\n' create ZzjhlDgM | mcpm server mods source files --source modrinth
 ```
 
 Search and single-project files use the TUI when all streams are terminals.
-Enter opens the selected project's files with the same compatibility filters;
+The search field stays at the top: press `/` to edit, Enter to submit a new
+search from the first page, or Esc to discard edits. Tab / Shift+Tab switches
+between Search, Results, and the bottom Details panel. Results follows the mod list
+layout and shows only Project Name (Primary Color) and slug (Secondary Color).
+Details follows the selection and shows the full summary, source, ID, slug, and
+project URL. Name and slug retain their primary and secondary colors; sources use
+the configured CurseForge / Modrinth colors, and IDs are dimmed. Focus Details and
+use arrows or PageUp/PageDown to scroll. Enter on a result opens its files with the same compatibility filters;
 Esc returns to search. Multiple projects, `-N/--no-ui`, explicit columns, or
 redirected streams use list output. Sorting, pagination, and file release filters
 work like `mcpm mod source`.

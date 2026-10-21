@@ -29,8 +29,14 @@ mcpm server mods source files create --source modrinth --game-version 1.21.1
 printf '%s\n' create ZzjhlDgM | mcpm server mods source files --source modrinth
 ```
 
-终端中 search 和单项目 files 默认使用 TUI。搜索界面按 Enter 进入选中项目的 files，
-保留兼容性过滤；Esc 返回搜索。多项目、`-N/--no-ui`、指定列或流重定向时使用列表。
+终端中 search 和单项目 files 默认使用 TUI。搜索界面顶部始终显示搜索框，按 `/`
+进入编辑，修改后按 Enter 才重新搜索，并回到第一页；Esc 放弃修改。Tab / Shift+Tab
+切换搜索框、结果列表和底部 Details。结果列表参考 mod list 的布局，仅显示
+Project Name（Primary Color）和 slug（Secondary Color）。Details 随选中项目显示
+完整简介、来源、ID、slug 和项目地址；名称和 slug 沿用主色和附色，来源使用对应
+CurseForge / Modrinth 色，ID 使用 dimmed。聚焦 Details 后用方向键或 PageUp/PageDown 滚动。
+选中结果时按 Enter 进入项目的 files，保留兼容性过滤；Esc 返回搜索。
+多项目、`-N/--no-ui`、指定列或流重定向时使用列表。
 排序、翻页和发布类型过滤沿用 `mcpm mod source`。
 
 单项目可用 `--selected FILE_ID` 按 ID 直接获取文件，并在顶部的 `Selected` 区域显示，
