@@ -18,7 +18,9 @@ use ratatui::{
         Block, Cell, List, ListItem, ListState, Padding, Paragraph, Row as TableRow, Table, Wrap,
     },
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
+
+use crate::widgets::{MatchedText, Overflow};
 
 pub(super) fn draw(
     frame: &mut Frame,
@@ -250,6 +252,7 @@ fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[C
     let expanded: Vec<_> = (0..browser.nodes.len())
         .map(|index| browser.is_expanded(index))
         .collect();
+    let query = filter::Query::parse(&browser.query);
     let spinner = browser.spinner();
     let rows = browser
         .matches
@@ -271,8 +274,12 @@ fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[C
                     0
                 };
                 let mut spans = vec![Span::raw(" ".repeat(indent))];
-                spans.extend(node.row.cells[column.position()].iter().map(piece));
-                let first = short_line(spans, area.width as usize);
+                spans.extend(
+                    field_text(&query, column, &node.row.cells[column.position()])
+                        .line(area.width as usize - indent)
+                        .spans,
+                );
+                let first = Line::from(spans);
                 if column == Column::Index && node.outer {
                     let badges = identify::Platform::ALL
                         .into_iter()
@@ -343,14 +350,15 @@ fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[C
             if y >= inner.bottom() {
                 break;
             }
-            let spans = browser.nodes[index].row.cells[Column::Filename.position()]
-                .iter()
-                .map(piece)
-                .collect();
+            let text = field_text(
+                &query,
+                Column::Filename,
+                &browser.nodes[index].row.cells[Column::Filename.position()],
+            );
             let selected = browser.focus == Focus::Mods
                 && browser.table.selected() == Some(browser.table.offset() + offset);
             frame.render_widget(
-                Paragraph::new(short_line(spans, file_width as usize)).style(if selected {
+                Paragraph::new(text.line(file_width as usize)).style(if selected {
                     widgets::selection()
                 } else {
                     Style::default()
@@ -424,6 +432,7 @@ fn draw_details(frame: &mut Frame, area: Rect, browser: &mut Browser, summary: &
         );
         return;
     };
+    let query = filter::Query::parse(&browser.query);
     let items = DETAIL_FIELDS
         .iter()
         .map(|&field| {
@@ -436,7 +445,12 @@ fn draw_details(frame: &mut Frame, area: Rect, browser: &mut Browser, summary: &
             )];
             match field {
                 DetailField::Column(column) => {
-                    spans.extend(node.row.cells[column.position()].iter().map(piece));
+                    let label_width = spans.iter().map(Span::width).sum::<usize>();
+                    spans.extend(
+                        field_text(&query, column, &node.row.cells[column.position()])
+                            .line((inner.width as usize).saturating_sub(label_width))
+                            .spans,
+                    );
                 }
                 DetailField::Source(platform) => {
                     let state = &browser.identification[node.file][platform.index()];
@@ -496,40 +510,23 @@ fn piece(value: &Piece) -> Span<'_> {
     )
 }
 
-/// Keep styled fragments within their shared cell, reserving room for ASCII ellipsis.
-fn short_line(spans: Vec<Span<'_>>, width: usize) -> Line<'_> {
-    let actual: usize = spans
-        .iter()
-        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
-        .sum();
-    if actual <= width {
-        return Line::from(spans);
-    }
-    let dots = width.min(3);
-    let mut remaining = width.saturating_sub(dots);
-    let mut result = Vec::new();
-    for span in spans {
-        if remaining == 0 {
-            break;
-        }
-        let mut text = String::new();
-        let mut clipped = false;
-        for ch in span.content.chars() {
-            let used = ch.width().unwrap_or(0);
-            if used > remaining {
-                clipped = true;
-                break;
-            }
-            text.push(ch);
-            remaining -= used;
-        }
-        result.push(Span::styled(text, span.style));
-        if clipped {
-            break;
-        }
-    }
-    result.push(Span::styled(".".repeat(dots), style(Role::Muted)));
-    Line::from(result)
+/// Adapt semantic field content to the generic widget; search syntax and theme
+/// selection stay in the command frontend rather than leaking into the widget.
+fn field_text<'a>(query: &filter::Query, column: Column, pieces: &'a [Piece]) -> MatchedText<'a> {
+    let spans: Vec<_> = pieces.iter().map(piece).collect();
+    let text: String = pieces.iter().map(|piece| piece.text.as_str()).collect();
+    MatchedText::new(Line::from(spans))
+        .matches(query.ranges(column, &text))
+        .match_style(style(Role::Secondary))
+        .ellipsis_style(style(Role::Muted))
+}
+
+/// Non-search labels share the same Unicode-safe clipping implementation.
+fn short_line(spans: Vec<Span<'_>>, width: usize) -> Line<'static> {
+    MatchedText::new(Line::from(spans))
+        .overflow(Overflow::Ellipsis)
+        .ellipsis_style(style(Role::Muted))
+        .line(width)
 }
 
 pub(super) fn label(column: Column) -> &'static str {

@@ -6,6 +6,7 @@ mod diagnostics;
 mod logging;
 mod terminal;
 mod theme;
+mod widgets;
 
 use std::process::ExitCode;
 

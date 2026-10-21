@@ -239,6 +239,68 @@ fn scoped_filters_exclude_indices_and_keep_phrases_until_the_next_at() {
 }
 
 #[test]
+fn scoped_hits_remain_visible_and_styled_in_file_rows_and_details_without_changing_copy_values() {
+    use crate::theme::{Role, widgets};
+    use ratatui::style::Modifier;
+    use unicode_width::UnicodeWidthStr;
+    let mut browser = fixture(false);
+    let name = "AABBCC plain-name";
+    let filename = format!("Create-{}-XXXXAABBCC-suffix.jar", "long-prefix-".repeat(12));
+    browser.nodes[0].row.cells[Column::Name.position()] =
+        vec![rows::Piece::new(name, rows::Paint::Plain)];
+    browser.nodes[0].row.cells[Column::Filename.position()] =
+        vec![rows::Piece::new(&filename, rows::Paint::Role(Role::Muted))];
+    browser.query = "@file AABBCC".into();
+    browser.filter();
+    assert_eq!(browser.matches, vec![0]);
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|frame| {
+            view::draw(frame, &mut browser, &Column::ALL, &summary());
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let row_text = |y| {
+        (0..100)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect::<String>()
+    };
+    let name_row = browser.table_area.y + 3;
+    let file_row = name_row + 1;
+    let details_file = (browser.detail_area.y..browser.detail_area.bottom())
+        .find(|&y| row_text(y).contains("File: "))
+        .unwrap();
+    for y in [name_row, file_row, details_file] {
+        let text = row_text(y);
+        let start = text
+            .find("AABBCC")
+            .expect("the complete hit must survive truncation");
+        let x = text[..start].width() as u16;
+        let cell = &buffer[(x, y)];
+        if y == name_row {
+            assert!(
+                !cell.modifier.contains(Modifier::BOLD),
+                "@file must not highlight Name"
+            );
+        } else {
+            assert_eq!(
+                cell.fg,
+                widgets::style(Role::Secondary).fg.unwrap_or_default()
+            );
+            assert!(cell.modifier.contains(Modifier::BOLD));
+            assert!(!cell.modifier.contains(Modifier::DIM));
+            assert!(text.contains("..."));
+        }
+    }
+    assert_eq!(
+        browser
+            .detail_value(DetailField::Column(Column::Filename))
+            .unwrap(),
+        filename
+    );
+}
+
+#[test]
 fn filter_card_keys_keep_text_and_highlight_scopes_and_values_separately() {
     use crate::theme::{Role, widgets};
     use crossterm::event::{KeyCode, KeyEvent};

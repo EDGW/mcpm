@@ -23,6 +23,7 @@ tokio = { version = "1", features = ["rt", "net", "time", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi", "registry"] }
 unicode-width = "0.2"
+unicode-segmentation = "1"
 tempfile = "3"
 textwrap = { version = "0.16", features = ["terminal_size"] }
 

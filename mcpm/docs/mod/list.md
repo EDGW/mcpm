@@ -58,6 +58,13 @@ Left/Right, Space, mouse arrows and `e` still control branches while filtering.
 These manual overrides take priority over automatic expansion and last until the
 branch leaves the search results; clearing the filter restores the normal tree.
 
+Matched text uses the secondary color and reverses its original bold weight:
+normal text becomes bold, while already bold text becomes regular. If a hit would
+be hidden by truncation, the cell keeps its beginning and shows context around the
+first hit, separated by ellipses. The complete hit takes priority over context;
+only hits wider than the available cell width are shortened. This applies to the
+table, the File line and Details; copying still uses the complete original value.
+
 Filter updates live. Enter applies and returns focus to Mods; Esc or uppercase
 `Q` closes the Filter card while retaining its conditions. Lowercase `q` is
 ordinary filter text. `r` outside the filter clears it. Tab/Shift-Tab cycles
