@@ -75,9 +75,9 @@ mcpm mod list -- -leading-dash.jar
 | --- | --- |
 | `-F, --filter <FILTER>` | 使用共享的 [Filter 类型](filter.md) 筛选输出，并设置 TUI Filter 卡片的可编辑初始条件。 |
 | `--no-ui` | 使用 Console 列表，不打开 TUI。 |
-| `--parallelism <COUNT>` | 外层 JAR 加载并行度，默认 10，必须为正整数；所有模式生效，SSH 时传给远端。 |
-| `--identify-parallelism <COUNT>` | TUI 平台反查并行度，默认 10，必须为正整数。Console 和 Raw 忽略此项。 |
-| `--expanded` | 显示全部 Mod 声明，包括已识别的嵌套 Mod。在终端输出中还列出因 Loader 筛选而跳过的文件名。 |
+| `-p, --parallelism <COUNT>` | 外层 JAR 加载并行度，默认 10，必须为正整数；所有模式生效，SSH 时传给远端。 |
+| `-P, --identify-parallelism <COUNT>` | TUI 平台反查并行度，默认 10，必须为正整数。Console 和 Raw 忽略此项。 |
+| `-E, --expanded` | 显示全部 Mod 声明，包括已识别的嵌套 Mod。在终端输出中还列出因 Loader 筛选而跳过的文件名。 |
 | `--index-type <TYPE>` | `flat`（默认）显示完整且左对齐的编号；`tree` 对齐文件编号后的第一项，其余层级紧凑缩进，并缩进嵌套 Mod 名称。 |
 | `--width <WIDTH>` | 覆盖 Console 排版宽度，范围为 1–65535 列。TUI、原始输出或重定向时忽略此选项。 |
 | `--path-style <STYLE>` | 使用 `inner`、`full`（默认）或 `outer` 格式化嵌套归档路径，详见[归档路径样式](README.md#归档路径样式)。 |

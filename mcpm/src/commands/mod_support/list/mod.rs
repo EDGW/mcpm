@@ -40,6 +40,7 @@ pub(in crate::commands) struct ListDisplayArgs {
     no_ui: bool,
     /// TUI only: maximum simultaneous source lookups; ignored by Console and Raw.
     #[arg(
+        short = 'P',
         long,
         default_value_t = std::num::NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(),
         value_name = "COUNT",
@@ -47,7 +48,7 @@ pub(in crate::commands) struct ListDisplayArgs {
     )]
     identify_parallelism: std::num::NonZeroUsize,
     /// Expand all branches in TUI; print every mod declaration in Console and Raw. Console also lists ignored filenames.
-    #[arg(long, help_heading = "Style options")]
+    #[arg(short = 'E', long, help_heading = "Style options")]
     expanded: bool,
     /// Index layout: full indices or aligned first items with compact nesting and indented names.
     #[arg(
@@ -71,7 +72,7 @@ pub(in crate::commands) struct ListDisplayArgs {
 #[derive(Args, Debug)]
 pub(in crate::commands) struct ListLoadingArgs {
     /// Maximum simultaneous outer-JAR inspections, locally or on the SSH host.
-    #[arg(long, default_value_t = std::num::NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(), value_name = "COUNT", help_heading = "Loading options")]
+    #[arg(short = 'p', long, default_value_t = std::num::NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(), value_name = "COUNT", help_heading = "Loading options")]
     parallelism: std::num::NonZeroUsize,
 }
 impl ListLoadingArgs {

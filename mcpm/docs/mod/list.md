@@ -175,9 +175,9 @@ mcpm mod list -- -leading-dash.jar
 | --- | --- |
 | `-F, --filter <FILTER>` | Filter rows using the shared [Filter type](filter.md); initializes the editable TUI Filter card. |
 | `--no-ui` | Print the Console list instead of opening the TUI. |
-| `--parallelism <COUNT>` | Maximum simultaneous outer-JAR inspections (default: 10; must be positive). Applies to all modes and is sent to the remote file host with SSH. |
-| `--identify-parallelism <COUNT>` | Maximum simultaneous provider lookups in TUI (default: 10; must be positive). Ignored by Console and Raw. |
-| `--expanded` | Show every mod declaration, including recognized nested mods. In terminal output, also list filenames skipped by loader filtering. |
+| `-p, --parallelism <COUNT>` | Maximum simultaneous outer-JAR inspections (default: 10; must be positive). Applies to all modes and is sent to the remote file host with SSH. |
+| `-P, --identify-parallelism <COUNT>` | Maximum simultaneous provider lookups in TUI (default: 10; must be positive). Ignored by Console and Raw. |
+| `-E, --expanded` | Show every mod declaration, including recognized nested mods. In terminal output, also list filenames skipped by loader filtering. |
 | `--index-type <TYPE>` | Use `flat` (default) for full, left-aligned indices, or `tree` to align the first item after file numbers, with compact nesting and nested name indentation. |
 | `--width <WIDTH>` | Override Console layout width, from 1 to 65535 columns. Ignored by TUI, raw or redirected output. |
 | `--path-style <STYLE>` | Format nested archive paths as `inner`, `full` (default), or `outer`. See [Archive path styles](README.md#archive-path-styles). |

@@ -11,7 +11,7 @@ mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' mod source identify --sou
 
 `--source` 接受 `modrinth`、`curseforge`（Curse.tools）或 `curseforge@KEY`（官方 API）。路径是字面文件路径；stdin 每行追加一个路径。SSH 下路径属于远端，文件读取与摘要计算由远端执行，只传回文件大小、SHA-1、所需的 MurmurHash2 指纹及读取错误。本地完成平台 HTTP 请求和匹配验证，沿用本地代理与 API key，不传输 JAR 内容。
 
-`--parallelism <COUNT>` 必须为正整数，默认 `10`，与 `mod list --identify-parallelism` 共用默认值。并发任务完成后立即推进 stderr 进度条，样式沿用 mod list；结果及逐项错误始终按输入顺序输出。`--parallelism 1` 顺序检查。重复物理路径共享查询，但每个原始输入仍保留自己的输出位置。`--raw` 关闭进度条，stdout 重定向时结果使用 TSV，进度条是否显示由 stderr 的终端状态决定。
+`-p/--parallelism <COUNT>` 必须为正整数，默认 `10`，与 `mod list --identify-parallelism` 共用默认值。并发任务完成后立即推进 stderr 进度条，样式沿用 mod list；结果及逐项错误始终按输入顺序输出。`--parallelism 1` 顺序检查。重复物理路径共享查询，但每个原始输入仍保留自己的输出位置。`--raw` 关闭进度条，stdout 重定向时结果使用 TSV，进度条是否显示由 stderr 的终端状态决定。
 
 未匹配输出 `unmatched`，匹配成功输出 `matched`。单项读取或请求失败不会阻止后续输入，错误保留逐级 `caused by:`，最终退出码为非零；远端读取错误标记为 `remote error:`，本地平台查询错误使用 `error:`。
 

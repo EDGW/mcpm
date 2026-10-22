@@ -41,7 +41,7 @@ pub(in crate::commands) struct IdentifyOptions {
     #[arg(long, value_name = "SOURCE")]
     source: String,
     /// Maximum simultaneous file lookups; results retain input order.
-    #[arg(long, default_value_t = NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(), value_name = "COUNT")]
+    #[arg(short = 'p', long, default_value_t = NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(), value_name = "COUNT")]
     parallelism: NonZeroUsize,
     #[command(flatten)]
     columns: columns::ColumnArgs,

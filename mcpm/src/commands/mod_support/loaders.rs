@@ -11,10 +11,11 @@ use kako_mods_lib::local::{
 #[derive(Args, Debug)]
 pub(in crate::commands) struct LoaderArgs {
     /// Select one loader; repeat to select multiple loaders.
-    #[arg(long = "loader", value_enum, value_name = "LOADER")]
+    #[arg(short = 'l', long = "loader", value_enum, value_name = "LOADER")]
     loader: Vec<Loader>,
     /// Select comma-separated loaders; combined with all --loader options.
     #[arg(
+        short = 'L',
         long = "loaders",
         value_enum,
         value_delimiter = ',',

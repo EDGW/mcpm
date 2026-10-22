@@ -35,8 +35,8 @@ See [SSH listing](list.md#ssh-listing) for transport and presentation behavior.
 
 | Option | Description |
 | --- | --- |
-| `--loader <LOADER>` | Select one loader. Repeat to select more than one. |
-| `--loaders <LOADERS>` | Select comma-separated loaders. Repeat or combine with `--loader`. |
+| `-l, --loader <LOADER>` | Select one loader. Repeat to select more than one. |
+| `-L, --loaders <LOADERS>` | Select comma-separated loaders. Repeat or combine with `--loader`. |
 
 Accepted values are `forge`, `neoforge`, and `fabric`.
 Without either option, all three loaders are attempted. Selections are combined

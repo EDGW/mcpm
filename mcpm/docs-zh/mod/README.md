@@ -32,8 +32,8 @@ mcpm mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw
 
 | 选项 | 说明 |
 | --- | --- |
-| `--loader <LOADER>` | 选择一个 Loader，可重复指定。 |
-| `--loaders <LOADERS>` | 选择以逗号分隔的多个 Loader，可重复指定或与 `--loader` 组合使用。 |
+| `-l, --loader <LOADER>` | 选择一个 Loader，可重复指定。 |
+| `-L, --loaders <LOADERS>` | 选择以逗号分隔的多个 Loader，可重复指定或与 `--loader` 组合使用。 |
 
 可用值为 `forge`、`neoforge` 和 `fabric`。不指定时尝试全部三个 Loader。多个选择取并集并去重，记录按内置顺序显示：Forge、NeoForge、Fabric。
 
