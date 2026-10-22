@@ -7,7 +7,7 @@ ssh -T user@host mcpm remote
 ssh -T user@windows C:/mcpm.exe remote
 ```
 
-双向使用 UTF-8 NDJSON，每条消息是一个单行 JSON 加换行，写完立即刷新。字符串内换行由 JSON 转义。stdout 仅包含协议，stderr 用于诊断，无颜色或终端界面。
+双向使用 UTF-8 NDJSON，每条消息是一个单行 JSON 加换行，写完立即刷新。字符串内换行由 JSON 转义。stdout 仅包含协议，正常运行时日志通过独立日志会话传输；stderr 仅保留启动或连接失败诊断，无颜色或终端界面。
 
 ## Command ID、调用会话 GUID 与统一回复
 
@@ -41,7 +41,7 @@ ssh -T user@windows C:/mcpm.exe remote
 先等待握手：
 
 ```json
-{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":1,"commands":["mod.list"],"max_concurrency":8}}
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":2,"commands":["mod.list"],"max_concurrency":8}}
 ```
 
 调用方检查版本与需要的 command ID。支持能力来自 initcall 注册表，不从 CLI 子命令推断。目前只有 mod list 注册。
@@ -50,7 +50,23 @@ ssh -T user@windows C:/mcpm.exe remote
 
 `mcpm remote --max-concurrency 8` 设置并发上限，默认 8。超出上限的新调用返回 `busy` 全局错误，稍后可以用新的 request GUID 重试。
 
-关闭 stdin 表示不再提交请求。服务端先完成所有已接收任务，再发送全零 GUID 的 closed 回复并成功退出，即使此前有调用失败。丢弃本地 Session 会关闭并回收子进程。
+关闭 stdin 表示不再提交请求。服务端先完成所有已接收任务，再发送全零 GUID 的 closed 回复并成功退出，即使此前有调用失败。丢弃本地 Session 会关闭并回收子进程。 Session 关闭时以 info 日志报告 `stdin_bytes`（本地发送）、`stdout_bytes`（本地接收）和 `total_bytes`。统计包含握手、命令、日志、控制帧和换行的实际 UTF-8 字节，不含 SSH 协议开销或 stderr；异常退出也会报告一次。
+
+## 远端日志会话
+
+本地 Session 验证 Ready 后自动生成一个新的 UUID v4，建立独立日志会话，同时传递本地 `--log-level`：
+
+```json
+{"logs":{"guid":"d1342616-87f2-4846-afb8-0d21c9bbc035","level":"debug"}}
+{"guid":"d1342616-87f2-4846-afb8-0d21c9bbc035","status":"ready","contents":null}
+{"guid":"d1342616-87f2-4846-afb8-0d21c9bbc035","status":"data","contents":{"level":"debug","target":"mcpm::remote::server","fields":{"message":"Received remote command"},"spans":[]}}
+```
+
+日志是 Remote 的连接级能力，不注册为业务命令，也不占用命令并发额度。同一连接只允许订阅一次，GUID 不能为零或与任何调用复用。日志保留级别、模块、字段和 span；命令 span 包含对应调用 GUID，允许追踪并行命令。
+
+终端按本地 `--log-level` 过滤，远端日志的 `INFO`、`DEBUG` 等级别标签采用斜体，不添加前缀。Raw、重定向或 `NO_COLOR` 下不输出样式。文件日志仍至少保留到 debug，因此即使终端为 off 也会传输 debug 日志；trace 仅在选择 trace 时传输，日志文件仍固定记录到 debug。远端也保留自己的日志文件。
+
+订阅前缓存最近 256 条启动日志，超过上限时附带丢弃数量警告。关闭 stdin 后先排空命令，再排空日志，发送日志 GUID 的 finished，最后发送全零 GUID 的 closed。本地 TUI 打开期间延迟终端日志显示，关闭面板后输出；文件日志持续写入。当前协议版本为 2，调用方和远端需同时更新。
 
 ## 全局错误与取消
 
@@ -95,7 +111,7 @@ Remote 解码全局错误，不把它作为业务 contents 交给命令：
 
 每项加载完成立即发送 item，同时推进进度；必须恰好 count 条，index 从 0 连续递增。成功、失败、未识别均保留且仅保留一条记录；重复路径分别处理，空目录贡献零项，无法解析的输入路径贡献一条失败记录。文件失败不停止其他项，使 done.success 为 false。取消和传输异常可能使结果不完整。
 
-record 包含 path、name、enabled、status、metadata、errors。输入失败时 name/enabled 为 null；status 为 success、unrecognized、failed。metadata 包含 loader、mods 与递归 nested；errors 包含 loader（输入错误时为 null）和 message。文件内多个声明、Loader、嵌套 JAR 和部分成功结果都保留在同一条记录中。
+record 包含 path、name、enabled、status、metadata、errors。输入失败时 name/enabled 为 null；status 为 success、unrecognized、failed。metadata 包含 loader、mods 与递归 nested；errors 包含 loader（输入错误时为 null）、message 和按外层到根因排序的 causes 数组。本地用 `remote error:` 输出主错误，用缩进的 `caused by:` 逐层输出原因，不把整条错误链压成单行字符串。文件内多个声明、Loader、嵌套 JAR 和部分成功结果都保留在同一条记录中。
 
 ## 模块注册与 SSH
 

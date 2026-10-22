@@ -40,6 +40,7 @@ impl SshArgs {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
     pub(crate) fn command(&self) -> Result<Command> {
         self.validate()?;
         let connection = self
@@ -49,10 +50,11 @@ impl SshArgs {
         let executable = self.ssh_mcpm.as_deref().unwrap_or("mcpm");
         // Only the executable and a fixed subcommand cross the shell boundary.
         // Command arguments travel as JSON over the session's stdin.
-        let remote = if executable.contains('\\')
+        let windows = executable.contains('\\')
             || executable.as_bytes().get(1) == Some(&b':')
-            || executable.ends_with(".exe")
-        {
+            || executable.ends_with(".exe");
+        tracing::debug!(executable, windows, "Preparing remote mcpm invocation");
+        let remote = if windows {
             windows::command(&[executable, "remote"])?
         } else {
             shlex::try_join([executable, "remote"])
@@ -60,6 +62,7 @@ impl SshArgs {
         };
         let mut command = connection::command(connection)?;
         command.arg(remote);
+        tracing::debug!("Prepared non-PTY SSH command for persistent mcpm session");
         Ok(command)
     }
 }

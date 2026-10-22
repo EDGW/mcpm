@@ -38,25 +38,42 @@ pub(super) struct ListArgs {
     loaders: LoaderArgs,
 }
 
+#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+    let started = std::time::Instant::now();
+    let _span = tracing::info_span!(
+        "mod_list",
+        source = if ssh.is_requested() { "ssh" } else { "local" }
+    )
+    .entered();
+    tracing::info!("Starting mod list");
+    debug!(loaders = ?args.loaders, display = ?args.display, "Selected mod list options");
     ssh.validate()?;
     let mut paths = stdin::append(args.paths)?;
     if paths.is_empty() {
         paths.push(PathBuf::from("."));
     }
-    if ssh.is_requested() {
+    debug!(?paths, "Resolved mod list input paths");
+    let result = if ssh.is_requested() {
         debug!("Dispatching remote mod.list request over SSH");
-        return self::ssh::run(ssh, paths, args.loaders, args.display);
-    }
-    debug!("Dispatching local mod.list request locally");
-    let inputs = paths.into_iter().map(|path| {
-        let context = format!("failed to read list input {path:?}");
-        input::read(path).context(context)
-    });
-    list::run(
-        inputs,
-        args.loaders.select(),
-        args.loaders.is_filtered(),
-        args.display,
-    )
+        self::ssh::run(ssh, paths, args.loaders, args.display)
+    } else {
+        debug!("Dispatching local mod.list request locally");
+        let inputs = paths.into_iter().map(|path| {
+            let context = format!("failed to read list input {path:?}");
+            input::read(path).context(context)
+        });
+        list::run(
+            inputs,
+            args.loaders.select(),
+            args.loaders.is_filtered(),
+            args.display,
+        )
+    };
+    tracing::info!(
+        success = result.is_ok(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "Mod list ended"
+    );
+    result
 }

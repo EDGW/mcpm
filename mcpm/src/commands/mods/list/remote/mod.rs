@@ -20,15 +20,21 @@ impl Command for List {
     const ID: &'static str = "mod.list";
 
     fn run(contents: Value, output: &Output) -> Result<()> {
+        let started = std::time::Instant::now();
+        tracing::info!("Starting remote mod list loading");
         let mut args: Args = match serde_json::from_value(contents) {
             Ok(args) => args,
             Err(error) => {
+                tracing::debug!(%error, "Rejected invalid mod list arguments");
                 output.send(Contents::Error {
-                    message: format!("invalid list arguments: {error}"),
+                    error: crate::diagnostics::ErrorReport::capture(
+                        &anyhow::Error::from(error).context("invalid list arguments"),
+                    ),
                 })?;
                 return output.send(Contents::Done { success: false });
             }
         };
+        tracing::debug!(?args, "Decoded remote mod list arguments");
         let mut selected = if args.loaders.is_empty() {
             BUILTIN_LOADERS.clone()
         } else {
@@ -52,9 +58,14 @@ impl Command for List {
                         .into_iter()
                         .map(|entry| (entry.path().to_owned(), Ok(entry))),
                 ),
-                Err(error) => inputs.push((path, Err(error))),
+                Err(error) => {
+                    tracing::debug!(path = %path.display(), error = %format_args!("{error:#}"), "Retaining failed input as a mod list record");
+                    inputs.push((path, Err(error)));
+                }
             }
         }
+        let count = inputs.len();
+        tracing::info!(count, "Remote mod list input discovery completed");
         output.send(Contents::Count {
             count: inputs.len(),
         })?;
@@ -62,10 +73,18 @@ impl Command for List {
         for (index, (path, entry)) in inputs.into_iter().enumerate() {
             output.checkpoint()?;
             let record = Record::load(path, entry, &selected);
+            tracing::debug!(index, count, path = %record.path, status = ?record.status, errors = record.errors.len(), "Loaded remote mod record");
             success &= record.status != Status::Failed;
             output.send(Contents::Item { index, record })?;
         }
-        output.send(Contents::Done { success })
+        output.send(Contents::Done { success })?;
+        tracing::info!(
+            count,
+            success,
+            elapsed_ms = started.elapsed().as_millis(),
+            "Remote mod list loading completed"
+        );
+        Ok(())
     }
 }
 

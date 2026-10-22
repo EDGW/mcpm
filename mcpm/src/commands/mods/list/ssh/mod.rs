@@ -13,19 +13,34 @@ use crate::ssh::SshArgs;
 mod read;
 mod records;
 
+#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(
     ssh: SshArgs,
     paths: Vec<PathBuf>,
     loaders: LoaderArgs,
     display: ListDisplayArgs,
 ) -> Result<()> {
+    let started = std::time::Instant::now();
+    tracing::info!("Opening SSH data source for mod list");
     let mut session =
         Session::start(&mut ssh.command()?).context("failed to open SSH mcpm session")?;
     let progress = Progress::new();
     let (records, success) = read::read(&session, request(paths, &loaders)?, &progress)
         .context("invalid remote mod list protocol")?;
     drop(progress);
+    tracing::info!(
+        records = records.len(),
+        success,
+        elapsed_ms = started.elapsed().as_millis(),
+        "Received SSH mod list data"
+    );
     let loaded = records::convert(records)?;
+    tracing::debug!(
+        files = loaded.files.len(),
+        input_errors = loaded.input_errors,
+        failed = loaded.failed,
+        "Converted remote records for local presentation"
+    );
     if success == loaded.has_errors() {
         bail!("remote mod list completion status disagrees with its records");
     }
@@ -40,6 +55,7 @@ pub(super) fn run(
     } else {
         Vec::new()
     };
+    tracing::debug!("Presenting remote mod list locally");
     let result = list::present(
         loaded.files,
         loaders.is_filtered(),
@@ -50,6 +66,11 @@ pub(super) fn run(
         false,
     );
     session.close()?;
+    tracing::info!(
+        success = result.is_ok(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "SSH mod list ended"
+    );
     result
 }
 

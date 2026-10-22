@@ -29,20 +29,39 @@ impl Loaded {
     }
 }
 
+#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn convert(records: Vec<Record>) -> Result<Loaded> {
+    tracing::debug!(count = records.len(), "Converting remote mod records");
     let mut loaded = Loaded {
         files: Vec::new(),
         input_errors: 0,
         failed: 0,
     };
-    for record in records {
+    for mut record in records {
+        tracing::trace!(path = %record.path, status = ?record.status, "Converting remote mod record");
         ensure!(
             (record.status == Status::Failed) != record.errors.is_empty(),
             "remote record status and errors disagree for {:?}",
             record.path
         );
-        for error in &record.errors {
-            crate::diagnostics::error(&anyhow::anyhow!("{}: {}", record.path, error.message));
+        let mut failures = Vec::new();
+        for error in std::mem::take(&mut record.errors) {
+            let source = error.error.into_error();
+            let reason = format!("{source:#}");
+            let diagnostic =
+                crate::diagnostics::RemoteError::wrap(source).context(record.path.clone());
+            crate::diagnostics::error(&diagnostic);
+            if record.name.is_some() {
+                failures.push(FailedIdentification {
+                    loader: loader(
+                        error
+                            .loader
+                            .as_deref()
+                            .context("missing loader ID in remote identification failure")?,
+                    )?,
+                    reason,
+                });
+            }
         }
         if record.name.is_none() {
             ensure!(
@@ -70,18 +89,6 @@ pub(super) fn convert(records: Vec<Record>) -> Result<Loaded> {
             .into_iter()
             .map(metadata)
             .collect::<Result<_>>()?;
-        let mut failures = Vec::new();
-        for error in record.errors {
-            failures.push(FailedIdentification {
-                loader: loader(
-                    error
-                        .loader
-                        .as_deref()
-                        .context("missing loader ID in remote identification failure")?,
-                )?,
-                reason: error.message,
-            });
-        }
         if record.status == Status::Failed {
             loaded.failed += 1;
         }
@@ -93,6 +100,12 @@ pub(super) fn convert(records: Vec<Record>) -> Result<Loaded> {
             records: None,
         });
     }
+    tracing::debug!(
+        files = loaded.files.len(),
+        input_errors = loaded.input_errors,
+        failed = loaded.failed,
+        "Remote mod records converted"
+    );
     Ok(loaded)
 }
 

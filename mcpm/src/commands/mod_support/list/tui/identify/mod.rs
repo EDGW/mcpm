@@ -9,6 +9,8 @@ use std::{
     },
 };
 
+use tracing::Instrument;
+
 use kako_mods_lib::source::{FileMatch, MatchedFileRole, Source};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,14 +86,22 @@ pub(super) struct Update {
 /// Runs on the TUI's runtime; dropping that runtime cancels pending network I/O.
 pub(super) fn start(paths: Vec<PathBuf>, parallelism: usize) -> Receiver<Update> {
     let (sender, receiver) = channel();
+    tracing::info!(
+        files = paths.len(),
+        parallelism,
+        "Starting mod source identification"
+    );
     tokio::spawn(async move {
         let sources = Platform::ALL.map(|platform| {
             crate::commands::source_support::build_source(platform.id())
                 .map(Arc::<dyn Source>::from)
                 .map_err(|error| format!("{error:#}"))
         });
+        for (platform, source) in Platform::ALL.into_iter().zip(&sources) {
+            if let Err(error) = source { tracing::debug!(platform = platform.id(), %error, "Source provider initialization failed"); }
+        }
         identify(paths, &sources, &sender, parallelism).await;
-    });
+    }.in_current_span());
     receiver
 }
 
@@ -102,6 +112,8 @@ async fn identify(
     sender: &Sender<Update>,
     parallelism: usize,
 ) {
+    let started = std::time::Instant::now();
+    let count = paths.len();
     let mut positions = HashMap::new();
     let mut jobs: Vec<(PathBuf, Vec<usize>)> = Vec::new();
     for (index, path) in paths.into_iter().enumerate() {
@@ -112,6 +124,11 @@ async fn identify(
         });
         jobs[position].1.push(index);
     }
+    tracing::debug!(
+        files = count,
+        unique_files = jobs.len(),
+        "Prepared source identification jobs"
+    );
     let mut jobs = jobs.into_iter().flat_map(|(path, files)| {
         Platform::ALL
             .into_iter()
@@ -135,26 +152,50 @@ async fn identify(
             }
             let source = sources[platform.index()].clone();
             let sender = sender.clone();
-            active.spawn(async move {
-                let state = match source {
-                    Ok(source) => match source.identify_file(&path).await {
-                        Ok(Some(found)) => State::Matched(found),
-                        Ok(None) => State::Unmatched,
-                        Err(error) => State::Failed(format!("{error:#}")),
-                    },
-                    Err(error) => State::Failed(error),
-                };
-                let _ = sender.send(Update {
-                    files,
-                    platform,
-                    state,
-                });
-            });
+            let span = tracing::debug_span!("identify_source", path = %path.display(), platform = platform.id());
+            active.spawn(
+                async move {
+                    let started = std::time::Instant::now();
+                    tracing::debug!("Looking up mod source");
+                    let state = match source {
+                        Ok(source) => match source.identify_file(&path).await {
+                            Ok(Some(found)) => State::Matched(found),
+                            Ok(None) => State::Unmatched,
+                            Err(error) => State::Failed(format!("{error:#}")),
+                        },
+                        Err(error) => State::Failed(error),
+                    };
+                    tracing::debug!(
+                        outcome = match &state {
+                            State::Matched(_) => "matched",
+                            State::Unmatched => "unmatched",
+                            State::Failed(_) => "failed",
+                            _ => "unexpected",
+                        },
+                        elapsed_ms = started.elapsed().as_millis(),
+                        "Mod source lookup completed"
+                    );
+                    if let State::Failed(error) = &state {
+                        tracing::debug!(%error, "Mod source lookup failed");
+                    }
+                    let _ = sender.send(Update {
+                        files,
+                        platform,
+                        state,
+                    });
+                }
+                .instrument(span),
+            );
         }
         if active.join_next().await.is_none() {
             break;
         }
     }
+    tracing::info!(
+        files = count,
+        elapsed_ms = started.elapsed().as_millis(),
+        "Mod source identification completed"
+    );
 }
 
 #[cfg(test)]

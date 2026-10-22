@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use uuid::Uuid;
 
-pub(super) const VERSION: u32 = 1;
+pub(super) const VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
@@ -23,36 +23,54 @@ pub(super) struct Cancel {
     pub cancel: Uuid,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub(super) enum Message {
+    Logs(Logs),
     Request(Request),
     Cancel(Cancel),
 }
 
+/// Built-in log subscription, separate from registered business commands.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Logs {
+    pub logs: LogRequest,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LogRequest {
+    pub guid: Uuid,
+    pub level: crate::logging::LogLevel,
+}
+
 /// Remote reply lifecycle status, serialized as a lowercase string on the wire.
 ///
-/// `Ready` and `Closed` use the nil GUID and apply to the connection. `Data` and
-/// `Finished` use the invocation GUID. `Error` can apply to either scope.
+/// `Closed` uses the nil GUID and applies to the connection. `Ready` acknowledges
+/// either the connection or a dedicated log subscription. `Data` and
+/// `Finished` use an invocation or log subscription GUID. `Error` can apply to either scope.
 /// Remote interprets control statuses and global errors; each command interprets
 /// its own `Data` payloads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Status {
-    /// The connection handshake is ready for validation before submitting commands.
+    /// The connection or dedicated logging session is ready.
     ///
     /// Uses the nil GUID. Contents contain the protocol version, registered string
     /// command IDs and concurrency limit. Clients must validate these before sending requests.
+    /// A non-nil GUID acknowledges a log subscription with null contents.
     Ready,
-    /// A command-defined message that does not end the invocation.
+    /// A command-defined message or structured log record that does not end its session.
     ///
-    /// Uses the invocation GUID. Contents can represent progress, results or business
+    /// Uses the invocation or log subscription GUID. Contents can represent progress, results or business
     /// errors. Messages remain ordered within an invocation but may interleave across invocations.
     Data,
     /// The invocation handler returned normally; no further replies follow for this invocation.
     ///
     /// Uses the invocation GUID with null contents. This indicates normal completion,
     /// not necessarily business success: commands express business outcomes in `Data`.
+    /// For a log subscription this ends forwarding before the connection sends `Closed`.
     Finished,
     /// A global error decoded by Remote, with [`GlobalError`] code/message contents.
     ///
@@ -105,6 +123,15 @@ impl Reply {
             contents: serde_json::json!({"code":code,"message":message.into()}),
         }
     }
+
+    pub(super) fn failure(guid: Uuid, code: ErrorCode, error: &anyhow::Error) -> Self {
+        let error = crate::diagnostics::ErrorReport::capture(error);
+        Self {
+            guid,
+            status: Status::Error,
+            contents: serde_json::json!({"code":code,"message":error.message,"causes":error.causes}),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -129,6 +156,26 @@ pub(crate) enum ErrorCode {
 pub(crate) struct GlobalError {
     pub code: ErrorCode,
     pub message: String,
+    #[serde(default)]
+    causes: Vec<String>,
+}
+
+impl GlobalError {
+    pub(super) fn into_remote(mut self) -> anyhow::Error {
+        let causes = std::mem::take(&mut self.causes);
+        let mut causes = causes.into_iter();
+        let error = if let Some(message) = causes.next() {
+            crate::diagnostics::ErrorReport {
+                message,
+                causes: causes.collect(),
+            }
+            .into_error()
+            .context(self)
+        } else {
+            self.into()
+        };
+        crate::diagnostics::RemoteError::wrap(error)
+    }
 }
 
 pub(super) fn write(writer: &mut (impl Write + ?Sized), value: &impl Serialize) -> Result<()> {

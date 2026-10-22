@@ -10,16 +10,26 @@ use kako_mods_lib::local::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::commands::mod_support::loaders;
+use crate::{commands::mod_support::loaders, diagnostics::ErrorReport};
 
 /// This payload schema belongs exclusively to the mod-list command.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub(in crate::commands::mods::list) enum Contents {
-    Count { count: usize },
-    Item { index: usize, record: Record },
-    Error { message: String },
-    Done { success: bool },
+    Count {
+        count: usize,
+    },
+    Item {
+        index: usize,
+        record: Record,
+    },
+    Error {
+        #[serde(flatten)]
+        error: ErrorReport,
+    },
+    Done {
+        success: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -38,6 +48,8 @@ impl Record {
         entry: Result<ModEntry>,
         selected_loaders: &HashMap<LoaderId, ModLoaderMeta>,
     ) -> Self {
+        let started = std::time::Instant::now();
+        tracing::debug!(path = %path.display(), "Identifying remote mod file");
         let mut record = Self {
             path: path.to_string_lossy().into_owned(),
             name: None,
@@ -50,9 +62,10 @@ impl Record {
             record.name = Some(entry.name().to_owned());
             record.enabled = Some(matches!(entry.status(), ModStatus::Enabled));
             mcmod::open(entry, selected_loaders.clone(), |_, loader, _, error| {
+                tracing::debug!(path = %record.path, loader = %loader.id(), error = %format_args!("{error:#}"), "Remote mod loader identification failed");
                 record.errors.push(LoadError {
                     loader: Some(loader.id().as_str().to_owned()),
-                    message: format!("{error:#}"),
+                    error: ErrorReport::capture(error),
                 });
                 IdentificationErrorAction::Skip
             })
@@ -69,12 +82,16 @@ impl Record {
                 };
                 record.metadata = file.metadata.into_iter().map(Metadata::from).collect();
             }
-            Err(error) => record.errors.push(LoadError {
-                loader: None,
-                message: format!("{error:#}"),
-            }),
+            Err(error) => {
+                tracing::debug!(path = %record.path, error = %format_args!("{error:#}"), "Remote mod input failed");
+                record.errors.push(LoadError {
+                    loader: None,
+                    error: ErrorReport::capture(&error),
+                });
+            }
         }
         record.errors.sort_by(|a, b| a.loader.cmp(&b.loader));
+        tracing::debug!(path = %record.path, status = ?record.status, elapsed_ms = started.elapsed().as_millis(), "Remote mod identification completed");
         record
     }
 }
@@ -120,5 +137,6 @@ pub(in crate::commands::mods::list) struct NestedMetadata {
 #[derive(Serialize, Deserialize, Debug)]
 pub(in crate::commands::mods::list) struct LoadError {
     pub(in crate::commands::mods::list) loader: Option<String>,
-    pub(in crate::commands::mods::list) message: String,
+    #[serde(flatten)]
+    pub(in crate::commands::mods::list) error: ErrorReport,
 }

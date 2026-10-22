@@ -5,6 +5,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail, ensure};
 
+#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn command(source: &str) -> Result<Command> {
     let words = shlex::split(source).context("invalid quoting in --ssh connection command")?;
     let executable = words.first().context("--ssh connection command is empty")?;
@@ -60,6 +61,12 @@ pub(super) fn command(source: &str) -> Result<Command> {
     );
     // -T must follow connection flags, so even bundled -tt cannot enable a PTY.
     command.args(["-T", "--"]).arg(destination);
+    tracing::debug!(
+        executable,
+        destination,
+        option_words = options.len(),
+        "Parsed SSH connection and disabled PTY allocation"
+    );
     Ok(command)
 }
 

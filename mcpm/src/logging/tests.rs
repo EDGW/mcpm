@@ -10,7 +10,12 @@ fn file_keeps_debug_and_errors_independently_of_console_level() {
         let console = tempfile::NamedTempFile::new().unwrap();
         let file = tempfile::NamedTempFile::new().unwrap();
         tracing::subscriber::with_default(
-            subscriber(level, console.reopen().unwrap(), file.reopen().unwrap()),
+            subscriber(
+                level,
+                console.reopen().unwrap(),
+                file.reopen().unwrap(),
+                false,
+            ),
             || {
                 tracing::debug!(value = 42, "debug detail");
                 tracing::warn!("warning detail");

@@ -8,6 +8,40 @@ use std::{
 use indicatif::MultiProgress;
 use tracing_subscriber::fmt::MakeWriter;
 
+static CONSOLE: Mutex<Console> = Mutex::new(Console {
+    depth: 0,
+    pending: Vec::new(),
+});
+
+#[derive(Debug)]
+struct Console {
+    depth: usize,
+    pending: Vec<u8>,
+}
+
+/// Delay terminal diagnostics while a full-screen interface owns the terminal.
+#[derive(Debug)]
+pub(crate) struct ConsoleGuard;
+
+pub(crate) fn pause_console() -> ConsoleGuard {
+    CONSOLE.lock().unwrap().depth += 1;
+    ConsoleGuard
+}
+
+impl Drop for ConsoleGuard {
+    fn drop(&mut self) {
+        let pending = {
+            let mut console = CONSOLE.lock().unwrap();
+            console.depth -= 1;
+            if console.depth != 0 {
+                return;
+            }
+            std::mem::take(&mut console.pending)
+        };
+        let _ = LogWriter.write_all(&pending);
+    }
+}
+
 static PROGRESS: Mutex<Option<MultiProgress>> = Mutex::new(None);
 
 /// Temporarily associates logging with the active progress display. Previous
@@ -43,6 +77,13 @@ impl<'a> MakeWriter<'a> for WriterFactory {
 
 impl Write for LogWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        {
+            let mut console = CONSOLE.lock().unwrap();
+            if console.depth > 0 {
+                console.pending.extend_from_slice(bytes);
+                return Ok(bytes.len());
+            }
+        }
         // Release our lock before calling indicatif; it serializes draw/writes.
         let display = PROGRESS
             .lock()

@@ -24,6 +24,7 @@ impl Registry {
             C::ID
         );
         self.handlers.insert(C::ID, C::run);
+        tracing::debug!(command = C::ID, "Registered remote command");
         Ok(())
     }
 

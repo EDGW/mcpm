@@ -2,11 +2,12 @@
 
 use std::time::Duration;
 
-use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 #[derive(Debug)]
 pub(in crate::commands) struct Progress {
     bar: ProgressBar,
+    _logs: crate::logging::ProgressGuard,
 }
 
 impl Progress {
@@ -17,12 +18,18 @@ impl Progress {
             ))
             .expect("scanning progress template must be valid"),
         );
+        let display = MultiProgress::with_draw_target(if crate::terminal::stderr_is_tty() {
+            ProgressDrawTarget::stderr_with_hz(10)
+        } else {
+            ProgressDrawTarget::hidden()
+        });
+        let bar = display.add(bar);
+        let logs = crate::logging::attach_progress(Some(display));
         if crate::terminal::stderr_is_tty() {
-            bar.set_draw_target(ProgressDrawTarget::stderr_with_hz(10));
             bar.enable_steady_tick(Duration::from_millis(100));
             bar.tick();
         }
-        Self { bar }
+        Self { bar, _logs: logs }
     }
 
     pub(in crate::commands) fn set_total(&self, total: usize) {
@@ -44,7 +51,11 @@ impl Progress {
     }
 
     pub(in crate::commands) fn report(&self, error: &anyhow::Error) {
-        self.bar.suspend(|| crate::diagnostics::error(error));
+        crate::logging::record_error(error);
+        if !crate::logging::stream::is_forwarding() {
+            self.bar
+                .suspend(|| crate::diagnostics::display_error(error));
+        }
     }
 }
 

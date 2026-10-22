@@ -37,6 +37,7 @@ impl std::fmt::Debug for Output {
 impl Output {
     pub(crate) fn checkpoint(&self) -> Result<()> {
         if self.cancelled.load(Ordering::Acquire) {
+            tracing::debug!(guid = %self.guid, "Remote command observed cancellation");
             return Err(Cancelled.into());
         }
         Ok(())
@@ -44,6 +45,7 @@ impl Output {
 
     pub(crate) fn send(&self, contents: impl Serialize) -> Result<()> {
         self.checkpoint()?;
+        tracing::trace!(guid = %self.guid, "Queueing remote command data");
         (self.send)(Reply::new(self.guid, Status::Data, contents)?)
     }
 }

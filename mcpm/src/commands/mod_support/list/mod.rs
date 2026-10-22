@@ -75,6 +75,8 @@ pub(in crate::commands) fn run(
     hide_unrecognized: bool,
     args: ListDisplayArgs,
 ) -> Result<()> {
+    let started = std::time::Instant::now();
+    tracing::debug!(loaders = ?loaders.keys().map(|id| id.as_str()).collect::<Vec<_>>(), hide_unrecognized, "Starting local mod list scan");
     let source_loaders = source_loaders(&loaders, hide_unrecognized);
     let progress = progress::Progress::new();
     let mut entries = Vec::new();
@@ -89,6 +91,11 @@ pub(in crate::commands) fn run(
         }
     }
     progress.set_total(entries.len());
+    tracing::info!(
+        count = entries.len(),
+        input_errors,
+        "Local mod list input discovery completed"
+    );
 
     let mut session = ScanSession::new(loaders);
     let mut files = Vec::new();
@@ -105,6 +112,13 @@ pub(in crate::commands) fn run(
         });
     }
     drop(progress);
+    tracing::info!(
+        files = files.len(),
+        failed = session.failed_count(),
+        input_errors,
+        elapsed_ms = started.elapsed().as_millis(),
+        "Local mod list loading completed"
+    );
     present(
         files,
         hide_unrecognized,
@@ -156,6 +170,7 @@ pub(in crate::commands) fn run_selection(
 }
 
 /// Shared filtering, layout and summary for path-based and query-based listing.
+#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(in crate::commands) fn present(
     files: Vec<ListedFile>,
     hide_unrecognized: bool,
@@ -167,6 +182,20 @@ pub(in crate::commands) fn present(
 ) -> Result<()> {
     let formatted = terminal::stdout_is_tty();
     let interactive = formatted && terminal::stderr_is_tty() && !args.no_ui;
+    tracing::debug!(
+        mode = if interactive {
+            "TUI"
+        } else if formatted {
+            "Console"
+        } else {
+            "Raw"
+        },
+        local_files,
+        files = files.len(),
+        failed,
+        input_errors,
+        "Preparing mod list presentation"
+    );
     let mut ignored = 0;
     let mut ignored_files = Vec::new();
     let files: Vec<_> = files
@@ -177,6 +206,7 @@ pub(in crate::commands) fn present(
                 && listed.scanned.failures.is_empty()
                 && file.metadata.iter().all(|metadata| !metadata.has_mods())
             {
+                tracing::debug!(path = %file.entry.path().display(), "Hiding unrecognized mod file");
                 ignored += 1;
                 if formatted && (args.expanded || interactive) {
                     ignored_files.push(file.entry.path().to_owned());
@@ -187,6 +217,7 @@ pub(in crate::commands) fn present(
             }
         })
         .collect();
+    tracing::debug!(retained = files.len(), ignored, filter = ?args.filter.as_ref().map(Filter::as_str), "Applied mod list visibility constraints");
     let columns = args.columns.selected();
     let color = terminal::stdout_color_enabled();
     let width = formatted.then(|| {
@@ -199,7 +230,10 @@ pub(in crate::commands) fn present(
         paths: &args.paths_output,
         index_type: args.index_type,
     };
+    tracing::debug!(?columns, ?width, color, expanded = args.expanded, index_type = ?args.index_type, "Selected mod list layout");
+    let presented = std::time::Instant::now();
     if interactive {
+        tracing::info!(files = files.len(), "Opening mod list TUI");
         tui::run(
             &files,
             &columns,
@@ -245,6 +279,11 @@ pub(in crate::commands) fn present(
         } else {
             rows::collect(&files, &options)
         };
+        tracing::debug!(
+            rows = rows.len(),
+            files = files.len(),
+            "Built and filtered mod list rows"
+        );
         let mut stdout = io::stdout().lock();
         output::write_list(&mut stdout, &rows, &columns, color, width)
             .context("failed to write mod list")?;
@@ -253,12 +292,25 @@ pub(in crate::commands) fn present(
         stdout.flush().context("failed to flush mod list")?;
     }
 
+    tracing::info!(
+        files = files.len(),
+        ignored,
+        failed,
+        input_errors,
+        elapsed_ms = presented.elapsed().as_millis(),
+        "Mod list presentation completed"
+    );
     if input_errors > 0 || failed > 0 {
-        return Err(ListError::FailedListing {
+        let error = ListError::FailedListing {
             input_paths: input_errors,
             mod_files: failed,
         }
-        .into());
+        .into();
+        return Err(if local_files {
+            error
+        } else {
+            crate::diagnostics::RemoteError::wrap(error)
+        });
     }
     Ok(())
 }

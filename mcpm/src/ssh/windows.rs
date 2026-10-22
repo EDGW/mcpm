@@ -5,6 +5,10 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 
 /// Encode the entire invocation so cmd.exe and PowerShell never reinterpret mod arguments.
 pub(super) fn command(arguments: &[&str]) -> Result<String> {
+    tracing::debug!(
+        executable = arguments[0],
+        "Preparing Windows PowerShell process bootstrap"
+    );
     if arguments.iter().any(|argument| argument.contains('\0')) {
         bail!("remote mcpm arguments cannot contain NUL bytes");
     }

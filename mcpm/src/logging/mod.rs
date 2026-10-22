@@ -1,9 +1,14 @@
 //! Independent terminal and per-process file logging, including user-facing error chains.
 
-use std::{fs::File, sync::Mutex, time::SystemTime};
+use std::{
+    fs::File,
+    sync::{Mutex, OnceLock},
+    time::SystemTime,
+};
 
 use anyhow::Result;
 use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
 use tracing_subscriber::{
     Layer,
     filter::{LevelFilter, filter_fn},
@@ -13,47 +18,72 @@ use tracing_subscriber::{
 
 use crate::terminal;
 
-pub(crate) use writer::{ProgressGuard, attach_progress};
+pub(crate) use writer::{ProgressGuard, attach_progress, pause_console};
 
 mod file;
+mod format;
+pub(crate) mod stream;
 mod writer;
 
+const REMOTE_TARGET: &str = "mcpm::remote_log";
 const DIAGNOSTIC_TARGET: &str = "mcpm::diagnostics";
 
-pub(crate) fn init(level: LogLevel, started: SystemTime) -> Result<()> {
+static LEVEL: OnceLock<LogLevel> = OnceLock::new();
+
+pub(crate) fn level() -> LogLevel {
+    LEVEL.get().copied().unwrap_or(LogLevel::Warn)
+}
+
+pub(crate) fn init(level: LogLevel, started: SystemTime, remote: bool) -> Result<()> {
     let (file, path) = file::open(started)?;
-    subscriber(level, writer::WriterFactory, file)
+    let _ = LEVEL.set(level);
+    subscriber(level, writer::WriterFactory, file, remote)
         .try_init()
         .map_err(|error| anyhow::anyhow!("failed to initialize diagnostic logging: {error}"))?;
     tracing::debug!(version = env!("CARGO_PKG_VERSION"), pid = std::process::id(), log_file = %path.display(), "mcpm started");
     Ok(())
 }
 
-fn subscriber<W>(level: LogLevel, console: W, file: File) -> impl tracing::Subscriber + Send + Sync
+fn subscriber<W>(
+    level: LogLevel,
+    console: W,
+    file: File,
+    remote: bool,
+) -> impl tracing::Subscriber + Send + Sync
 where
     W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
 {
     let console = tracing_subscriber::fmt::layer()
         .with_ansi(terminal::stderr_color_enabled())
         .with_writer(console)
-        .with_target(false)
-        .without_time()
-        .compact()
-        .with_filter(level.filter())
+        .event_format(format::Console::default())
+        .with_filter(if remote {
+            LevelFilter::OFF
+        } else {
+            level.filter()
+        })
         // diagnostics renders its themed error chain separately on stderr.
         .with_filter(filter_fn(|metadata| metadata.target() != DIAGNOSTIC_TARGET));
     let file = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_writer(Mutex::new(file))
         .with_filter(LevelFilter::DEBUG);
-    tracing_subscriber::registry().with(console).with(file)
+    tracing_subscriber::registry()
+        .with(console)
+        .with(file)
+        .with(stream::Capture.with_filter(if remote {
+            LevelFilter::TRACE
+        } else {
+            LevelFilter::OFF
+        }))
 }
 
 pub(crate) fn record_error(error: &anyhow::Error) {
     tracing::error!(target: DIAGNOSTIC_TARGET, error = %format_args!("{error:#}"), "operation failed");
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum LogLevel {
     Off,
     Error,

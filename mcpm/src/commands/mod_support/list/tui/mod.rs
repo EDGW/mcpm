@@ -18,6 +18,7 @@ use std::{
 
 mod identify;
 mod input;
+mod runtime;
 mod screen;
 mod tree;
 mod view;
@@ -34,6 +35,7 @@ pub(super) struct Summary<'a> {
     pub failed: usize,
 }
 
+#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(
     files: &[ListedFile],
     columns: &[Column],
@@ -43,12 +45,17 @@ pub(super) fn run(
     filter: Filter,
     summary: Summary<'_>,
 ) -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("failed to create mod identification runtime")?;
+    let _console = crate::logging::pause_console();
+    let runtime = runtime::Runtime::new()?;
     let _guard = runtime.enter();
     let mut browser = Browser::new(tree::build(files, &options), filter);
+    tracing::debug!(
+        nodes = browser.nodes.len(),
+        visible = browser.matches.len(),
+        local_files = summary.local_files,
+        identify_parallelism,
+        "Initialized mod list browser"
+    );
     let updates = if summary.local_files {
         identify::start(
             files
@@ -58,6 +65,7 @@ pub(super) fn run(
             identify_parallelism,
         )
     } else {
+        tracing::debug!("Source identification unavailable for remote mod data");
         for states in &mut browser.identification {
             *states = [identify::State::Unavailable, identify::State::Unavailable];
         }
@@ -110,10 +118,15 @@ pub(super) fn run(
             }
         })?;
         let Some(reference) = reference else {
+            tracing::info!(
+                elapsed_ms = started.elapsed().as_millis(),
+                "Closed mod list TUI"
+            );
             return Ok(());
         };
         // Transfer terminal ownership outside block_on; the file browser drives
         // the same runtime while the mod tree and lookup results remain alive.
+        tracing::debug!(?reference, "Opening source files from mod list");
         drop(screen);
         let result = crate::commands::source_support::files::open_selected(
             &runtime,
@@ -129,6 +142,7 @@ pub(super) fn run(
         }
         screen = screen::Screen::new().context("failed to restore mod list TUI")?;
         browser.status = result.err().map(|error| {
+            tracing::debug!(error = %format_args!("{error:#}"), "Could not open source files");
             (
                 format!("Could not open files: {error:#}"),
                 crate::theme::Role::Danger,
@@ -335,6 +349,7 @@ impl Browser {
             .and_then(|previous| self.matches.iter().position(|&index| index == previous))
             .unwrap_or(0);
         self.select(selected);
+        tracing::debug!(filter = %self.query, nodes = self.nodes.len(), visible = self.matches.len(), "Applied TUI mod filter");
     }
     fn open_filter(&mut self) {
         self.filter_open = true;

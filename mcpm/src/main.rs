@@ -35,7 +35,11 @@ fn main() -> ExitCode {
         .unwrap_or_else(|error| error.exit());
     let cli = cli::Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     terminal::init(raw || matches!(cli.command, cli::Command::Remote(_)));
-    if let Err(error) = logging::init(cli.log_level, started) {
+    if let Err(error) = logging::init(
+        cli.log_level,
+        started,
+        matches!(cli.command, cli::Command::Remote(_)),
+    ) {
         diagnostics::error(&error);
         return ExitCode::FAILURE;
     }

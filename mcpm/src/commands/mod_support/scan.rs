@@ -53,6 +53,7 @@ impl ScanSession {
         path: PathBuf,
         progress: Option<&Progress>,
     ) -> Option<Arc<ScannedFile>> {
+        let started = std::time::Instant::now();
         // Keep the leaf filename: .jar and .jar.disabled aliases have different
         // enabled states even when symlinks point to the same archive bytes.
         let parent = path
@@ -63,8 +64,10 @@ impl ScanSession {
             .map(|parent| parent.join(path.file_name().unwrap_or_default()))
             .unwrap_or_else(|_| path.clone());
         if let Some(cached) = self.cache.get(&key) {
+            tracing::debug!(path = %path.display(), "Reusing cached mod identification");
             return cached.clone();
         }
+        tracing::debug!(path = %path.display(), "Identifying local mod file");
         let report = |error: &anyhow::Error| match progress {
             Some(progress) => progress.report(error),
             None => crate::diagnostics::error(error),
@@ -97,6 +100,7 @@ impl ScanSession {
             }
         };
         self.cache.insert(key, file.clone());
+        tracing::debug!(path = %path.display(), loaded = file.is_some(), elapsed_ms = started.elapsed().as_millis(), "Local mod identification completed");
         file
     }
 

@@ -49,7 +49,10 @@ fn parallel_handles_decode_global_errors_and_keep_contents_opaque() {
     let command = "test.command";
     let script = format!(
         r#"
-printf '%s\n' '{{"guid":"{nil}","status":"ready","contents":{{"version":1,"commands":["{command}"],"max_concurrency":2}}}}'
+printf '%s\n' '{{"guid":"{nil}","status":"ready","contents":{{"version":2,"commands":["{command}"],"max_concurrency":2}}}}'
+IFS= read -r logs
+log_guid=$(printf '%s' "$logs" | cut -d '"' -f6)
+printf '{{"guid":"%s","status":"ready","contents":null}}\n' "$log_guid"
 IFS= read -r first
 IFS= read -r second
 first_guid=$(printf '%s' "$first" | cut -d '"' -f4)
@@ -61,6 +64,7 @@ IFS= read -r cancel
 third_guid=$(printf '%s' "$third" | cut -d '"' -f4)
 printf '{{"guid":"%s","status":"error","contents":{{"code":"cancelled","message":"cancelled"}}}}\n' "$third_guid"
 cat >/dev/null
+printf '{{"guid":"%s","status":"finished","contents":null}}\n' "$log_guid"
 printf '%s\n' '{{"guid":"{nil}","status":"closed","contents":null}}'
 "#,
         nil = Uuid::nil()
@@ -88,7 +92,11 @@ printf '%s\n' '{{"guid":"{nil}","status":"closed","contents":null}}'
         .collect(|_| panic!("global error is not command contents"))
         .unwrap_err();
     assert_eq!(
-        error.downcast_ref::<GlobalError>().unwrap().code,
+        error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<GlobalError>())
+            .unwrap()
+            .code,
         ErrorCode::Cancelled
     );
     session.close().unwrap();
