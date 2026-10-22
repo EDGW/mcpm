@@ -16,6 +16,14 @@ pub(crate) struct Archive {
     inner: ZipArchive<Box<dyn ArchiveReader>>,
 }
 
+impl std::fmt::Debug for Archive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Archive")
+            .field("entries", &self.inner.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Archive {
     pub(crate) fn open(path: &Path) -> Result<Self, ArchiveError> {
         Self::from_reader(File::open(path).map_err(ArchiveError::Io)?)

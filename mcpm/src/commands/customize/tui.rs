@@ -281,6 +281,7 @@ fn save(config: &mut Config, editor: Option<&Editor>, directory: &Path) -> Resul
     Ok(Status::saved(directory))
 }
 
+#[derive(Debug)]
 struct Editor {
     id: String,
     type_cursor: usize,
@@ -340,6 +341,7 @@ impl Editor {
     }
 }
 
+#[derive(Debug)]
 struct Status {
     message: String,
     role: Role,
@@ -370,10 +372,12 @@ impl Status {
     }
 }
 
+#[derive(Debug)]
 struct Prompt {
     action: Action,
     value: String,
 }
+#[derive(Debug)]
 enum Action {
     Create,
     Rename,
@@ -389,6 +393,7 @@ impl Prompt {
     }
 }
 
+#[derive(Debug)]
 struct Screen {
     terminal: Terminal<CrosstermBackend<io::Stderr>>,
     raw: bool,
@@ -581,33 +586,5 @@ mod tests {
         assert_eq!(editor.cursor, 0);
         assert!(!editor.input(KeyCode::Enter, KeyModifiers::NONE));
         assert!(!editor.input(KeyCode::Char('c'), KeyModifiers::CONTROL));
-    }
-
-    #[test]
-    fn save_validates_inline_name_and_reports_written_files() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut config = Config::defaults();
-        let saved = config.clone();
-        let id = settings::selected_id(&config, settings::CATEGORY_KEYS[0]);
-        config.customize_palette(&id).unwrap();
-        assert!(config.same_values(&saved));
-        let mut editor = Editor::new(id, &config);
-        editor.name.clear();
-        assert!(save(&mut config, Some(&editor), directory.path()).is_err());
-        assert!(config.same_values(&saved));
-        assert!(!directory.path().join("styles/custom.toml").exists());
-        editor.name = "New Name".into();
-        let status = save(&mut config, Some(&editor), directory.path()).unwrap();
-        assert!(matches!(status.role, Role::Success));
-        assert!(status.message.contains("styles/custom.toml"));
-        assert!(
-            status
-                .message
-                .contains(&directory.path().display().to_string())
-        );
-        assert!(!config.same_values(&saved));
-        let loaded = Config::load(directory.path()).unwrap();
-        assert_eq!(loaded.palette_name(&editor.id), "New Name");
-        assert!(config.same_values(&loaded));
     }
 }

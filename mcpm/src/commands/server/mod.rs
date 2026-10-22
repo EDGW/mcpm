@@ -9,13 +9,13 @@ mod mod_source;
 mod mods;
 mod output;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(crate) struct ServerArgs {
     #[command(subcommand)]
     command: ServerCommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum ServerCommand {
     /// Initialize .mcpm/server.json from a verified start script or explicit metadata.
     Init(init::InitArgs),

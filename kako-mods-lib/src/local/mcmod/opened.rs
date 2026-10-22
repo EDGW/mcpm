@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::local::{
     mcmod::{ModEntry, dependency::Dependency},
@@ -11,6 +11,7 @@ use crate::local::{
 };
 
 /// A mod file with independent metadata records from its loaders.
+#[derive(Debug)]
 pub struct ModFile {
     /// The file's path, filename, and enabled state.
     pub entry: ModEntry,
@@ -23,6 +24,7 @@ pub struct ModFile {
 ///
 /// The supplying loader interprets its source format and supplies these common
 /// properties. A file can declare multiple mods through a single loader.
+#[derive(Debug)]
 pub struct ModMeta {
     /// The loader that supplied this record, including its instance.
     pub loader: ModLoaderMeta,
@@ -41,6 +43,7 @@ impl ModMeta {
 }
 
 /// One declared child JAR and the supplying loader's metadata for it.
+#[derive(Debug)]
 pub struct NestedModMeta {
     /// Archive member path relative to the immediate parent JAR.
     /// Does not contain an outer filesystem path or synthetic `!` separators.
@@ -51,7 +54,7 @@ pub struct NestedModMeta {
 }
 
 /// The minimum identification properties of one declared mod.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModInfo {
     /// Display name supplied by the loader, falling back to the mod ID when absent.
     pub name: String,

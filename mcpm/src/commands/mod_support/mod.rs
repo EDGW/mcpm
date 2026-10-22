@@ -7,8 +7,6 @@ pub(super) mod inspect;
 pub(super) mod list;
 pub(super) mod loaders;
 pub(super) mod mod_records;
-pub(super) mod progress;
 pub(super) mod scan;
 pub(super) mod selection;
 pub(super) mod source_path;
-pub(super) mod stdin;

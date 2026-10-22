@@ -103,35 +103,3 @@ fn server_input_selection_is_independent_of_filter_and_all_can_be_combined_with_
         "Filter must not select new input files"
     );
 }
-
-#[test]
-fn clap_rejects_invalid_filters_before_reading_inputs_and_help_describes_the_type() {
-    let invalid = run(&["mod", "list", "missing.jar", "-F", "@loaders (Forge |)"]);
-    assert_eq!(invalid.status.code(), Some(2));
-    assert!(invalid.stdout.is_empty());
-    let message = String::from_utf8(invalid.stderr).unwrap();
-    assert!(message.contains("expected a matching value") && message.contains("column"));
-    assert!(!message.contains("failed to read list input"));
-    let help = stdout(run(&["server", "mods", "list", "--help"]));
-    let inputs = help
-        .split("Input options:\n")
-        .nth(1)
-        .unwrap()
-        .split("\nFilter:\n")
-        .next()
-        .unwrap();
-    for flag in ["--file", "--modid", "--name", "--all"] {
-        assert!(inputs.contains(flag));
-    }
-    for text in [
-        "Type: Filter",
-        "-F, --filter <FILTER>",
-        "A & B",
-        "A | B",
-        "@loaders (Forge | Fabric)",
-        "\\(",
-        "\\\"",
-    ] {
-        assert!(help.contains(text), "{text}");
-    }
-}

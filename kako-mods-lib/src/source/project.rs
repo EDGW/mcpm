@@ -12,6 +12,15 @@ pub struct ProjectInfo {
     /// Short plain-text description, distinct from the full project body.
     pub summary: String,
     pub slug: Option<String>,
+    /// Source-native category slugs; vocabularies differ between sources.
+    pub categories: Vec<String>,
+    /// Source-reported Minecraft versions, possibly limited to recent files.
+    /// Empty means unreported, not incompatible. These and `loaders` do not
+    /// establish compatibility for every version/loader combination.
+    pub game_versions: Vec<String>,
+    /// Source-reported loader identifiers, normalized to lowercase.
+    /// Empty means unreported; the source may omit historical support.
+    pub loaders: Vec<String>,
     pub icon_url: Option<Url>,
     pub website_url: Option<Url>,
 }
@@ -58,14 +67,17 @@ pub struct ProjectId(pub String);
 
 /// Common search criteria for remote mod projects.
 ///
-/// All supplied filters are combined with AND. Version and loader strings are
+/// Fields are combined with AND; alternatives within each list use OR.
+/// Version and loader strings are
 /// interpreted by the source; an unfiltered search does not establish that a
 /// particular downloadable release is compatible with the caller's environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchQuery {
     pub query: String,
-    pub game_version: Option<String>,
-    pub loader: Option<String>,
+    /// Match any listed Minecraft version; empty means unrestricted.
+    pub game_versions: Vec<String>,
+    /// Match any listed loader; empty means unrestricted.
+    pub loaders: Vec<String>,
     pub sort: SearchSort,
     /// Number of matching projects to skip, not a page number.
     pub offset: u64,
@@ -77,8 +89,8 @@ impl Default for SearchQuery {
     fn default() -> Self {
         Self {
             query: String::new(),
-            game_version: None,
-            loader: None,
+            game_versions: Vec::new(),
+            loaders: Vec::new(),
             sort: SearchSort::default(),
             offset: 0,
             limit: 20,

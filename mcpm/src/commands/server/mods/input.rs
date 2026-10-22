@@ -10,7 +10,7 @@ use crate::commands::mod_support::selection::{SelectionArgs, StdinArgs};
 use super::super::mod_source::ServerMods;
 
 /// Input selection for server mod information and dependency inspection.
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct FileArgs {
     /// Registered server directory; defaults to the current directory.
     #[arg(long = "server", value_name = "PATH", default_value = ".")]

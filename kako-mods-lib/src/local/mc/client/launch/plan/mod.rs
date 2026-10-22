@@ -425,7 +425,7 @@ impl MinecraftDirectory {
         required.extend(mappings.iter().map(|(source, _)| source.clone()));
         let mut seen = BTreeSet::new();
         required.retain(|path| seen.insert(path.clone()));
-        tracing::info!(main_class = ?main_class, classpath_entries = classpath.len(), native_archives = archives.len(), required_files = required.len(), "Launch plan ready");
+        tracing::debug!(main_class = ?main_class, classpath_entries = classpath.len(), native_archives = archives.len(), required_files = required.len(), "Launch plan ready");
         tracing::debug!(java = ?executable, game_directory = ?game, working_directory = ?working, natives_directory = ?natives, "Resolved launch paths");
         Ok(LaunchPlan {
             directory: self.clone(),

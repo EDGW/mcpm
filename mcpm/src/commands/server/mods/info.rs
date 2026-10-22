@@ -7,7 +7,7 @@ use crate::commands::mod_support::inspect;
 
 use super::input::FileArgs;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(
     after_help = "Additional inputs are read from redirected stdin, one per line; --input sets their interpretation (default: filename, modid, then name matching)."
 )]

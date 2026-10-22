@@ -6,8 +6,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use super::{
-    FileMatch, FilePage, FileQuery, FileRef, Project, ProjectFile, ProjectRef, SearchPage,
-    SearchQuery,
+    FileMatch, FilePage, FileQuery, FileRef, FileSummary, Project, ProjectFile, ProjectRef,
+    SearchPage, SearchQuery, SummaryRequirements,
 };
 
 /// A remote mod source with its own identifiers.
@@ -28,6 +28,13 @@ pub trait Source: Send + Sync {
     /// report unsupported filters or sorting as errors rather
     /// than silently ignoring them. `limit` must be greater than zero.
     async fn search(&self, query: &SearchQuery) -> Result<SearchPage>;
+
+    /// Fetches the source's Minecraft version catalog in provider order.
+    ///
+    /// Values are unique, nonempty search filter identifiers. This catalog is
+    /// advisory: a version absent from it must not be rejected locally. Callers
+    /// control caching and refresh policy; fetching does not search for projects.
+    async fn game_versions(&self) -> Result<Vec<String>>;
 
     /// Fetches project details, performing multiple requests if necessary.
     ///
@@ -51,7 +58,22 @@ pub trait Source: Send + Sync {
     /// for no verified match; I/O, transport, malformed responses, and ambiguous
     /// matches are errors. The caller must keep the file unchanged during lookup.
     /// Additional Modrinth files retain their actual metadata, not the primary's.
-    async fn identify_file(&self, path: &Path) -> Result<Option<FileMatch>>;
+    async fn identify_file(&self, path: &Path) -> Result<Option<FileMatch>> {
+        let path = path.to_owned();
+        let requirements = self.summary_requirements();
+        let summary =
+            tokio::task::spawn_blocking(move || FileSummary::read(&path, requirements)).await??;
+        self.identify_summary(&summary).await
+    }
+
+    /// Declare the digest algorithms required for content identification.
+    fn summary_requirements(&self) -> SummaryRequirements {
+        SummaryRequirements::default()
+    }
+
+    /// Query the provider using already-computed digests, without accessing local files.
+    /// Implementations must verify returned size and hashes before accepting a match.
+    async fn identify_summary(&self, summary: &FileSummary) -> Result<Option<FileMatch>>;
 }
 
 /// An open, case-sensitive identifier for a configured source.

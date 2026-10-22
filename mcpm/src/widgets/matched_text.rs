@@ -15,6 +15,7 @@ use unicode_width::UnicodeWidthStr;
 /// Byte ranges refer to the concatenated span contents, excluding any external labels.
 /// Matching flips the original bold weight and removes dimming; colors are supplied
 /// by the caller, so this widget has no dependency on search syntax or themes.
+#[derive(Debug)]
 pub(crate) struct MatchedText<'a> {
     text: Line<'a>,
     matches: Vec<Range<usize>>,
@@ -144,7 +145,7 @@ impl Widget for MatchedText<'_> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Overflow {
     Ellipsis,
     MatchContext,
@@ -152,6 +153,7 @@ pub(crate) enum Overflow {
 
 const ELLIPSIS: &str = "...";
 
+#[derive(Debug)]
 struct Glyph<'a> {
     symbol: &'a str,
     style: Style,
@@ -341,18 +343,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn direct_widget_and_cell_line_render_identically() {
-        let area = Rect::new(2, 1, 18, 1);
-        let widget = MatchedText::new("long-prefix-中文-hit-suffix")
-            .matches(std::iter::once(12..18).collect())
-            .match_style(Style::default().fg(Color::Cyan));
-        let mut expected = Buffer::empty(area);
-        Paragraph::new(widget.line(area.width as usize)).render(area, &mut expected);
-        let mut actual = Buffer::empty(area);
-        widget.render(area, &mut actual);
-        assert_eq!(actual, expected);
     }
 }

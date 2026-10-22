@@ -21,7 +21,7 @@ const MAX_DEPTH: usize = 32;
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_ARCHIVES: usize = 4096;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(in crate::local::modloader::impls) struct ArchiveNode {
     pub mods: Vec<ModInfo>,
     pub jars: Vec<String>,
@@ -46,6 +46,7 @@ pub(in crate::local::modloader::impls) fn open(entry: &ModEntry) -> Result<Archi
         .with_context(|| format!("failed to open mod archive {:?}", entry.path()))
 }
 
+#[derive(Debug)]
 struct Budget {
     bytes: u64,
     archives: usize,

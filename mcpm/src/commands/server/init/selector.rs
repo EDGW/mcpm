@@ -50,6 +50,7 @@ pub(super) fn select(candidates: &[ServerCandidate]) -> Result<Option<usize>> {
     }
 }
 
+#[derive(Debug)]
 struct Screen {
     output: io::Stderr,
     raw: bool,

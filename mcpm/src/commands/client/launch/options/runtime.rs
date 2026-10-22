@@ -1,16 +1,18 @@
+//! Java executable, version checks and native extraction options.
+
 use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
 use kako_mods_lib::local::mc::client::launch::{JavaVersionCheck, LaunchOptions};
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 enum VersionCheck {
     Minimum,
     Exact,
     Skip,
 }
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(next_help_heading = "Java")]
 pub(super) struct RuntimeArgs {
     /// Java executable path or program name resolved through PATH.

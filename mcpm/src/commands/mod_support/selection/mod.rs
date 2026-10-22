@@ -20,7 +20,7 @@ pub(in crate::commands) use args::{SelectionArgs, StdinArgs};
 mod paths;
 pub(in crate::commands) use paths::resolve_paths;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) enum QueryKind {
     Auto,
     File,
@@ -28,12 +28,14 @@ pub(super) enum QueryKind {
     Name,
 }
 
+#[derive(Debug)]
 pub(super) struct Query {
     kind: QueryKind,
     value: OsString,
 }
 
 /// File inputs either use ordinary paths or paths scoped to a server mod directory.
+#[derive(Debug)]
 pub(in crate::commands) struct Scope {
     directory: PathBuf,
     container_paths: bool,
@@ -82,7 +84,8 @@ impl Scope {
     }
 }
 
-pub(super) struct SelectedFile {
+#[derive(Debug)]
+pub(in crate::commands) struct SelectedFile {
     pub scanned: Arc<ScannedFile>,
     /// None selects the whole file; Some selects the owning archives of these declarations.
     pub records: Option<Vec<RecordKey>>,
@@ -91,6 +94,7 @@ pub(super) struct SelectedFile {
 type Index = HashMap<String, Vec<(Arc<ScannedFile>, RecordKey)>>;
 
 /// One query session owns its cache and initializes name/id indexes only on demand.
+#[derive(Debug)]
 pub(super) struct Resolver {
     pub scan: ScanSession,
     scope: Scope,

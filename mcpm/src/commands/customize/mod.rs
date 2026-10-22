@@ -15,7 +15,7 @@ mod preview;
 mod settings;
 mod tui;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(
     after_help = "Modes:\n  TUI (default): select a Color Scheme, preview, create and manage schemes.\n  Console (--no-ui): scheme list/use/create/rename/delete, list, get, set.\n  Raw (--raw or redirected stdout): tab-separated names and values.\n\nExamples:\n  mcpm customize scheme create ocean --name Ocean\n  mcpm customize scheme use ocean\n  mcpm customize scheme rename ocean 'Ocean Blue'\n  mcpm customize scheme delete ocean\n  mcpm customize scheme use ocean\n  mcpm customize set 'TUI Dark Primary Color' Cyan\n\nConfiguration: ~/.mcpm; missing values use bundled defaults.\nNO_COLOR disables styling without preventing configuration changes."
 )]
@@ -30,7 +30,7 @@ pub(crate) struct CustomizeArgs {
     theme: Category,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum CustomizeCommand {
     /// List effective settings, including defaults (Console, Raw).
     List,
@@ -43,7 +43,7 @@ enum CustomizeCommand {
     Set { key: String, value: String },
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 enum Category {
     ConsoleDark,
     ConsoleLight,
@@ -61,7 +61,7 @@ impl Category {
     }
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum SchemeCommand {
     List,
     Use {

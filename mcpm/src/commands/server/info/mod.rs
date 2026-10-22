@@ -1,3 +1,5 @@
+//! Read and display persisted Minecraft server metadata.
+
 use super::output;
 
 use std::{
@@ -9,7 +11,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 use kako_mods_lib::local::mc::server::MinecraftServer;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct InfoArgs {
     /// Server directory; defaults to the current directory.
     #[arg(value_name = "PATH", default_value = ".")]

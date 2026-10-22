@@ -12,7 +12,7 @@ mod rule;
 pub(super) mod visibility;
 use rule::Rule;
 
-#[derive(Args, Default)]
+#[derive(Args, Default, Debug)]
 pub(super) struct FilterArgs {
     /// Ignore a displayed neighboring mod; repeat to add more. Use loader:id, :id, or id.
     #[arg(short = 'g', long, value_name = "MOD")]
@@ -43,7 +43,7 @@ pub(super) struct FilterArgs {
     problem: bool,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 enum RelationType {
     Required,
     Optional,
@@ -110,6 +110,7 @@ impl IgnoreSelector {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct ViewFilter {
     ignores: Vec<IgnoreSelector>,
     ignore_minecraft: bool,

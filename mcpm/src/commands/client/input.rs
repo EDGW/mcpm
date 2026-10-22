@@ -1,7 +1,10 @@
+//! Shared client directory and version selection arguments.
+
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
+#[derive(Debug)]
 pub(super) struct Input {
     pub path: PathBuf,
     pub inferred: bool,

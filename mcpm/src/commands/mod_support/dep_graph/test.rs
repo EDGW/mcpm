@@ -13,7 +13,7 @@ use kako_mods_lib::local::{
     modloader::BUILTIN_LOADERS,
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct TestArgs {
     /// Saved dependency graph JSON file.
     #[arg(value_name = "FILE")]

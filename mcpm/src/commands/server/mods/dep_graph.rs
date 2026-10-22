@@ -9,7 +9,7 @@ use super::graph_input::ServerArgs;
 
 pub(super) type DepGraphArgs = dep_graph::DepGraphArgs<BuildArgs>;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct BuildArgs {
     #[command(flatten)]
     server: ServerArgs,

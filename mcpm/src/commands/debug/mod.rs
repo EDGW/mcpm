@@ -5,13 +5,13 @@ use clap::{Args, Subcommand};
 
 mod palette;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(crate) struct DebugArgs {
     #[command(subcommand)]
     command: DebugCommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum DebugCommand {
     /// Preview the 16 terminal colors and default foreground (TUI, Console, Raw).
     Palette(palette::PaletteArgs),

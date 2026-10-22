@@ -6,6 +6,7 @@ use super::{
     filter::{self, Filter},
     rows::RowOptions,
 };
+use crate::commands::{execution::Runtime, source_support::identify::Location};
 use anyhow::{Context, Result};
 use crossterm::event;
 use kako_mods_lib::source::FileRef;
@@ -25,13 +26,16 @@ mod view;
 #[cfg(test)]
 mod tests;
 
+#[derive(Debug)]
 pub(super) struct Summary<'a> {
+    pub location: Location<'a>,
     pub ignored: usize,
     pub ignored_files: &'a [PathBuf],
     pub input_errors: usize,
     pub failed: usize,
 }
 
+#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(
     files: &[ListedFile],
     columns: &[Column],
@@ -41,19 +45,25 @@ pub(super) fn run(
     filter: Filter,
     summary: Summary<'_>,
 ) -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("failed to create mod identification runtime")?;
+    let _console = crate::logging::pause_console();
+    let runtime = Runtime::new()?;
     let _guard = runtime.enter();
     let mut browser = Browser::new(tree::build(files, &options), filter);
+    tracing::debug!(
+        nodes = browser.nodes.len(),
+        visible = browser.matches.len(),
+        local_files = summary.location.is_local(),
+        identify_parallelism,
+        "Initialized mod list browser"
+    );
     let updates = identify::start(
         files
             .iter()
             .map(|file| file.scanned.file.entry.path().to_owned())
             .collect(),
         identify_parallelism,
-    );
+        summary.location,
+    )?;
     let mut screen = screen::Screen::new().context("failed to open mod list TUI")?;
     let mut redraw = true;
     let mut page = 1;
@@ -101,10 +111,15 @@ pub(super) fn run(
             }
         })?;
         let Some(reference) = reference else {
+            tracing::debug!(
+                elapsed_ms = started.elapsed().as_millis(),
+                "Closed mod list TUI"
+            );
             return Ok(());
         };
         // Transfer terminal ownership outside block_on; the file browser drives
         // the same runtime while the mod tree and lookup results remain alive.
+        tracing::debug!(?reference, "Opening source files from mod list");
         drop(screen);
         let result = crate::commands::source_support::files::open_selected(
             &runtime,
@@ -120,6 +135,7 @@ pub(super) fn run(
         }
         screen = screen::Screen::new().context("failed to restore mod list TUI")?;
         browser.status = result.err().map(|error| {
+            tracing::debug!(error = %format_args!("{error:#}"), "Could not open source files");
             (
                 format!("Could not open files: {error:#}"),
                 crate::theme::Role::Danger,
@@ -153,6 +169,36 @@ struct Browser {
     scroll_limit: u16,
     table_area: ratatui::layout::Rect,
     detail_area: ratatui::layout::Rect,
+}
+
+impl std::fmt::Debug for Browser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Browser")
+            .field("nodes", &self.nodes)
+            .field("identification", &self.identification)
+            .field("tick", &self.tick)
+            .field("detail_offset", &self.detail_offset)
+            .field("focus", &self.focus)
+            .field("field", &self.field)
+            .field("status", &self.status)
+            .field("matches", &self.matches)
+            .field("table", &self.table)
+            .field("query", &self.query)
+            .field("parsed", &self.parsed)
+            .field("search_overrides", &self.search_overrides)
+            .field("search_included", &self.search_included)
+            .field("filter_open", &self.filter_open)
+            .field("query_cursor", &self.query_cursor)
+            .field("filter_area", &self.filter_area)
+            .field("details", &self.details)
+            .field("ignored", &self.ignored)
+            .field("scroll", &self.scroll)
+            .field("scroll_limit", &self.scroll_limit)
+            .field("table_area", &self.table_area)
+            .field("detail_area", &self.detail_area)
+            .field("clipboard_available", &self.clipboard.is_some())
+            .finish()
+    }
 }
 impl Browser {
     fn new(nodes: Vec<tree::Node>, filter: Filter) -> Self {
@@ -193,6 +239,16 @@ impl Browser {
         for file in update.files {
             self.identification[file][update.platform.index()] = update.state.clone();
         }
+    }
+    fn identification_progress(&self) -> Option<(usize, usize)> {
+        let total = self.identification.len() * identify::Platform::ALL.len();
+        let completed = self
+            .identification
+            .iter()
+            .flatten()
+            .filter(|state| !matches!(state, identify::State::Queued | identify::State::Loading))
+            .count();
+        (completed < total).then_some((completed, total))
     }
     fn spinner(&self) -> String {
         indicatif::ProgressStyle::default_spinner()
@@ -296,6 +352,7 @@ impl Browser {
             .and_then(|previous| self.matches.iter().position(|&index| index == previous))
             .unwrap_or(0);
         self.select(selected);
+        tracing::debug!(filter = %self.query, nodes = self.nodes.len(), visible = self.matches.len(), "Applied TUI mod filter");
     }
     fn open_filter(&mut self) {
         self.filter_open = true;
@@ -429,28 +486,30 @@ impl Browser {
             )
         }
     }
+    fn detail_field_at(&self, row: u16) -> Option<usize> {
+        let mut remaining = usize::from(row);
+        for (index, field) in DETAIL_FIELDS.iter().enumerate().skip(self.detail_offset) {
+            if remaining < field.height() {
+                return Some(index);
+            }
+            remaining -= field.height();
+        }
+        None
+    }
     fn copy_field(&mut self) {
         let field = DETAIL_FIELDS[self.field];
         let Some(value) = self.detail_value(field) else {
             return;
         };
-        let result = (|| {
-            if self.clipboard.is_none() {
-                self.clipboard = Some(arboard::Clipboard::new()?);
-            }
-            self.clipboard.as_mut().unwrap().set_text(value)
-        })();
-        self.status = Some(match result {
-            Ok(()) => (
-                format!("Copied {}", field.label()),
-                crate::theme::Role::Success,
-            ),
-            Err(error) => (format!("Copy failed: {error}"), crate::theme::Role::Danger),
-        });
+        self.status = Some(crate::widgets::browser::copy_field(
+            &mut self.clipboard,
+            value,
+            field.label(),
+        ));
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Focus {
     Mods,
     Filter,
@@ -462,6 +521,12 @@ enum DetailField {
     Source(identify::Platform),
 }
 impl DetailField {
+    fn height(self) -> usize {
+        match self {
+            Self::Column(_) => 1,
+            Self::Source(_) => 2,
+        }
+    }
     fn label(self) -> &'static str {
         match self {
             Self::Column(column) => view::label(column),

@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
+#[derive(Debug)]
 pub(super) struct Progress(ProgressBar);
 
 impl Progress {

@@ -11,13 +11,13 @@ mod view;
 pub(in crate::commands) use build::{BuildOptions, build_graph};
 pub(in crate::commands) use view::write_problems;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(in crate::commands) struct DepGraphArgs<B: Args> {
     #[command(subcommand)]
     command: DepGraphCommand<B>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum DepGraphCommand<B: Args> {
     /// Build a dependency graph and export JSON.
     Build(B),

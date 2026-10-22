@@ -12,13 +12,13 @@ mod input;
 mod list;
 mod source;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct ModsArgs {
     #[command(subcommand)]
     command: ModsCommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum ModsCommand {
     /// Build and inspect dependency graphs for a registered server.
     DepGraph(dep_graph::DepGraphArgs),

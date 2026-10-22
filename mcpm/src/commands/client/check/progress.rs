@@ -12,6 +12,7 @@ use super::super::output::text;
 use crate::commands::output_style::OutputStyle;
 use crate::terminal;
 
+#[derive(Debug)]
 pub(super) struct BatchProgress {
     display: MultiProgress,
     overall: Option<ProgressBar>,
@@ -73,6 +74,7 @@ impl Drop for BatchProgress {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Progress {
     display: MultiProgress,
     main: ProgressBar,

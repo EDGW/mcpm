@@ -19,7 +19,10 @@ Explicit `--game-version` and `--loader` values override the corresponding defau
 `--all-versions` disables both filters and conflicts with either explicit filter.
 These filters select declared compatibility; they do not check mod dependencies.
 
-Search takes an optional plain-text query; quote multiple words as one argument.
+Search accepts an optional [search expression](../mod/source-search.md): keywords
+followed by `@version VALUE` and/or `@loader VALUE`. Use `(A | B)` for alternatives
+and `*` to clear a field. Expression fields override CLI options and server defaults;
+quote the entire expression for your shell.
 Files takes remote project IDs or exact slugs, with additional projects read from
 redirected stdin, one per line. These identifiers refer to remote projects, not
 local mod IDs.
@@ -32,16 +35,51 @@ printf '%s\n' create ZzjhlDgM | mcpm server mods source files --source modrinth
 ```
 
 Search and single-project files use the TUI when all streams are terminals.
-Enter opens the selected project's files with the same compatibility filters;
+The search field stays at the top: press `/` to edit, Enter to submit a new
+search from the first page, or Esc to discard edits. Tab / Shift+Tab switches
+between Search, Results, and the bottom Details panel. Results reuses the mod list
+layout: each result shows Project Name (Primary Color) and loaders on the first
+line, then the reported Minecraft versions (dimmed, with muted commas) across the second line.
+Versions show up to three [catalog-backed abbreviations](../mod/source-search.md)
+followed by `(all N versions)` counting distinct versions; Details wraps
+the full sorted identifiers without abbreviating them.
+Details follows the selection and shows loaders, Minecraft versions, categories,
+summary, source, ID, slug, and project URL. Loaders use their configured colors.
+Compatibility metadata comes from the source response; CurseForge may report only
+recent files, and empty metadata means unreported. Name and slug retain their primary and secondary colors; sources use
+the configured CurseForge / Modrinth colors, and IDs are dimmed. Details uses the
+shared field list: arrows or j/k selects fields, PageUp/PageDown moves by a screen,
+and Home/End selects the first/last field. Long values use an ellipsis; c copies
+the full value. Enter expands/collapses Details, and Esc closes expanded Details
+before exiting. Mouse clicks and scrolling are supported.
+Enter on a result opens its files with the same compatibility filters;
 Esc returns to search. Multiple projects, `-N/--no-ui`, explicit columns, or
 redirected streams use list output. Sorting, pagination, and file release filters
 work like `mcpm mod source`.
 
+Search also provides [field value suggestions](../mod/source-search.md): loader
+choices are Forge, NeoForge and Fabric; versions load from the current source API
+and are cached for the session. Up/Down selects, Enter/Tab inserts, and Esc closes
+the popup. Completion only edits the draft; Enter again submits the search.
+
+Files uses the shared mod list layout, with a compact list above a Details panel
+and no interactive Filter card. Headers and files occupy two lines: Index, Name,
+Minecraft, and Loaders on the first; Version and Release on the second. Values
+align with their headers without repeating field labels in each row. Filenames
+are available in Details. Tab / Shift+Tab switches between the list and Details;
+Up/Down or j/k moves through files or detail fields, and PageUp/PageDown moves by
+a screen. Left/Right or p/n fetches the previous/next remote page. Home/End moves
+to the first/last file or field. Enter expands/collapses Details, c copies the
+selected detail field, and Esc closes expanded Details before returning to the
+previous screen; q returns immediately. Mouse clicks and scrolling are supported.
+
 For a single project, `--selected FILE_ID` fetches that file directly and shows
 it first under `Selected`, even outside the current page or compatibility filters.
 `--loader` (alias `--loaders`) accepts comma-separated or repeated loaders, matching any of them.
-It stays visible while paging through other files and is omitted from the other
-file cards when duplicated. Pagination and totals still describe the original
+It stays visible while paging through files. In the TUI, the same publication also
+keeps its original list position: its Name uses primary color, while other file
+names use secondary color. Without `--selected`, names use primary color.
+Console and Raw output continue to omit the duplicate pinned publication. Pagination and totals still describe the original
 filtered results; the pinned file does not consume the page limit. A missing file
 or a file belonging to another project is an error. This also works with standalone
 `mcpm mod source files`.
@@ -81,6 +119,8 @@ declarations select their containing outer archive.
 
 Unmatched files produce `unmatched` rows. Selection, read, or request errors are
 reported on stderr; remaining inputs are processed and the command exits nonzero.
+
+`--parallelism <COUNT>` defaults to 10, sharing the mod-list default. Lookups run concurrently while rows and per-file errors retain selection order; stderr progress uses the mod-list style. SSH options are supported only by standalone `mod source identify` and `mod list`.
 
 ## Output
 

@@ -14,7 +14,7 @@ pub(crate) use color::Color;
 
 static THEME: OnceLock<Theme> = OnceLock::new();
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum Role {
     Primary,
     Secondary,

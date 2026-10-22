@@ -1,3 +1,5 @@
+//! Java process lifecycle, stream handling and launch diagnostics.
+
 use std::{
     io,
     path::PathBuf,
@@ -43,6 +45,7 @@ fn process_error(operation: &'static str, pid: u32, source: io::Error) -> io::Er
 
 /// Owns the child and launch plan. Native files remain on disk after exit.
 /// Dropping a running child does not kill it.
+#[derive(Debug)]
 pub struct LaunchProcess {
     child: Option<Child>,
     prepared: PreparedLaunch,

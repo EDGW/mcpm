@@ -20,7 +20,7 @@ mcpm customize --raw get "Console Dark Primary Color"
 
 预览区左上、右上分别展示 TUI Dark、TUI Light 的示例卡片；左下、右下分别展示 Console Dark、Console Light 的模拟输出。窄屏改为上下排列，高度不足时展示可见部分并提示拉高终端。预览保持终端背景，不强制填充深浅背景；仅与当前终端模式不匹配的预览提示切换 dark/light 模式；无法检测时保留提示。Console 预览使用 Dim 边框，并与上方留空行。配置中没有 appearance 设置。
 
-启动时扫描 `CONFIG_DIR/styles` 下全部 `.toml` 样式集合，每个文件包含 `[[style]]` 数组。文件损坏或某条样式无效，仅记录 warning 并跳过，其他样式继续加载。已选方案不可用时回退到对应内置方案。`--log-level off` 可关闭 warning。文件顺序固定，普通集合重复 ID 的后续定义跳过，custom.toml 的覆盖项优先。
+启动时扫描 `CONFIG_DIR/styles` 下全部 `.toml` 样式集合，每个文件包含 `[[style]]` 数组。文件损坏或某条样式无效，仅记录 warning 并跳过，其他样式继续加载。已选方案不可用时回退到对应内置方案。`--log-level off` 可关闭 stderr warning，文件日志仍会记录。文件顺序固定，普通集合重复 ID 的后续定义跳过，custom.toml 的覆盖项优先。
 
 ```toml
 [[style]]

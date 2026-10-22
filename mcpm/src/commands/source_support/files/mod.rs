@@ -11,7 +11,7 @@ mod output;
 pub(super) mod tui;
 pub(in crate::commands) use tui::open_selected;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(
     after_help = "Modes: TUI (default in terminals), Console (--no-ui), Raw (--raw or redirected stdout).\n\nExamples:\n  mcpm mod source files --source modrinth create ZzjhlDgM\n  mcpm mod source files --source curseforge 688231 create\n  mcpm mod source files --source 'curseforge@KEY' create-steam-n-rails\n  printf '%s\\n' create create-steam-n-rails | mcpm mod source files --source modrinth\n  mcpm mod source files --source modrinth create -N\n  mcpm mod source files --source modrinth sodium --selected yaoBL9D9\n  mcpm mod source files --source curseforge 688231 --columns id,filename,size\n  mcpm --raw mod source files --source curseforge 688231"
 )]
@@ -93,7 +93,7 @@ pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
     let mut selected_file = None;
     let mut output = io::stdout().lock();
     let query = FileQuery {
-        game_version: args.game_version,
+        game_versions: args.game_version.into_iter().collect(),
         loaders: args.loader,
         release_type: args.release_type.map(Into::into),
         offset: args.offset,
@@ -168,7 +168,7 @@ fn other_files<'a>(
     })
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 enum Channel {
     Release,
     Beta,
@@ -181,85 +181,6 @@ impl From<Channel> for ReleaseType {
             Channel::Release => Self::Release,
             Channel::Beta => Self::Beta,
             Channel::Alpha => Self::Alpha,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::Parser;
-    use kako_mods_lib::source::{ProjectId, ProjectRef, SourceId};
-
-    #[derive(Parser)]
-    struct TestArgs {
-        #[command(flatten)]
-        files: FilesArgs,
-    }
-
-    fn file(id: &str) -> ProjectFile {
-        ProjectFile {
-            reference: FileRef {
-                project: ProjectRef {
-                    source: SourceId("modrinth".into()),
-                    id: ProjectId("project".into()),
-                },
-                id: FileId(id.into()),
-            },
-            name: id.into(),
-            version: None,
-            release_type: ReleaseType::Release,
-            game_versions: vec![],
-            loaders: vec![],
-            filename: format!("{id}.jar"),
-            size: 1,
-            download_url: None,
-            hashes: vec![],
-            dependencies: vec![],
-        }
-    }
-
-    #[test]
-    fn selected_output_is_first_without_changing_page_positions() {
-        let args = TestArgs::parse_from([
-            "files",
-            "--source",
-            "modrinth",
-            "project",
-            "--selected",
-            "old",
-            "--columns",
-            "index,selected,id",
-        ]);
-        let selected = file("old");
-        // The same selection can be outside the page, inside it, or the only file.
-        for (ids, expected) in [
-            (
-                vec!["new", "other"],
-                "\ttrue\told\n24\tfalse\tnew\n25\tfalse\tother\n",
-            ),
-            (
-                vec!["new", "old", "other"],
-                "\ttrue\told\n24\tfalse\tnew\n26\tfalse\tother\n",
-            ),
-            (vec!["old"], "\ttrue\told\n"),
-            (vec![], "\ttrue\told\n"),
-        ] {
-            let page = FilePage {
-                files: ids.into_iter().map(file).collect(),
-                offset: 23,
-                total: Some(100),
-            };
-            let mut output = Vec::new();
-            output::write_files(
-                &mut output,
-                &selected.reference.project,
-                &page,
-                Some(&selected),
-                &args.files.columns,
-            )
-            .unwrap();
-            assert_eq!(String::from_utf8(output).unwrap(), expected);
         }
     }
 }

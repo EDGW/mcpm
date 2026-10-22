@@ -2,6 +2,7 @@
 
 use crate::theme::{Color, config::Config};
 
+#[derive(Debug)]
 pub(super) struct Field {
     pub(super) key: String,
     pub(super) label: String,

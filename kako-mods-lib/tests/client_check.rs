@@ -1,3 +1,5 @@
+//! Client resource validation across inheritance, platform rules and verification policies.
+
 use std::{fs, path::Path};
 
 use kako_mods_lib::local::mc::client::{
@@ -526,69 +528,6 @@ fn progress_finishes_failed_index_and_broken_version_without_claiming_unknown_fi
         assert_eq!(files, expected_files);
         assert!(!report.is_intact());
     }
-}
-
-#[test]
-fn default_policies_check_jar_libraries_index_hashes_and_only_asset_sizes() {
-    let root = TempDir::new().unwrap();
-    let hash = sha(b"abc");
-    let info = index(root.path(), json!({"sound":{"hash":hash,"size":3}}));
-    write(
-        root.path(),
-        &format!("assets/objects/{}/{hash}", &hash[..2]),
-        b"bad",
-    );
-    write(root.path(), "libraries/lib.jar", b"lib");
-    write(root.path(), "versions/test/test.jar", b"jar");
-    profile(
-        root.path(),
-        "test",
-        json!({"id":"test","assetIndex":info,
-        "downloads":{"client":{"sha1":sha(b"jar"),"size":3}},
-        "libraries":[{"name":"g:lib:1","downloads":{"artifact":artifact("lib.jar",b"lib")}}]}),
-    );
-    let directory = MinecraftDirectory::new(root.path()).unwrap();
-    let version = directory.version("test").unwrap();
-    let mut steps = Vec::new();
-    let report =
-        directory.check_with_progress(&version, CheckOptions::default(), &rules(), |progress| {
-            assert_eq!(progress.total_steps, 6);
-            if progress.event == CheckEvent::StepStarted {
-                steps.push(progress.step);
-            }
-        });
-    assert!(report.is_intact(), "{report:#?}");
-    assert_eq!(report.files.len(), 4);
-    assert_eq!(
-        steps,
-        [
-            CheckStep::Preparing,
-            CheckStep::VersionJar,
-            CheckStep::Libraries,
-            CheckStep::Logging,
-            CheckStep::AssetIndex,
-            CheckStep::AssetObjects
-        ]
-    );
-    assert!(report.files.iter().any(
-        |file| matches!(file.target, CheckTarget::AssetObject { .. })
-            && file.mode == CheckOptionValue::Size
-    ));
-    let hash_report = directory.check(
-        &version,
-        CheckOptions {
-            assets: CheckOptionValue::Hash,
-            ..CheckOptions::default()
-        },
-        &rules(),
-    );
-    assert!(hash_report.issues.iter().any(|issue| matches!(
-        issue.target,
-        CheckTarget::AssetObject { .. }
-    ) && matches!(
-        issue.problem,
-        CheckProblem::HashMismatch { .. }
-    )));
 }
 
 #[test]

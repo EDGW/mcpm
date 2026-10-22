@@ -7,8 +7,13 @@ mcpm mod list [OPTIONS] [PATH]...
 List mod files, accepting any mixture of file and directory paths. With no
 paths, the current directory (`.`) is used.
 
-Help groups options into Global options, Mode options, Filter, Style options,
-TUI-only options and Console-only options, in that order. Mode-specific options
+`--parallelism <COUNT>` bounds outer-JAR loading and loader metadata parsing (default 10, positive integers only; 1 scans sequentially). It applies to TUI, Console, Raw and SSH; SSH performs the scan on the remote host. Files run concurrently, while loaders and nested JARs within each file remain sequential. Progress follows actual completions, but final rows and numbering retain input order and directory path sorting. TUI opens after metadata loading completes. Duplicate normalized paths share cached results, including failures, while retaining a position per input; `.jar` and `.jar.disabled` remain distinct. The cache lasts only for the scan session and does not detect file changes.
+
+Loading concurrency is independent of `--identify-parallelism`. List calls the identification business API without decoding identification packets. Defaults, runtime ownership, stdin paths and terminal progress belong to shared command infrastructure rather than either command implementation.
+
+`--identify-parallelism` appears under Loading options and is marked TUI only.
+Help groups options into Global options, Mode options, Loading options, Filter, Style options,
+and Console-only options, in that order. Mode-specific options
 are still accepted in other modes and ignored there. `--expanded` belongs to
 Style options: it opens all TUI branches, prints all declarations in Console and
 Raw, and additionally lists ignored filenames in Console.
@@ -24,11 +29,15 @@ all branches. `--expanded` starts with every branch open.
 In TUI mode, outer JARs are queued automatically in list order, with
 Modrinth and CurseForge (through Curse.tools) lookups for each file. Up to 10 provider lookups run concurrently by default while navigation remains
 available. `--identify-parallelism <COUNT>` sets a positive concurrency limit;
-use `1` for sequential identification. Below Index, the first position
+use `1` for sequential identification. An Identification progress card between
+Filter and Details shows completed provider lookups, including unmatched and
+failed results, and disappears when all lookups finish. Below Index, the first position
 belongs to Modrinth and the second to CurseForge: a spinner means identification
 is running, and a checkmark means a verified match. Details shows each provider's
-status and, on success, project ID, file ID, filename, match type and size. These
-fields can be selected and copied. Failed requests do not stop later files;
+status in two-line entries. The first line shows the status and, on success,
+dimmed project and file IDs. The second shows `Enter to view release files →`
+for a match, or explains why the source is unavailable. Both lines select as one
+field; copying retains the full result, including filename, match type and size. Failed requests do not stop later files;
 exiting the TUI cancels pending work. Repeated file paths share identification
 results. Nested JARs are not identified and do not inherit outer-file badges.
 Console and Raw do not perform remote identification.
@@ -101,6 +110,52 @@ Mouse clicks select rows and fields; clicking an arrow toggles its branch.
 `--no-ui --raw` also uses Raw. TUI mode uses the detected terminal's TUI palette,
 while Console uses its Console palette. NO_COLOR disables colors.
 
+## SSH listing
+
+Use `--ssh 'ssh -i key -p 2222 user@host'` to load mods on another machine and
+display them locally. `--ssh-mcpm <PATH>` selects its mcpm executable; without
+it, the remote command uses `mcpm`. These options are top-level global options.
+They are supported by `list` TUI, Console and Raw, and by
+[`mod source identify`](source-identify.md); other commands reject them.
+
+The connection command contains the SSH executable, options and destination,
+without a remote command. Quote its arguments using shell-style quoting.
+mcpm opens one non-PTY SSH connection and starts one persistent `mcpm remote`
+process. POSIX shells and Windows cmd/PowerShell are supported. For a custom
+Windows executable, use a Windows path or a name ending in `.exe` (for example
+`C:\mcpm.exe`). The executable is bootstrapped through the remote shell; command
+requests use a command ID and opaque `contents` on stdin, preserving
+spaces, quotes and shell characters. Paths and loader selection are serialized;
+display options stay local. Stdin paths are appended locally as remote paths. All input paths
+and the default `.` refer to the remote machine.
+
+Each loaded item is sent immediately and advances the local progress indicator.
+Results feed the same local TUI, Console and Raw renderers, including filters,
+columns, loader selection and nested declarations. The receiver validates the
+protocol version, request GUIDs, item count/order, JSON framing, completion status
+and process exit status. Successful files remain available when other files fail;
+the local command ultimately returns failure. TUI provider identification submits `mod.source.identify` on this same session.
+The remote host reads each file once and returns size, SHA-1 and requested MurmurHash2 fingerprints.
+The shared identify pipeline queries both providers locally, using local proxies and API keys;
+`--identify-parallelism` bounds their combined network concurrency. Local display and
+matched-file browsing reuse the usual TUI. Exiting cancels pending identification.
+
+A CLI list invocation owns its session until the local view closes. A caller that
+needs multiple commands can retain one SSH child process and send concurrent
+requests to its `mcpm remote` process; see [Persistent remote sessions](../remote.md).
+No local daemon or per-command SSH handshake is required.
+
+```sh
+mcpm mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --expanded --no-ui
+mcpm --raw mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' -C NML
+```
+
+## Remote support
+
+Registered command ID: `mod.list`. The [Remote subsystem](../remote.md) accepts
+structured paths and loader selection and streams one result per input item.
+Filters, columns, expansion and layout remain local frontend settings.
+
 Paths are processed in argument order. A directory contributes its immediate
 `.jar` and `.jar.disabled` files, sorted by path; subdirectories and other
 filenames are skipped. Scanning is not recursive. A file argument is inspected
@@ -122,8 +177,9 @@ mcpm mod list -- -leading-dash.jar
 | --- | --- |
 | `-F, --filter <FILTER>` | Filter rows using the shared [Filter type](filter.md); initializes the editable TUI Filter card. |
 | `--no-ui` | Print the Console list instead of opening the TUI. |
-| `--identify-parallelism <COUNT>` | Maximum simultaneous provider lookups in TUI (default: 10; must be positive). Ignored by Console and Raw. |
-| `--expanded` | Show every mod declaration, including recognized nested mods. In terminal output, also list filenames skipped by loader filtering. |
+| `-p, --parallelism <COUNT>` | Maximum simultaneous outer-JAR inspections (default: 10; must be positive). Applies to all modes and is sent to the remote file host with SSH. |
+| `-P, --identify-parallelism <COUNT>` | Maximum simultaneous provider lookups in TUI (default: 10; must be positive). Ignored by Console and Raw. |
+| `-E, --expanded` | Show every mod declaration, including recognized nested mods. In terminal output, also list filenames skipped by loader filtering. |
 | `--index-type <TYPE>` | Use `flat` (default) for full, left-aligned indices, or `tree` to align the first item after file numbers, with compact nesting and nested name indentation. |
 | `--width <WIDTH>` | Override Console layout width, from 1 to 65535 columns. Ignored by TUI, raw or redirected output. |
 | `--path-style <STYLE>` | Format nested archive paths as `inner`, `full` (default), or `outer`. See [Archive path styles](README.md#archive-path-styles). |

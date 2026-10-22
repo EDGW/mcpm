@@ -12,6 +12,8 @@ are read without modifying them; graph snapshots can be written to a separate fi
 
 [Customize presentation](customize.md) · [Debug palette](debug/palette.md)
 
+[Persistent remote sessions](remote.md)
+
 [简体中文](../docs-zh/README.md)
 
 ## Quick start
@@ -31,6 +33,8 @@ with `cargo run --manifest-path mcpm/Cargo.toml --`.
 
 ## Global options
 
+`--ssh` and `--ssh-mcpm` are global; currently only `mod list` supports them. See [Remote sessions](remote.md).
+
 ```text
 mcpm [OPTIONS] <COMMAND>
 ```
@@ -39,6 +43,7 @@ mcpm [OPTIONS] <COMMAND>
 | --- | --- |
 | `--raw` | Force raw output: disable all TUI interaction, colors, terminal layout, progress indicators, and terminal-only hints. |
 | `--log-level LEVEL` | Diagnostic logging on stderr: off, error, warn (default), info, debug, trace. Available before or after subcommands. |
+| `--remote-logs` | Show remote logs and remote error diagnostics on stderr. Remote logs follow `--log-level`; hidden by default. |
 | `-h`, `--help` | Show help for the current command. |
 | `-V`, `--version` | Show the executable version at the top level. |
 
@@ -99,9 +104,10 @@ NO_COLOR=1 mcpm mod list mods/
 
 ## Diagnostic logging
 
-`--log-level` configures the `tracing-subscriber` logger. Default `warn` keeps
-ordinary successful operations quiet. Use `info` for launch/check stages,
-`debug` for selected libraries, paths and the final redacted Java argument list,
+`--log-level` configures stderr logging through `tracing-subscriber`. Default `warn` keeps
+ordinary successful operations quiet. Use `info` for current steps and important
+events such as game process startup and exit. Routine completion, session cleanup,
+transfer statistics, selected libraries, paths and the final redacted Java argument list use `debug`,
 and `trace` for individual native entries and required-file inspections.
 
 ```sh
@@ -112,5 +118,15 @@ mcpm client launch 1.18.1 --no-logging-config --log-level debug
 Logs use stderr and cooperate with progress bars. Colors follow terminal policy,
 `NO_COLOR`, and `--raw`. Log filtering does not hide normal command results or
 operational error diagnostics and does not filter the game's stdout/stderr.
+Each run also creates `~/.mcpm/logs/YYYY-MM-DD/HH-MM-SS.nnnnnnnnn.log`, using
+the local process start date and time with Windows-compatible filenames. The
+same file remains open across midnight. A UUID suffix resolves simultaneous-start
+filename collisions without overwriting existing logs. File logging records through `debug`
+(error, warn, info, debug), independently of `--log-level`, including when it is
+`off`. Files include timestamps, module targets and error chains, without colors.
+Remote logs and `remote error:` diagnostics are hidden on stderr by default.
+Enable the global `--remote-logs` option to display them; remote logs also follow
+`--log-level`. File logging and failure exit statuses are unaffected.
+Remote processes write logs under the remote user's home directory as well.
 Identity tokens and known credential arguments are redacted from command logs;
 environment variable values are not logged.

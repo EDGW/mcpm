@@ -12,14 +12,14 @@ use super::super::{
     identifier::DependencyIdentifier,
 };
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct Snapshot<'a> {
     format_version: u64,
     identification_failures: &'a [IdentificationFailure],
     nodes: Vec<Node<'a>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct Identifier<'a> {
     loader: &'a str,
     id: &'a str,
@@ -34,13 +34,13 @@ impl<'a> From<&'a DependencyIdentifier> for Identifier<'a> {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct Node<'a> {
     identifier: Identifier<'a>,
     candidates: Vec<Candidate<'a>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Candidate<'a> {
     External {
@@ -58,7 +58,7 @@ enum Candidate<'a> {
 }
 
 /// Dependencies are stored on outgoing edges, once per declaration.
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct ModIdentity<'a> {
     name: &'a str,
     modid: &'a str,
@@ -75,7 +75,7 @@ impl<'a> From<&'a ModInfo> for ModIdentity<'a> {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct Edge<'a> {
     target: Identifier<'a>,
     dependency: &'a Dependency,

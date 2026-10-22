@@ -11,10 +11,12 @@ use kako_mods_lib::local::{
 };
 use thiserror::Error;
 
+use crate::commands::{
+    execution::DEFAULT_PARALLELISM, progress, source_support::identify::Location,
+};
 use crate::terminal;
 
 use super::{
-    progress,
     scan::ScanSession,
     selection::{Resolver, Scope, SelectedFile, SelectionArgs},
     source_path::PathArgs,
@@ -28,7 +30,7 @@ mod output;
 mod rows;
 mod tui;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(in crate::commands) struct ListDisplayArgs {
     /// Filter matching rows with the same expression used by the TUI Filter card.
     #[arg(short = 'F', long, value_name = "FILTER", help_heading = "Filter", long_help = filter::HELP)]
@@ -36,16 +38,17 @@ pub(in crate::commands) struct ListDisplayArgs {
     /// Print a Console list instead of opening the TUI.
     #[arg(long, help_heading = "Mode options")]
     no_ui: bool,
-    /// Maximum simultaneous source lookups in TUI; ignored by Console and Raw.
+    /// TUI only: maximum simultaneous source lookups; ignored by Console and Raw.
     #[arg(
+        short = 'P',
         long,
-        default_value = "10",
+        default_value_t = std::num::NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(),
         value_name = "COUNT",
-        help_heading = "TUI-only options"
+        help_heading = "Loading options"
     )]
     identify_parallelism: std::num::NonZeroUsize,
     /// Expand all branches in TUI; print every mod declaration in Console and Raw. Console also lists ignored filenames.
-    #[arg(long, help_heading = "Style options")]
+    #[arg(short = 'E', long, help_heading = "Style options")]
     expanded: bool,
     /// Index layout: full indices or aligned first items with compact nesting and indented names.
     #[arg(
@@ -65,6 +68,19 @@ pub(in crate::commands) struct ListDisplayArgs {
     paths_output: PathArgs,
 }
 
+/// File-host execution options are separate from local presentation options.
+#[derive(Args, Debug)]
+pub(in crate::commands) struct ListLoadingArgs {
+    /// Maximum simultaneous outer-JAR inspections, locally or on the SSH host.
+    #[arg(short = 'p', long, default_value_t = std::num::NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(), value_name = "COUNT", help_heading = "Loading options")]
+    parallelism: std::num::NonZeroUsize,
+}
+impl ListLoadingArgs {
+    pub(in crate::commands) fn parallelism(&self) -> usize {
+        self.parallelism.get()
+    }
+}
+
 type ListedFile = SelectedFile;
 
 /// Lists batches of entries supplied by a command, retaining per-input diagnostics.
@@ -73,10 +89,13 @@ pub(in crate::commands) fn run(
     inputs: impl IntoIterator<Item = Result<Vec<ModEntry>>>,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     hide_unrecognized: bool,
+    parallelism: usize,
     args: ListDisplayArgs,
 ) -> Result<()> {
+    let started = std::time::Instant::now();
+    tracing::debug!(loaders = ?loaders.keys().map(|id| id.as_str()).collect::<Vec<_>>(), hide_unrecognized, "Starting local mod list scan");
     let source_loaders = source_loaders(&loaders, hide_unrecognized);
-    let progress = progress::Progress::new();
+    let progress = progress::Progress::new("Scanning mod directory...", "Identifying mods");
     let mut entries = Vec::new();
     let mut input_errors = 0;
     for input in inputs {
@@ -89,22 +108,33 @@ pub(in crate::commands) fn run(
         }
     }
     progress.set_total(entries.len());
+    tracing::debug!(
+        count = entries.len(),
+        input_errors,
+        "Local mod list input discovery completed"
+    );
 
-    let mut session = ScanSession::new(loaders);
-    let mut files = Vec::new();
-    for entry in entries {
-        let path = entry.path().to_owned();
-        let identified = session.read(path.clone(), Some(&progress));
-        progress.advance();
-        let Some(scanned) = identified else {
-            continue;
-        };
-        files.push(SelectedFile {
+    let mut session = ScanSession::new(loaders).with_parallelism(parallelism);
+    let paths: Vec<_> = entries
+        .into_iter()
+        .map(|entry| entry.path().to_owned())
+        .collect();
+    let files = session
+        .collect(&paths, &progress)?
+        .into_iter()
+        .map(|scanned| SelectedFile {
             scanned,
             records: None,
-        });
-    }
+        })
+        .collect::<Vec<_>>();
     drop(progress);
+    tracing::debug!(
+        files = files.len(),
+        failed = session.failed_count(),
+        input_errors,
+        elapsed_ms = started.elapsed().as_millis(),
+        "Local mod list loading completed"
+    );
     present(
         files,
         hide_unrecognized,
@@ -112,6 +142,7 @@ pub(in crate::commands) fn run(
         input_errors,
         session.failed_count(),
         source_loaders,
+        Location::Local,
     )
 }
 
@@ -120,10 +151,14 @@ pub(in crate::commands) fn run_selection(
     selection: SelectionArgs,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
+    parallelism: usize,
     args: ListDisplayArgs,
 ) -> Result<()> {
     let source_loaders = source_loaders(&loaders, true);
-    let mut resolver = Resolver::new(ScanSession::new(loaders), scope);
+    let mut resolver = Resolver::new(
+        ScanSession::new(loaders).with_parallelism(parallelism),
+        scope,
+    );
     let mut files = Vec::new();
     let mut input_errors = 0;
     let queries = match selection.into_queries() {
@@ -150,20 +185,38 @@ pub(in crate::commands) fn run_selection(
         input_errors,
         resolver.scan.failed_count(),
         source_loaders,
+        Location::Local,
     )
 }
 
 /// Shared filtering, layout and summary for path-based and query-based listing.
-fn present(
+#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
+pub(in crate::commands) fn present(
     files: Vec<ListedFile>,
     hide_unrecognized: bool,
     args: ListDisplayArgs,
     input_errors: usize,
     failed: usize,
     source_loaders: Vec<String>,
+    location: Location<'_>,
 ) -> Result<()> {
+    let local_files = location.is_local();
     let formatted = terminal::stdout_is_tty();
     let interactive = formatted && terminal::stderr_is_tty() && !args.no_ui;
+    tracing::debug!(
+        mode = if interactive {
+            "TUI"
+        } else if formatted {
+            "Console"
+        } else {
+            "Raw"
+        },
+        local_files,
+        files = files.len(),
+        failed,
+        input_errors,
+        "Preparing mod list presentation"
+    );
     let mut ignored = 0;
     let mut ignored_files = Vec::new();
     let files: Vec<_> = files
@@ -174,6 +227,7 @@ fn present(
                 && listed.scanned.failures.is_empty()
                 && file.metadata.iter().all(|metadata| !metadata.has_mods())
             {
+                tracing::debug!(path = %file.entry.path().display(), "Hiding unrecognized mod file");
                 ignored += 1;
                 if formatted && (args.expanded || interactive) {
                     ignored_files.push(file.entry.path().to_owned());
@@ -184,6 +238,7 @@ fn present(
             }
         })
         .collect();
+    tracing::debug!(retained = files.len(), ignored, filter = ?args.filter.as_ref().map(Filter::as_str), "Applied mod list visibility constraints");
     let columns = args.columns.selected();
     let color = terminal::stdout_color_enabled();
     let width = formatted.then(|| {
@@ -196,7 +251,10 @@ fn present(
         paths: &args.paths_output,
         index_type: args.index_type,
     };
+    tracing::debug!(?columns, ?width, color, expanded = args.expanded, index_type = ?args.index_type, "Selected mod list layout");
+    let presented = std::time::Instant::now();
     if interactive {
+        tracing::info!(files = files.len(), "Opening mod list TUI");
         tui::run(
             &files,
             &columns,
@@ -205,6 +263,7 @@ fn present(
             args.identify_parallelism.get(),
             args.filter.unwrap_or_default(),
             tui::Summary {
+                location,
                 ignored,
                 ignored_files: &ignored_files,
                 input_errors,
@@ -241,6 +300,11 @@ fn present(
         } else {
             rows::collect(&files, &options)
         };
+        tracing::debug!(
+            rows = rows.len(),
+            files = files.len(),
+            "Built and filtered mod list rows"
+        );
         let mut stdout = io::stdout().lock();
         output::write_list(&mut stdout, &rows, &columns, color, width)
             .context("failed to write mod list")?;
@@ -249,12 +313,25 @@ fn present(
         stdout.flush().context("failed to flush mod list")?;
     }
 
+    tracing::debug!(
+        files = files.len(),
+        ignored,
+        failed,
+        input_errors,
+        elapsed_ms = presented.elapsed().as_millis(),
+        "Mod list presentation completed"
+    );
     if input_errors > 0 || failed > 0 {
-        return Err(ListError::FailedListing {
+        let error = ListError::FailedListing {
             input_paths: input_errors,
             mod_files: failed,
         }
-        .into());
+        .into();
+        return Err(if local_files {
+            error
+        } else {
+            crate::diagnostics::RemoteError::wrap(error)
+        });
     }
     Ok(())
 }

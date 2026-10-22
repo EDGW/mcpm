@@ -1,3 +1,5 @@
+//! CLI player identity options and redacted debug formatting.
+
 use clap::Args;
 use kako_mods_lib::local::mc::client::launch::{Identity, Secret};
 
@@ -27,6 +29,22 @@ pub(super) struct IdentityArgs {
     /// Supplied authentication client identifier.
     #[arg(long, requires = "access_token")]
     client_id: Option<String>,
+}
+
+impl std::fmt::Debug for IdentityArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdentityArgs")
+            .field("username", &self.username)
+            .field("uuid", &self.uuid)
+            .field(
+                "access_token",
+                &self.access_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("user_type", &self.user_type)
+            .field("xuid", &self.xuid.as_ref().map(|_| "[REDACTED]"))
+            .field("client_id", &self.client_id.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
 }
 
 impl IdentityArgs {

@@ -6,6 +6,7 @@ use super::super::{
 };
 use crate::commands::mod_support::mod_records;
 
+#[derive(Debug)]
 pub(super) struct Node {
     pub row: Row,
     pub file: usize,

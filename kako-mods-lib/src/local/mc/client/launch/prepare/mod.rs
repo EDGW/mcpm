@@ -59,7 +59,7 @@ impl LaunchPlan {
             tracing::debug!(path = ?self.natives, "Preparing natives directory");
             safe_directory(&self.natives)?;
         } else {
-            tracing::info!(path = ?self.natives, "Using existing natives without extraction");
+            tracing::debug!(path = ?self.natives, "Using existing natives without extraction");
             let metadata = fs::metadata(&self.natives)
                 .map_err(|source| io_error("inspect existing natives", &self.natives, source))?;
             if !metadata.is_dir() {
@@ -81,7 +81,7 @@ impl LaunchPlan {
             tracing::trace!(?source, ?destination, "Mapping legacy asset");
             copy_asset(source, destination)?;
         }
-        tracing::info!("Launch preparation complete");
+        tracing::debug!("Launch preparation complete");
         Ok(PreparedLaunch { plan: self })
     }
 }
@@ -106,7 +106,7 @@ fn extract_natives(plan: &LaunchPlan) -> Result<(), PreparationError> {
     let maximum = plan.options.natives.maximum_bytes;
     tracing::info!(archives = plan.archives.len(), destination = ?plan.natives, "Preparing native extraction");
     for archive in &plan.archives {
-        tracing::info!(archive = ?archive.path, destination = ?plan.natives, "Extracting native archive");
+        tracing::debug!(archive = ?archive.path, destination = ?plan.natives, "Extracting native archive");
         let file = fs::File::open(&archive.path)
             .map_err(|source| io_error("open native archive", &archive.path, source))?;
         let mut zip = ZipArchive::new(file).map_err(|source| PreparationError::Archive {
@@ -176,7 +176,7 @@ fn extract_natives(plan: &LaunchPlan) -> Result<(), PreparationError> {
                 .map_err(|error| io_error("install native", &destination, error.error))?;
         }
     }
-    tracing::info!(bytes = extracted, "Native extraction complete");
+    tracing::debug!(bytes = extracted, "Native extraction complete");
     Ok(())
 }
 

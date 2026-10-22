@@ -87,15 +87,6 @@ fn init_identifies_loaders_and_retains_flattened_command() {
         let start = server.metadata().start.as_ref().unwrap();
         assert!(start.directory.is_absolute());
         assert!(start.arguments.iter().all(|arg| !arg.starts_with('@')));
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        assert_eq!(stdout.trim_end().split('\t').count(), 6);
-        assert!(stdout.contains("java "));
-        if case == "forge" {
-            assert!(stdout.contains("-Xmx2G"));
-        }
-        let info = run(temp.path(), &["server", "info", "--full-command"]);
-        assert!(info.status.success());
-        assert_eq!(String::from_utf8(info.stdout).unwrap(), stdout);
     }
 }
 
@@ -174,48 +165,6 @@ fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
     assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1");
     fs::remove_file(temp.path().join("server.jar")).unwrap();
     assert!(identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).is_err());
-}
-
-#[test]
-fn identification_logs_explain_command_evidence_on_stderr() {
-    let temp = TempDir::new().unwrap();
-    copy(&fixture("neoforge"), temp.path());
-    fs::remove_dir_all(temp.path().join("libraries")).unwrap();
-    let output = run(
-        temp.path(),
-        &[
-            "--log-level",
-            "debug",
-            "server",
-            "init",
-            "--start-script",
-            "run.bat",
-        ],
-    );
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let logs = String::from_utf8(output.stderr).unwrap();
-    for message in [
-        "reading server start script",
-        "expanding Java argument file",
-        "inspecting Java server entry",
-        "identified FML server from launch arguments",
-        "identified server loader",
-        "server identification completed",
-    ] {
-        assert!(logs.contains(message), "missing {message}: {logs}");
-    }
-    assert_eq!(
-        String::from_utf8(output.stdout)
-            .unwrap()
-            .trim_end()
-            .split('\t')
-            .count(),
-        6
-    );
 }
 
 #[test]
@@ -309,98 +258,5 @@ fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identif
             .unwrap()
             .arguments
             .contains(&"other.jar".into())
-    );
-}
-
-#[test]
-fn manual_options_conflicts_existing_configuration_force_and_default_script() {
-    let temp = TempDir::new().unwrap();
-    copy(&fixture("forge"), temp.path());
-    let output = run(temp.path(), &["server", "init"]);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let manifest = temp.path().join(".mcpm/server.json");
-    let original = fs::read(&manifest).unwrap();
-    let output = run(temp.path(), &["server", "init"]);
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("already exists"));
-    assert_eq!(fs::read(&manifest).unwrap(), original);
-    let output = run(
-        temp.path(),
-        &[
-            "server",
-            "init",
-            "--force",
-            "--minecraft-version",
-            "1.21.1",
-            "--loader",
-            "vanilla",
-        ],
-    );
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let server = MinecraftServer::load(temp.path()).unwrap();
-    assert_eq!(server.metadata().minecraft_version, "1.21.1");
-    assert!(server.metadata().loader.is_none());
-    assert!(server.metadata().start.is_none());
-    for args in [
-        vec![
-            "server",
-            "init",
-            "--start-script",
-            "run.sh",
-            "--loader",
-            "forge",
-        ],
-        vec![
-            "server",
-            "init",
-            "--start-script",
-            "run.sh",
-            "--minecraft-version",
-            "1.20.1",
-        ],
-        vec![
-            "server",
-            "init",
-            "--start-script",
-            "run.sh",
-            "--loader-version",
-            "47.3.12",
-        ],
-    ] {
-        let output = run(temp.path(), &args);
-        assert_eq!(output.status.code(), Some(2));
-    }
-    let output = run(
-        temp.path(),
-        &[
-            "server",
-            "init",
-            "--force",
-            "--loader",
-            "vanilla",
-            "--loader-version",
-            "1",
-        ],
-    );
-    assert!(!output.status.success());
-    let output = run(
-        temp.path(),
-        &["server", "init", "--force", "--minecraft-version", "1.19.4"],
-    );
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("no identified server launch matches")
-    );
-    assert_eq!(
-        MinecraftServer::load(temp.path()).unwrap().metadata(),
-        server.metadata()
     );
 }

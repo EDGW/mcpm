@@ -6,11 +6,17 @@ mcpm mod list [OPTIONS] [PATH]...
 
 列出 Mod 文件，可混合传入多个文件和目录。不传路径时使用当前目录（`.`）。
 
-Help 依次将选项分为全局参数（Global options）、模式参数（Mode options）、Filter、样式参数（Style options）、TUI 模式专有参数（TUI-only options）和 Console 模式专有参数（Console-only options）。模式专有参数在其他模式中仍可传入，但会被忽略。`--expanded` 属于样式参数：TUI 中初始展开全部分支，Console 和 Raw 中输出全部声明，Console 还会列出被忽略的文件名。
+Help 依次将选项分为全局参数（Global options）、模式参数（Mode options）、加载参数（Loading options）、Filter、样式参数（Style options）和 Console 模式专有参数（Console-only options）。`--identify-parallelism` 放在 Loading options 中并注明 TUI only。模式专有参数在其他模式中仍可传入，但会被忽略。`--expanded` 属于样式参数：TUI 中初始展开全部分支，Console 和 Raw 中输出全部声明，Console 还会列出被忽略的文件名。
+
+`--parallelism <COUNT>` 控制外层 JAR 的加载与 loader 元数据解析并发，默认 10，必须为正整数；设为 1 可顺序加载。TUI、Console、Raw 和 SSH 均生效；SSH 时在远端执行并行扫描。不同文件可同时加载，同一文件内部的 loader 和内嵌 JAR 仍顺序解析。进度按实际完成数推进，最终列表与编号保留输入顺序及目录内的路径排序，全部元数据加载完成后才打开 TUI。重复规范化路径共享扫描结果（包括失败），但每个输入仍保留独立位置；`.jar` 与 `.jar.disabled` 不合并。缓存仅在本次扫描会话内有效，不检测文件修改。
+
+加载并行度与 `--identify-parallelism` 分别设置，互不覆盖。平台识别由独立的 identify 业务接口处理；并发默认值、运行时、stdin 与终端进度设施归命令公共层，list 不依赖 identify 的配置或传输数据包。
 
 终端中默认打开 TUI：上方是可滚动的 Mod 树，下方是紧凑的 Details 卡片。每个 Mod 占两行，File 移到第二行并与 Mod ID 左对齐，第一行不再单列 File；选中项的两行以背景色标识；`>` 表示可展开分支，`v` 表示已展开，叶子不显示箭头。→ 展开一级，← 收起当前分支或移至父项，Space 切换当前分支，`e` 展开全部。`--expanded` 会在启动时展开全部分支。
 
-仅 TUI 会自动按列表顺序识别外层 JAR：每个文件查询 Modrinth，并通过 Curse.tools 查询 CurseForge。默认最多同时执行 10 个平台反查请求，期间仍可操作列表；`--identify-parallelism <COUNT>` 指定正整数并行度，设为 `1` 则顺序识别。Index 下方的第一位对应 Modrinth，第二位对应 CurseForge；识别时显示加载动画，验证匹配后显示平台色勾选。Details 显示各平台状态，成功时包括 Project ID、File ID、文件名、匹配类型和大小，支持选择和复制。单次请求失败后继续处理其他文件，退出 TUI 会取消剩余请求。重复文件路径共享识别结果。嵌套 JAR 不参与识别，也不会继承外层文件的成功标记。Console 和 Raw 不执行远程识别。
+仅 TUI 会自动按列表顺序识别外层 JAR：每个文件查询 Modrinth，并通过 Curse.tools 查询 CurseForge。默认最多同时执行 10 个平台反查请求，期间仍可操作列表；`--identify-parallelism <COUNT>` 指定正整数并行度，设为 `1` 则顺序识别。Index 下方的第一位对应 Modrinth，第二位对应 CurseForge；识别时显示加载动画，验证匹配后显示平台色勾选。Details 中各平台占两行：首行显示状态，成功时的 Project ID 和 File ID 使用 dimmed；第二行在匹配成功时显示英文入口 `Enter to view release files →`，否则说明不可用原因。两行作为一个字段整体选择；复制仍包含文件名、匹配类型和大小等完整结果。单次请求失败后继续处理其他文件，退出 TUI 会取消剩余请求。重复文件路径共享识别结果。嵌套 JAR 不参与识别，也不会继承外层文件的成功标记。Console 和 Raw 不执行远程识别。
+
+识别期间，Filter 与 Details 之间显示 Identification 进度卡片，按已完成的平台查询数推进；无匹配和失败也计为完成，所有查询结束后自动隐藏。
 
 在 Details 中选中已识别成功的 Modrinth 或 CurseForge 字段，按 Enter 进入该项目的 files，自动将识别到的版本置顶为 `Selected`。命令行的 `--loader/--loaders` 筛选会一并传递，多选按任意匹配；未指定时不限制 loader。Esc 或 q 返回原列表，保留选中行、Details 字段和筛选条件。加载时可按 Esc 取消；请求失败会返回列表并显示错误。尚未匹配的来源和嵌套 JAR 不提供此入口。
 
@@ -37,6 +43,25 @@ Console 和 Raw 搜索全部声明（包括隐藏子项），再输出匹配行�
 
 `--no-ui` 使用 Console 列表；`--raw` 或 stdout 重定向使用 TSV 原始输出，`--no-ui --raw` 同样使用 Raw。TUI 和 Console 分别使用与当前终端深浅模式对应的配色，NO_COLOR 关闭颜色。
 
+## SSH 列表
+
+使用 `--ssh 'ssh -i key -p 2222 user@host'` 从另一台机器加载 Mod，在本地显示。`--ssh-mcpm <PATH>` 指定远端 mcpm 可执行文件，未指定时直接使用远端 PATH 中的 `mcpm`。这两个参数在最外层全局有效，可放在子命令前后；目前 `list` 的 TUI、Console、Raw 以及 [`mod source identify`](source-identify.md) 支持，其他命令明确报不支持。
+
+连接字符串只包含 SSH 可执行文件、选项和目标地址，不包含远端命令；其中的参数使用 shell 风格引号。mcpm 只建立一个非 PTY 的 SSH 连接，并启动一个持续运行的 `mcpm remote` 进程。支持 POSIX shell 和 Windows cmd/PowerShell。指定 Windows 可执行文件时，使用 Windows 路径或以 `.exe` 结尾的名称，例如 `C:\mcpm.exe`。只有可执行文件的启动经过远端 shell，请求使用 command ID 和不透明 `contents`，通过 stdin 上的 JSON 传输，可保留空格、引号和 shell 特殊字符。路径与 Loader 选择被序列化传输，显示参数留在本地；stdin 路径在本地追加后作为远端路径传递。所有输入路径及默认的 `.` 都指远端机器。
+
+每项加载完成后立即传送结果，并推进本地进度条。结果交给相同的本地 TUI、Console 和 Raw 渲染器，保留筛选、列选择、Loader 选择和嵌套声明展示。接收端校验协议版本、请求 GUID、结果数量、索引范围与唯一性、JSON 换行、完成状态和进程退出状态。部分文件失败时仍展示成功结果，最终返回失败状态。SSH 数据的 TUI 在同一 Session 上提交 `mod.source.identify` 请求，由远端一次读取文件并返回 SHA-1、大小和所需的 MurmurHash2 指纹，本地通过共享 identify 流程查询两个平台，使用本地代理和 API key；`--identify-parallelism` 控制整体网络并发度。本地复用原有状态展示和匹配文件浏览；退出面板时取消剩余识别。
+
+单次 CLI 列表调用持有会话，直到本地界面关闭。需要执行多条命令的调用方可自行持有同一个 SSH 子进程，向同一个远端 mcpm 进程连续发送请求；见[持久远程会话](../remote.md)。不需要本地常驻进程，也不需要为每条命令重新握手。
+
+```sh
+mcpm mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --expanded --no-ui
+mcpm --raw mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' -C NML
+```
+
+## Remote 支持
+
+注册的 command ID 为 `mod.list`。[Remote 子系统](../remote.md) 接受结构化路径和 Loader 选择，并为每个输入项流式返回一条结果。筛选、列选择、展开和排版均由本地前端负责。
+
 路径按参数顺序处理。目录只提供其直接包含的 `.jar` 和 `.jar.disabled` 文件，并按路径排序；跳过子目录和其他文件，不进行递归扫描。直接传入的文件也必须使用上述后缀，后缀区分大小写。支持跟随指向普通文件和目录的符号链接。
 
 重复路径会重复处理。例如，一个文件同时作为独立参数传入并通过目录扫描发现时，会出现两次。文件编号按合并后的显示顺序分配。
@@ -52,8 +77,9 @@ mcpm mod list -- -leading-dash.jar
 | --- | --- |
 | `-F, --filter <FILTER>` | 使用共享的 [Filter 类型](filter.md) 筛选输出，并设置 TUI Filter 卡片的可编辑初始条件。 |
 | `--no-ui` | 使用 Console 列表，不打开 TUI。 |
-| `--identify-parallelism <COUNT>` | TUI 平台反查并行度，默认 10，必须为正整数。Console 和 Raw 忽略此项。 |
-| `--expanded` | 显示全部 Mod 声明，包括已识别的嵌套 Mod。在终端输出中还列出因 Loader 筛选而跳过的文件名。 |
+| `-p, --parallelism <COUNT>` | 外层 JAR 加载并行度，默认 10，必须为正整数；所有模式生效，SSH 时传给远端。 |
+| `-P, --identify-parallelism <COUNT>` | TUI 平台反查并行度，默认 10，必须为正整数。Console 和 Raw 忽略此项。 |
+| `-E, --expanded` | 显示全部 Mod 声明，包括已识别的嵌套 Mod。在终端输出中还列出因 Loader 筛选而跳过的文件名。 |
 | `--index-type <TYPE>` | `flat`（默认）显示完整且左对齐的编号；`tree` 对齐文件编号后的第一项，其余层级紧凑缩进，并缩进嵌套 Mod 名称。 |
 | `--width <WIDTH>` | 覆盖 Console 排版宽度，范围为 1–65535 列。TUI、原始输出或重定向时忽略此选项。 |
 | `--path-style <STYLE>` | 使用 `inner`、`full`（默认）或 `outer` 格式化嵌套归档路径，详见[归档路径样式](README.md#归档路径样式)。 |

@@ -1,3 +1,5 @@
+//! Game launch arguments, memory, window and multiplayer options.
+
 use std::path::PathBuf;
 
 use clap::Args;
@@ -6,7 +8,7 @@ use kako_mods_lib::local::mc::client::{
     launch::{LaunchOptions, LoggingOptions, QuickPlay, QuickPlayTarget, ServerOptions},
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(next_help_heading = "Game")]
 pub(super) struct GameArgs {
     /// Game directory; defaults to each version's directory.

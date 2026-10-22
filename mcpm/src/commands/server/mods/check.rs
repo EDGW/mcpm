@@ -9,7 +9,7 @@ use crate::commands::{mod_support::dep_graph, output_style::OutputStyle};
 
 use super::graph_input::ServerArgs;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct CheckArgs {
     #[command(flatten)]
     server: ServerArgs,

@@ -9,6 +9,7 @@ use thiserror::Error;
 use super::{Query, QueryKind};
 
 /// CLI and stdin queries in user-supplied order, or an explicit complete scan.
+#[derive(Debug)]
 pub(in crate::commands) struct SelectionArgs {
     pub(super) queries: Vec<Query>,
     pub(super) all: bool,
@@ -20,7 +21,7 @@ impl SelectionArgs {
     }
 
     fn with_stdin_kind(mut self, kind: QueryKind) -> Result<Self> {
-        let paths = super::super::stdin::append(Vec::new())?;
+        let paths = crate::commands::stdin::append(Vec::new())?;
         if self.all && !paths.is_empty() {
             return Err(AllWithQueries.into());
         }
@@ -41,7 +42,7 @@ impl SelectionArgs {
 }
 
 /// Interpretation of stdin lines, independent of positional and explicit CLI selectors.
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(in crate::commands) struct StdinArgs {
     /// Interpret stdin lines as names, files, modids, or automatic filename/modid/name queries.
     #[arg(long, value_enum, default_value = "unspecified", value_name = "TYPE")]
@@ -60,7 +61,7 @@ impl StdinArgs {
     }
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 enum StdinKind {
     Name,
     File,
@@ -68,7 +69,7 @@ enum StdinKind {
     Unspecified,
 }
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 struct RawSelectionArgs {
     /// Match each input by filename, then exact modid, then exact mod name.
     #[arg(value_name = "INPUT", num_args = 0..)]

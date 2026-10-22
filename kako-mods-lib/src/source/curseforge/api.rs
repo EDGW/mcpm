@@ -3,25 +3,25 @@
 use serde::Deserialize;
 use url::Url;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub(super) struct Response<T> {
     pub data: T,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub(super) struct SearchResponse {
     pub data: Vec<Project>,
     pub pagination: Pagination,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Pagination {
     pub index: u64,
     pub total_count: u64,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Project {
     pub id: u32,
@@ -32,14 +32,42 @@ pub(super) struct Project {
     pub slug: String,
     pub logo: Option<Logo>,
     pub links: Links,
+    #[serde(default)]
+    pub categories: Vec<Category>,
+    #[serde(default)]
+    pub latest_files_indexes: Vec<FileIndex>,
+    #[serde(default)]
+    pub latest_early_access_files_indexes: Vec<FileIndex>,
+    #[serde(default)]
+    pub latest_files: Vec<RecentFile>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
+pub(super) struct Category {
+    pub slug: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct FileIndex {
+    pub game_version: String,
+    pub mod_loader: Option<u32>,
+}
+
+/// Only the compatibility summary is needed from files embedded in a project.
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RecentFile {
+    #[serde(default)]
+    pub sortable_game_versions: Vec<GameVersion>,
+}
+
+#[derive(Deserialize, Debug)]
 pub(super) struct Logo {
     pub url: Url,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Links {
     pub website_url: Option<String>,
@@ -48,13 +76,13 @@ pub(super) struct Links {
     pub wiki_url: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub(super) struct FileResponse {
     pub data: Vec<File>,
     pub pagination: Pagination,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct File {
     pub id: u32,
@@ -69,7 +97,7 @@ pub(super) struct File {
     pub dependencies: Vec<Dependency>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct GameVersion {
     pub game_version_name: String,
@@ -77,13 +105,13 @@ pub(super) struct GameVersion {
     pub game_version: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub(super) struct Hash {
     pub algo: u32,
     pub value: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Dependency {
     pub mod_id: u32,

@@ -52,7 +52,7 @@ pub fn identify(
     let result = identify_inner(root.as_ref(), script.as_ref(), loaders);
     match &result {
         Ok(candidates) => {
-            tracing::info!(count = candidates.len(), "server identification completed")
+            tracing::debug!(count = candidates.len(), "server identification completed")
         }
         Err(error) => {
             tracing::debug!(error = %format_args!("{error:#}"), "server identification failed")

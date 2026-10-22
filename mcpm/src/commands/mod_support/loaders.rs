@@ -8,13 +8,14 @@ use kako_mods_lib::local::{
     modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta},
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(in crate::commands) struct LoaderArgs {
     /// Select one loader; repeat to select multiple loaders.
-    #[arg(long = "loader", value_enum, value_name = "LOADER")]
+    #[arg(short = 'l', long = "loader", value_enum, value_name = "LOADER")]
     loader: Vec<Loader>,
     /// Select comma-separated loaders; combined with all --loader options.
     #[arg(
+        short = 'L',
         long = "loaders",
         value_enum,
         value_delimiter = ',',
@@ -23,15 +24,15 @@ pub(in crate::commands) struct LoaderArgs {
     loaders: Vec<Loader>,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
-enum Loader {
+#[derive(Clone, Copy, ValueEnum, Debug)]
+pub(in crate::commands) enum Loader {
     Forge,
     Neoforge,
     Fabric,
 }
 
 impl Loader {
-    fn id(self) -> &'static str {
+    pub(in crate::commands) fn id(self) -> &'static str {
         match self {
             Self::Forge => "forge",
             Self::Neoforge => "neoforge",

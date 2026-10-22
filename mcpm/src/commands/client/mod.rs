@@ -1,3 +1,5 @@
+//! Client subcommand definitions and dispatch.
+
 mod check;
 mod input;
 mod launch;
@@ -9,13 +11,13 @@ mod selector;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(crate) struct ClientArgs {
     #[command(subcommand)]
     command: ClientCommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum ClientCommand {
     /// Check local client libraries and assets, optionally selecting a version interactively.
     Check(check::CheckArgs),

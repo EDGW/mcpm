@@ -1,3 +1,5 @@
+//! CLI verification modes and resource-specific check options.
+
 use clap::{Args, ValueEnum};
 use kako_mods_lib::local::mc::client::{CheckOptionValue, CheckOptions};
 
@@ -18,7 +20,7 @@ impl From<Mode> for CheckOptionValue {
     }
 }
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct OptionArgs {
     /// Verify every category using size and SHA-1; conflicts with individual policies.
     #[arg(long, conflicts_with_all = ["shallow", "libraries", "assets", "asset_index", "version_jar", "logging"])]

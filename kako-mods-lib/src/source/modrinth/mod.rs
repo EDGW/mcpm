@@ -13,11 +13,12 @@ use super::{
 };
 
 mod api;
+mod catalog;
 mod files;
 mod identify;
 
 /// A configured Modrinth v2 API endpoint and its source identity.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ModrinthSource {
     id: SourceId,
     client: Client,
@@ -84,6 +85,14 @@ impl ModrinthSource {
             name: project.title,
             summary: project.description,
             slug: Some(project.slug),
+            loaders: project
+                .categories
+                .iter()
+                .filter(|tag| is_loader(tag))
+                .cloned()
+                .collect(),
+            categories: project.categories,
+            game_versions: project.versions,
             icon_url: project.icon_url,
             website_url: Some(website_url),
         })
@@ -96,8 +105,15 @@ impl Source for ModrinthSource {
         &self.id
     }
 
-    async fn identify_file(&self, path: &std::path::Path) -> Result<Option<super::FileMatch>> {
-        self.identify_local_file(path).await
+    async fn game_versions(&self) -> Result<Vec<String>> {
+        self.fetch_game_versions().await
+    }
+
+    async fn identify_summary(
+        &self,
+        summary: &super::FileSummary,
+    ) -> Result<Option<super::FileMatch>> {
+        self.identify_summary_file(summary).await
     }
 
     async fn search(&self, query: &SearchQuery) -> Result<SearchPage> {
@@ -110,12 +126,26 @@ impl Source for ModrinthSource {
             "Modrinth search offset exceeds its supported range"
         );
         let mut facets = vec![vec!["project_type:mod".to_owned()]];
-        if let Some(version) = &query.game_version {
-            facets.push(vec![format!("versions:{version}")]);
+        if !query.game_versions.is_empty() {
+            facets.push(
+                query
+                    .game_versions
+                    .iter()
+                    .map(|version| format!("versions:{version}"))
+                    .collect(),
+            );
         }
-        if let Some(loader) = &query.loader {
+        for loader in &query.loaders {
             check_loader(loader)?;
-            facets.push(vec![format!("categories:{loader}")]);
+        }
+        if !query.loaders.is_empty() {
+            facets.push(
+                query
+                    .loaders
+                    .iter()
+                    .map(|loader| format!("categories:{loader}"))
+                    .collect(),
+            );
         }
         let sort = match query.sort {
             SearchSort::SourceDefault => "relevance",
@@ -219,14 +249,17 @@ impl Source for ModrinthSource {
             response.id == project.id.0,
             "Modrinth returned a different project"
         );
-        let info = self.project_info(api::SearchHit {
+        let mut info = self.project_info(api::SearchHit {
             project_id: response.id,
             project_type: response.project_type,
             slug: response.slug,
             title: response.title,
             description: response.description,
             icon_url: response.icon_url,
+            categories: response.categories,
+            versions: response.game_versions,
         })?;
+        info.loaders = response.loaders;
         Ok(Project {
             info,
             description: Some(ProjectDescription::Markdown(response.body)),
@@ -242,24 +275,25 @@ impl Source for ModrinthSource {
 
 /// Categories include gameplay tags too; accept supported loader identifiers only.
 fn check_loader(loader: &str) -> Result<()> {
-    ensure!(
-        matches!(
-            loader,
-            "forge"
-                | "fabric"
-                | "quilt"
-                | "neoforge"
-                | "liteloader"
-                | "rift"
-                | "babric"
-                | "bta-babric"
-                | "java-agent"
-                | "legacy-fabric"
-                | "modloader"
-                | "nilloader"
-                | "ornithe"
-        ),
-        "unsupported Modrinth loader: {loader}"
-    );
+    ensure!(is_loader(loader), "unsupported Modrinth loader: {loader}");
     Ok(())
+}
+
+fn is_loader(loader: &str) -> bool {
+    matches!(
+        loader,
+        "forge"
+            | "fabric"
+            | "quilt"
+            | "neoforge"
+            | "liteloader"
+            | "rift"
+            | "babric"
+            | "bta-babric"
+            | "java-agent"
+            | "legacy-fabric"
+            | "modloader"
+            | "nilloader"
+            | "ornithe"
+    )
 }

@@ -37,6 +37,7 @@ pub(super) fn run() -> io::Result<()> {
     }
 }
 
+#[derive(Debug)]
 struct Screen {
     output: io::Stdout,
 }

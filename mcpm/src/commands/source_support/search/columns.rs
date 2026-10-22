@@ -2,7 +2,7 @@
 
 use clap::{Args, ValueEnum};
 
-#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum, Debug)]
 pub(super) enum Column {
     Index,
     Source,
@@ -37,7 +37,7 @@ impl Column {
     }
 }
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct ColumnArgs {
     /// List columns: I=index, O=source, N=name, S=slug, P=project ID, D=summary, U=url. Disables TUI.
     #[arg(short = 'C', value_name = "IONSPDU", value_parser = parse_letters)]

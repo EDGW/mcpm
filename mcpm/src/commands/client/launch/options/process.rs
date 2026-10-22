@@ -1,3 +1,5 @@
+//! Child process streams, environment overrides and resource verification options.
+
 use std::ffi::OsString;
 
 use clap::{Args, ValueEnum};
@@ -6,12 +8,12 @@ use kako_mods_lib::local::mc::client::{
     launch::{LaunchOptions, ProcessStream},
 };
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 enum GameOutput {
     Inherit,
     Null,
 }
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 enum Verify {
     None,
     Default,
@@ -37,6 +39,21 @@ pub(super) struct ProcessArgs {
     /// Optional resource checks before launch; strict hashes all, shallow checks sizes.
     #[arg(long, value_enum, default_value = "none")]
     verify: Verify,
+}
+
+impl std::fmt::Debug for ProcessArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProcessArgs")
+            .field("game_output", &self.game_output)
+            .field("clear_env", &self.clear_env)
+            .field(
+                "env_keys",
+                &self.env.iter().map(|(key, _)| key).collect::<Vec<_>>(),
+            )
+            .field("unset_env", &self.unset_env)
+            .field("verify", &self.verify)
+            .finish()
+    }
 }
 
 fn assignment(value: &str) -> Result<(OsString, OsString), String> {

@@ -1,3 +1,5 @@
+//! Client resource check command selection, execution and presentation.
+
 mod options;
 mod output;
 mod progress;
@@ -15,7 +17,7 @@ use thiserror::Error;
 
 use super::{input, output as client_output, platform, selector};
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct CheckArgs {
     /// Version directory IDs shown by client list; omit to select one with arrow keys.
     #[arg(value_name = "VERSION")]

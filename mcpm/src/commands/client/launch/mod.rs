@@ -1,3 +1,5 @@
+//! Client launch command orchestration and per-version failure handling.
+
 mod options;
 mod output;
 
@@ -10,7 +12,7 @@ use thiserror::Error;
 
 use super::{input, output as client_output, platform, selector};
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct LaunchArgs {
     /// Version directory IDs; omit to select one with Up/Down and Enter.
     #[arg(value_name = "VERSION")]

@@ -2,7 +2,7 @@
 
 use clap::{Args, ValueEnum};
 
-#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum, Debug)]
 pub(super) enum Column {
     Index,
     Selected,
@@ -54,7 +54,7 @@ impl Column {
     }
 }
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct ColumnArgs {
     /// Select list columns: I=index, S=selected, O=source, P=project, F=id, N=name, V=version, R=release, G=gameversions, L=loaders, A=filename, B=size, U=url.
     #[arg(short = 'C', value_name = "COLUMNS", value_parser = parse_letters)]

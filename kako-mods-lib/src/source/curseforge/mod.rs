@@ -16,8 +16,10 @@ use super::{
 };
 
 mod api;
+mod catalog;
 mod files;
 mod identify;
+mod metadata;
 
 /// A configured CurseForge API endpoint and its source identity.
 #[derive(Clone)]
@@ -26,6 +28,17 @@ pub struct CurseForgeSource {
     client: Client,
     base_url: Url,
     api_key: Option<HeaderValue>,
+}
+
+impl std::fmt::Debug for CurseForgeSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CurseForgeSource")
+            .field("id", &self.id)
+            .field("client", &self.client)
+            .field("base_url", &self.base_url)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
 }
 
 impl CurseForgeSource {
@@ -109,6 +122,7 @@ impl CurseForgeSource {
             project.game_id == 432 && project.class_id == Some(6),
             "CurseForge project is not a Minecraft mod"
         );
+        let (game_versions, loaders) = metadata::compatibility(&project);
         Ok(ProjectInfo {
             reference: ProjectRef {
                 source: self.id.clone(),
@@ -117,6 +131,11 @@ impl CurseForgeSource {
             name: project.name,
             summary: project.summary,
             slug: Some(project.slug),
+            categories: metadata::unique(
+                project.categories.into_iter().map(|category| category.slug),
+            ),
+            game_versions,
+            loaders,
             icon_url: project.logo.map(|logo| logo.url),
             website_url: optional_url(project.links.website_url)?,
         })
@@ -129,8 +148,19 @@ impl Source for CurseForgeSource {
         &self.id
     }
 
-    async fn identify_file(&self, path: &std::path::Path) -> Result<Option<super::FileMatch>> {
-        self.identify_local_file(path).await
+    async fn game_versions(&self) -> Result<Vec<String>> {
+        self.fetch_game_versions().await
+    }
+
+    fn summary_requirements(&self) -> super::SummaryRequirements {
+        super::SummaryRequirements { murmur2: true }
+    }
+
+    async fn identify_summary(
+        &self,
+        summary: &super::FileSummary,
+    ) -> Result<Option<super::FileMatch>> {
+        self.identify_summary_file(summary).await
     }
 
     async fn search(&self, query: &SearchQuery) -> Result<SearchPage> {
@@ -149,19 +179,35 @@ impl Source for CurseForgeSource {
             ("index", query.offset.to_string()),
             ("pageSize", query.limit.to_string()),
         ];
-        if let Some(version) = &query.game_version {
-            params.push(("gameVersion", version.clone()));
+        ensure!(
+            query.game_versions.len() <= 4,
+            "CurseForge search supports at most 4 Minecraft versions"
+        );
+        ensure!(
+            query.loaders.len() <= 5,
+            "CurseForge search supports at most 5 loaders"
+        );
+        match query.game_versions.as_slice() {
+            [] => {}
+            [version] => params.push(("gameVersion", version.clone())),
+            versions => params.push(("gameVersions", serde_json::to_string(versions)?)),
         }
-        if let Some(loader) = &query.loader {
-            let value = match loader.as_str() {
-                "forge" => "1",
-                "fabric" => "4",
-                "quilt" => "5",
-                "neoforge" => "6",
-                "liteloader" => "3",
+        let loaders = query
+            .loaders
+            .iter()
+            .map(|loader| match loader.as_str() {
+                "forge" => Ok(1),
+                "liteloader" => Ok(3),
+                "fabric" => Ok(4),
+                "quilt" => Ok(5),
+                "neoforge" => Ok(6),
                 _ => anyhow::bail!("unsupported CurseForge loader: {loader}"),
-            };
-            params.push(("modLoaderType", value.to_owned()));
+            })
+            .collect::<Result<Vec<u8>>>()?;
+        match loaders.as_slice() {
+            [] => {}
+            [loader] => params.push(("modLoaderType", loader.to_string())),
+            loaders => params.push(("modLoaderTypes", serde_json::to_string(loaders)?)),
         }
         let sort = match query.sort {
             SearchSort::SourceDefault => None,
