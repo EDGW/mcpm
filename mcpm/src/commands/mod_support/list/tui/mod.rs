@@ -6,7 +6,7 @@ use super::{
     filter::{self, Filter},
     rows::RowOptions,
 };
-use crate::commands::source_support::identify::{Location, runtime};
+use crate::commands::{execution::Runtime, source_support::identify::Location};
 use anyhow::{Context, Result};
 use crossterm::event;
 use kako_mods_lib::source::FileRef;
@@ -46,7 +46,7 @@ pub(super) fn run(
     summary: Summary<'_>,
 ) -> Result<()> {
     let _console = crate::logging::pause_console();
-    let runtime = runtime::Runtime::new()?;
+    let runtime = Runtime::new()?;
     let _guard = runtime.enter();
     let mut browser = Browser::new(tree::build(files, &options), filter);
     tracing::debug!(

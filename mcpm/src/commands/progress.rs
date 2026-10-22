@@ -1,4 +1,4 @@
-//! Shared immediate scan progress and diagnostics for mod inspection.
+//! Command-neutral terminal progress and coordinated diagnostics with caller-owned task labels.
 
 use std::time::Duration;
 
@@ -7,15 +7,16 @@ use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 #[derive(Debug)]
 pub(in crate::commands) struct Progress {
     bar: ProgressBar,
+    task: &'static str,
     _logs: crate::logging::ProgressGuard,
 }
 
 impl Progress {
-    pub(in crate::commands) fn new() -> Self {
+    pub(in crate::commands) fn new(discovery: &str, task: &'static str) -> Self {
         let bar = ProgressBar::hidden().with_style(
-            ProgressStyle::with_template(&crate::theme::progress_template(
-                "{spinner} Scanning mod directory...",
-            ))
+            ProgressStyle::with_template(&crate::theme::progress_template(&format!(
+                "{{spinner}} {discovery}"
+            )))
             .expect("scanning progress template must be valid"),
         );
         let display = MultiProgress::with_draw_target(if crate::terminal::stderr_is_tty() {
@@ -29,15 +30,20 @@ impl Progress {
             bar.enable_steady_tick(Duration::from_millis(100));
             bar.tick();
         }
-        Self { bar, _logs: logs }
+        Self {
+            bar,
+            task,
+            _logs: logs,
+        }
     }
 
     pub(in crate::commands) fn set_total(&self, total: usize) {
         self.bar.set_length(total as u64);
         self.bar.set_style(
-            ProgressStyle::with_template(&crate::theme::progress_template(
-                "{spinner} Identifying mods {pos}/{len} [{wide_bar}] {elapsed_precise}",
-            ))
+            ProgressStyle::with_template(&crate::theme::progress_template(&format!(
+                "{{spinner}} {} {{pos}}/{{len}} [{{wide_bar}}] {{elapsed_precise}}",
+                self.task
+            )))
             .expect("identification progress template must be valid"),
         );
     }

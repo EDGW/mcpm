@@ -10,15 +10,16 @@ use clap::Args;
 use kako_mods_lib::source::SourceId;
 use std::num::NonZeroUsize;
 
+use crate::commands::execution::{DEFAULT_PARALLELISM, Runtime};
+
 mod columns;
 mod model;
 mod output;
 mod remote;
-pub(in crate::commands) mod runtime;
 mod summary;
 mod worker;
 
-pub(in crate::commands) use model::{DEFAULT_PARALLELISM, Event, Outcome};
+pub(in crate::commands) use model::{Event, Location, Outcome};
 pub(in crate::commands) use worker::Identification;
 
 #[derive(Args, Debug)]
@@ -59,22 +60,10 @@ impl std::fmt::Debug for IdentifyOptions {
     }
 }
 
-/// Where the input bytes live; remote acquisition reuses a caller-owned session.
-#[derive(Debug, Clone, Copy)]
-pub(in crate::commands) enum Location<'a> {
-    Local,
-    Remote(&'a crate::remote::client::Session),
-}
-impl Location<'_> {
-    pub(in crate::commands) fn is_local(self) -> bool {
-        matches!(self, Self::Local)
-    }
-}
-
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     ssh.validate()?;
-    let paths = crate::commands::mod_support::stdin::append(args.paths)?;
+    let paths = crate::commands::stdin::append(args.paths)?;
     if !ssh.is_requested() {
         return run_paths(args.options, paths);
     }
@@ -112,8 +101,11 @@ fn present(
         "Starting source identify command"
     );
     tracing::debug!(?options, "Selected source identify options");
-    let runtime = runtime::Runtime::new()?;
-    let progress = crate::commands::mod_support::progress::Progress::new();
+    let runtime = Runtime::new()?;
+    let progress = crate::commands::progress::Progress::new(
+        "Preparing file identification...",
+        "Identifying files",
+    );
     progress.set_total(paths.len());
     let columns = options.columns.selected();
     let source = SourceId(

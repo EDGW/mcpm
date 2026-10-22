@@ -6,10 +6,11 @@ use anyhow::{Context, Result};
 use clap::Args;
 use tracing::debug;
 
+use crate::commands::stdin;
+
 use crate::commands::mod_support::{
-    list::{self, ListDisplayArgs},
+    list::{self, ListDisplayArgs, ListLoadingArgs},
     loaders::LoaderArgs,
-    stdin,
 };
 
 mod input;
@@ -20,7 +21,7 @@ mod ssh;
 #[command(
     defer(|command| crate::help::grouped(command, &[
         "Global options",
-        "Mode options",
+        "Mode options", "Loading options",
         "Filter",
         "Style options",
         "TUI-only options",
@@ -34,6 +35,8 @@ pub(super) struct ListArgs {
     paths: Vec<PathBuf>,
     #[command(flatten)]
     display: ListDisplayArgs,
+    #[command(flatten)]
+    loading: ListLoadingArgs,
     #[command(flatten, next_help_heading = "Filter")]
     loaders: LoaderArgs,
 }
@@ -47,7 +50,7 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     )
     .entered();
     tracing::info!("Starting mod list");
-    debug!(loaders = ?args.loaders, display = ?args.display, "Selected mod list options");
+    debug!(loaders = ?args.loaders, loading = ?args.loading, display = ?args.display, "Selected mod list options");
     ssh.validate()?;
     let mut paths = stdin::append(args.paths)?;
     if paths.is_empty() {
@@ -56,7 +59,13 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     debug!(?paths, "Resolved mod list input paths");
     let result = if ssh.is_requested() {
         debug!("Dispatching remote mod.list request over SSH");
-        self::ssh::run(ssh, paths, args.loaders, args.display)
+        self::ssh::run(
+            ssh,
+            paths,
+            args.loaders,
+            args.loading.parallelism(),
+            args.display,
+        )
     } else {
         debug!("Dispatching local mod.list request locally");
         let inputs = paths.into_iter().map(|path| {
@@ -67,6 +76,7 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
             inputs,
             args.loaders.select(),
             args.loaders.is_filtered(),
+            args.loading.parallelism(),
             args.display,
         )
     };

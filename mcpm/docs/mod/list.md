@@ -7,7 +7,11 @@ mcpm mod list [OPTIONS] [PATH]...
 List mod files, accepting any mixture of file and directory paths. With no
 paths, the current directory (`.`) is used.
 
-Help groups options into Global options, Mode options, Filter, Style options,
+`--parallelism <COUNT>` bounds outer-JAR loading and loader metadata parsing (default 10, positive integers only; 1 scans sequentially). It applies to TUI, Console, Raw and SSH; SSH performs the scan on the remote host. Files run concurrently, while loaders and nested JARs within each file remain sequential. Progress follows actual completions, but final rows and numbering retain input order and directory path sorting. TUI opens after metadata loading completes. Duplicate normalized paths share cached results, including failures, while retaining a position per input; `.jar` and `.jar.disabled` remain distinct. The cache lasts only for the scan session and does not detect file changes.
+
+Loading concurrency is independent of `--identify-parallelism`. List calls the identification business API without decoding identification packets. Defaults, runtime ownership, stdin paths and terminal progress belong to shared command infrastructure rather than either command implementation.
+
+Help groups options into Global options, Mode options, Loading options, Filter, Style options,
 TUI-only options and Console-only options, in that order. Mode-specific options
 are still accepted in other modes and ignored there. `--expanded` belongs to
 Style options: it opens all TUI branches, prints all declarations in Console and
@@ -170,6 +174,7 @@ mcpm mod list -- -leading-dash.jar
 | --- | --- |
 | `-F, --filter <FILTER>` | Filter rows using the shared [Filter type](filter.md); initializes the editable TUI Filter card. |
 | `--no-ui` | Print the Console list instead of opening the TUI. |
+| `--parallelism <COUNT>` | Maximum simultaneous outer-JAR inspections (default: 10; must be positive). Applies to all modes and is sent to the remote file host with SSH. |
 | `--identify-parallelism <COUNT>` | Maximum simultaneous provider lookups in TUI (default: 10; must be positive). Ignored by Console and Raw. |
 | `--expanded` | Show every mod declaration, including recognized nested mods. In terminal output, also list filenames skipped by loader filtering. |
 | `--index-type <TYPE>` | Use `flat` (default) for full, left-aligned indices, or `tree` to align the first item after file numbers, with compact nesting and nested name indentation. |

@@ -79,7 +79,8 @@ Unexpected EOF, unrelated GUIDs, missing terminal replies or abnormal process ex
 are transport failures.
 
 Cancel with `{"cancel":"<request-guid>"}`. Cancellation is cooperative; list checks
-between files without forcibly interrupting current I/O. Unknown/completed calls
+between completions and stops scheduling new files; already-running synchronous
+file operations finish before the command returns. Current I/O is not forcibly interrupted. Unknown/completed calls
 are ignored; completion can win the race. Dropping a pending handle attempts cancel
 while draining further replies so other calls remain usable. Close stdin to drain
 accepted work, emit a nil-guid closed reply and exit successfully, even if calls
@@ -90,14 +91,19 @@ frames and newlines, excluding SSH framing and stderr.
 
 ## Mod list contents
 
-Input is an object with optional `paths` and `loaders` arrays, defaulting to empty.
+Input is an object with optional `paths` and `loaders` arrays, defaulting to empty,
+and a positive `parallelism` integer (default 10). Parallelism bounds outer-JAR
+reads and loader parsing on the remote host, independently of identify concurrency
+and the number of SSH connections.
 Empty paths means remote current directory; empty loaders tries all. Loader values
 are forge, neoforge, fabric. Stdin is reserved for protocol. Display filters, columns,
 expansion, colors, width and path styling remain local frontend settings.
 
 The command itself serializes count, item and done events. Exactly count items
-arrive, indexed from zero, immediately after each file loads. Successes, failures
-and unrecognized inputs each have exactly one record. Duplicates remain separate;
+arrive immediately after each file loads, potentially out of order. Indices refer
+to original input positions and must cover `0..count` exactly once. The client
+checks index bounds, duplicates and omissions before presenting ordered results. Successes, failures
+and unrecognized inputs each have exactly one record. Duplicate normalized paths share inspection results but retain separate records;
 empty directories contribute no items; unresolved paths contribute one failure.
 File failures do not stop later items and make business done.success false.
 Cancellation/transport failure can leave incomplete results.

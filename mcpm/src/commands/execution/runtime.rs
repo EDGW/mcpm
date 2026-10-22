@@ -1,4 +1,4 @@
-//! Source-lookup runtime that cancels async work without waiting for blocking source lookups on exit.
+//! Command runtime that cancels asynchronous tasks without waiting for blocking work on exit.
 
 use std::ops::Deref;
 
@@ -13,7 +13,7 @@ impl Runtime {
             .enable_all()
             .build()
             .map(|runtime| Self(Some(runtime)))
-            .context("failed to create source identification runtime")
+            .context("failed to create command runtime")
     }
 }
 
@@ -21,16 +21,16 @@ impl Deref for Runtime {
     type Target = tokio::runtime::Runtime;
 
     fn deref(&self) -> &Self::Target {
-        self.0.as_ref().expect("source runtime is alive until drop")
+        self.0
+            .as_ref()
+            .expect("command runtime is alive until drop")
     }
 }
 
 impl Drop for Runtime {
     fn drop(&mut self) {
         if let Some(runtime) = self.0.take() {
-            tracing::debug!(
-                "Shutting down source identification runtime without waiting for blocking work"
-            );
+            tracing::debug!("Shutting down command runtime without waiting for blocking work");
             // Tokio cannot abort an already-running spawn_blocking hash/fingerprint
             // or DNS lookup. The default runtime drop would wait for it indefinitely.
             runtime.shutdown_background();

@@ -55,15 +55,14 @@ fn run(root: &Path, args: Value, count: usize, success: bool) -> Vec<Value> {
     );
     assert_eq!(envelopes[count + 3]["status"], "finished");
     assert_eq!(envelopes[count + 4]["status"], "closed");
-    events[1..count + 1]
-        .iter()
-        .enumerate()
-        .map(|(index, event)| {
-            assert_eq!(event["event"], "item");
-            assert_eq!(event["index"], index);
-            event["record"].clone()
-        })
-        .collect()
+    let mut records = vec![None; count];
+    for event in &events[1..count + 1] {
+        assert_eq!(event["event"], "item");
+        let index = event["index"].as_u64().unwrap() as usize;
+        assert!(index < count && records[index].is_none(), "{event}");
+        records[index] = Some(event["record"].clone());
+    }
+    records.into_iter().map(Option::unwrap).collect()
 }
 
 #[test]
@@ -80,7 +79,7 @@ fn every_success_failure_and_unrecognized_file_has_exactly_one_record() {
     fs::write(root.path().join("invalid.txt"), b"not a mod").unwrap();
     let records = run(
         root.path(),
-        serde_json::json!({"paths":[".","missing.jar","invalid.txt","a.jar"],"loaders":["forge"]}),
+        serde_json::json!({"paths":[".","missing.jar","invalid.txt","a.jar"],"loaders":["forge"],"parallelism":3}),
         6,
         false,
     );

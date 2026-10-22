@@ -21,7 +21,7 @@ impl SelectionArgs {
     }
 
     fn with_stdin_kind(mut self, kind: QueryKind) -> Result<Self> {
-        let paths = super::super::stdin::append(Vec::new())?;
+        let paths = crate::commands::stdin::append(Vec::new())?;
         if self.all && !paths.is_empty() {
             return Err(AllWithQueries.into());
         }

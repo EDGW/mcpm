@@ -106,6 +106,13 @@ mod transport {
         let executable = root.path().join("mcpm");
         symlink(env!("CARGO_BIN_EXE_mcpm"), &executable).unwrap();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex-mod.jar");
+        let quick = root.path().join("quick.jar.disabled");
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/dependency-problems/mods/fabric_only.jar"),
+            &quick,
+        )
+        .unwrap();
         let options = [
             "--loader",
             "fabric",
@@ -120,11 +127,15 @@ mod transport {
             "40",
             "-C",
             "IMF",
+            "--parallelism",
+            "3",
             "--identify-parallelism",
             "2",
         ];
         let local = Command::new(env!("CARGO_BIN_EXE_mcpm"))
             .args(["--raw", "mod", "list"])
+            .arg(&fixture)
+            .arg(&quick)
             .arg(&fixture)
             .args(options)
             .stdin(Stdio::null())
@@ -153,7 +164,14 @@ mod transport {
                 .stderr(Stdio::piped())
                 .spawn()
                 .unwrap();
-            writeln!(child.stdin.take().unwrap(), "{}", fixture.display()).unwrap();
+            writeln!(
+                child.stdin.take().unwrap(),
+                "{}\n{}\n{}",
+                fixture.display(),
+                quick.display(),
+                fixture.display()
+            )
+            .unwrap();
             let output = child.wait_with_output().unwrap();
             assert!(output.status.success(), "{:?}", output);
             assert!(output.stderr.is_empty(), "{:?}", output);
@@ -220,7 +238,7 @@ mod transport {
                 .find(|file| file.contains("mcpm::remote_log"))
                 .expect("local file contains remote logs even when console is off");
             assert!(
-                local.contains("Identifying remote mod file")
+                local.contains("Identifying mod file")
                     && local.contains("remote_spans")
                     && local.contains("guid")
             );
@@ -332,6 +350,130 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
                 "{:?}",
                 output
             );
+        }
+    }
+    #[test]
+    fn parallel_results_are_reordered_and_invalid_indices_or_lifecycles_are_rejected() {
+        use serde_json::{Value, json};
+        fn print(value: Value, guid: &str) -> String {
+            let line = format!("{value}\n").replace("__GUID__", "%s");
+            format!("printf {} {guid}\n", shlex::try_quote(&line).unwrap())
+        }
+        let count = json!({"event":"count","count":2});
+        let done = json!({"event":"done","success":true});
+        let item = |index, path: &str| json!({"event":"item","index":index,"record":{"path":path,"name":path.trim_end_matches(".jar"),"enabled":true,"status":"unrecognized","metadata":[],"errors":[]}});
+        for (events, expected) in [
+            (
+                vec![
+                    count.clone(),
+                    item(1, "a.jar"),
+                    item(0, "z.jar"),
+                    done.clone(),
+                ],
+                None,
+            ),
+            (
+                vec![
+                    count.clone(),
+                    item(0, "z.jar"),
+                    item(0, "z.jar"),
+                    done.clone(),
+                ],
+                Some("index/count"),
+            ),
+            (
+                vec![count.clone(), item(1, "a.jar"), done.clone()],
+                Some("count differs"),
+            ),
+            (
+                vec![count.clone(), item(2, "a.jar"), done.clone()],
+                Some("index/count"),
+            ),
+            (
+                vec![item(0, "z.jar"), count.clone(), done.clone()],
+                Some("before its count"),
+            ),
+            (
+                vec![count.clone(), done.clone(), item(0, "z.jar")],
+                Some("after completion"),
+            ),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let connection = setup(root.path());
+            let remote = root.path().join("remote");
+            let mut body = String::from("#!/bin/sh\n");
+            body += &print(
+                json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":2,"commands":["mod.list"],"max_concurrency":8}}),
+                "",
+            );
+            body += "IFS= read -r logs\nlog_guid=$(printf '%s' \"$logs\" | cut -d '\"' -f6)\n";
+            body += &print(
+                json!({"guid":"__GUID__","status":"ready","contents":null}),
+                "\"$log_guid\"",
+            );
+            body += &format!(
+                "IFS= read -r request\nprintf '%s' \"$request\" > {}\nguid=$(printf '%s' \"$request\" | cut -d '\"' -f4)\n",
+                shlex::try_quote(root.path().join("request").to_str().unwrap()).unwrap()
+            );
+            for event in events {
+                body += &print(
+                    json!({"guid":"__GUID__","status":"data","contents":event}),
+                    "\"$guid\"",
+                );
+            }
+            body += &print(
+                json!({"guid":"__GUID__","status":"finished","contents":null}),
+                "\"$guid\"",
+            );
+            body += "cat >/dev/null\n";
+            body += &print(
+                json!({"guid":"__GUID__","status":"finished","contents":null}),
+                "\"$log_guid\"",
+            );
+            body += &print(
+                json!({"guid":uuid::Uuid::nil(),"status":"closed","contents":null}),
+                "",
+            );
+            fs::write(&remote, body).unwrap();
+            fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
+            let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+                .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
+                .arg(&remote)
+                .args([
+                    "mod",
+                    "list",
+                    "z.jar",
+                    "a.jar",
+                    "--parallelism",
+                    "2",
+                    "--identify-parallelism",
+                    "1",
+                    "--columns",
+                    "index,filename",
+                ])
+                .env("HOME", root.path())
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let request: Value =
+                serde_json::from_str(&fs::read_to_string(root.path().join("request")).unwrap())
+                    .unwrap();
+            assert_eq!(request["command"], "mod.list");
+            assert_eq!(request["contents"]["parallelism"], 2);
+            assert!(request["contents"].get("identify_parallelism").is_none());
+            let stderr = String::from_utf8(output.stderr).unwrap();
+            if let Some(expected) = expected {
+                assert_eq!(output.status.code(), Some(1), "{stderr}");
+                assert!(output.stdout.is_empty());
+                assert!(stderr.contains(expected), "{stderr}");
+            } else {
+                assert!(output.status.success(), "{stderr}");
+                let stdout = String::from_utf8(output.stdout).unwrap();
+                assert!(
+                    stdout.find("z.jar").unwrap() < stdout.find("a.jar").unwrap(),
+                    "{stdout}"
+                );
+            }
         }
     }
 }

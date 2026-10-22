@@ -2,9 +2,6 @@
 
 use kako_mods_lib::source::FileMatch;
 
-/// Shared default for standalone identification and mod-list source lookups.
-pub(in crate::commands) const DEFAULT_PARALLELISM: usize = 10;
-
 /// Business result shared by CLI output, TUI state and remote messages.
 #[derive(Debug, Clone)]
 pub(in crate::commands) enum Outcome {
@@ -42,4 +39,16 @@ pub(in crate::commands) enum Event {
     Done {
         failed: usize,
     },
+}
+
+/// Where the input bytes live; remote acquisition reuses a caller-owned session.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::commands) enum Location<'a> {
+    Local,
+    Remote(&'a crate::remote::client::Session),
+}
+impl Location<'_> {
+    pub(in crate::commands) fn is_local(self) -> bool {
+        matches!(self, Self::Local)
+    }
 }

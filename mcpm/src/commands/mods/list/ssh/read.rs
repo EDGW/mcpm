@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result, ensure};
 
-use crate::commands::mod_support::progress::Progress;
+use crate::commands::progress::Progress;
 use crate::remote::{client::Session, command::Command};
 
 use super::super::remote::{
@@ -21,6 +21,7 @@ pub(super) fn read(
     let mut count = None;
     let mut records = Vec::new();
     let mut errors = Vec::new();
+    let mut received = 0usize;
     let mut done = None;
     session
         .submit(remote::List::ID, serde_json::to_value(args)?)?
@@ -32,16 +33,18 @@ pub(super) fn read(
                     tracing::info!(count = total, "Received remote mod count");
                     ensure!(count.is_none(), "duplicate remote mod count");
                     count = Some(total);
+                    records = (0..total).map(|_| None).collect();
                     progress.set_total(total);
                 }
                 Contents::Item { index, record } => {
                     let total = count.context("remote mod record arrived before its count")?;
                     ensure!(
-                        index == records.len() && index < total,
+                        index < total && records[index].is_none(),
                         "remote mod index/count mismatch"
                     );
                     tracing::debug!(index, count = total, path = %record.path, status = ?record.status, errors = record.errors.len(), "Received remote mod record");
-                    records.push(record);
+                    records[index] = Some(record);
+                    received += 1;
                     progress.advance();
                 }
                 Contents::Error { error } => {
@@ -49,7 +52,7 @@ pub(super) fn read(
                     errors.push(error);
                 },
                 Contents::Done { success } => {
-                    tracing::debug!(success, received = records.len(), "Received remote mod list completion");
+                    tracing::debug!(success, received, "Received remote mod list completion");
                     done = Some(success);
                 },
             }
@@ -65,14 +68,20 @@ pub(super) fn read(
         )));
     }
     ensure!(
-        Some(records.len()) == count,
+        Some(received) == count,
         "remote mod result count differs from its declared count"
     );
     tracing::info!(
-        count = records.len(),
+        count = received,
         success,
         elapsed_ms = started.elapsed().as_millis(),
         "Validated remote mod list stream"
     );
-    Ok((records, success))
+    Ok((
+        records
+            .into_iter()
+            .map(|record| record.expect("all indices validated"))
+            .collect(),
+        success,
+    ))
 }

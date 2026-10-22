@@ -11,11 +11,9 @@ use crate::remote::{
     command::{Command, Output},
 };
 
-use super::{
-    DEFAULT_PARALLELISM,
-    runtime::Runtime,
-    summary::{self, Event, Outcome},
-};
+use crate::commands::execution::{DEFAULT_PARALLELISM, Runtime};
+
+use super::summary::{self, Event, Outcome};
 
 #[derive(Debug)]
 struct Identify;

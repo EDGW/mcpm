@@ -4,10 +4,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 
-use crate::commands::mod_support::{list, loaders::LoaderArgs, progress::Progress};
+use crate::commands::mod_support::{list, loaders::LoaderArgs};
 use crate::remote::client::Session;
 
 use super::ListDisplayArgs;
+use crate::commands::progress::Progress;
 use crate::ssh::SshArgs;
 
 mod read;
@@ -18,15 +19,17 @@ pub(super) fn run(
     ssh: SshArgs,
     paths: Vec<PathBuf>,
     loaders: LoaderArgs,
+    parallelism: usize,
     display: ListDisplayArgs,
 ) -> Result<()> {
     let started = std::time::Instant::now();
     tracing::info!("Opening SSH data source for mod list");
     let mut session =
         Session::start(&mut ssh.command()?).context("failed to open SSH mcpm session")?;
-    let progress = Progress::new();
-    let (records, success) = read::read(&session, request(paths, &loaders)?, &progress)
-        .context("invalid remote mod list protocol")?;
+    let progress = Progress::new("Scanning mod directory...", "Identifying mods");
+    let (records, success) =
+        read::read(&session, request(paths, &loaders, parallelism)?, &progress)
+            .context("invalid remote mod list protocol")?;
     drop(progress);
     tracing::info!(
         records = records.len(),
@@ -75,7 +78,11 @@ pub(super) fn run(
 }
 
 /// Adapt CLI selection to the independent remote argument schema at the frontend boundary.
-fn request(paths: Vec<PathBuf>, loaders: &LoaderArgs) -> Result<super::remote::Args> {
+fn request(
+    paths: Vec<PathBuf>,
+    loaders: &LoaderArgs,
+    parallelism: usize,
+) -> Result<super::remote::Args> {
     use super::remote::{Args, Loader};
     let mut ids = if loaders.is_filtered() {
         loaders
@@ -96,5 +103,9 @@ fn request(paths: Vec<PathBuf>, loaders: &LoaderArgs) -> Result<super::remote::A
             _ => anyhow::bail!("unsupported remote loader: {id}"),
         })
         .collect::<Result<_>>()?;
-    Ok(Args { paths, loaders })
+    Ok(Args {
+        paths,
+        loaders,
+        parallelism: std::num::NonZeroUsize::new(parallelism).unwrap(),
+    })
 }

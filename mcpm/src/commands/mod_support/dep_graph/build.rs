@@ -17,8 +17,8 @@ use kako_mods_lib::local::{
     modloader::{LoaderId, ModLoaderMeta},
 };
 
-use super::super::progress::Progress;
 use super::selector::ExternalSelector;
+use crate::commands::progress::Progress;
 
 #[derive(Args, Debug)]
 pub(in crate::commands) struct BuildOptions {
@@ -76,7 +76,7 @@ pub(in crate::commands) fn build_graph(
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
     external: impl IntoIterator<Item = ExternalCandidate>,
 ) -> Result<DependencyGraph> {
-    let progress = Progress::new();
+    let progress = Progress::new("Scanning mod directory...", "Identifying mods");
     let mut graph = build::build_with_progress(
         directory,
         loaders,

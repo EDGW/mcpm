@@ -11,11 +11,12 @@ use kako_mods_lib::local::{
 };
 use thiserror::Error;
 
-use crate::commands::source_support::identify::{DEFAULT_PARALLELISM, Location};
+use crate::commands::{
+    execution::DEFAULT_PARALLELISM, progress, source_support::identify::Location,
+};
 use crate::terminal;
 
 use super::{
-    progress,
     scan::ScanSession,
     selection::{Resolver, Scope, SelectedFile, SelectionArgs},
     source_path::PathArgs,
@@ -66,6 +67,19 @@ pub(in crate::commands) struct ListDisplayArgs {
     paths_output: PathArgs,
 }
 
+/// File-host execution options are separate from local presentation options.
+#[derive(Args, Debug)]
+pub(in crate::commands) struct ListLoadingArgs {
+    /// Maximum simultaneous outer-JAR inspections, locally or on the SSH host.
+    #[arg(long, default_value_t = std::num::NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(), value_name = "COUNT", help_heading = "Loading options")]
+    parallelism: std::num::NonZeroUsize,
+}
+impl ListLoadingArgs {
+    pub(in crate::commands) fn parallelism(&self) -> usize {
+        self.parallelism.get()
+    }
+}
+
 type ListedFile = SelectedFile;
 
 /// Lists batches of entries supplied by a command, retaining per-input diagnostics.
@@ -74,12 +88,13 @@ pub(in crate::commands) fn run(
     inputs: impl IntoIterator<Item = Result<Vec<ModEntry>>>,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     hide_unrecognized: bool,
+    parallelism: usize,
     args: ListDisplayArgs,
 ) -> Result<()> {
     let started = std::time::Instant::now();
     tracing::debug!(loaders = ?loaders.keys().map(|id| id.as_str()).collect::<Vec<_>>(), hide_unrecognized, "Starting local mod list scan");
     let source_loaders = source_loaders(&loaders, hide_unrecognized);
-    let progress = progress::Progress::new();
+    let progress = progress::Progress::new("Scanning mod directory...", "Identifying mods");
     let mut entries = Vec::new();
     let mut input_errors = 0;
     for input in inputs {
@@ -98,20 +113,19 @@ pub(in crate::commands) fn run(
         "Local mod list input discovery completed"
     );
 
-    let mut session = ScanSession::new(loaders);
-    let mut files = Vec::new();
-    for entry in entries {
-        let path = entry.path().to_owned();
-        let identified = session.read(path.clone(), Some(&progress));
-        progress.advance();
-        let Some(scanned) = identified else {
-            continue;
-        };
-        files.push(SelectedFile {
+    let mut session = ScanSession::new(loaders).with_parallelism(parallelism);
+    let paths: Vec<_> = entries
+        .into_iter()
+        .map(|entry| entry.path().to_owned())
+        .collect();
+    let files = session
+        .collect(&paths, &progress)?
+        .into_iter()
+        .map(|scanned| SelectedFile {
             scanned,
             records: None,
-        });
-    }
+        })
+        .collect::<Vec<_>>();
     drop(progress);
     tracing::info!(
         files = files.len(),
@@ -136,10 +150,14 @@ pub(in crate::commands) fn run_selection(
     selection: SelectionArgs,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
+    parallelism: usize,
     args: ListDisplayArgs,
 ) -> Result<()> {
     let source_loaders = source_loaders(&loaders, true);
-    let mut resolver = Resolver::new(ScanSession::new(loaders), scope);
+    let mut resolver = Resolver::new(
+        ScanSession::new(loaders).with_parallelism(parallelism),
+        scope,
+    );
     let mut files = Vec::new();
     let mut input_errors = 0;
     let queries = match selection.into_queries() {

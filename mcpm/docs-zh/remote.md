@@ -92,12 +92,15 @@ Remote 解码全局错误，不把它作为业务 contents 交给命令：
 
 以下内容完全由 mod list 模块编解码，Remote 不认识其字段或 event。
 
+请求支持 `parallelism` 正整数，默认 10，控制远端外层 JAR 的读取与 loader 解析并发。它独立于 identify 的并发参数，不影响 SSH 连接数或 Remote 会话分发。示例：`{"paths":["C:\\mods"],"loaders":[],"parallelism":4}`。取消会停止派发，等待正在执行的同步文件解析返回；不会强行中断 I/O。
+
 请求：
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `paths` | 字符串数组 | `[]` | 远端文件和目录，空数组使用远端当前目录。 |
 | `loaders` | 字符串数组 | `[]` | forge、neoforge、fabric，空数组尝试全部。 |
+| `parallelism` | 正整数 | `10` | 外层 JAR 加载与 loader 解析的最大并发数。 |
 
 未知字段、非法类型或 Loader 值会发送业务 error，再发送业务 done（success:false），最后由 Remote 发送 finished。stdin 只用于会话，不能作为命令路径输入。列、筛选、展开、颜色、宽度等展示参数留在本地前端。
 
@@ -109,7 +112,7 @@ Remote 解码全局错误，不把它作为业务 contents 交给命令：
 {"event":"done","success":true}
 ```
 
-每项加载完成立即发送 item，同时推进进度；必须恰好 count 条，index 从 0 连续递增。成功、失败、未识别均保留且仅保留一条记录；重复路径分别处理，空目录贡献零项，无法解析的输入路径贡献一条失败记录。文件失败不停止其他项，使 done.success 为 false。取消和传输异常可能使结果不完整。
+每项加载完成立即发送 item，同时推进进度；必须恰好 count 条，index 对应原始输入位置，完整覆盖 `0..count`，每个索引恰好出现一次；各项允许乱序到达，调用方按索引恢复列表顺序。成功、失败、未识别均保留且仅保留一条记录；重复规范化路径共享扫描结果，但每个输入位置分别返回记录，空目录贡献零项，无法解析的输入路径贡献一条失败记录。文件失败不停止其他项，使 done.success 为 false。取消和传输异常可能使结果不完整。
 
 record 包含 path、name、enabled、status、metadata、errors。输入失败时 name/enabled 为 null；status 为 success、unrecognized、failed。metadata 包含 loader、mods 与递归 nested；errors 包含 loader（输入错误时为 null）、message 和按外层到根因排序的 causes 数组。本地用 `remote error:` 输出主错误，用缩进的 `caused by:` 逐层输出原因，不把整条错误链压成单行字符串。文件内多个声明、Loader、嵌套 JAR 和部分成功结果都保留在同一条记录中。
 

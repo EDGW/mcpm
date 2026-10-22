@@ -1,6 +1,8 @@
 //! Typed mod.list command, input discovery and immediate per-file progress/results.
 
-use std::path::PathBuf;
+use std::{num::NonZeroUsize, path::PathBuf};
+
+use crate::commands::{execution::DEFAULT_PARALLELISM, mod_support::scan::ScanSession};
 
 use anyhow::{Context, Result};
 use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
@@ -70,13 +72,32 @@ impl Command for List {
             count: inputs.len(),
         })?;
         let mut success = true;
+        let mut paths = Vec::new();
+        let mut indices = Vec::new();
         for (index, (path, entry)) in inputs.into_iter().enumerate() {
             output.checkpoint()?;
-            let record = Record::load(path, entry, &selected);
+            match entry {
+                Ok(_) => {
+                    paths.push(path);
+                    indices.push(index);
+                }
+                Err(error) => {
+                    success = false;
+                    output.send(Contents::Item {
+                        index,
+                        record: Record::failed_input(&path, &error),
+                    })?;
+                }
+            }
+        }
+        let mut scan = ScanSession::new(selected).with_parallelism(args.parallelism.get());
+        scan.batch(&paths, || output.checkpoint(), |position, result, _| {
+            let index = indices[position];
+            let record = Record::from_scan(&paths[position], result);
             tracing::debug!(index, count, path = %record.path, status = ?record.status, errors = record.errors.len(), "Loaded remote mod record");
             success &= record.status != Status::Failed;
-            output.send(Contents::Item { index, record })?;
-        }
+            output.send(Contents::Item { index, record })
+        })?;
         output.send(Contents::Done { success })?;
         tracing::info!(
             count,
@@ -95,6 +116,8 @@ pub(super) struct Args {
     pub paths: Vec<PathBuf>,
     #[serde(default)]
     pub loaders: Vec<Loader>,
+    #[serde(default = "default_parallelism")]
+    pub parallelism: NonZeroUsize,
 }
 
 /// Remote values are independent of Clap option names and CLI argument layout.
@@ -121,3 +144,7 @@ fn init() -> Result<()> {
 }
 
 inventory::submit! { crate::initcall::Initcall(init) }
+
+fn default_parallelism() -> NonZeroUsize {
+    NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap()
+}
