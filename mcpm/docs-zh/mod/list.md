@@ -6,7 +6,7 @@ mcpm mod list [OPTIONS] [PATH]...
 
 列出 Mod 文件，可混合传入多个文件和目录。不传路径时使用当前目录（`.`）。
 
-Help 依次将选项分为全局参数（Global options）、模式参数（Mode options）、加载参数（Loading options）、Filter、样式参数（Style options）、TUI 模式专有参数（TUI-only options）和 Console 模式专有参数（Console-only options）。模式专有参数在其他模式中仍可传入，但会被忽略。`--expanded` 属于样式参数：TUI 中初始展开全部分支，Console 和 Raw 中输出全部声明，Console 还会列出被忽略的文件名。
+Help 依次将选项分为全局参数（Global options）、模式参数（Mode options）、加载参数（Loading options）、Filter、样式参数（Style options）和 Console 模式专有参数（Console-only options）。`--identify-parallelism` 放在 Loading options 中并注明 TUI only。模式专有参数在其他模式中仍可传入，但会被忽略。`--expanded` 属于样式参数：TUI 中初始展开全部分支，Console 和 Raw 中输出全部声明，Console 还会列出被忽略的文件名。
 
 `--parallelism <COUNT>` 控制外层 JAR 的加载与 loader 元数据解析并发，默认 10，必须为正整数；设为 1 可顺序加载。TUI、Console、Raw 和 SSH 均生效；SSH 时在远端执行并行扫描。不同文件可同时加载，同一文件内部的 loader 和内嵌 JAR 仍顺序解析。进度按实际完成数推进，最终列表与编号保留输入顺序及目录内的路径排序，全部元数据加载完成后才打开 TUI。重复规范化路径共享扫描结果（包括失败），但每个输入仍保留独立位置；`.jar` 与 `.jar.disabled` 不合并。缓存仅在本次扫描会话内有效，不检测文件修改。
 

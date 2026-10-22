@@ -16,7 +16,7 @@ use super::super::mod_source::ServerMods;
 #[command(
     defer(|command| crate::help::grouped(command, &[
         "Global options", "Mode options", "Loading options", "Input options", "Filter", "Style options",
-        "TUI-only options", "Console-only options",
+        "Console-only options",
     ])),
     after_help = "Additional inputs are read from redirected stdin, one per line, using filename, modid, then name matching. Paths are relative to the server's mods directory; mods/ prefixes are also accepted. With no inputs, list all mods.\n\nModes:\n  TUI (default in a terminal): browse, search and inspect mods; identify outer JARs on Modrinth and CurseForge (default parallelism: 10).\n  Console (--no-ui): print a formatted list.\n  Raw (--raw or redirected stdout): tab-separated output."
 )]

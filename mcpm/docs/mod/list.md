@@ -11,8 +11,9 @@ paths, the current directory (`.`) is used.
 
 Loading concurrency is independent of `--identify-parallelism`. List calls the identification business API without decoding identification packets. Defaults, runtime ownership, stdin paths and terminal progress belong to shared command infrastructure rather than either command implementation.
 
+`--identify-parallelism` appears under Loading options and is marked TUI only.
 Help groups options into Global options, Mode options, Loading options, Filter, Style options,
-TUI-only options and Console-only options, in that order. Mode-specific options
+and Console-only options, in that order. Mode-specific options
 are still accepted in other modes and ignored there. `--expanded` belongs to
 Style options: it opens all TUI branches, prints all declarations in Console and
 Raw, and additionally lists ignored filenames in Console.

@@ -24,7 +24,6 @@ mod ssh;
         "Mode options", "Loading options",
         "Filter",
         "Style options",
-        "TUI-only options",
         "Console-only options",
     ])),
     after_help = "Modes:\n  TUI (default in a terminal): browse, search and inspect mods; identify outer JARs on Modrinth and CurseForge (default parallelism: 10).\n  Console (--no-ui): print a formatted list.\n  Raw (--raw or redirected stdout): tab-separated output.\n  Remote: supported through mcpm remote (command ID: mod.list); paths and loaders are structured parameters.\n\nTUI keys: Up/Down, PageUp/PageDown, Home/End; F opens Filter (@name, @modid, @file, @loaders; Esc/Q closes); Left/Right or Space expands/collapses one level; e expands all; Tab switches cards; c copies the selected Details field; Enter opens files for a matched source Details field, or toggles full details; i shows skipped files; q/Esc quits."

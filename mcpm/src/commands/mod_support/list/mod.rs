@@ -38,12 +38,12 @@ pub(in crate::commands) struct ListDisplayArgs {
     /// Print a Console list instead of opening the TUI.
     #[arg(long, help_heading = "Mode options")]
     no_ui: bool,
-    /// Maximum simultaneous source lookups in TUI; ignored by Console and Raw.
+    /// TUI only: maximum simultaneous source lookups; ignored by Console and Raw.
     #[arg(
         long,
         default_value_t = std::num::NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(),
         value_name = "COUNT",
-        help_heading = "TUI-only options"
+        help_heading = "Loading options"
     )]
     identify_parallelism: std::num::NonZeroUsize,
     /// Expand all branches in TUI; print every mod declaration in Console and Raw. Console also lists ignored filenames.
