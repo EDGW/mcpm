@@ -9,15 +9,12 @@ use serde_json::Value;
 
 use crate::{
     commands::mod_support::{
-        inspect::{self, Display, Event, Presentation, Validator},
+        inspect::{self, Display, Event},
         loaders::LoaderArgs,
         selection::{Scope, Selection, SelectionInput},
     },
     diagnostics::ErrorReport,
-    remote::{
-        client::Session,
-        command::{Command, Output},
-    },
+    remote::command::{Command, Output},
     ssh::SshArgs,
 };
 
@@ -144,23 +141,7 @@ pub(super) fn run_ssh(
         parallelism: NonZeroUsize::new(parallelism)
             .context("inspection parallelism must be positive")?,
     };
-    tracing::info!(command, "Opening SSH data source for mod inspection");
-    let mut session =
-        Session::start(&mut ssh.command()?).context("failed to open SSH mcpm session")?;
-    tracing::debug!(command, ?args, "Requesting remote mod inspection");
-    let mut presentation = Presentation::new(display, true);
-    let mut validator = Validator::default();
-    session.submit(command, serde_json::to_value(args)?)?.collect(|reply| {
-        let event: Event = reply.decode().context("invalid remote mod inspection contents")?;
-        validator.accept(&event)?;
-        if let Event::File { file, .. } = &event {
-            tracing::debug!(path = %file.path, loaders = file.metadata.len(), "Received remote inspected mod file");
-        }
-        presentation.event(event)
-    })?;
-    validator.finish()?;
-    session.close()?;
-    presentation.finish()
+    inspect::run_ssh(ssh, command, serde_json::to_value(args)?, display)
 }
 
 fn init() -> Result<()> {

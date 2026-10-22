@@ -19,7 +19,9 @@ mod load;
 mod loading;
 mod model;
 mod output;
+mod remote;
 pub(in crate::commands) use output::Presentation;
+pub(in crate::commands) use remote::run_ssh;
 mod validation;
 pub(in crate::commands) use validation::Validator;
 

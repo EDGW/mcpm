@@ -28,6 +28,10 @@ impl FileArgs {
         Ok(self)
     }
 
+    pub(super) fn into_parts(self) -> (PathBuf, Selection) {
+        (self.path, self.files.into_selection())
+    }
+
     pub(super) fn resolve(self) -> Result<Option<(ServerMods, Selection)>> {
         if self.files.is_empty() {
             crate::commands::mod_support::inspect::prompt_for_input()?;

@@ -16,7 +16,9 @@ use crate::diagnostics::ErrorReport;
 
 mod batch;
 mod file;
+mod progress;
 pub(in crate::commands) use file::ScanResult;
+pub(in crate::commands) use progress::ProgressState;
 
 #[derive(Debug)]
 pub(in crate::commands) struct ScannedFile {

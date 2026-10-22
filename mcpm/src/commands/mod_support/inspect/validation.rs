@@ -3,11 +3,12 @@
 use anyhow::{Result, ensure};
 
 use super::Event;
+use crate::commands::mod_support::scan::ProgressState;
 
 /// One state machine validates both local acquisition and remote event streams.
 #[derive(Default)]
 pub(in crate::commands) struct Validator {
-    scan: Option<(usize, usize)>,
+    scan: ProgressState,
     files: usize,
     errors: bool,
     done: bool,
@@ -18,20 +19,12 @@ impl Validator {
         ensure!(!self.done, "mod inspection data after completion");
         match event {
             Event::Scan { completed, total } => {
-                ensure!(completed <= total, "mod inspection progress exceeds total");
-                match self.scan {
-                    None => ensure!(*completed == 0, "mod inspection progress missing start"),
-                    Some((previous, expected)) => ensure!(
-                        *total == expected && *completed == previous + 1,
-                        "invalid mod inspection scan progress sequence"
-                    ),
-                }
-                self.scan = (completed < total).then_some((*completed, *total));
+                self.scan.accept(*completed, *total)?;
             }
             Event::Error { .. } => self.errors = true,
             Event::File { index, file } => {
                 ensure!(
-                    self.scan.is_none(),
+                    self.scan.is_complete(),
                     "mod inspection file before scan completion"
                 );
                 ensure!(*index == self.files, "mod inspection file index mismatch");
@@ -43,7 +36,7 @@ impl Validator {
             }
             Event::Done { files, failed, .. } => {
                 ensure!(
-                    self.scan.is_none(),
+                    self.scan.is_complete(),
                     "mod inspection ended with incomplete scan progress"
                 );
                 ensure!(*files == self.files, "mod inspection file count mismatch");

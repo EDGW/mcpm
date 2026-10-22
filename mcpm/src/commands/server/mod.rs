@@ -34,9 +34,6 @@ pub(crate) fn run(args: ServerArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
             init::run(args)
         }
         ServerCommand::Info(args) => info::run(args, ssh),
-        ServerCommand::Mods(args) => {
-            anyhow::ensure!(!ssh.is_requested(), "server mods does not support --ssh yet");
-            mods::run(args)
-        },
+        ServerCommand::Mods(args) => mods::run(args, ssh),
     }
 }
