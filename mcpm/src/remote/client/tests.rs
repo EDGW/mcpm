@@ -52,7 +52,7 @@ fn parallel_handles_decode_global_errors_and_keep_contents_opaque() {
     let command = "test.command";
     let script = format!(
         r#"
-printf '%s\n' '{{"guid":"{nil}","status":"ready","contents":{{"version":2,"commands":["{command}"],"max_concurrency":2}}}}'
+printf '%s\n' '{{"guid":"{nil}","status":"ready","contents":{{"version":3,"commands":["{command}"],"max_concurrency":2}}}}'
 IFS= read -r logs
 log_guid=$(printf '%s' "$logs" | cut -d '"' -f6)
 printf '{{"guid":"%s","status":"ready","contents":null}}\n' "$log_guid"
