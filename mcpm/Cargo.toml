@@ -1,6 +1,6 @@
 [package]
 name = "mcpm"
-version = "0.1.0-dev.26w42d"
+version = "0.1.0-dev.26w43a"
 edition = "2024"
 
 [dependencies]
