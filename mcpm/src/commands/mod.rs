@@ -19,7 +19,7 @@ use crate::cli::Command;
 pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<()> {
     if ssh.is_requested() && !matches!(command, Command::Mod(_) | Command::Server(_)) {
         anyhow::bail!(
-            "--ssh and --ssh-mcpm are currently supported only by mcpm mod list, mod info, mod deps mod source identify, server info and server mods list/info/deps/source"
+            "--ssh and --ssh-mcpm are currently supported only by mcpm mod list, mod info, mod deps, mod source identify, server info and server mods list/info/deps/source"
         );
     }
     match command {

@@ -2,13 +2,16 @@
 
 use std::path::PathBuf;
 
+use crate::ssh::SshArgs;
 use anyhow::Result;
 use clap::{Args, Subcommand};
+use serde::{Deserialize, Serialize};
 
 use super::super::mod_source::ServerMods;
 
 mod files;
 mod identify;
+mod remote;
 mod search;
 
 #[derive(Args, Debug)]
@@ -24,15 +27,16 @@ enum SourceCommand {
     /// Browse compatible files by remote project ID or exact slug.
     #[command(visible_alias = "file")]
     Files(files::ServerFilesArgs),
-    /// Identify selected local server mods on a remote source.
+    /// Identify selected server mods on a remote source.
     Identify(identify::IdentifyArgs),
 }
 
-pub(super) fn run(args: SourceArgs) -> Result<()> {
+pub(super) fn run(args: SourceArgs, ssh: SshArgs) -> Result<()> {
+    ssh.validate()?;
     match args.command {
-        SourceCommand::Search(args) => search::run(args),
-        SourceCommand::Files(args) => files::run(args),
-        SourceCommand::Identify(args) => identify::run(args),
+        SourceCommand::Search(args) => search::run(args, ssh),
+        SourceCommand::Files(args) => files::run(args, ssh),
+        SourceCommand::Identify(args) => identify::run(args, ssh),
     }
 }
 
@@ -48,13 +52,29 @@ struct CompatibilityArgs {
 }
 
 impl CompatibilityArgs {
-    fn defaults(self) -> Result<Option<(String, String)>> {
-        let server = ServerMods::load(self.path)?;
-        Ok((!self.all_versions).then(|| {
-            (
-                server.minecraft_version().to_owned(),
-                server.container().loader().loader.id().as_str().to_owned(),
-            )
-        }))
+    fn defaults(self, ssh: SshArgs, command: &'static str) -> Result<Option<Compatibility>> {
+        let defaults = if ssh.is_requested() {
+            remote::defaults(ssh, self.path, command)?
+        } else {
+            Compatibility::load(self.path)?
+        };
+        Ok((!self.all_versions).then_some(defaults))
+    }
+}
+
+/// Server-owned compatibility data shared by local resolution and remote transport.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Compatibility {
+    version: String,
+    loader: String,
+}
+impl Compatibility {
+    fn load(path: PathBuf) -> Result<Self> {
+        let server = ServerMods::load(path)?;
+        Ok(Self {
+            version: server.minecraft_version().to_owned(),
+            loader: server.container().loader().loader.id().as_str().to_owned(),
+        })
     }
 }

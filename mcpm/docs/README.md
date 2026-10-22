@@ -6,7 +6,7 @@ are read without modifying them; graph snapshots can be written to a separate fi
 
 [Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
 
-[Server init](server/init.md) · [server info](server/info.md) · [server mod sources](server/source.md)
+[Server init](server/init.md) · [server info](server/info.md) · [server mods](server/mods.md) · [server mod sources](server/source.md)
 
 [Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
@@ -33,7 +33,7 @@ with `cargo run --manifest-path mcpm/Cargo.toml --`.
 
 ## Global options
 
-`--ssh` and `--ssh-mcpm` are global; supported by `mod list`, `mod info`, `mod deps` and `mod source identify`. See [Remote sessions](remote.md).
+`--ssh` and `--ssh-mcpm` are global; supported by `mod list`, `mod info`, `mod deps`, `mod source identify`, `server info`, and `server mods list/info/deps/source search/files/identify`. See [Remote sessions](remote.md).
 
 ```text
 mcpm [OPTIONS] <COMMAND>

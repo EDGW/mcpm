@@ -110,3 +110,14 @@ mcpm server mods source search create --source modrinth -N --columns name,id,url
 mcpm server mods source files create --source modrinth --columns id,filename,size
 mcpm --raw server mods source identify --source modrinth --all --columns path,project,id,status
 ```
+
+## SSH
+
+```sh
+mcpm --ssh 'ssh user@host' server mods source search create --server /srv/minecraft --source modrinth
+mcpm --ssh 'ssh user@host' server mods source identify --server /srv/minecraft --source modrinth --all
+```
+
+全部 source 子命令支持 SSH。服务器目录和 Mod 选择在远端解析，来源服务请求、API 凭据、TUI 和输出均在本地处理。identify 复用同一会话完成选择和文件摘要；索引时回传进度及诊断，输入部分失败时仍处理有效选择。其 `--parallelism` 分别约束远端索引扫描、文件摘要及本地服务查询。协议不传输归档内容和服务凭据。
+
+协议 ID `server.mods.source.search`、`server.mods.source.files` 接受 `{server}`，返回一个兼容对象 `{version,loader}`。`server.mods.source.identify` 接受 `{server,selection,parallelism}`（并行度默认 10），回传 `scan {completed,total}`、`error {error}`，最后以 `done {paths,failed}` 返回去重后的外层归档路径。本地客户端在同一会话中调用已有的 `mod.source.identify` 获取摘要，再在本地查询来源服务。

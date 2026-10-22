@@ -133,3 +133,14 @@ mcpm server mods source search create --source modrinth -N --columns name,id,url
 mcpm server mods source files create --source modrinth --columns id,filename,size
 mcpm --raw server mods source identify --source modrinth --all --columns path,project,id,status
 ```
+
+## SSH
+
+```sh
+mcpm --ssh 'ssh user@host' server mods source search create --server /srv/minecraft --source modrinth
+mcpm --ssh 'ssh user@host' server mods source identify --server /srv/minecraft --source modrinth --all
+```
+
+All source subcommands support SSH. The server directory and mod selections are resolved on the SSH host; provider requests, API credentials, TUI and output remain local. Identify reuses one session for selection and file summaries, sends progress and diagnostics while indexing, and preserves valid selections after input failures. Its `--parallelism` bounds remote index scans, summaries and local provider lookups in their respective phases. No archive bytes or provider credentials are transferred.
+
+Protocol IDs `server.mods.source.search` and `server.mods.source.files` accept `{server}` and return one compatibility object `{version,loader}`. `server.mods.source.identify` accepts `{server,selection,parallelism}` (parallelism defaults to 10) and emits `scan {completed,total}`, `error {error}`, then `done {paths,failed}` with unique outer archive paths. The client obtains summaries with the existing `mod.source.identify` command on the same connection, and performs provider lookups locally.

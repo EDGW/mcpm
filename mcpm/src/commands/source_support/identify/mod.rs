@@ -47,6 +47,12 @@ pub(in crate::commands) struct IdentifyOptions {
     columns: columns::ColumnArgs,
 }
 
+impl IdentifyOptions {
+    pub(in crate::commands) fn parallelism(&self) -> usize {
+        self.parallelism.get()
+    }
+}
+
 impl std::fmt::Debug for IdentifyOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IdentifyOptions")
@@ -82,6 +88,22 @@ pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> 
 pub(in crate::commands) fn run_paths(options: IdentifyOptions, paths: Vec<PathBuf>) -> Result<()> {
     let _span = tracing::info_span!("source_identify", source = "local").entered();
     present(options, paths, None)
+}
+
+/// Identifies paths on the supplied host while retaining local provider requests and output.
+pub(in crate::commands) fn run_paths_at(
+    options: IdentifyOptions,
+    paths: Vec<PathBuf>,
+    location: Location<'_>,
+) -> Result<()> {
+    present(
+        options,
+        paths,
+        match location {
+            Location::Local => None,
+            Location::Remote(session) => Some(session),
+        },
+    )
 }
 
 fn present(

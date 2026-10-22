@@ -54,9 +54,6 @@ pub(super) fn run(args: ModsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         ModsCommand::List(args) => list::run(args, ssh),
         ModsCommand::Info(args) => info::run(args, ssh),
         ModsCommand::Deps(args) => deps::run(args, ssh),
-        ModsCommand::Source(args) => {
-            anyhow::ensure!(!ssh.is_requested(), "server mods source does not support --ssh yet");
-            source::run(args)
-        },
+        ModsCommand::Source(args) => source::run(args, ssh),
     }
 }

@@ -36,10 +36,6 @@ impl SelectionArgs {
     pub(in crate::commands) fn into_selection(self) -> Selection {
         self.selection
     }
-
-    pub(in crate::commands) fn is_empty(&self) -> bool {
-        self.selection.is_empty()
-    }
 }
 
 /// Interpretation of stdin lines, independent of positional and explicit CLI selectors.
