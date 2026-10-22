@@ -30,9 +30,9 @@ enum ModCommand {
 }
 
 pub(crate) fn run(args: ModArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if ssh.is_requested() && !matches!(args.command, ModCommand::List(_)) {
+    if ssh.is_requested() && !matches!(args.command, ModCommand::List(_) | ModCommand::Source(_)) {
         anyhow::bail!(
-            "--ssh and --ssh-mcpm are currently supported only by mcpm mod list in TUI, Console and Raw modes"
+            "--ssh and --ssh-mcpm are currently supported only by mcpm mod list and mod source identify"
         );
     }
     match args.command {
@@ -40,6 +40,6 @@ pub(crate) fn run(args: ModArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         ModCommand::Deps(args) => deps::run(args),
         ModCommand::Info(args) => info::run(args),
         ModCommand::List(list) => list::run(list, ssh),
-        ModCommand::Source(args) => source::run(args),
+        ModCommand::Source(args) => source::run(args, ssh),
     }
 }

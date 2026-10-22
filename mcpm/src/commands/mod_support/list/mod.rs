@@ -11,6 +11,7 @@ use kako_mods_lib::local::{
 };
 use thiserror::Error;
 
+use crate::commands::source_support::identify::{DEFAULT_PARALLELISM, Location};
 use crate::terminal;
 
 use super::{
@@ -39,7 +40,7 @@ pub(in crate::commands) struct ListDisplayArgs {
     /// Maximum simultaneous source lookups in TUI; ignored by Console and Raw.
     #[arg(
         long,
-        default_value = "10",
+        default_value_t = std::num::NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(),
         value_name = "COUNT",
         help_heading = "TUI-only options"
     )]
@@ -126,7 +127,7 @@ pub(in crate::commands) fn run(
         input_errors,
         session.failed_count(),
         source_loaders,
-        true,
+        Location::Local,
     )
 }
 
@@ -165,7 +166,7 @@ pub(in crate::commands) fn run_selection(
         input_errors,
         resolver.scan.failed_count(),
         source_loaders,
-        true,
+        Location::Local,
     )
 }
 
@@ -178,8 +179,9 @@ pub(in crate::commands) fn present(
     input_errors: usize,
     failed: usize,
     source_loaders: Vec<String>,
-    local_files: bool,
+    location: Location<'_>,
 ) -> Result<()> {
+    let local_files = location.is_local();
     let formatted = terminal::stdout_is_tty();
     let interactive = formatted && terminal::stderr_is_tty() && !args.no_ui;
     tracing::debug!(
@@ -242,7 +244,7 @@ pub(in crate::commands) fn present(
             args.identify_parallelism.get(),
             args.filter.unwrap_or_default(),
             tui::Summary {
-                local_files,
+                location,
                 ignored,
                 ignored_files: &ignored_files,
                 input_errors,

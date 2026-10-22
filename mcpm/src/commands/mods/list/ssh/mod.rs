@@ -63,7 +63,7 @@ pub(super) fn run(
         loaded.input_errors,
         loaded.failed,
         source_loaders,
-        false,
+        crate::commands::source_support::identify::Location::Remote(&session),
     );
     session.close()?;
     tracing::info!(

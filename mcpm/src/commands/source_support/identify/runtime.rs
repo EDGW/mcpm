@@ -1,19 +1,19 @@
-//! TUI-owned runtime that cancels async work without waiting for blocking source lookups on exit.
+//! Source-lookup runtime that cancels async work without waiting for blocking source lookups on exit.
 
 use std::ops::Deref;
 
 use anyhow::{Context, Result};
 
 #[derive(Debug)]
-pub(super) struct Runtime(Option<tokio::runtime::Runtime>);
+pub(in crate::commands) struct Runtime(Option<tokio::runtime::Runtime>);
 
 impl Runtime {
-    pub(super) fn new() -> Result<Self> {
+    pub(in crate::commands) fn new() -> Result<Self> {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map(|runtime| Self(Some(runtime)))
-            .context("failed to create mod identification runtime")
+            .context("failed to create source identification runtime")
     }
 }
 
@@ -21,7 +21,7 @@ impl Deref for Runtime {
     type Target = tokio::runtime::Runtime;
 
     fn deref(&self) -> &Self::Target {
-        self.0.as_ref().expect("TUI runtime is alive until drop")
+        self.0.as_ref().expect("source runtime is alive until drop")
     }
 }
 
@@ -29,7 +29,7 @@ impl Drop for Runtime {
     fn drop(&mut self) {
         if let Some(runtime) = self.0.take() {
             tracing::debug!(
-                "Shutting down mod identification runtime without waiting for blocking work"
+                "Shutting down source identification runtime without waiting for blocking work"
             );
             // Tokio cannot abort an already-running spawn_blocking hash/fingerprint
             // or DNS lookup. The default runtime drop would wait for it indefinitely.

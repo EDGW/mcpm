@@ -22,10 +22,15 @@ enum SourceCommand {
     Identify(identify::IdentifyArgs),
 }
 
-pub(super) fn run(args: SourceArgs) -> Result<()> {
+pub(super) fn run(args: SourceArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+    if ssh.is_requested() && !matches!(args.command, SourceCommand::Identify(_)) {
+        anyhow::bail!(
+            "--ssh and --ssh-mcpm are supported only by mod list and mod source identify"
+        );
+    }
     match args.command {
         SourceCommand::Search(args) => search::run(args),
         SourceCommand::Files(args) => files::run(args),
-        SourceCommand::Identify(args) => identify::run(args),
+        SourceCommand::Identify(args) => identify::run(args, ssh),
     }
 }

@@ -1,17 +1,13 @@
 //! Bounded concurrent outer-JAR source lookups and provider-neutral result states for the TUI.
 
+use crate::commands::source_support::identify::{self as acquisition, Event, Location, Outcome};
+use anyhow::Result;
+use kako_mods_lib::source::{FileMatch, MatchedFileRole};
 use std::{
-    collections::HashMap,
     path::PathBuf,
-    sync::{
-        Arc,
-        mpsc::{Receiver, Sender, channel},
-    },
+    sync::mpsc::{Receiver, channel},
 };
-
 use tracing::Instrument;
-
-use kako_mods_lib::source::{FileMatch, MatchedFileRole, Source};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Platform {
@@ -45,7 +41,6 @@ impl Platform {
 
 #[derive(Clone, Debug, Default)]
 pub(super) enum State {
-    Unavailable,
     #[default]
     Queued,
     Loading,
@@ -56,7 +51,6 @@ pub(super) enum State {
 impl State {
     pub(super) fn details(&self, spinner: &str) -> String {
         match self {
-            Self::Unavailable => "Unavailable for SSH data".into(),
             Self::Queued => "Waiting".into(),
             Self::Loading => format!("{spinner} Identifying…"),
             Self::Unmatched => "No match".into(),
@@ -83,120 +77,75 @@ pub(super) struct Update {
     pub state: State,
 }
 
-/// Runs on the TUI's runtime; dropping that runtime cancels pending network I/O.
-pub(super) fn start(paths: Vec<PathBuf>, parallelism: usize) -> Receiver<Update> {
+/// The TUI adapts shared identification events without owning lookup scheduling.
+pub(super) fn start(
+    paths: Vec<PathBuf>,
+    parallelism: usize,
+    location: Location<'_>,
+) -> Result<Receiver<Update>> {
     let (sender, receiver) = channel();
+    let count = paths.len();
+    if count == 0 {
+        return Ok(receiver);
+    }
+    let sources = Platform::ALL.map(|platform| platform.id().to_owned());
+    let identification =
+        acquisition::Identification::start(paths, &sources, parallelism, location)?;
     tracing::info!(
-        files = paths.len(),
+        files = count,
         parallelism,
         "Starting mod source identification"
     );
     tokio::spawn(async move {
-        let sources = Platform::ALL.map(|platform| {
-            crate::commands::source_support::build_source(platform.id())
-                .map(Arc::<dyn Source>::from)
-                .map_err(|error| format!("{error:#}"))
-        });
-        for (platform, source) in Platform::ALL.into_iter().zip(&sources) {
-            if let Err(error) = source { tracing::debug!(platform = platform.id(), %error, "Source provider initialization failed"); }
-        }
-        identify(paths, &sources, &sender, parallelism).await;
-    }.in_current_span());
-    receiver
-}
-
-/// Keep first-occurrence order and share results for duplicate physical paths.
-async fn identify(
-    paths: Vec<PathBuf>,
-    sources: &[Result<Arc<dyn Source>, String>; 2],
-    sender: &Sender<Update>,
-    parallelism: usize,
-) {
-    let started = std::time::Instant::now();
-    let count = paths.len();
-    let mut positions = HashMap::new();
-    let mut jobs: Vec<(PathBuf, Vec<usize>)> = Vec::new();
-    for (index, path) in paths.into_iter().enumerate() {
-        let key = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-        let position = *positions.entry(key).or_insert_with(|| {
-            jobs.push((path, Vec::new()));
-            jobs.len() - 1
-        });
-        jobs[position].1.push(index);
-    }
-    tracing::debug!(
-        files = count,
-        unique_files = jobs.len(),
-        "Prepared source identification jobs"
-    );
-    let mut jobs = jobs.into_iter().flat_map(|(path, files)| {
-        Platform::ALL
-            .into_iter()
-            .map(move |platform| (path.clone(), files.clone(), platform))
-    });
-    let mut active = tokio::task::JoinSet::new();
-    loop {
-        while active.len() < parallelism.max(1) {
-            let Some((path, files, platform)) = jobs.next() else {
-                break;
-            };
-            if sender
-                .send(Update {
-                    files: files.clone(),
-                    platform,
-                    state: State::Loading,
-                })
-                .is_err()
-            {
-                return;
+        let mut completed = vec![[false; 2]; count];
+        let mut emit = |event| {
+            if let Event::Item { indices, source, .. } = &event {
+                for index in indices { completed[*index][*source] = true; }
             }
-            let source = sources[platform.index()].clone();
-            let sender = sender.clone();
-            let span = tracing::debug_span!("identify_source", path = %path.display(), platform = platform.id());
-            active.spawn(
-                async move {
-                    let started = std::time::Instant::now();
-                    tracing::debug!("Looking up mod source");
-                    let state = match source {
-                        Ok(source) => match source.identify_file(&path).await {
-                            Ok(Some(found)) => State::Matched(found),
-                            Ok(None) => State::Unmatched,
-                            Err(error) => State::Failed(format!("{error:#}")),
-                        },
-                        Err(error) => State::Failed(error),
-                    };
-                    tracing::debug!(
-                        outcome = match &state {
-                            State::Matched(_) => "matched",
-                            State::Unmatched => "unmatched",
-                            State::Failed(_) => "failed",
-                            _ => "unexpected",
-                        },
-                        elapsed_ms = started.elapsed().as_millis(),
-                        "Mod source lookup completed"
-                    );
-                    if let State::Failed(error) = &state {
-                        tracing::debug!(%error, "Mod source lookup failed");
-                    }
-                    let _ = sender.send(Update {
-                        files,
-                        platform,
-                        state,
-                    });
-                }
-                .instrument(span),
-            );
+            send_update(event, &sender)
+        };
+        let result = identification.run(&mut emit).await;
+        if let Err(error) = result {
+            tracing::warn!(error = %format_args!("{error:#}"), "Mod source identification stopped");
+            for platform in Platform::ALL {
+                let _ = sender.send(Update { files: (0..count).filter(|index| !completed[*index][platform.index()]).collect(), platform, state: State::Failed(format!("{error:#}")) });
+            }
         }
-        if active.join_next().await.is_none() {
-            break;
-        }
-    }
-    tracing::info!(
-        files = count,
-        elapsed_ms = started.elapsed().as_millis(),
-        "Mod source identification completed"
-    );
+    }.in_current_span());
+    Ok(receiver)
 }
 
-#[cfg(test)]
-mod tests;
+fn send_update(event: Event, sender: &std::sync::mpsc::Sender<Update>) -> Result<()> {
+    let (indices, source, state) = match event {
+        Event::Loading { indices, source } => (indices, source, State::Loading),
+        Event::Item {
+            indices,
+            source,
+            outcome,
+        } => (
+            indices,
+            source,
+            match outcome {
+                Outcome::Matched { file } => State::Matched(file),
+                Outcome::Unmatched => State::Unmatched,
+                Outcome::Failed { error, remote } => {
+                    let prefix = if remote { "remote error: " } else { "" };
+                    State::Failed(format!("{prefix}{:#}", error.into_error()))
+                }
+            },
+        ),
+        Event::Done { failed } => {
+            tracing::info!(
+                failed,
+                "Mod list received all source identification results"
+            );
+            return Ok(());
+        }
+    };
+    sender.send(Update {
+        files: indices,
+        platform: Platform::ALL[source],
+        state,
+    })?;
+    Ok(())
+}

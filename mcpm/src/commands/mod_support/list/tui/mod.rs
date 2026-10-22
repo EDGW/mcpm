@@ -6,6 +6,7 @@ use super::{
     filter::{self, Filter},
     rows::RowOptions,
 };
+use crate::commands::source_support::identify::{Location, runtime};
 use anyhow::{Context, Result};
 use crossterm::event;
 use kako_mods_lib::source::FileRef;
@@ -18,7 +19,6 @@ use std::{
 
 mod identify;
 mod input;
-mod runtime;
 mod screen;
 mod tree;
 mod view;
@@ -28,7 +28,7 @@ mod tests;
 
 #[derive(Debug)]
 pub(super) struct Summary<'a> {
-    pub local_files: bool,
+    pub location: Location<'a>,
     pub ignored: usize,
     pub ignored_files: &'a [PathBuf],
     pub input_errors: usize,
@@ -52,25 +52,18 @@ pub(super) fn run(
     tracing::debug!(
         nodes = browser.nodes.len(),
         visible = browser.matches.len(),
-        local_files = summary.local_files,
+        local_files = summary.location.is_local(),
         identify_parallelism,
         "Initialized mod list browser"
     );
-    let updates = if summary.local_files {
-        identify::start(
-            files
-                .iter()
-                .map(|file| file.scanned.file.entry.path().to_owned())
-                .collect(),
-            identify_parallelism,
-        )
-    } else {
-        tracing::debug!("Source identification unavailable for remote mod data");
-        for states in &mut browser.identification {
-            *states = [identify::State::Unavailable, identify::State::Unavailable];
-        }
-        std::sync::mpsc::channel().1
-    };
+    let updates = identify::start(
+        files
+            .iter()
+            .map(|file| file.scanned.file.entry.path().to_owned())
+            .collect(),
+        identify_parallelism,
+        summary.location,
+    )?;
     let mut screen = screen::Screen::new().context("failed to open mod list TUI")?;
     let mut redraw = true;
     let mut page = 1;

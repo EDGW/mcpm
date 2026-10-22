@@ -10,7 +10,7 @@ mod windows;
 
 #[derive(Args, Debug)]
 pub(crate) struct SshArgs {
-    /// SSH connection command, e.g. "ssh -i key -p 2222 user@host"; supported only by list TUI/Console/Raw.
+    /// SSH connection command, e.g. "ssh -i key -p 2222 user@host"; supported by mod list and mod source identify.
     #[arg(
         long,
         global = true,
@@ -18,7 +18,7 @@ pub(crate) struct SshArgs {
         help_heading = "Global options"
     )]
     ssh: Option<String>,
-    /// Remote mcpm executable path (default: mcpm); requires --ssh and list TUI/Console/Raw.
+    /// Remote mcpm executable path (default: mcpm); requires --ssh.
     #[arg(
         long,
         global = true,
