@@ -1,3 +1,5 @@
+//! Compose CLI launch options into the library launch configuration.
+
 mod game;
 mod identity;
 mod process;
@@ -6,7 +8,7 @@ mod runtime;
 use clap::Args;
 use kako_mods_lib::local::mc::client::{MinecraftVersion, RuleEnvironment, launch::LaunchOptions};
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct OptionArgs {
     #[command(flatten)]
     runtime: runtime::RuntimeArgs,

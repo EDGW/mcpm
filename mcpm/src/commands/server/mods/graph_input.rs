@@ -11,7 +11,7 @@ use kako_mods_lib::local::mcmod::dependency::graph::{
 use super::super::mod_source::ServerMods;
 
 /// Registered server input shared by graph building and dependency checks.
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct ServerArgs {
     /// Registered server directory; defaults to the current directory.
     #[arg(long = "server", value_name = "PATH", default_value = ".")]

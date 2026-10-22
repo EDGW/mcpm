@@ -21,7 +21,7 @@ use thiserror::Error;
 
 use super::selector::ModSelector;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct ViewArgs {
     /// Graph JSON input; omit or use - to read stdin.
     #[arg(short, long, value_name = "FILE")]

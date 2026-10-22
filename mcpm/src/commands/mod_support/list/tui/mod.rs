@@ -25,7 +25,9 @@ mod view;
 #[cfg(test)]
 mod tests;
 
+#[derive(Debug)]
 pub(super) struct Summary<'a> {
+    pub local_files: bool,
     pub ignored: usize,
     pub ignored_files: &'a [PathBuf],
     pub input_errors: usize,
@@ -47,13 +49,20 @@ pub(super) fn run(
         .context("failed to create mod identification runtime")?;
     let _guard = runtime.enter();
     let mut browser = Browser::new(tree::build(files, &options), filter);
-    let updates = identify::start(
-        files
-            .iter()
-            .map(|file| file.scanned.file.entry.path().to_owned())
-            .collect(),
-        identify_parallelism,
-    );
+    let updates = if summary.local_files {
+        identify::start(
+            files
+                .iter()
+                .map(|file| file.scanned.file.entry.path().to_owned())
+                .collect(),
+            identify_parallelism,
+        )
+    } else {
+        for states in &mut browser.identification {
+            *states = [identify::State::Unavailable, identify::State::Unavailable];
+        }
+        std::sync::mpsc::channel().1
+    };
     let mut screen = screen::Screen::new().context("failed to open mod list TUI")?;
     let mut redraw = true;
     let mut page = 1;
@@ -153,6 +162,36 @@ struct Browser {
     scroll_limit: u16,
     table_area: ratatui::layout::Rect,
     detail_area: ratatui::layout::Rect,
+}
+
+impl std::fmt::Debug for Browser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Browser")
+            .field("nodes", &self.nodes)
+            .field("identification", &self.identification)
+            .field("tick", &self.tick)
+            .field("detail_offset", &self.detail_offset)
+            .field("focus", &self.focus)
+            .field("field", &self.field)
+            .field("status", &self.status)
+            .field("matches", &self.matches)
+            .field("table", &self.table)
+            .field("query", &self.query)
+            .field("parsed", &self.parsed)
+            .field("search_overrides", &self.search_overrides)
+            .field("search_included", &self.search_included)
+            .field("filter_open", &self.filter_open)
+            .field("query_cursor", &self.query_cursor)
+            .field("filter_area", &self.filter_area)
+            .field("details", &self.details)
+            .field("ignored", &self.ignored)
+            .field("scroll", &self.scroll)
+            .field("scroll_limit", &self.scroll_limit)
+            .field("table_area", &self.table_area)
+            .field("detail_area", &self.detail_area)
+            .field("clipboard_available", &self.clipboard.is_some())
+            .finish()
+    }
 }
 impl Browser {
     fn new(nodes: Vec<tree::Node>, filter: Filter) -> Self {
@@ -452,7 +491,7 @@ impl Browser {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Focus {
     Mods,
     Filter,

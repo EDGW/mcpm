@@ -13,7 +13,7 @@ use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 use std::{path::Path, sync::Arc};
 
 fn fixture(expanded: bool) -> Browser {
-    #[derive(Parser)]
+    #[derive(Parser, Debug)]
     struct Paths {
         #[command(flatten)]
         paths: PathArgs,
@@ -47,6 +47,7 @@ fn fixture(expanded: bool) -> Browser {
 }
 fn summary() -> Summary<'static> {
     Summary {
+        local_files: true,
         ignored: 0,
         ignored_files: &[],
         input_errors: 0,

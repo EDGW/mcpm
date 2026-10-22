@@ -16,6 +16,7 @@ enum Vertex {
     Candidate(usize),
 }
 
+#[derive(Debug)]
 pub(in crate::commands::mod_support::dep_graph::view) struct Visibility {
     filtered: bool,
     edges: HashSet<usize>,

@@ -159,6 +159,7 @@ impl Expr {
 }
 
 /// Semantic value ranges come from the row producer, never from parsing display decoration.
+#[derive(Debug)]
 struct Document {
     text: [String; 5],
     values: [Vec<Range<usize>>; 5],

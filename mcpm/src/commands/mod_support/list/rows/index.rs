@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthStr;
 use super::super::super::mod_records::ModRecord;
 use super::{Paint, Piece, Row, loader_style};
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 pub(crate) enum IndexType {
     /// Full declaration indices, such as [1-neoforge+2-3].
     Flat,
@@ -15,6 +15,7 @@ pub(crate) enum IndexType {
     Tree,
 }
 
+#[derive(Debug)]
 pub(super) enum Value {
     Flat(Vec<Piece>),
     Tree {
@@ -87,6 +88,7 @@ pub(in crate::commands::mod_support::list) fn align(rows: &mut [Row]) {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Formatter {
     kind: IndexType,
     previous: Vec<String>,

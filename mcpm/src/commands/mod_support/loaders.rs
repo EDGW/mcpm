@@ -8,7 +8,7 @@ use kako_mods_lib::local::{
     modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta},
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(in crate::commands) struct LoaderArgs {
     /// Select one loader; repeat to select multiple loaders.
     #[arg(long = "loader", value_enum, value_name = "LOADER")]
@@ -23,7 +23,7 @@ pub(in crate::commands) struct LoaderArgs {
     loaders: Vec<Loader>,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 pub(in crate::commands) enum Loader {
     Forge,
     Neoforge,

@@ -20,7 +20,7 @@ use kako_mods_lib::local::{
 use super::super::progress::Progress;
 use super::selector::ExternalSelector;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(in crate::commands) struct BuildOptions {
     /// Write JSON to this file instead of stdout; overwrite an existing file.
     #[arg(short, long, value_name = "FILE")]

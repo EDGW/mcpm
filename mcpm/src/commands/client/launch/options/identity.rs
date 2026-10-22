@@ -1,3 +1,5 @@
+//! CLI player identity options and redacted debug formatting.
+
 use clap::Args;
 use kako_mods_lib::local::mc::client::launch::{Identity, Secret};
 
@@ -29,6 +31,22 @@ pub(super) struct IdentityArgs {
     client_id: Option<String>,
 }
 
+impl std::fmt::Debug for IdentityArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdentityArgs")
+            .field("username", &self.username)
+            .field("uuid", &self.uuid)
+            .field(
+                "access_token",
+                &self.access_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("user_type", &self.user_type)
+            .field("xuid", &self.xuid.as_ref().map(|_| "[REDACTED]"))
+            .field("client_id", &self.client_id.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+
 impl IdentityArgs {
     pub(super) fn build(&self) -> Identity {
         let mut identity = Identity::offline(&self.username);
@@ -45,5 +63,27 @@ impl IdentityArgs {
         identity.xuid = self.xuid.clone();
         identity.client_id = self.client_id.clone();
         identity
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_redacts_credentials() {
+        let args = IdentityArgs {
+            username: "Player".into(),
+            uuid: None,
+            access_token: Some("private-token".into()),
+            user_type: None,
+            xuid: Some("private-xuid".into()),
+            client_id: Some("private-client-id".into()),
+        };
+        let debug = format!("{args:?}");
+        assert!(debug.contains("Player") && debug.contains("[REDACTED]"));
+        for secret in ["private-token", "private-xuid", "private-client-id"] {
+            assert!(!debug.contains(secret));
+        }
     }
 }

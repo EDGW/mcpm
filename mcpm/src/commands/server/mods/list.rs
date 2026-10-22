@@ -12,7 +12,7 @@ use crate::commands::mod_support::{
 
 use super::super::mod_source::ServerMods;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(
     defer(|command| crate::help::grouped(command, &[
         "Global options", "Mode options", "Input options", "Filter", "Style options",

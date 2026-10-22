@@ -43,6 +43,7 @@ impl Platform {
 
 #[derive(Clone, Debug, Default)]
 pub(super) enum State {
+    Unavailable,
     #[default]
     Queued,
     Loading,
@@ -53,6 +54,7 @@ pub(super) enum State {
 impl State {
     pub(super) fn details(&self, spinner: &str) -> String {
         match self {
+            Self::Unavailable => "Unavailable for SSH data".into(),
             Self::Queued => "Waiting".into(),
             Self::Loading => format!("{spinner} Identifying…"),
             Self::Unmatched => "No match".into(),
@@ -72,6 +74,7 @@ impl State {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Update {
     pub files: Vec<usize>,
     pub platform: Platform,

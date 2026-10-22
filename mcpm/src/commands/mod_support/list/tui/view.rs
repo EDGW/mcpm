@@ -436,6 +436,12 @@ fn source_item(
         )
     } else {
         match state {
+            identify::State::Unavailable => (
+                "Unavailable".into(),
+                "Source identification is unavailable for SSH data".into(),
+                Role::Muted,
+                false,
+            ),
             identify::State::Matched(_) => (
                 "✓ Identified".into(),
                 "↳ Enter to view release files →".into(),

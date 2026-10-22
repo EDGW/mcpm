@@ -281,6 +281,7 @@ fn save(config: &mut Config, editor: Option<&Editor>, directory: &Path) -> Resul
     Ok(Status::saved(directory))
 }
 
+#[derive(Debug)]
 struct Editor {
     id: String,
     type_cursor: usize,
@@ -340,6 +341,7 @@ impl Editor {
     }
 }
 
+#[derive(Debug)]
 struct Status {
     message: String,
     role: Role,
@@ -370,10 +372,12 @@ impl Status {
     }
 }
 
+#[derive(Debug)]
 struct Prompt {
     action: Action,
     value: String,
 }
+#[derive(Debug)]
 enum Action {
     Create,
     Rename,
@@ -389,6 +393,7 @@ impl Prompt {
     }
 }
 
+#[derive(Debug)]
 struct Screen {
     terminal: Terminal<CrosstermBackend<io::Stderr>>,
     raw: bool,

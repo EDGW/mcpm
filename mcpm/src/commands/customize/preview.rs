@@ -231,6 +231,7 @@ fn render_panel(
 }
 
 /// Copy widget cells through a clipped viewport; no border characters are generated here.
+#[derive(Debug)]
 struct PreviewViewport<'a>(&'a Buffer);
 impl Widget for PreviewViewport<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {

@@ -11,7 +11,7 @@ mod output;
 pub(super) mod tui;
 pub(in crate::commands) use tui::open_selected;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(
     after_help = "Modes: TUI (default in terminals), Console (--no-ui), Raw (--raw or redirected stdout).\n\nExamples:\n  mcpm mod source files --source modrinth create ZzjhlDgM\n  mcpm mod source files --source curseforge 688231 create\n  mcpm mod source files --source 'curseforge@KEY' create-steam-n-rails\n  printf '%s\\n' create create-steam-n-rails | mcpm mod source files --source modrinth\n  mcpm mod source files --source modrinth create -N\n  mcpm mod source files --source modrinth sodium --selected yaoBL9D9\n  mcpm mod source files --source curseforge 688231 --columns id,filename,size\n  mcpm --raw mod source files --source curseforge 688231"
 )]
@@ -168,7 +168,7 @@ fn other_files<'a>(
     })
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 enum Channel {
     Release,
     Beta,
@@ -191,7 +191,7 @@ mod tests {
     use clap::Parser;
     use kako_mods_lib::source::{ProjectId, ProjectRef, SourceId};
 
-    #[derive(Parser)]
+    #[derive(Parser, Debug)]
     struct TestArgs {
         #[command(flatten)]
         files: FilesArgs,

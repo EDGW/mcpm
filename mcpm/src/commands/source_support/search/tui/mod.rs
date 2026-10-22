@@ -24,7 +24,7 @@ mod view;
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Focus {
     Search,
     Results,
@@ -50,6 +50,31 @@ struct Browser {
     clipboard: Option<arboard::Clipboard>,
     status: Option<(String, Role)>,
     completion: Completion,
+}
+
+impl std::fmt::Debug for Browser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Browser")
+            .field("draft", &self.draft)
+            .field("committed", &self.committed)
+            .field("parse_error", &self.parse_error)
+            .field("cursor", &self.cursor)
+            .field("focus", &self.focus)
+            .field("table", &self.table)
+            .field("field", &self.field)
+            .field("detail_offset", &self.detail_offset)
+            .field("detail_row", &self.detail_row)
+            .field("detail_fields", &self.detail_fields)
+            .field("full_details", &self.full_details)
+            .field("search_area", &self.search_area)
+            .field("table_area", &self.table_area)
+            .field("detail_area", &self.detail_area)
+            .field("row_height", &self.row_height)
+            .field("status", &self.status)
+            .field("completion", &self.completion)
+            .field("clipboard_available", &self.clipboard.is_some())
+            .finish()
+    }
 }
 
 impl Browser {

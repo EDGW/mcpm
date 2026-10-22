@@ -5,13 +5,13 @@ use clap::{Args, Subcommand};
 
 use crate::commands::source_support::{files, identify, search};
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct SourceArgs {
     #[command(subcommand)]
     command: SourceCommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum SourceCommand {
     /// Search Minecraft mods; browse interactively or emit TSV with --raw.
     Search(search::SearchArgs),

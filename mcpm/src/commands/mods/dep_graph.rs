@@ -13,7 +13,7 @@ use crate::commands::mod_support::{
 
 pub(super) type DepGraphArgs = dep_graph::DepGraphArgs<BuildArgs>;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct BuildArgs {
     /// Directory containing .jar and .jar.disabled files (not scanned recursively).
     #[arg(value_name = "DIR")]

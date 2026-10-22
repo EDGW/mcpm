@@ -23,6 +23,7 @@ use crate::theme::{
     widgets::{self, style},
 };
 
+#[derive(Debug)]
 pub(crate) struct Screen {
     pub terminal: Terminal<CrosstermBackend<io::Stderr>>,
     raw: bool,
@@ -65,6 +66,7 @@ impl Drop for Screen {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct BrowserLayout {
     pub title: Rect,
     pub pinned: Rect,
@@ -147,6 +149,7 @@ pub(crate) fn short_line(spans: Vec<Span<'_>>, width: usize) -> Line<'static> {
 }
 
 /// Exact allocations shared by clipping and rendering, including optional tree markers.
+#[derive(Debug)]
 pub(crate) struct TableColumns {
     pub areas: Vec<Rect>,
     pub marker_width: u16,

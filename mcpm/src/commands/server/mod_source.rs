@@ -13,6 +13,7 @@ use thiserror::Error;
 use crate::commands::mod_support::selection::Scope;
 
 /// Registered server and loader scope shared by server mod commands.
+#[derive(Debug)]
 pub(super) struct ServerMods {
     container: ModContainer,
     minecraft_version: String,

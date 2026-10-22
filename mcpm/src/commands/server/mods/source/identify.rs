@@ -7,7 +7,7 @@ use crate::commands::{mod_support::selection, source_support::identify};
 
 use super::super::input::FileArgs;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(
     after_help = "Modes: Console and Raw (--raw or redirected stdout).\n\nInputs match filename, then exact modid, then exact mod name in the server's mods directory.\nPaths are relative to that directory; mods/ prefixes are accepted. Use --all to select every mod.\nRedirected stdin appends one selection per line; --input sets its interpretation.\nMatching uses file contents and is independent of Minecraft version or loader compatibility.\n\nExamples:\n  mcpm server mods source identify --server ./my-server --source modrinth --all\n  mcpm server mods source identify create.jar --source curseforge\n  mcpm server mods source identify --modid create --source modrinth --columns path,project,id,status\n  printf '%s\\n' create | mcpm server mods source identify --source modrinth --input modid"
 )]

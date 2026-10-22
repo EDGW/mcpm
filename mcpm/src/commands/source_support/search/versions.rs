@@ -87,7 +87,7 @@ pub(super) fn compact(versions: &[String], catalog: Option<&[String]>) -> Vec<St
     result
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Group {
     base: bool,
     patches: BTreeSet<u64>,

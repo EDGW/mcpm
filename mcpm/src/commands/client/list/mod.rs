@@ -18,7 +18,7 @@ use thiserror::Error;
 
 use super::{input, output as client_output};
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct ListArgs {
     /// Minecraft root; defaults to the nearest .minecraft ancestor, or the current directory.
     /// Pass . explicitly to force the current directory.
@@ -28,13 +28,14 @@ pub(super) struct ListArgs {
     columns: columns::ColumnArgs,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum State {
     Normal,
     Broken,
     Failed,
 }
 
+#[derive(Debug)]
 struct Row {
     name: String,
     state: State,

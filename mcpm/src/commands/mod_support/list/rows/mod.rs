@@ -2,9 +2,9 @@
 
 use std::collections::HashSet;
 use std::ops::Range;
-use std::path::Path;
 
 use crate::theme::Role;
+use kako_mods_lib::local::mcmod::ModEntry;
 use kako_mods_lib::local::modloader::ModLoaderMeta;
 use unicode_width::UnicodeWidthStr;
 
@@ -14,7 +14,7 @@ use super::{ListedFile, columns::Column};
 mod index;
 pub(super) use index::{IndexType, align};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct Piece {
     pub(super) text: String,
     pub(super) style: Paint,
@@ -32,6 +32,7 @@ impl Piece {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Row {
     pub(super) cells: [Vec<Piece>; 5],
     index_labels: index::Value,
@@ -94,6 +95,7 @@ impl Row {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct RowOptions<'a> {
     pub expanded: bool,
     pub paths: &'a PathArgs,
@@ -144,7 +146,7 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
             indices.file(number),
             file.entry.name(),
             "",
-            filename(&[], file.entry.path(), options.paths),
+            filename(&[], &file.entry, options.paths),
             loaders,
             0,
         ));
@@ -156,7 +158,7 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
                 indices.record(record, number, multiple_loaders),
                 &info.name,
                 &info.modid,
-                filename(&record.source, file.entry.path(), options.paths),
+                filename(&record.source, &file.entry, options.paths),
                 vec![loader_piece(record.loader)],
                 if matches!(options.index_type, IndexType::Tree) {
                     record.source.len() * 2
@@ -170,7 +172,7 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
                 indices.failure(number, failure.loader.id().as_str()),
                 file.entry.name(),
                 "",
-                filename(&[], file.entry.path(), options.paths),
+                filename(&[], &file.entry, options.paths),
                 vec![
                     loader_piece(&failure.loader),
                     Piece::new(" [failed]", warning()),
@@ -211,7 +213,7 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
             indices.record(record, number, multiple_loaders),
             &info.name,
             &info.modid,
-            filename(&record.source, file.entry.path(), options.paths),
+            filename(&record.source, &file.entry, options.paths),
             loaders,
             if matches!(options.index_type, IndexType::Tree) {
                 record.source.len() * 2
@@ -222,9 +224,13 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
     }
 }
 
-fn filename(source: &[String], outer: &Path, paths: &PathArgs) -> Vec<Piece> {
+fn filename(source: &[String], entry: &ModEntry, paths: &PathArgs) -> Vec<Piece> {
     let mut pieces = Vec::new();
-    for (index, part) in paths.parts(outer, source).into_iter().enumerate() {
+    for (index, part) in paths
+        .parts_with_filename(entry.path(), source, entry.filename())
+        .into_iter()
+        .enumerate()
+    {
         if index > 0 {
             pieces.push(Piece::new("!", Paint::Role(Role::Important)));
         }
@@ -257,7 +263,7 @@ fn failure_count(count: usize) -> Piece {
 }
 
 /// Semantic paint is resolved independently by each renderer and its active palette.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub(super) enum Paint {
     #[default]
     Plain,

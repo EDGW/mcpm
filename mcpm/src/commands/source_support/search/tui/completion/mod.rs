@@ -11,7 +11,7 @@ mod view;
 #[cfg(test)]
 mod tests;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(super) struct Completion {
     context: Option<CompletionContext>,
     candidates: Vec<String>,
@@ -155,7 +155,7 @@ impl Completion {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 enum Versions {
     #[default]
     Unloaded,

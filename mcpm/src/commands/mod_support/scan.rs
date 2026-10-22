@@ -14,18 +14,21 @@ use kako_mods_lib::local::{
 
 use super::{loaders, progress::Progress};
 
-pub(super) struct ScannedFile {
+#[derive(Debug)]
+pub(in crate::commands) struct ScannedFile {
     pub file: ModFile,
     pub failures: Vec<FailedIdentification>,
 }
 
-pub(super) struct FailedIdentification {
+#[derive(Debug)]
+pub(in crate::commands) struct FailedIdentification {
     pub loader: ModLoaderMeta,
     pub reason: String,
 }
 
 /// A command-local cache, including failures, keyed by normalized entry path.
 /// Original input paths remain on the records for display.
+#[derive(Debug)]
 pub(super) struct ScanSession {
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     cache: HashMap<PathBuf, Option<Arc<ScannedFile>>>,

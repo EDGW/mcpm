@@ -83,6 +83,7 @@ pub(super) fn select(versions: &[MinecraftVersion], purpose: Purpose) -> Result<
     }
 }
 
+#[derive(Debug)]
 struct Screen {
     output: io::Stderr,
 }

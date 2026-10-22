@@ -11,13 +11,13 @@ mod files;
 mod identify;
 mod search;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct SourceArgs {
     #[command(subcommand)]
     command: SourceCommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum SourceCommand {
     /// Search projects compatible with the server's Minecraft version and loader.
     Search(search::ServerSearchArgs),
@@ -37,7 +37,7 @@ pub(super) fn run(args: SourceArgs) -> Result<()> {
 }
 
 /// Server-derived defaults for remote compatibility queries.
-#[derive(Args)]
+#[derive(Args, Debug)]
 struct CompatibilityArgs {
     /// Registered server directory; defaults to the current directory.
     #[arg(long = "server", value_name = "PATH", default_value = ".")]

@@ -14,7 +14,7 @@ mod output;
 mod tui;
 mod versions;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(after_help = format!("{}\n\n{}", expression::HELP, UI_HELP))]
 pub(in crate::commands) struct SearchArgs {
     /// Keywords followed by optional @version/@loader filters; quote the expression.
@@ -93,7 +93,7 @@ pub(in crate::commands) fn run(args: SearchArgs) -> Result<()> {
     }
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 enum Sort {
     /// Use the selected source's own default ordering.
     Default,

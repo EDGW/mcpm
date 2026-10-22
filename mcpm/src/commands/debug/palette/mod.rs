@@ -10,7 +10,7 @@ use crate::terminal;
 mod output;
 mod tui;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(
     after_help = "Modes:\n  TUI (default): crossterm color names with Normal / Bold / Dim samples.\n  Console (--no-ui): owo-colors expressions with the same samples.\n  Raw (--raw or redirected stdout): no output.\n\nThe palette contains 8 ordinary colors, 8 bright colors, and the default\nforeground. Colors follow the terminal theme; NO_COLOR disables colors."
 )]

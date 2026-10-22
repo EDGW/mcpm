@@ -65,6 +65,7 @@ enum Kind {
     Right,
 }
 
+#[derive(Debug)]
 struct Parser<'a> {
     source: &'a str,
     tokens: Vec<Token>,
@@ -207,6 +208,7 @@ impl Parser<'_> {
     }
 }
 
+#[derive(Debug)]
 struct Lexer<'a> {
     source: &'a str,
     offset: usize,

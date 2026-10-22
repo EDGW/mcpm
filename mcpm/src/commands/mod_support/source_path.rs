@@ -8,7 +8,7 @@ use owo_colors::Style;
 
 use crate::commands::output_style::{OutputStyle, text};
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(in crate::commands) struct PathArgs {
     /// Show the innermost filename, full archive chain, or outer filename.
     #[arg(long, value_enum, default_value = "full", value_name = "STYLE")]
@@ -46,24 +46,31 @@ impl PathArgs {
 
     /// Separate archive levels so renderers can highlight only the separators.
     pub(super) fn parts(&self, outer: &Path, nested: &[String]) -> Vec<String> {
-        let outer_filename = || {
-            outer
-                .file_name()
-                .unwrap_or(outer.as_os_str())
-                .to_string_lossy()
-                .into_owned()
-        };
+        let filename = outer
+            .file_name()
+            .unwrap_or(outer.as_os_str())
+            .to_string_lossy();
+        self.parts_with_filename(outer, nested, &filename)
+    }
+
+    /// A remote filename is already parsed on its owning platform.
+    pub(super) fn parts_with_filename(
+        &self,
+        outer: &Path,
+        nested: &[String],
+        filename: &str,
+    ) -> Vec<String> {
         match self.path_style {
             PathStyle::Inner => vec![
                 nested
                     .last()
                     .map(|member| member.rsplit('/').next().unwrap_or(member).to_owned())
-                    .unwrap_or_else(outer_filename),
+                    .unwrap_or_else(|| filename.to_owned()),
             ],
             PathStyle::Full => std::iter::once(outer.display().to_string())
                 .chain(nested.iter().cloned())
                 .collect(),
-            PathStyle::Outer => vec![outer_filename()],
+            PathStyle::Outer => vec![filename.to_owned()],
         }
     }
 }
@@ -76,7 +83,7 @@ pub(in crate::commands) fn full(outer: &Path, nested: &[String], style: &OutputS
     .format(outer, nested, style)
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Debug)]
 enum PathStyle {
     Inner,
     Full,

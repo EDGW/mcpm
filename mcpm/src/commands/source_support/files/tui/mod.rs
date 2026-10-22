@@ -79,7 +79,7 @@ pub(in crate::commands) fn open_selected(
     Ok(())
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Focus {
     Files,
     Details,
@@ -98,6 +98,25 @@ struct Browser {
     visible_rows: usize,
     clipboard: Option<arboard::Clipboard>,
     status: Option<(String, Role)>,
+}
+
+impl std::fmt::Debug for Browser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Browser")
+            .field("table", &self.table)
+            .field("pinned", &self.pinned)
+            .field("focus", &self.focus)
+            .field("full_details", &self.full_details)
+            .field("field", &self.field)
+            .field("detail_offset", &self.detail_offset)
+            .field("table_area", &self.table_area)
+            .field("pinned_area", &self.pinned_area)
+            .field("detail_area", &self.detail_area)
+            .field("visible_rows", &self.visible_rows)
+            .field("status", &self.status)
+            .field("clipboard_available", &self.clipboard.is_some())
+            .finish()
+    }
 }
 
 impl Browser {

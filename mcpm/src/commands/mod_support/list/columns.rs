@@ -35,7 +35,7 @@ impl Column {
     }
 }
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct ColumnArgs {
     /// Select columns by letters: I=index, N=name, M=modid, F=filename, L=loaders.
     #[arg(short = 'C', value_name = "INMFL", value_parser = parse_letters)]

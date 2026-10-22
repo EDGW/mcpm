@@ -19,6 +19,7 @@ pub(in crate::commands::source_support::search) struct SyntaxSpan {
     pub(in crate::commands::source_support::search) kind: SyntaxKind,
 }
 
+#[derive(Debug)]
 pub(super) struct Parser<'a> {
     source: &'a str,
     position: usize,
@@ -218,12 +219,13 @@ impl<'a> Parser<'a> {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Token {
     pub(super) start: usize,
     pub(super) kind: Kind,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub(super) enum Kind {
     Word(String),
     Field(String),

@@ -104,19 +104,19 @@ impl Config {
     }
 
     fn parse(documents: BTreeMap<String, Value>) -> Result<Self> {
-        #[derive(Deserialize)]
+        #[derive(Deserialize, Debug)]
         struct SettingsFile {
             settings: Settings,
         }
-        #[derive(Deserialize)]
+        #[derive(Deserialize, Debug)]
         struct StylesFile {
             style: Vec<Palette>,
         }
-        #[derive(Deserialize)]
+        #[derive(Deserialize, Debug)]
         struct LoadersFile {
             loader_colors: ColorMap,
         }
-        #[derive(Deserialize)]
+        #[derive(Deserialize, Debug)]
         struct SourcesFile {
             source_colors: ColorMap,
         }

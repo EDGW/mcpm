@@ -16,6 +16,7 @@ pub(super) enum Event {
 
 /// Remember output failures while still reaping every child already launched.
 /// A broken stdout must not cause an early return that detaches running games.
+#[derive(Debug)]
 pub(super) struct Reporter {
     error: Option<io::Error>,
 }

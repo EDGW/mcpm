@@ -4,7 +4,10 @@ mod cli;
 mod commands;
 mod diagnostics;
 mod help;
+mod initcall;
 mod logging;
+mod remote;
+mod ssh;
 mod terminal;
 mod theme;
 mod widgets;
@@ -19,18 +22,19 @@ fn main() -> ExitCode {
     let raw = args
         .iter()
         .take_while(|arg| *arg != "--")
-        .any(|arg| arg == "--raw");
-    terminal::init(raw);
-    let matches = cli::Cli::command()
-        .color(
-            if !terminal::is_raw() && std::env::var_os("NO_COLOR").is_none() {
-                ColorChoice::Auto
-            } else {
-                ColorChoice::Never
-            },
-        )
-        .get_matches_from(args);
+        .any(|arg| arg == "--raw")
+        || args.get(1).is_some_and(|arg| arg == "remote");
+    let mut command =
+        cli::Cli::command().color(if !raw && std::env::var_os("NO_COLOR").is_none() {
+            ColorChoice::Auto
+        } else {
+            ColorChoice::Never
+        });
+    let matches = command
+        .try_get_matches_from_mut(args)
+        .unwrap_or_else(|error| error.exit());
     let cli = cli::Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    terminal::init(raw || matches!(cli.command, cli::Command::Remote(_)));
     if let Err(error) = logging::init(cli.log_level, started) {
         diagnostics::error(&error);
         return ExitCode::FAILURE;
@@ -39,7 +43,11 @@ fn main() -> ExitCode {
         diagnostics::error(&error);
         return ExitCode::FAILURE;
     }
-    match commands::run(cli.command) {
+    if let Err(error) = initcall::run() {
+        diagnostics::error(&error);
+        return ExitCode::FAILURE;
+    }
+    match commands::run(cli.command, cli.ssh) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             diagnostics::error(&error);

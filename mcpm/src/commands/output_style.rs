@@ -23,6 +23,7 @@ pub(super) fn text(value: &str) -> String {
         .collect()
 }
 
+#[derive(Debug)]
 pub(super) struct OutputStyle {
     color: bool,
 }

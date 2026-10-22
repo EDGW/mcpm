@@ -28,7 +28,7 @@ mod output;
 mod rows;
 mod tui;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(in crate::commands) struct ListDisplayArgs {
     /// Filter matching rows with the same expression used by the TUI Filter card.
     #[arg(short = 'F', long, value_name = "FILTER", help_heading = "Filter", long_help = filter::HELP)]
@@ -112,6 +112,7 @@ pub(in crate::commands) fn run(
         input_errors,
         session.failed_count(),
         source_loaders,
+        true,
     )
 }
 
@@ -150,17 +151,19 @@ pub(in crate::commands) fn run_selection(
         input_errors,
         resolver.scan.failed_count(),
         source_loaders,
+        true,
     )
 }
 
 /// Shared filtering, layout and summary for path-based and query-based listing.
-fn present(
+pub(in crate::commands) fn present(
     files: Vec<ListedFile>,
     hide_unrecognized: bool,
     args: ListDisplayArgs,
     input_errors: usize,
     failed: usize,
     source_loaders: Vec<String>,
+    local_files: bool,
 ) -> Result<()> {
     let formatted = terminal::stdout_is_tty();
     let interactive = formatted && terminal::stderr_is_tty() && !args.no_ui;
@@ -205,6 +208,7 @@ fn present(
             args.identify_parallelism.get(),
             args.filter.unwrap_or_default(),
             tui::Summary {
+                local_files,
                 ignored,
                 ignored_files: &ignored_files,
                 input_errors,

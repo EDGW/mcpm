@@ -6,12 +6,13 @@ use kako_mods_lib::local::{
 };
 
 /// Stable positions within collect() for one loader of one file.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(in crate::commands) struct RecordKey {
     pub metadata: usize,
     pub record: usize,
 }
 
+#[derive(Debug)]
 pub(in crate::commands) struct ModRecord<'a> {
     pub index: String,
     pub loader: &'a ModLoaderMeta,

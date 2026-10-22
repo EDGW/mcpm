@@ -11,7 +11,7 @@ use clap::Args;
 mod columns;
 mod output;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[command(
     after_help = "Modes: Console and Raw (--raw or redirected stdout).\n\nPaths are literal local file paths. Redirected stdin is appended, one path per line.\nUnmatched files are reported as unmatched; read or request failures exit unsuccessfully.\n\nExamples:\n  mcpm mod source identify --source modrinth ./mods/create.jar\n  mcpm mod source identify --source curseforge ./mods/a.jar ./mods/b.jar\n  mcpm mod source identify --source 'curseforge@KEY' ./mods/create.jar\n  printf '%s\\n' ./mods/a.jar ./mods/b.jar | mcpm mod source identify --source modrinth\n  mcpm --raw mod source identify --source modrinth ./mods/create.jar --columns path,project,id,status"
 )]
@@ -24,7 +24,7 @@ pub(in crate::commands) struct IdentifyArgs {
 }
 
 /// Source and presentation options, independent of local path selection.
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(in crate::commands) struct IdentifyOptions {
     /// modrinth, curseforge (Curse.tools), or curseforge@KEY (official API).
     #[arg(long, value_name = "SOURCE")]

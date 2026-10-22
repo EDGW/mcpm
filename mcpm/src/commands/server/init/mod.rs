@@ -1,3 +1,5 @@
+//! Identify a Minecraft server and persist its initialization metadata.
+
 mod selector;
 
 use super::output;
@@ -13,7 +15,7 @@ use std::{
     path::PathBuf,
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub(super) struct InitArgs {
     /// Existing server directory; defaults to the current directory.
     #[arg(value_name = "PATH", default_value = ".")]
