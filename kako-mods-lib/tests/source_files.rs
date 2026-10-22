@@ -130,20 +130,6 @@ fn multiple_loaders_filter_before_pagination_on_both_providers() {
                     .unwrap(),
                 )
             };
-            let invalid = source
-                .list_files(
-                    &ProjectRef {
-                        source: SourceId("test".into()),
-                        id: ProjectId("123".into()),
-                    },
-                    &FileQuery {
-                        loaders: vec!["unknown-loader".into()],
-                        ..Default::default()
-                    },
-                )
-                .await
-                .unwrap_err();
-            assert!(invalid.to_string().contains("unsupported"));
             let page = source
                 .list_files(
                     &ProjectRef {

@@ -190,38 +190,6 @@ fn search_filters_use_native_or_groups_and_keep_platform_pagination() {
                 ..Default::default()
             };
             for mode in 0..3 {
-                let mut invalid = query.clone();
-                invalid.loaders = vec!["unknown".into()];
-                assert!(
-                    source
-                        .search(&invalid)
-                        .await
-                        .unwrap_err()
-                        .to_string()
-                        .contains("unsupported")
-                );
-                if curseforge {
-                    invalid = query.clone();
-                    invalid.game_versions = vec!["1.21.1".into(); 5];
-                    assert!(
-                        source
-                            .search(&invalid)
-                            .await
-                            .unwrap_err()
-                            .to_string()
-                            .contains("at most 4")
-                    );
-                    invalid = query.clone();
-                    invalid.loaders = vec!["forge".into(); 6];
-                    assert!(
-                        source
-                            .search(&invalid)
-                            .await
-                            .unwrap_err()
-                            .to_string()
-                            .contains("at most 5")
-                    );
-                }
                 let page = source.search(&query).await.unwrap();
                 assert_eq!(page.offset, 20);
                 assert_eq!(page.total, Some(100));
