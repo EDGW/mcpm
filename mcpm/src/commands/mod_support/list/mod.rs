@@ -108,7 +108,7 @@ pub(in crate::commands) fn run(
         }
     }
     progress.set_total(entries.len());
-    tracing::info!(
+    tracing::debug!(
         count = entries.len(),
         input_errors,
         "Local mod list input discovery completed"
@@ -128,7 +128,7 @@ pub(in crate::commands) fn run(
         })
         .collect::<Vec<_>>();
     drop(progress);
-    tracing::info!(
+    tracing::debug!(
         files = files.len(),
         failed = session.failed_count(),
         input_errors,
@@ -313,7 +313,7 @@ pub(in crate::commands) fn present(
         stdout.flush().context("failed to flush mod list")?;
     }
 
-    tracing::info!(
+    tracing::debug!(
         files = files.len(),
         ignored,
         failed,

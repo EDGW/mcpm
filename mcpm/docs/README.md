@@ -105,8 +105,9 @@ NO_COLOR=1 mcpm mod list mods/
 ## Diagnostic logging
 
 `--log-level` configures stderr logging through `tracing-subscriber`. Default `warn` keeps
-ordinary successful operations quiet. Use `info` for launch/check stages,
-`debug` for selected libraries, paths and the final redacted Java argument list,
+ordinary successful operations quiet. Use `info` for current steps and important
+events such as game process startup and exit. Routine completion, session cleanup,
+transfer statistics, selected libraries, paths and the final redacted Java argument list use `debug`,
 and `trace` for individual native entries and required-file inspections.
 
 ```sh

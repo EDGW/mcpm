@@ -90,7 +90,8 @@ NO_COLOR=1 mcpm mod list mods/
 ## 诊断日志
 
 全局 `--log-level` 使用 `tracing-subscriber` 控制 stderr 日志，默认 `warn`。
-`info` 显示启动/检查关键步骤，`debug` 增加库选择、路径和最终脱敏 Java 参数列表，
+`info` 显示当前步骤及游戏进程启动、退出等重要事件；普通完成提示、会话清理、传输统计、
+库选择、路径和最终脱敏 Java 参数列表使用 `debug`，
 `trace` 增加每个 native 条目和必需文件检查的详情。
 
 ```sh

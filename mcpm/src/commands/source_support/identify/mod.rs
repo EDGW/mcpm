@@ -193,7 +193,7 @@ fn present(
         .await
     });
     drop(progress);
-    tracing::info!(
+    tracing::debug!(
         files = paths.len(),
         failed,
         success = result.is_ok() && failed == 0,

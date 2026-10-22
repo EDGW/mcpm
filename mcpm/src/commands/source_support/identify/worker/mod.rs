@@ -214,7 +214,7 @@ impl Identification {
                             }
                             }
                         },
-                        Some(summary::Event::Done { failed }) => { tracing::info!(file_host = if remote { "remote" } else { "local" }, failed, "File summary acquisition completed; local provider queries may still be active"); },
+                        Some(summary::Event::Done { failed }) => { tracing::debug!(file_host = if remote { "remote" } else { "local" }, failed, "File summary acquisition completed; local provider queries may still be active"); },
                         None => ended = true,
                     }
                 }
@@ -227,7 +227,7 @@ impl Identification {
             }
         }
         emit(Event::Done { failed })?;
-        tracing::info!(
+        tracing::debug!(
             files = self.paths.len(),
             failed,
             elapsed_ms = started.elapsed().as_millis(),

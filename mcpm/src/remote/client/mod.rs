@@ -132,7 +132,7 @@ impl Session {
             }
             debug!("Remote response reader stopped");
         }));
-        info!(
+        debug!(
             commands = session.commands.len(),
             max_concurrency,
             elapsed_ms = started.elapsed().as_millis(),
@@ -191,7 +191,7 @@ impl Session {
     #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
     pub(crate) fn close(&mut self) -> Result<()> {
         let started = Instant::now();
-        info!(
+        debug!(
             pid = self.child.id(),
             "Closing remote session; draining accepted commands"
         );
@@ -217,14 +217,14 @@ impl Session {
             return Err(error.error());
         }
         ensure!(routes.closed, "remote session did not acknowledge shutdown");
-        info!("Remote session closed successfully");
+        debug!("Remote session closed successfully");
         Ok(())
     }
 
     fn report_traffic(&mut self) {
         if !self.traffic_reported {
             let (stdin_bytes, stdout_bytes) = self.traffic.totals();
-            info!(
+            debug!(
                 stdin_bytes,
                 stdout_bytes,
                 total_bytes = stdin_bytes.saturating_add(stdout_bytes),
@@ -307,7 +307,7 @@ impl Pending {
                     reply.contents.is_null(),
                     "invalid remote completion contents"
                 );
-                info!(guid = %self.guid, messages = self.messages, elapsed_ms = self.started.elapsed().as_millis(), "Remote command finished");
+                debug!(guid = %self.guid, messages = self.messages, elapsed_ms = self.started.elapsed().as_millis(), "Remote command finished");
                 Ok(None)
             }
             Status::Error => {

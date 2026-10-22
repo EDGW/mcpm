@@ -111,7 +111,7 @@ pub(super) fn run(
             }
         })?;
         let Some(reference) = reference else {
-            tracing::info!(
+            tracing::debug!(
                 elapsed_ms = started.elapsed().as_millis(),
                 "Closed mod list TUI"
             );

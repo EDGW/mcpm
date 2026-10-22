@@ -103,7 +103,7 @@ pub(super) async fn run<F: std::future::Future<Output = Result<()>>>(
         }
     }
     emit(Event::Done { failed }).await?;
-    tracing::info!(
+    tracing::debug!(
         files = count,
         failed,
         elapsed_ms = started.elapsed().as_millis(),

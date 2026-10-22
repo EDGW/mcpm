@@ -135,7 +135,7 @@ fn send_update(event: Event, sender: &std::sync::mpsc::Sender<Update>) -> Result
             },
         ),
         Event::Done { failed } => {
-            tracing::info!(
+            tracing::debug!(
                 failed,
                 "Mod list received all source identification results"
             );

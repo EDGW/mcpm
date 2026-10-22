@@ -44,7 +44,7 @@ impl Command for Identify {
             )
             .await
         });
-        tracing::info!(
+        tracing::debug!(
             success = result.is_ok(),
             "Remote file summary command ended"
         );
@@ -147,7 +147,7 @@ impl Lookup {
                     "remote identification failure count mismatch"
                 );
                 self.done = true;
-                tracing::info!(
+                tracing::debug!(
                     failed,
                     elapsed_ms = self.started.elapsed().as_millis(),
                     "Validated remote file summaries"

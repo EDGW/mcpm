@@ -178,7 +178,7 @@ fn serve(
                             Reply::error(guid, ErrorCode::HandlerFailed, "remote handler panicked")
                         }
                     };
-                    info!(status = ?reply.status, elapsed_ms = started.elapsed().as_millis(), "Remote command execution ended");
+                    debug!(status = ?reply.status, elapsed_ms = started.elapsed().as_millis(), "Remote command execution ended");
                     let _ = worker_send.send(Control::Reply(reply));
                 });
                 tasks.0.insert(guid, Task { cancelled, worker });
@@ -218,7 +218,7 @@ fn serve(
             }
         }
     }
-    info!(
+    debug!(
         elapsed_ms = started.elapsed().as_millis(),
         "Remote server drained accepted commands"
     );
@@ -233,7 +233,7 @@ fn serve(
             contents: serde_json::Value::Null,
         },
     )?;
-    info!(
+    debug!(
         elapsed_ms = started.elapsed().as_millis(),
         "Remote server closed normally"
     );

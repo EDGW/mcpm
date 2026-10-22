@@ -30,7 +30,7 @@ pub(super) fn read(
             ensure!(done.is_none(), "remote list sent contents after completion");
             match reply.decode().context("invalid mod list contents")? {
                 Contents::Count { count: total } => {
-                    tracing::info!(count = total, "Received remote mod count");
+                    tracing::debug!(count = total, "Received remote mod count");
                     ensure!(count.is_none(), "duplicate remote mod count");
                     count = Some(total);
                     records = (0..total).map(|_| None).collect();
@@ -71,7 +71,7 @@ pub(super) fn read(
         Some(received) == count,
         "remote mod result count differs from its declared count"
     );
-    tracing::info!(
+    tracing::debug!(
         count = received,
         success,
         elapsed_ms = started.elapsed().as_millis(),

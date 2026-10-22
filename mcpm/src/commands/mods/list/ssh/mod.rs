@@ -31,7 +31,7 @@ pub(super) fn run(
         read::read(&session, request(paths, &loaders, parallelism)?, &progress)
             .context("invalid remote mod list protocol")?;
     drop(progress);
-    tracing::info!(
+    tracing::debug!(
         records = records.len(),
         success,
         elapsed_ms = started.elapsed().as_millis(),
@@ -69,7 +69,7 @@ pub(super) fn run(
         crate::commands::source_support::identify::Location::Remote(&session),
     );
     session.close()?;
-    tracing::info!(
+    tracing::debug!(
         success = result.is_ok(),
         elapsed_ms = started.elapsed().as_millis(),
         "SSH mod list ended"

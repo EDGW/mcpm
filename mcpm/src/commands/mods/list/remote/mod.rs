@@ -67,7 +67,7 @@ impl Command for List {
             }
         }
         let count = inputs.len();
-        tracing::info!(count, "Remote mod list input discovery completed");
+        tracing::debug!(count, "Remote mod list input discovery completed");
         output.send(Contents::Count {
             count: inputs.len(),
         })?;
@@ -99,7 +99,7 @@ impl Command for List {
             output.send(Contents::Item { index, record })
         })?;
         output.send(Contents::Done { success })?;
-        tracing::info!(
+        tracing::debug!(
             count,
             success,
             elapsed_ms = started.elapsed().as_millis(),

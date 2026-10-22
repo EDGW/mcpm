@@ -88,7 +88,7 @@ pub(super) fn check(
     let mut progress = Progress::new(&mut observer, &report);
     run(directory, version, rules, &mut report, &mut progress);
     progress.finish(&report);
-    tracing::info!(
+    tracing::debug!(
         files = report.files.len(),
         issues = report.issues.len(),
         unverified = report.unverified_count(),

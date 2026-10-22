@@ -118,7 +118,7 @@ impl ScanSession {
                 Ok(())
             },
         );
-        tracing::info!(
+        tracing::debug!(
             files = paths.len(),
             failed = self.failed_count(),
             success = result.is_ok(),

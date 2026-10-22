@@ -79,7 +79,7 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
             args.display,
         )
     };
-    tracing::info!(
+    tracing::debug!(
         success = result.is_ok(),
         elapsed_ms = started.elapsed().as_millis(),
         "Mod list ended"

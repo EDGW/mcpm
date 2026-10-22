@@ -104,9 +104,10 @@ exits, and `2` for invalid arguments. Check `mcpm client launch --help` for all 
 ## Diagnostic launch logs
 
 Use the global `--log-level info` for planning, resource verification, Java
-version checks, each native archive extraction, preparation completion, process
-creation, PID and exit status. `debug` adds platform/path/library decisions and
-the final redacted executable/argument list. `trace` adds individual native entry
+version checks, native extraction stages, process creation, PID and exit status.
+`debug` adds routine completion messages, each native archive extraction,
+platform/path/library decisions and the final redacted executable/argument list.
+`trace` adds individual native entry
 paths, skipped exclusions, sizes and required-file inspections. Default is `warn`.
 Logs are written to stderr; game stdout/stderr retain `--game-output` behavior.
 Tokens and common credential arguments are redacted; environment values are omitted.
