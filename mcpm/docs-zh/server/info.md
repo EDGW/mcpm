@@ -21,3 +21,11 @@ Forge 亮黄、NeoForge 亮红、Fabric 亮青。`NO_COLOR` 关闭颜色。
 旧配置或完整手动注册没有保存启动信息时显示 `unavailable`。
 非 raw 模式默认只显示一行命令，超出的部分用 `(+N)` 表示省略的字符数；
 传入 `--full-command` 可显示完整内容。raw 模式始终输出完整命令。
+
+## SSH
+
+```sh
+mcpm --ssh 'ssh user@host' server info /path/to/server --full-command
+```
+
+服务器目录和 `.mcpm/server.json` 在 SSH 主机读取；启动参数按来源系统的规则引用。Console/Raw 输出在本地渲染，协议命令 ID 为 `server.info`。

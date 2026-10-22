@@ -2,6 +2,8 @@
 
 use std::io::{self, Write};
 
+use super::metadata::{ServerInfo, StartCommand};
+
 use kako_mods_lib::local::mc::server::MinecraftServer;
 
 use crate::{
@@ -14,19 +16,26 @@ pub(super) fn write_info(
     server: &MinecraftServer,
     show_full_command: bool,
 ) -> io::Result<()> {
-    let metadata = server.metadata();
-    let loader = server.loader();
+    write_snapshot(output, &ServerInfo::from_server(server), show_full_command)
+}
+
+pub(super) fn write_snapshot(
+    output: &mut impl Write,
+    server: &ServerInfo,
+    show_full_command: bool,
+) -> io::Result<()> {
+    let loader = &server.loader;
     let style = OutputStyle::new();
-    let name = text(server.name());
-    let path = text(&server.path().display().to_string());
-    let version = text(&metadata.minecraft_version);
-    let command = metadata
+    let name = text(&server.name);
+    let path = text(&server.path);
+    let version = text(&server.minecraft_version);
+    let command = server
         .start
         .as_ref()
         .map(full_command)
         .unwrap_or_else(|| "unavailable".into());
     let (loader_name, loader_version) = match &loader {
-        Some(info) => (text(info.loader.name()), text(&info.version)),
+        Some(info) => (text(&info.name), text(&info.version)),
         None => ("vanilla or unrecognized".into(), String::new()),
     };
     if !terminal::stdout_is_tty() {
@@ -54,7 +63,7 @@ pub(super) fn write_info(
         style.secondary(version)
     )?;
     let loader_name = match &loader {
-        Some(info) => style.loader(info.loader.id().as_str(), &loader_name),
+        Some(info) => style.loader(&info.id, &loader_name),
         None => style.muted(loader_name),
     };
     write!(output, "{}{}", style.muted("Loader: "), loader_name)?;
@@ -62,12 +71,12 @@ pub(super) fn write_info(
         write!(output, " {}", style.secondary(loader_version))?;
     }
     writeln!(output)?;
-    if let Some(start) = &metadata.start {
+    if let Some(start) = &server.start {
         writeln!(
             output,
             "{}{}",
             style.muted("Working directory: "),
-            style.muted(text(&start.directory.display().to_string()))
+            style.muted(text(&start.directory))
         )?;
     }
     writeln!(
@@ -110,7 +119,7 @@ fn truncate_command(command: &str, width: usize) -> String {
     format!("{} {suffix}", chars[..best].iter().collect::<String>())
 }
 
-fn full_command(start: &kako_mods_lib::local::mc::server::ServerStartCommand) -> String {
+fn full_command(start: &StartCommand) -> String {
     std::iter::once(&start.executable)
         .chain(start.arguments.iter())
         .map(|arg| {

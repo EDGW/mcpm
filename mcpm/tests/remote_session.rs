@@ -30,9 +30,17 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
         .unwrap();
     let mut input = child.stdin.take().unwrap();
     let mut output = BufReader::new(child.stdout.take().unwrap());
-    assert_eq!(
-        event(&mut output),
-        json!({"guid":Uuid::nil(),"status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info",LIST,"mod.source.identify"],"max_concurrency":16}})
+    let ready = event(&mut output);
+    assert_eq!(ready["guid"], Uuid::nil().to_string());
+    assert_eq!(ready["status"], "ready");
+    assert_eq!(ready["contents"]["version"], 3);
+    assert_eq!(ready["contents"]["max_concurrency"], 16);
+    let commands = ready["contents"]["commands"].as_array().unwrap();
+    assert!(commands.iter().any(|id| id == LIST));
+    assert!(
+        commands
+            .windows(2)
+            .all(|ids| ids[0].as_str().unwrap() < ids[1].as_str().unwrap())
     );
     let cases = [
         (

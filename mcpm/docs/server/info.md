@@ -24,3 +24,11 @@ The command and its working directory come from the snapshot saved by
 without a saved command display `unavailable`. In non-raw mode the command fits
 one terminal line with `(+N)` showing the number of omitted characters.
 `--full-command` disables truncation; raw output always includes the full command.
+
+## SSH
+
+```sh
+mcpm --ssh 'ssh user@host' server info /path/to/server --full-command
+```
+
+The server directory and `.mcpm/server.json` are read on the SSH host. Startup arguments retain their source platform for quoting. Console/Raw formatting stays local; protocol command ID: `server.info`.
