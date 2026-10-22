@@ -9,11 +9,12 @@ mod terminal;
 mod theme;
 mod widgets;
 
-use std::process::ExitCode;
+use std::{process::ExitCode, time::SystemTime};
 
 use clap::{ColorChoice, CommandFactory, FromArgMatches};
 
 fn main() -> ExitCode {
+    let started = SystemTime::now();
     let args: Vec<_> = std::env::args_os().collect();
     let raw = args
         .iter()
@@ -30,7 +31,7 @@ fn main() -> ExitCode {
         )
         .get_matches_from(args);
     let cli = cli::Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
-    if let Err(error) = logging::init(cli.log_level) {
+    if let Err(error) = logging::init(cli.log_level, started) {
         diagnostics::error(&error);
         return ExitCode::FAILURE;
     }

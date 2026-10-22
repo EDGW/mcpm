@@ -1,3 +1,5 @@
+//! Progress-aware stderr writer for terminal logs; file logging is independent of terminal drawing.
+
 use std::{
     io::{self, Write},
     sync::Mutex,
@@ -10,6 +12,7 @@ static PROGRESS: Mutex<Option<MultiProgress>> = Mutex::new(None);
 
 /// Temporarily associates logging with the active progress display. Previous
 /// context is restored on drop, including output-error and early-return paths.
+#[derive(Debug)]
 pub(crate) struct ProgressGuard {
     previous: Option<MultiProgress>,
 }
@@ -27,7 +30,9 @@ impl Drop for ProgressGuard {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct WriterFactory;
+#[derive(Debug)]
 pub(super) struct LogWriter;
 impl<'a> MakeWriter<'a> for WriterFactory {
     type Writer = LogWriter;

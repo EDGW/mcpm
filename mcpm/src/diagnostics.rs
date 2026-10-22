@@ -6,6 +6,7 @@ use crate::{
 };
 
 pub(crate) fn error(error: &anyhow::Error) {
+    crate::logging::record_error(error);
     for (depth, cause) in error.chain().enumerate() {
         let indentation = if depth == 0 { "" } else { "  " };
         let label = if depth == 0 { "error:" } else { "caused by:" };

@@ -25,7 +25,9 @@ fn commands_persist_values_and_redirected_output_matches_raw() {
     assert_eq!(list.stdout, raw.stdout);
     assert!(list.stderr.is_empty());
     assert!(String::from_utf8_lossy(&list.stdout).contains("Console Dark Primary Color\tCyan\n"));
-    assert!(!home.path().join(".mcpm").exists());
+    assert!(home.path().join(".mcpm/logs").is_dir());
+    assert!(!home.path().join(".mcpm/settings.toml").exists());
+    assert!(!home.path().join(".mcpm/styles").exists());
     let set = run(
         home.path(),
         &[
