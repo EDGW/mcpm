@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::remote::command::{Command, Output};
 
-pub(super) mod protocol;
+use crate::commands::mod_support::list::protocol;
 
 use protocol::{Contents, Record, Status};
 
@@ -147,4 +147,36 @@ inventory::submit! { crate::initcall::Initcall(init) }
 
 fn default_parallelism() -> NonZeroUsize {
     NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap()
+}
+
+/// Adapt CLI selection to the independent remote argument schema at the frontend boundary.
+pub(super) fn request(
+    paths: Vec<PathBuf>,
+    loaders: &crate::commands::mod_support::loaders::LoaderArgs,
+    parallelism: usize,
+) -> Result<Args> {
+    let mut ids = if loaders.is_filtered() {
+        loaders
+            .select()
+            .keys()
+            .map(|id| id.as_str().to_owned())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    ids.sort();
+    let loaders = ids
+        .iter()
+        .map(|id| match id.as_str() {
+            "forge" => Ok(Loader::Forge),
+            "neoforge" => Ok(Loader::Neoforge),
+            "fabric" => Ok(Loader::Fabric),
+            _ => anyhow::bail!("unsupported remote loader: {id}"),
+        })
+        .collect::<Result<_>>()?;
+    Ok(Args {
+        paths,
+        loaders,
+        parallelism: std::num::NonZeroUsize::new(parallelism).unwrap(),
+    })
 }

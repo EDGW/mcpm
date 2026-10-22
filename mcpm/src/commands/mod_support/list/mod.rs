@@ -19,7 +19,7 @@ use crate::terminal;
 use super::{
     scan::ScanSession,
     scan_output::ScanOutput,
-    selection::{ResolveError, Resolver, Scope, SelectedFile, Selection},
+    selection::{Scope, SelectedFile, Selection},
     source_path::PathArgs,
 };
 use columns::ColumnArgs;
@@ -28,7 +28,12 @@ use filter::Filter;
 mod columns;
 mod filter;
 mod output;
+pub(in crate::commands) mod protocol;
+mod records;
+pub(in crate::commands) mod remote_selection;
 mod rows;
+mod selection;
+pub(in crate::commands) mod ssh;
 mod tui;
 
 #[derive(Args, Debug)]
@@ -161,39 +166,25 @@ pub(in crate::commands) fn run_selection(
 ) -> Result<()> {
     let source_loaders = source_loaders(&loaders, true);
     let output = ScanOutput::default();
-    let observe = |event| output.event(event);
-    let mut resolver = Resolver::new(
-        ScanSession::new(loaders)
-            .with_parallelism(parallelism)
-            .with_observer(&observe),
-        scope,
-    );
     let mut files = Vec::new();
-    let mut input_errors = 0;
-    let queries = match selection.into_queries() {
-        Some(queries) if !queries.is_empty() => queries.into_iter().map(Some).collect(),
-        _ => vec![None],
-    };
-    for query in queries {
-        let result = match query {
-            Some(query) => resolver.resolve_list(query),
-            None => resolver.all(),
-        };
-        match result {
-            Ok(selected) => files.extend(selected),
-            Err(ResolveError::Execution(error)) => return Err(error),
-            Err(ResolveError::Input(error)) => {
-                crate::diagnostics::error(&error);
-                input_errors += 1;
-            }
-        }
-    }
+    let counts = selection::load(
+        selection,
+        scope,
+        loaders,
+        parallelism,
+        || Ok(()),
+        |event| output.event(event),
+        |file| {
+            files.push(file);
+            Ok(())
+        },
+    )?;
     present(
         files,
         true,
         args,
-        input_errors,
-        resolver.scan.failed_count(),
+        counts.input_errors,
+        counts.failed,
         source_loaders,
         Location::Local,
     )

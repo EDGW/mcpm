@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::remote::command::Command;
 use anyhow::{Context, Result};
 use clap::Args;
 use tracing::debug;
@@ -15,7 +16,6 @@ use crate::commands::mod_support::{
 
 mod input;
 mod remote;
-mod ssh;
 
 #[derive(Args, Debug)]
 #[command(
@@ -58,11 +58,15 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     debug!(?paths, "Resolved mod list input paths");
     let result = if ssh.is_requested() {
         debug!("Dispatching remote mod.list request over SSH");
-        self::ssh::run(
+        list::ssh::run(
             ssh,
-            paths,
+            remote::List::ID,
+            serde_json::to_value(remote::request(
+                paths,
+                &args.loaders,
+                args.loading.parallelism(),
+            )?)?,
             args.loaders,
-            args.loading.parallelism(),
             args.display,
         )
     } else {

@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{commands::mod_support::scan::ScanResult, diagnostics::ErrorReport};
 
-/// This payload schema belongs exclusively to the mod-list command.
+/// List wire records shared by path-based and server-scoped adapters.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
-pub(in crate::commands::mods::list) enum Contents {
+pub(in crate::commands) enum Contents {
     Count {
         count: usize,
     },
@@ -26,19 +26,23 @@ pub(in crate::commands::mods::list) enum Contents {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub(in crate::commands::mods::list) struct Record {
-    pub(in crate::commands::mods::list) path: String,
-    pub(in crate::commands::mods::list) name: Option<String>,
-    pub(in crate::commands::mods::list) enabled: Option<bool>,
-    pub(in crate::commands::mods::list) status: Status,
-    pub(in crate::commands::mods::list) metadata: Vec<Metadata>,
-    pub(in crate::commands::mods::list) errors: Vec<LoadError>,
+pub(in crate::commands) struct Record {
+    pub(in crate::commands) path: String,
+    pub(in crate::commands) name: Option<String>,
+    pub(in crate::commands) enabled: Option<bool>,
+    pub(in crate::commands) status: Status,
+    pub(in crate::commands) metadata: Vec<Metadata>,
+    pub(in crate::commands) errors: Vec<LoadError>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::commands) records:
+        Option<Vec<crate::commands::mod_support::mod_records::RecordKey>>,
 }
 
 impl Record {
-    pub(super) fn from_scan(path: &std::path::Path, result: &ScanResult) -> Self {
+    pub(in crate::commands) fn from_scan(path: &std::path::Path, result: &ScanResult) -> Self {
         let file = result.file.as_ref().map(|scanned| &scanned.file);
         Self {
+            records: None,
             path: path.to_string_lossy().into_owned(),
             name: file.map(|file| file.entry.name().to_owned()),
             enabled: file.map(|file| matches!(file.entry.status(), ModStatus::Enabled)),
@@ -66,8 +70,41 @@ impl Record {
         }
     }
 
-    pub(super) fn failed_input(path: &std::path::Path, error: &anyhow::Error) -> Self {
+    pub(in crate::commands) fn from_selected(
+        selected: &crate::commands::mod_support::selection::SelectedFile,
+    ) -> Self {
+        let scanned = &selected.scanned;
+        let file = &scanned.file;
         Self {
+            path: file.entry.path().to_string_lossy().into_owned(),
+            name: Some(file.entry.name().to_owned()),
+            enabled: Some(matches!(file.entry.status(), ModStatus::Enabled)),
+            status: if !scanned.failures.is_empty() {
+                Status::Failed
+            } else if file.metadata.iter().any(ModMeta::has_mods) {
+                Status::Success
+            } else {
+                Status::Unrecognized
+            },
+            metadata: file.metadata.iter().map(Metadata::from).collect(),
+            errors: scanned
+                .failures
+                .iter()
+                .map(|failure| LoadError {
+                    loader: Some(failure.loader.id().as_str().to_owned()),
+                    error: ErrorReport {
+                        message: failure.reason.clone(),
+                        causes: Vec::new(),
+                    },
+                })
+                .collect(),
+            records: selected.records.clone(),
+        }
+    }
+
+    pub(in crate::commands) fn failed_input(path: &std::path::Path, error: &anyhow::Error) -> Self {
+        Self {
+            records: None,
             path: path.to_string_lossy().into_owned(),
             name: None,
             enabled: None,
@@ -83,17 +120,17 @@ impl Record {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
-pub(in crate::commands::mods::list) enum Status {
+pub(in crate::commands) enum Status {
     Success,
     Unrecognized,
     Failed,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub(in crate::commands::mods::list) struct Metadata {
-    pub(in crate::commands::mods::list) loader: String,
-    pub(in crate::commands::mods::list) mods: Vec<ModInfo>,
-    pub(in crate::commands::mods::list) nested: Vec<NestedMetadata>,
+pub(in crate::commands) struct Metadata {
+    pub(in crate::commands) loader: String,
+    pub(in crate::commands) mods: Vec<ModInfo>,
+    pub(in crate::commands) nested: Vec<NestedMetadata>,
 }
 
 impl From<&ModMeta> for Metadata {
@@ -114,14 +151,14 @@ impl From<&ModMeta> for Metadata {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub(in crate::commands::mods::list) struct NestedMetadata {
-    pub(in crate::commands::mods::list) path: String,
-    pub(in crate::commands::mods::list) meta: Metadata,
+pub(in crate::commands) struct NestedMetadata {
+    pub(in crate::commands) path: String,
+    pub(in crate::commands) meta: Metadata,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub(in crate::commands::mods::list) struct LoadError {
-    pub(in crate::commands::mods::list) loader: Option<String>,
+pub(in crate::commands) struct LoadError {
+    pub(in crate::commands) loader: Option<String>,
     #[serde(flatten)]
-    pub(in crate::commands::mods::list) error: ErrorReport,
+    pub(in crate::commands) error: ErrorReport,
 }
