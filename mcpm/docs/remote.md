@@ -8,8 +8,7 @@ remote never parses command-line arguments or business payloads.
 A **command ID** is a stable string such as `mod.list`, declared and registered
 by its command module. The client automatically generates a UUID v4 for each
 invocation session (**request GUID**) to correlate all its replies. Concurrent
-invocations of the same command ID have different GUIDs. Currently only
-`mod.list` is registered.
+invocations of the same command ID have different GUIDs. `mod.list` and `mod.source.identify` are currently registered.
 
 ```json
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","command":"mod.list","contents":{"paths":["mods/"],"loaders":["fabric"]}}
@@ -31,7 +30,7 @@ immediately. Stdout is protocol-only; normal logs use a dedicated subscription. 
 Wait for ready before submitting:
 
 ```json
-{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":2,"commands":["mod.list"],"max_concurrency":8}}
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":2,"commands":["mod.list","mod.source.identify"],"max_concurrency":8}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"count","count":0}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"done","success":true}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"finished","contents":null}
@@ -110,6 +109,34 @@ failure) and message. All declarations/loaders/nested JARs for a file stay toget
 Invalid arguments emit business error then done false, followed by remote finished.
 Remote knows none of these business event names.
 
+## mod.source.identify contents
+
+Source identify registers `mod.source.identify`, which **only computes file summaries**. Its CLI and mod-list TUI share one local provider scheduler. Generic Remote/SSH code never decodes these contents.
+
+```json
+{"paths":["/srv/mods/a.jar","/srv/mods/b.jar"],"requirements":{"murmur2":true},"parallelism":10}
+```
+
+Paths must be nonempty. SHA-1 and size are always computed; requirements.murmur2 optionally requests the CurseForge fingerprint (default false). Positive parallelism defaults to 10 and bounds remote file reads. Unknown fields are rejected. Provider configuration, API keys and proxy settings never cross SSH.
+
+Events use zero-based indices into the original paths. Duplicate physical paths share one read and appear together:
+
+```json
+{"event":"loading","indices":[0]}
+{"event":"item","indices":[0],"outcome":{"status":"summary","summary":{"size":3,"sha1":"a9993e364706816aba3e25717850c26c9cd0d89d","murmur2":1621425345}}}
+{"event":"loading","indices":[1]}
+{"event":"item","indices":[1],"outcome":{"status":"failed","error":{"message":"failed to summarize file ...","causes":["read failed","file not found"]}}}
+{"event":"done","failed":1}
+```
+
+MurmurHash2 uses seed 1 and excludes TAB, LF, CR and SPACE; its field is null when not requested. Each path position has exactly one loading and one item, including failures. Items may arrive out of order. Done counts failures by original path position, followed by Remote's finished status. The client validates ranges, duplicates, completeness, failure totals and digest syntax. Invalid arguments, cancellation and handler failures use the common terminal error status; partial results may precede it.
+
+The local client queries Modrinth/CurseForge from summaries and verifies size and SHA-1, preserving primary/additional match semantics. Network egress, proxies and official API keys remain local; the remote host never queries providers. CLI output retains input order. Remote file failures use `remote error:`; local network failures use `error:`.
+
+SSH mod-list TUI requests summaries over its existing Session and shares the same local lookup pipeline. Identify parallelism bounds local file/provider requests together and remote file-summary reads separately. Exiting cancels local network tasks and unfinished remote acquisition without waiting for HTTP timeouts. Console and Raw lists do not automatically identify sources.
+
+Logs distinguish execution=local/remote and phase=summary/provider, including reads, requests, validation, failures and durations. Remote logs use the existing subscription and italic terminal severity. This command schema replaces the previous remote provider lookup schema; both client and server must be updated.
+
 ## Registration and SSH
 
 Modules submit `inventory::submit! { Initcall(init) }`. Startup invokes all hooks;
@@ -121,7 +148,7 @@ to decode payloads. Remote selects only handshake/global-error types and never
 interprets business fields. Handlers use checkpoint for cancellation.
 
 SSH lives in shared `src/ssh/`. `--ssh` and `--ssh-mcpm` are top-level global options,
-accepted before/after subcommands. Currently only mod list TUI/Console/Raw uses
+accepted before/after subcommands. Mod list TUI/Console/Raw and mod source identify use
 them; other commands explicitly reject them. ssh-mcpm requires ssh and defaults
 to mcpm on the remote PATH. There is no legacy mod list --remote entry point.
 

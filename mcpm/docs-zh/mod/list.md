@@ -39,11 +39,11 @@ Console 和 Raw 搜索全部声明（包括隐藏子项），再输出匹配行�
 
 ## SSH 列表
 
-使用 `--ssh 'ssh -i key -p 2222 user@host'` 从另一台机器加载 Mod，在本地显示。`--ssh-mcpm <PATH>` 指定远端 mcpm 可执行文件，未指定时直接使用远端 PATH 中的 `mcpm`。这两个参数在最外层全局有效，可放在子命令前后；目前仅 `list` 的 TUI、Console 和 Raw 支持，其他所有 mod 命令均明确报不支持。
+使用 `--ssh 'ssh -i key -p 2222 user@host'` 从另一台机器加载 Mod，在本地显示。`--ssh-mcpm <PATH>` 指定远端 mcpm 可执行文件，未指定时直接使用远端 PATH 中的 `mcpm`。这两个参数在最外层全局有效，可放在子命令前后；目前 `list` 的 TUI、Console、Raw 以及 [`mod source identify`](source-identify.md) 支持，其他命令明确报不支持。
 
 连接字符串只包含 SSH 可执行文件、选项和目标地址，不包含远端命令；其中的参数使用 shell 风格引号。mcpm 只建立一个非 PTY 的 SSH 连接，并启动一个持续运行的 `mcpm remote` 进程。支持 POSIX shell 和 Windows cmd/PowerShell。指定 Windows 可执行文件时，使用 Windows 路径或以 `.exe` 结尾的名称，例如 `C:\mcpm.exe`。只有可执行文件的启动经过远端 shell，请求使用 command ID 和不透明 `contents`，通过 stdin 上的 JSON 传输，可保留空格、引号和 shell 特殊字符。路径与 Loader 选择被序列化传输，显示参数留在本地；stdin 路径在本地追加后作为远端路径传递。所有输入路径及默认的 `.` 都指远端机器。
 
-每项加载完成后立即传送结果，并推进本地进度条。结果交给相同的本地 TUI、Console 和 Raw 渲染器，保留筛选、列选择、Loader 选择和嵌套声明展示。接收端校验协议版本、请求 GUID、结果数量与顺序、JSON 换行、完成状态和进程退出状态。部分文件失败时仍展示成功结果，最终返回失败状态。SSH 数据的 TUI 平台反查会显示不可用，因为这些路径属于远端；不会读取同名本地路径，也不执行平台反查。
+每项加载完成后立即传送结果，并推进本地进度条。结果交给相同的本地 TUI、Console 和 Raw 渲染器，保留筛选、列选择、Loader 选择和嵌套声明展示。接收端校验协议版本、请求 GUID、结果数量与顺序、JSON 换行、完成状态和进程退出状态。部分文件失败时仍展示成功结果，最终返回失败状态。SSH 数据的 TUI 在同一 Session 上提交 `mod.source.identify` 请求，由远端一次读取文件并返回 SHA-1、大小和所需的 MurmurHash2 指纹，本地通过共享 identify 流程查询两个平台，使用本地代理和 API key；`--identify-parallelism` 控制整体网络并发度。本地复用原有状态展示和匹配文件浏览；退出面板时取消剩余识别。
 
 单次 CLI 列表调用持有会话，直到本地界面关闭。需要执行多条命令的调用方可自行持有同一个 SSH 子进程，向同一个远端 mcpm 进程连续发送请求；见[持久远程会话](../remote.md)。不需要本地常驻进程，也不需要为每条命令重新握手。
 

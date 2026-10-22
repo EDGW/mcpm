@@ -108,8 +108,8 @@ while Console uses its Console palette. NO_COLOR disables colors.
 Use `--ssh 'ssh -i key -p 2222 user@host'` to load mods on another machine and
 display them locally. `--ssh-mcpm <PATH>` selects its mcpm executable; without
 it, the remote command uses `mcpm`. These options are top-level global options.
-They are supported only by `list` TUI, Console and Raw, and are rejected by
-all other mod commands.
+They are supported by `list` TUI, Console and Raw, and by
+[`mod source identify`](source-identify.md); other commands reject them.
 
 The connection command contains the SSH executable, options and destination,
 without a remote command. Quote its arguments using shell-style quoting.
@@ -127,9 +127,11 @@ Results feed the same local TUI, Console and Raw renderers, including filters,
 columns, loader selection and nested declarations. The receiver validates the
 protocol version, request GUIDs, item count/order, JSON framing, completion status
 and process exit status. Successful files remain available when other files fail;
-the local command ultimately returns failure. TUI provider identification is
-marked unavailable for SSH data because its paths belong to the remote machine.
-It does not read matching local paths or perform provider lookups.
+the local command ultimately returns failure. TUI provider identification submits `mod.source.identify` on this same session.
+The remote host reads each file once and returns size, SHA-1 and requested MurmurHash2 fingerprints.
+The shared identify pipeline queries both providers locally, using local proxies and API keys;
+`--identify-parallelism` bounds their combined network concurrency. Local display and
+matched-file browsing reuse the usual TUI. Exiting cancels pending identification.
 
 A CLI list invocation owns its session until the local view closes. A caller that
 needs multiple commands can retain one SSH child process and send concurrent

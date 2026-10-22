@@ -13,6 +13,7 @@ mcpm mod [OPTIONS] <COMMAND>
 | [`deps`](deps.md) | 显示直接依赖声明及其来源归档。 |
 | [`dep-graph`](dep-graph.md) | 构建目录依赖图、校验快照，或查看单个 Mod 的依赖树。 |
 | [`source search`](source-search.md) | 使用统一表达式搜索 CurseForge / Modrinth 项目。 |
+| [`source identify`](source-identify.md) | 按文件内容识别来源，支持有序并发和 SSH。 |
 
 ## SSH 连接
 

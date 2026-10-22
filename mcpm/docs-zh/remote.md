@@ -11,7 +11,7 @@ ssh -T user@windows C:/mcpm.exe remote
 
 ## Command ID、调用会话 GUID 与统一回复
 
-- **command ID**：命令类型的字符串 ID，由命令模块声明并通过 initcall 注册。当前仅注册 `mod.list`。
+- **command ID**：命令类型的字符串 ID，由命令模块声明并通过 initcall 注册。当前注册 `mod.list` 和 `mod.source.identify`。
 - **调用会话 GUID**（request GUID）：客户端为每次调用自动生成 UUID v4，用于关联该调用的所有回复。同一连接内不得复用；同一 command ID 可以同时发起多次调用，各自拥有不同 GUID。
 
 请求包含自动生成的调用会话 GUID、字符串 command ID 和不透明 contents：
@@ -41,10 +41,10 @@ ssh -T user@windows C:/mcpm.exe remote
 先等待握手：
 
 ```json
-{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":2,"commands":["mod.list"],"max_concurrency":8}}
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":2,"commands":["mod.list","mod.source.identify"],"max_concurrency":8}}
 ```
 
-调用方检查版本与需要的 command ID。支持能力来自 initcall 注册表，不从 CLI 子命令推断。目前只有 mod list 注册。
+调用方检查版本与需要的 command ID。支持能力来自 initcall 注册表，不从 CLI 子命令推断。目前 mod list 与 mod source identify 注册。
 
 可以连续提交请求，无需等待前一条结束。同一请求内的回复保持顺序，不同请求的回复允许交错；调用方按 request GUID 路由。远端持续读 stdin，独立执行命令，由一个写入器向 stdout 写完整消息。本地同样由一个读取器按 GUID 分发给各请求句柄。
 
@@ -113,11 +113,39 @@ Remote 解码全局错误，不把它作为业务 contents 交给命令：
 
 record 包含 path、name、enabled、status、metadata、errors。输入失败时 name/enabled 为 null；status 为 success、unrecognized、failed。metadata 包含 loader、mods 与递归 nested；errors 包含 loader（输入错误时为 null）、message 和按外层到根因排序的 causes 数组。本地用 `remote error:` 输出主错误，用缩进的 `caused by:` 逐层输出原因，不把整条错误链压成单行字符串。文件内多个声明、Loader、嵌套 JAR 和部分成功结果都保留在同一条记录中。
 
+## mod source identify 的 contents
+
+Command ID 为 `mod.source.identify`，由 identify 模块注册，**只返回文件摘要**。CLI 和 mod list 的 TUI 共用本地识别调度与平台客户端。Remote 与 SSH 通用模块不理解这些字段。
+
+```json
+{"paths":["D:\\mods\\a.jar","D:\\mods\\b.jar"],"requirements":{"murmur2":true},"parallelism":10}
+```
+
+`paths` 必须非空；`requirements.murmur2` 表示是否额外计算 CurseForge 指纹，默认 false。SHA-1 和文件大小始终计算。`parallelism` 必须为正整数，默认 10，控制远端摘要读取并发。参数不能包含未知字段，**不传平台配置、API key 或代理**。
+
+业务事件中的 `indices` 是原始 paths 的零起始位置数组。同一物理文件的重复路径共享读取，事件同时列出这些位置。摘要一次读取得到，可供两个平台共用，不重复读取文件。
+
+```json
+{"event":"loading","indices":[0]}
+{"event":"item","indices":[0],"outcome":{"status":"summary","summary":{"size":3,"sha1":"a9993e364706816aba3e25717850c26c9cd0d89d","murmur2":1621425345}}}
+{"event":"loading","indices":[1]}
+{"event":"item","indices":[1],"outcome":{"status":"failed","error":{"message":"failed to summarize file ...","causes":["read failed","file not found"]}}}
+{"event":"done","failed":1}
+```
+
+MurmurHash2 使用 seed=1，忽略 TAB、LF、CR 和 SPACE；未请求时 murmur2 为 null。摘要成功、失败均保留每个原始输入位置。每个位置恰好经历一次 loading 和一次 item，item 可以乱序到达；done.failed 按原始路径位置计数，再由通用 Remote 发送 finished。接收端校验索引、重复项、完整性、失败总数和摘要格式。参数无效、取消、处理器异常通过通用 error 结束调用，允许保留部分结果。
+
+本地收到摘要后向 Modrinth / CurseForge 发起请求，验证返回文件的大小及 SHA-1，保留 primary/additional 语义。网络出口、代理和官方 API key 均属于本地，远端不访问平台。CLI 立即更新完成进度，但按输入顺序打印结果与逐项错误。远端读文件失败用 `remote error:`，本地网络查询失败用 `error:`。
+
+SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本地识别流程。`--identify-parallelism` 控制本地所有文件与平台合计的在途查询数，并传给远端控制摘要读取。退出 TUI 时取消本地网络任务和未完成的远端摘要调用，无需等待网络超时。Console 与 Raw 列表不自动识别来源。
+
+日志用 execution=local/remote 和 phase=summary/provider 区分执行阶段，包含请求、摘要读取、结果校验、失败和耗时。远端日志通过日志会话回传，终端以斜体级别标记。本次调整改变了该 command 的 contents，客户端和远端均需更新；不保留旧的远端平台查询 schema。
+
 ## 模块注册与 SSH
 
 各模块通过 `inventory::submit! { Initcall(init) }` 提交自己的 initcall。程序启动统一执行 initcall，模块在自己的 init 中调用 `remote::registry::register::<Command>()`。Remote 不引用业务实现，中央入口不逐项列举命令。重复 command ID 在启动时明确报错。命令自己定义业务类型，通过 `Output::send(业务值)` 发送回复；序列化由 `Reply::new` 封装，接收端通过 `Reply::decode::<业务类型>()` 解码。Remote 仅选择握手和全局错误类型，不认识业务字段；处理器使用 checkpoint 响应取消。
 
-SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；目前只有 `mcpm mod list` 的 TUI、Console、Raw 使用，其他命令明确拒绝。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
+SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；目前 `mcpm mod list` 的 TUI、Console、Raw 和 `mcpm mod source identify` 使用，其他命令明确拒绝。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
 
 ```sh
 mcpm --ssh 'ssh -i key user@host' mod list mods/ --no-ui

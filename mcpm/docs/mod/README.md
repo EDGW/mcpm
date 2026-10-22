@@ -13,6 +13,7 @@ mcpm mod [OPTIONS] <COMMAND>
 | [`deps`](deps.md) | Show direct dependency declarations and their archive sources. |
 | [`dep-graph`](dep-graph.md) | Build graphs, validate snapshots, or display a mod dependency tree. |
 | [`source search`](source-search.md) | Search CurseForge / Modrinth projects with shared expressions. |
+| [`source identify`](source-identify.md) | Identify file contents with ordered concurrency and SSH support. |
 
 ## SSH connections
 

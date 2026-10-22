@@ -120,6 +120,8 @@ declarations select their containing outer archive.
 Unmatched files produce `unmatched` rows. Selection, read, or request errors are
 reported on stderr; remaining inputs are processed and the command exits nonzero.
 
+`--parallelism <COUNT>` defaults to 10, sharing the mod-list default. Lookups run concurrently while rows and per-file errors retain selection order; stderr progress uses the mod-list style. SSH options are supported only by standalone `mod source identify` and `mod list`.
+
 ## Output
 
 All three lists support `-C` column letters and `--columns` names. See each

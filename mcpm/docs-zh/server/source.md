@@ -98,6 +98,8 @@ stdin 每行追加一个选择条件，`--input` 控制其解释方式；同一�
 未匹配文件输出 `unmatched`。选择、读取或请求失败会写入 stderr，继续处理其他输入，
 最终以非零状态退出。
 
+`--parallelism <COUNT>` 默认 10，与 mod list 共用默认值。并发检查时，结果和逐项错误仍按选择顺序输出，stderr 进度条沿用 mod list 样式。SSH 参数目前只支持独立的 `mod source identify` 和 `mod list`。
+
 ## 输出
 
 三个列表均支持 `-C` 列字母和 `--columns` 列名，具体列见各命令 `--help`。
