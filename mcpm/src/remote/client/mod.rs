@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::process::{Child, ChildStdin, Command as ProcessCommand, Stdio};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
+use tokio::sync::mpsc;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 
@@ -151,7 +152,7 @@ impl Session {
         ensure!(input.pipe.is_some(), "remote session is closed");
         let guid = Uuid::new_v4();
         info!(command, %guid, "Submitting remote command");
-        let (send, receive) = mpsc::channel();
+        let (send, receive) = mpsc::unbounded_channel();
         {
             let mut routes = self.shared.routes.lock().unwrap();
             if let Some(error) = &routes.failure {
@@ -181,6 +182,8 @@ impl Session {
             receive,
             shared: self.shared.clone(),
             finished: false,
+            started: Instant::now(),
+            messages: 0,
         })
     }
 
@@ -253,9 +256,11 @@ impl Drop for Session {
 #[derive(Debug)]
 pub(crate) struct Pending {
     guid: Uuid,
-    receive: mpsc::Receiver<Received>,
+    receive: mpsc::UnboundedReceiver<Received>,
     shared: Arc<Shared>,
     finished: bool,
+    started: Instant,
+    messages: usize,
 }
 
 impl Pending {
@@ -271,47 +276,53 @@ impl Pending {
     /// Global statuses/errors are decoded here; Data contents belong to the command.
     #[tracing::instrument(level = "debug", skip_all, fields(guid = %self.guid), err(level = "debug"))]
     pub(crate) fn collect(mut self, mut receive: impl FnMut(Reply) -> Result<()>) -> Result<()> {
-        let started = Instant::now();
-        let mut messages = 0usize;
         loop {
             let reply = self
                 .receive
-                .recv()
-                .context("remote response channel closed")?
-                .map_err(|failure| failure.error())?;
-            match reply.status {
-                Status::Finished => {
-                    self.finished = true;
-                    ensure!(
-                        reply.contents.is_null(),
-                        "invalid remote completion contents"
-                    );
-                    info!(
-                        messages,
-                        elapsed_ms = started.elapsed().as_millis(),
-                        "Remote command finished"
-                    );
-                    return Ok(());
-                }
-                Status::Error => {
-                    self.finished = true;
-                    let error = reply
-                        .decode::<GlobalError>()
-                        .context("invalid global remote error")?;
-                    debug!(
-                        ?error,
-                        messages,
-                        elapsed_ms = started.elapsed().as_millis(),
-                        "Remote command failed"
-                    );
-                    return Err(error.into_remote());
-                }
-                Status::Data => {
-                    messages += 1;
-                    receive(reply)?;
-                }
-                _ => bail!("unexpected remote reply status"),
+                .blocking_recv()
+                .context("remote response channel closed")?;
+            let Some(reply) = self.decode(reply)? else {
+                return Ok(());
+            };
+            receive(reply)?;
+        }
+    }
+
+    /// Wait asynchronously for command data; dropping this handle cancels unfinished work.
+    pub(crate) async fn next(&mut self) -> Result<Option<Reply>> {
+        let reply = self
+            .receive
+            .recv()
+            .await
+            .context("remote response channel closed")?;
+        self.decode(reply)
+    }
+
+    fn decode(&mut self, reply: Received) -> Result<Option<Reply>> {
+        let reply = reply.map_err(|failure| failure.error())?;
+        match reply.status {
+            Status::Finished => {
+                self.finished = true;
+                ensure!(
+                    reply.contents.is_null(),
+                    "invalid remote completion contents"
+                );
+                info!(guid = %self.guid, messages = self.messages, elapsed_ms = self.started.elapsed().as_millis(), "Remote command finished");
+                Ok(None)
             }
+            Status::Error => {
+                self.finished = true;
+                let error = reply
+                    .decode::<GlobalError>()
+                    .context("invalid global remote error")?;
+                debug!(guid = %self.guid, ?error, messages = self.messages, elapsed_ms = self.started.elapsed().as_millis(), "Remote command failed");
+                Err(error.into_remote())
+            }
+            Status::Data => {
+                self.messages += 1;
+                Ok(Some(reply))
+            }
+            _ => bail!("unexpected remote reply status"),
         }
     }
 }
@@ -356,7 +367,7 @@ struct Input {
 #[derive(Default, Debug)]
 struct Routes {
     logs: Option<LogRoute>,
-    pending: HashMap<Uuid, mpsc::Sender<Received>>,
+    pending: HashMap<Uuid, mpsc::UnboundedSender<Received>>,
     closing: bool,
     closed: bool,
     failure: Option<Failure>,

@@ -15,8 +15,8 @@ fn interleaved_opaque_replies_and_abandoned_receivers() {
             ..Default::default()
         }),
     };
-    let (first_send, first) = mpsc::channel();
-    let (second_send, second) = mpsc::channel();
+    let (first_send, first) = mpsc::unbounded_channel();
+    let (second_send, mut second) = mpsc::unbounded_channel();
     let a = Uuid::from_u128(1);
     let b = Uuid::from_u128(2);
     shared.routes.lock().unwrap().pending.insert(a, first_send);
@@ -34,10 +34,13 @@ fn interleaved_opaque_replies_and_abandoned_receivers() {
     drop(first);
     route(&mut Cursor::new(frames), &shared).unwrap();
     assert_eq!(
-        second.recv().unwrap().unwrap().contents,
+        second.blocking_recv().unwrap().unwrap().contents,
         json!(["opaque", false])
     );
-    assert_eq!(second.recv().unwrap().unwrap().status, Status::Finished);
+    assert_eq!(
+        second.blocking_recv().unwrap().unwrap().status,
+        Status::Finished
+    );
     assert!(shared.routes.lock().unwrap().closed);
     assert!(shared.routes.lock().unwrap().pending.is_empty());
 }
