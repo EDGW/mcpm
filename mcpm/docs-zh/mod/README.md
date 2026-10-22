@@ -3,7 +3,7 @@
 检查本地 Minecraft Mod 归档，只读取文件。
 
 ```text
-mcpm mod <COMMAND>
+mcpm mod [OPTIONS] <COMMAND>
 ```
 
 | 命令 | 说明 |
@@ -13,6 +13,17 @@ mcpm mod <COMMAND>
 | [`deps`](deps.md) | 显示直接依赖声明及其来源归档。 |
 | [`dep-graph`](dep-graph.md) | 构建目录依赖图、校验快照，或查看单个 Mod 的依赖树。 |
 | [`source search`](source-search.md) | 使用统一表达式搜索 CurseForge / Modrinth 项目。 |
+
+## SSH 连接
+
+`--ssh <COMMAND>` 和 `--ssh-mcpm <PATH>` 在最外层全局有效，可以放在子命令前后。目前仅 `list` 的 TUI、Console 和 Raw 模式支持；其他命令会明确拒绝。`--ssh-mcpm` 需要配合 `--ssh`，用于指定远端可执行文件，默认使用远端 PATH 中的 `mcpm`。
+
+```sh
+mcpm mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
+mcpm mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw
+```
+
+传输与本地展示行为见 [SSH 列表](list.md#ssh-列表)。
 
 ## Loader 选择
 

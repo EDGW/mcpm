@@ -3,7 +3,7 @@
 Inspect local Minecraft mod archives without modifying them.
 
 ```text
-mcpm mod <COMMAND>
+mcpm mod [OPTIONS] <COMMAND>
 ```
 
 | Command | Description |
@@ -13,6 +13,20 @@ mcpm mod <COMMAND>
 | [`deps`](deps.md) | Show direct dependency declarations and their archive sources. |
 | [`dep-graph`](dep-graph.md) | Build graphs, validate snapshots, or display a mod dependency tree. |
 | [`source search`](source-search.md) | Search CurseForge / Modrinth projects with shared expressions. |
+
+## SSH connections
+
+`--ssh <COMMAND>` and `--ssh-mcpm <PATH>` are top-level global options, so they
+can appear before or after its subcommands. Currently only `list` in TUI,
+Console and Raw modes support them. Other commands explicitly reject them. `--ssh-mcpm` requires `--ssh` and names one remote
+executable, defaulting to `mcpm` on the remote PATH.
+
+```sh
+mcpm mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
+mcpm mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw
+```
+
+See [SSH listing](list.md#ssh-listing) for transport and presentation behavior.
 
 ## Loader selection
 

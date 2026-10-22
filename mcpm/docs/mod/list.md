@@ -103,6 +103,50 @@ Mouse clicks select rows and fields; clicking an arrow toggles its branch.
 `--no-ui --raw` also uses Raw. TUI mode uses the detected terminal's TUI palette,
 while Console uses its Console palette. NO_COLOR disables colors.
 
+## SSH listing
+
+Use `--ssh 'ssh -i key -p 2222 user@host'` to load mods on another machine and
+display them locally. `--ssh-mcpm <PATH>` selects its mcpm executable; without
+it, the remote command uses `mcpm`. These options are top-level global options.
+They are supported only by `list` TUI, Console and Raw, and are rejected by
+all other mod commands.
+
+The connection command contains the SSH executable, options and destination,
+without a remote command. Quote its arguments using shell-style quoting.
+mcpm opens one non-PTY SSH connection and starts one persistent `mcpm remote`
+process. POSIX shells and Windows cmd/PowerShell are supported. For a custom
+Windows executable, use a Windows path or a name ending in `.exe` (for example
+`C:\mcpm.exe`). The executable is bootstrapped through the remote shell; command
+requests use a command ID and opaque `contents` on stdin, preserving
+spaces, quotes and shell characters. Paths and loader selection are serialized;
+display options stay local. Stdin paths are appended locally as remote paths. All input paths
+and the default `.` refer to the remote machine.
+
+Each loaded item is sent immediately and advances the local progress indicator.
+Results feed the same local TUI, Console and Raw renderers, including filters,
+columns, loader selection and nested declarations. The receiver validates the
+protocol version, request GUIDs, item count/order, JSON framing, completion status
+and process exit status. Successful files remain available when other files fail;
+the local command ultimately returns failure. TUI provider identification is
+marked unavailable for SSH data because its paths belong to the remote machine.
+It does not read matching local paths or perform provider lookups.
+
+A CLI list invocation owns its session until the local view closes. A caller that
+needs multiple commands can retain one SSH child process and send concurrent
+requests to its `mcpm remote` process; see [Persistent remote sessions](../remote.md).
+No local daemon or per-command SSH handshake is required.
+
+```sh
+mcpm mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --expanded --no-ui
+mcpm --raw mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' -C NML
+```
+
+## Remote support
+
+Registered command ID: `mod.list`. The [Remote subsystem](../remote.md) accepts
+structured paths and loader selection and streams one result per input item.
+Filters, columns, expansion and layout remain local frontend settings.
+
 Paths are processed in argument order. A directory contributes its immediate
 `.jar` and `.jar.disabled` files, sorted by path; subdirectories and other
 filenames are skipped. Scanning is not recursive. A file argument is inspected

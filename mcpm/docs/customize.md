@@ -20,7 +20,7 @@ mcpm customize --raw get "Console Dark Primary Color"
 
 Upper-left and upper-right panels show TUI Dark and Light example cards. Lower-left and lower-right simulate Console Dark and Light output. Narrow terminals stack panels; short terminals show the available portion with a height prompt. Previews preserve the terminal background and show a switch-mode hint only for a mismatched or unknown terminal mode. Console samples have a dim border and a blank line above them. There is no appearance setting.
 
-Startup scans every `.toml` collection in `CONFIG_DIR/styles`. Each contains a `[[style]]` array. Invalid files or individual styles produce warning logs and are skipped without blocking other styles. Unavailable selections fall back to bundled defaults. `--log-level off` suppresses warnings. Files load in sorted order; later duplicate IDs in ordinary collections are skipped; custom.toml overrides take precedence.
+Startup scans every `.toml` collection in `CONFIG_DIR/styles`. Each contains a `[[style]]` array. Invalid files or individual styles produce warning logs and are skipped without blocking other styles. Unavailable selections fall back to bundled defaults. `--log-level off` suppresses stderr warnings; file logs still record them. Files load in sorted order; later duplicate IDs in ordinary collections are skipped; custom.toml overrides take precedence.
 
 ```toml
 [[style]]

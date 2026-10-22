@@ -12,6 +12,8 @@ are read without modifying them; graph snapshots can be written to a separate fi
 
 [Customize presentation](customize.md) · [Debug palette](debug/palette.md)
 
+[Persistent remote sessions](remote.md)
+
 [简体中文](../docs-zh/README.md)
 
 ## Quick start
@@ -30,6 +32,8 @@ To run from the repository without installing the executable, replace `mcpm`
 with `cargo run --manifest-path mcpm/Cargo.toml --`.
 
 ## Global options
+
+`--ssh` and `--ssh-mcpm` are global; currently only `mod list` supports them. See [Remote sessions](remote.md).
 
 ```text
 mcpm [OPTIONS] <COMMAND>
@@ -99,7 +103,7 @@ NO_COLOR=1 mcpm mod list mods/
 
 ## Diagnostic logging
 
-`--log-level` configures the `tracing-subscriber` logger. Default `warn` keeps
+`--log-level` configures stderr logging through `tracing-subscriber`. Default `warn` keeps
 ordinary successful operations quiet. Use `info` for launch/check stages,
 `debug` for selected libraries, paths and the final redacted Java argument list,
 and `trace` for individual native entries and required-file inspections.
@@ -112,5 +116,12 @@ mcpm client launch 1.18.1 --no-logging-config --log-level debug
 Logs use stderr and cooperate with progress bars. Colors follow terminal policy,
 `NO_COLOR`, and `--raw`. Log filtering does not hide normal command results or
 operational error diagnostics and does not filter the game's stdout/stderr.
+Each run also creates `~/.mcpm/logs/YYYY-MM-DD/HH-MM-SS.nnnnnnnnn.log`, using
+the local process start date and time with Windows-compatible filenames. The
+same file remains open across midnight. A UUID suffix resolves simultaneous-start
+filename collisions without overwriting existing logs. File logging records through `debug`
+(error, warn, info, debug), independently of `--log-level`, including when it is
+`off`. Files include timestamps, module targets and error chains, without colors.
+Remote processes write logs under the remote user's home directory as well.
 Identity tokens and known credential arguments are redacted from command logs;
 environment variable values are not logged.

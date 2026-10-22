@@ -1,0 +1,111 @@
+# Remote 会话与分发
+
+`mcpm remote` 使用一个进程承载整个会话。调用方可通过一个非 PTY 的 SSH 连接持续发送、并行执行多条请求。Remote 只负责会话、GUID 路由、并发限制、取消和全局错误；每个命令自己定义、编码和解码业务 contents，不依赖命令行参数解析。
+
+```sh
+ssh -T user@host mcpm remote
+ssh -T user@windows C:/mcpm.exe remote
+```
+
+双向使用 UTF-8 NDJSON，每条消息是一个单行 JSON 加换行，写完立即刷新。字符串内换行由 JSON 转义。stdout 仅包含协议，stderr 用于诊断，无颜色或终端界面。
+
+## Command ID、调用会话 GUID 与统一回复
+
+- **command ID**：命令类型的字符串 ID，由命令模块声明并通过 initcall 注册。当前仅注册 `mod.list`。
+- **调用会话 GUID**（request GUID）：客户端为每次调用自动生成 UUID v4，用于关联该调用的所有回复。同一连接内不得复用；同一 command ID 可以同时发起多次调用，各自拥有不同 GUID。
+
+请求包含自动生成的调用会话 GUID、字符串 command ID 和不透明 contents：
+
+```json
+{"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","command":"mod.list","contents":{"paths":["C:\\mods"],"loaders":["fabric"]}}
+```
+
+**每条回复都恰好由 `guid`、`status`、`contents` 三部分组成**：
+
+```json
+{"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"count","count":1}}
+```
+
+| status | contents 解释方 | 含义 |
+| --- | --- | --- |
+| `ready` | Remote | 会话握手，公布版本、已注册 command ID 和并发上限。 |
+| `data` | 对应命令 | 不透明的命令数据，可包含进度、结果或业务错误。 |
+| `finished` | Remote | 该调用正常结束，contents 为 null；不代表业务一定成功。 |
+| `error` | Remote | 全局错误，contents 为 code/message；该调用异常结束，不再发送 finished。 |
+| `closed` | Remote | 会话正常结束，contents 为 null。 |
+
+连接级控制消息使用全零 GUID `00000000-0000-0000-0000-000000000000`，该 GUID 不可用于请求。
+
+## 握手、并行和生命周期
+
+先等待握手：
+
+```json
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":1,"commands":["mod.list"],"max_concurrency":8}}
+```
+
+调用方检查版本与需要的 command ID。支持能力来自 initcall 注册表，不从 CLI 子命令推断。目前只有 mod list 注册。
+
+可以连续提交请求，无需等待前一条结束。同一请求内的回复保持顺序，不同请求的回复允许交错；调用方按 request GUID 路由。远端持续读 stdin，独立执行命令，由一个写入器向 stdout 写完整消息。本地同样由一个读取器按 GUID 分发给各请求句柄。
+
+`mcpm remote --max-concurrency 8` 设置并发上限，默认 8。超出上限的新调用返回 `busy` 全局错误，稍后可以用新的 request GUID 重试。
+
+关闭 stdin 表示不再提交请求。服务端先完成所有已接收任务，再发送全零 GUID 的 closed 回复并成功退出，即使此前有调用失败。丢弃本地 Session 会关闭并回收子进程。
+
+## 全局错误与取消
+
+Remote 解码全局错误，不把它作为业务 contents 交给命令：
+
+```json
+{"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"error","contents":{"code":"unsupported_command","message":"unsupported remote command ID: ..."}}
+```
+
+错误码为 `unsupported_command`、`busy`、`cancelled`、`handler_failed`、`protocol`。前四类只结束目标调用，其他调用仍继续。无法分发的异常或处理器 panic 使用 handler_failed。命令参数校验、文件加载等业务错误由命令协议表达。
+
+输入帧损坏、全零或重复的 request GUID 属于会话级 protocol 错误，使用全零 GUID 回复并失败退出，未完成任务被取消。意外 EOF、无关 GUID、缺少终止回复、异常进程退出均应判为传输失败。
+
+取消不占用新的 request GUID：
+
+```json
+{"cancel":"9b6dc7aa-a81c-4f39-81bd-0776b6524381"}
+```
+
+取消是协作式的；mod list 在文件之间检查，不保证立即打断文件 I/O。未知或已完成 GUID 的取消无操作，完成可能赢得竞态。取消生效后返回 cancelled 全局错误，之前收到的数据是部分结果。丢弃未完成的请求句柄会尝试取消，Remote 仍排空该调用的回复，避免影响其他调用。
+
+## mod list 的 contents
+
+以下内容完全由 mod list 模块编解码，Remote 不认识其字段或 event。
+
+请求：
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `paths` | 字符串数组 | `[]` | 远端文件和目录，空数组使用远端当前目录。 |
+| `loaders` | 字符串数组 | `[]` | forge、neoforge、fabric，空数组尝试全部。 |
+
+未知字段、非法类型或 Loader 值会发送业务 error，再发送业务 done（success:false），最后由 Remote 发送 finished。stdin 只用于会话，不能作为命令路径输入。列、筛选、展开、颜色、宽度等展示参数留在本地前端。
+
+业务回复 contents 依次为 count、item、done：
+
+```json
+{"event":"count","count":1}
+{"event":"item","index":0,"record":{"path":"C:\\mods\\example.jar","name":"example","enabled":true,"status":"unrecognized","metadata":[],"errors":[]}}
+{"event":"done","success":true}
+```
+
+每项加载完成立即发送 item，同时推进进度；必须恰好 count 条，index 从 0 连续递增。成功、失败、未识别均保留且仅保留一条记录；重复路径分别处理，空目录贡献零项，无法解析的输入路径贡献一条失败记录。文件失败不停止其他项，使 done.success 为 false。取消和传输异常可能使结果不完整。
+
+record 包含 path、name、enabled、status、metadata、errors。输入失败时 name/enabled 为 null；status 为 success、unrecognized、failed。metadata 包含 loader、mods 与递归 nested；errors 包含 loader（输入错误时为 null）和 message。文件内多个声明、Loader、嵌套 JAR 和部分成功结果都保留在同一条记录中。
+
+## 模块注册与 SSH
+
+各模块通过 `inventory::submit! { Initcall(init) }` 提交自己的 initcall。程序启动统一执行 initcall，模块在自己的 init 中调用 `remote::registry::register::<Command>()`。Remote 不引用业务实现，中央入口不逐项列举命令。重复 command ID 在启动时明确报错。命令自己定义业务类型，通过 `Output::send(业务值)` 发送回复；序列化由 `Reply::new` 封装，接收端通过 `Reply::decode::<业务类型>()` 解码。Remote 仅选择握手和全局错误类型，不认识业务字段；处理器使用 checkpoint 响应取消。
+
+SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；目前只有 `mcpm mod list` 的 TUI、Console、Raw 使用，其他命令明确拒绝。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
+
+```sh
+mcpm --ssh 'ssh -i key user@host' mod list mods/ --no-ui
+mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw mod list 'C:\mods'
+```
+
+[命令参考](README.md) · [列表命令](mod/list.md) · [English](../docs/remote.md)

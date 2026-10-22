@@ -10,6 +10,8 @@
 
 [自定义界面](customize.md) · [调试调色板](debug/palette.md)
 
+[持久远程会话](remote.md)
+
 [English](../docs/README.md)
 
 ## 快速开始
@@ -27,6 +29,8 @@ mcpm --raw mod list mods/ -C MF > mods.tsv
 在仓库中直接运行时，将 `mcpm` 替换为 `cargo run --manifest-path mcpm/Cargo.toml --`。
 
 ## 全局选项
+
+`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，目前仅 `mod list` 支持使用。详见 [Remote 会话](remote.md)。
 
 ```text
 mcpm [OPTIONS] <COMMAND>
@@ -84,7 +88,7 @@ NO_COLOR=1 mcpm mod list mods/
 
 ## 诊断日志
 
-全局 `--log-level` 使用 `tracing-subscriber` 控制日志，默认 `warn`。
+全局 `--log-level` 使用 `tracing-subscriber` 控制 stderr 日志，默认 `warn`。
 `info` 显示启动/检查关键步骤，`debug` 增加库选择、路径和最终脱敏 Java 参数列表，
 `trace` 增加每个 native 条目和必需文件检查的详情。
 
@@ -95,4 +99,9 @@ mcpm client launch 1.18.1 --no-logging-config --log-level debug
 
 日志写入 stderr，并与进度条协调显示。颜色遵循终端状态、`NO_COLOR` 和 `--raw`。
 日志级别不控制普通命令结果、操作失败诊断或游戏 stdout/stderr。
+同时，每次运行会自动创建 `~/.mcpm/logs/YYYY-MM-DD/HH-MM-SS.nnnnnnnnn.log`，
+日期和时间取程序启动时的本地时间，文件名兼容 Windows。同一时刻启动的进程在文件名冲突时追加 UUID，避免覆盖；跨午夜后继续写入同一文件。
+文件固定记录到 `debug`（包括 error、warn、info、debug），独立于 `--log-level`；
+即使 `--log-level off` 也会保留文件日志。文件包含时间戳、模块和错误链，不含颜色。
+Remote 进程同样在远端用户的主目录保存日志。
 启动命令日志对身份 token 和已知凭据参数脱敏，不记录环境变量的值。
