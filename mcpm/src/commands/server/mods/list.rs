@@ -38,7 +38,7 @@ pub(super) struct ListArgs {
 }
 
 pub(super) fn run(args: ListArgs) -> Result<()> {
-    let selection = args.selection.with_stdin()?;
+    let selection = args.selection.with_stdin()?.into_selection();
     let source = ServerMods::load(args.path)?;
     list::run_selection(
         selection,

@@ -6,13 +6,12 @@ use anyhow::Result;
 use clap::{ArgMatches, Args, Command, FromArgMatches, ValueEnum};
 use thiserror::Error;
 
-use super::{Query, QueryKind};
+use super::{Query, QueryKind, Selection};
 
 /// CLI and stdin queries in user-supplied order, or an explicit complete scan.
 #[derive(Debug)]
 pub(in crate::commands) struct SelectionArgs {
-    pub(super) queries: Vec<Query>,
-    pub(super) all: bool,
+    selection: Selection,
 }
 
 impl SelectionArgs {
@@ -22,22 +21,24 @@ impl SelectionArgs {
 
     fn with_stdin_kind(mut self, kind: QueryKind) -> Result<Self> {
         let paths = crate::commands::stdin::append(Vec::new())?;
-        if self.all && !paths.is_empty() {
+        if self.selection.all && !paths.is_empty() {
             return Err(AllWithQueries.into());
         }
-        self.queries.extend(paths.into_iter().map(|value| Query {
-            kind,
-            value: value.into_os_string(),
-        }));
+        self.selection
+            .queries
+            .extend(paths.into_iter().map(|value| Query {
+                kind,
+                value: value.into_os_string(),
+            }));
         Ok(self)
     }
 
-    pub(in crate::commands::mod_support) fn into_queries(self) -> Option<Vec<Query>> {
-        (!self.all).then_some(self.queries)
+    pub(in crate::commands) fn into_selection(self) -> Selection {
+        self.selection
     }
 
     pub(in crate::commands) fn is_empty(&self) -> bool {
-        !self.all && self.queries.is_empty()
+        self.selection.is_empty()
     }
 }
 
@@ -120,8 +121,10 @@ impl FromArgMatches for SelectionArgs {
         }
         queries.sort_by_key(|(index, _)| *index);
         Ok(Self {
-            queries: queries.into_iter().map(|(_, query)| query).collect(),
-            all: raw.all,
+            selection: Selection {
+                queries: queries.into_iter().map(|(_, query)| query).collect(),
+                all: raw.all,
+            },
         })
     }
 

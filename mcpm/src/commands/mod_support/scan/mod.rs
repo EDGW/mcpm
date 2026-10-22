@@ -12,7 +12,7 @@ use kako_mods_lib::local::{
     modloader::{LoaderId, ModLoaderMeta},
 };
 
-use crate::commands::progress::Progress;
+use crate::diagnostics::ErrorReport;
 
 mod batch;
 mod file;
@@ -32,17 +32,21 @@ pub(in crate::commands) struct FailedIdentification {
 
 /// Results, including failures, live for this command only; no filesystem invalidation.
 #[derive(Debug)]
-pub(in crate::commands) struct ScanSession {
+pub(in crate::commands) struct ScanSession<'a> {
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     cache: HashMap<PathBuf, Arc<ScanResult>>,
     parallelism: usize,
+    checkpoint: Checkpoint<'a>,
+    observer: Option<Observer<'a>>,
 }
-impl ScanSession {
+impl<'a> ScanSession<'a> {
     pub(in crate::commands) fn new(loaders: HashMap<LoaderId, ModLoaderMeta>) -> Self {
         Self {
             loaders,
             cache: HashMap::new(),
             parallelism: 1,
+            checkpoint: Checkpoint(&|| Ok(())),
+            observer: None,
         }
     }
 
@@ -51,24 +55,53 @@ impl ScanSession {
         self
     }
 
+    /// Cancellation is independent of diagnostic and progress delivery.
+    pub(super) fn with_checkpoint(mut self, checkpoint: &'a dyn Fn() -> Result<()>) -> Self {
+        self.checkpoint = Checkpoint(checkpoint);
+        self
+    }
+
+    /// The consumer owns presentation or transport of all scan events.
+    pub(super) fn with_observer(mut self, observer: &'a dyn Fn(Event) -> Result<()>) -> Self {
+        self.observer = Some(Observer(observer));
+        self
+    }
+
+    fn emit(&self, event: Event) -> Result<()> {
+        if let Some(observer) = &self.observer {
+            (observer.0)(event)?;
+        }
+        Ok(())
+    }
+
     pub(in crate::commands) fn failed_count(&self) -> usize {
         self.cache.values().filter(|result| result.failed()).count()
     }
 
-    pub(super) fn read(
-        &mut self,
-        path: PathBuf,
-        progress: Option<&Progress>,
-    ) -> Option<Arc<ScannedFile>> {
+    pub(super) fn read(&mut self, path: PathBuf) -> Result<Option<Arc<ScannedFile>>> {
         let key = key(&path);
         if let Some(cached) = self.cache.get(&key) {
             tracing::debug!(path = %path.display(), "Reusing cached mod identification");
-            return cached.file.clone();
+            return Ok(cached.file.clone());
         }
+        self.emit(Event::Progress {
+            completed: 0,
+            total: 1,
+        })?;
+        (self.checkpoint.0)()?;
         let result = Arc::new(file::read(path.clone(), &self.loaders));
-        report(&path, &result, progress);
+        (self.checkpoint.0)()?;
+        for error in errors(&path, &result) {
+            self.emit(Event::Diagnostic {
+                error: ErrorReport::capture(&error),
+            })?;
+        }
+        self.emit(Event::Progress {
+            completed: 1,
+            total: 1,
+        })?;
         self.cache.insert(key, result.clone());
-        result.file.clone()
+        Ok(result.file.clone())
     }
 
     /// Deliver completions immediately with original indices. Duplicate normalized
@@ -128,50 +161,91 @@ impl ScanSession {
         result
     }
 
-    pub(super) fn directory(&mut self, path: &Path) -> Result<Vec<Arc<ScannedFile>>> {
-        let progress = Progress::new("Scanning mod directory...", "Identifying mods");
-        let paths: Vec<_> = ModDirectory::new(path.to_owned())?
-            .entries()?
+    pub(super) fn directory(
+        &mut self,
+        path: &Path,
+    ) -> std::result::Result<Vec<Arc<ScannedFile>>, DirectoryError> {
+        let paths: Vec<_> = (|| -> Result<_> { ModDirectory::new(path.to_owned())?.entries() })()
+            .map_err(DirectoryError::Input)?
             .into_iter()
             .map(|entry| entry.path().to_owned())
             .collect();
-        progress.set_total(paths.len());
-        self.collect(&paths, &progress)
+        self.collect(&paths).map_err(DirectoryError::Execution)
     }
 
     /// Final presentation order is independent of worker completion order.
-    pub(super) fn collect(
-        &mut self,
-        paths: &[PathBuf],
-        progress: &Progress,
-    ) -> Result<Vec<Arc<ScannedFile>>> {
+    pub(super) fn collect(&mut self, paths: &[PathBuf]) -> Result<Vec<Arc<ScannedFile>>> {
         let mut files = vec![None; paths.len()];
-        self.batch(
-            paths,
-            || Ok(()),
-            |index, result, fresh| {
-                if fresh {
-                    report(&paths[index], result, Some(progress));
+        let checkpoint = self.checkpoint.0;
+        let observer = self.observer.as_ref().map(|observer| observer.0);
+        let emit = |event| -> Result<()> {
+            if let Some(observer) = observer {
+                observer(event)?;
+            }
+            Ok(())
+        };
+        emit(Event::Progress {
+            completed: 0,
+            total: paths.len(),
+        })?;
+        let mut completed = 0;
+        self.batch(paths, checkpoint, |index, result, fresh| {
+            if fresh {
+                for error in errors(&paths[index], result) {
+                    emit(Event::Diagnostic {
+                        error: ErrorReport::capture(&error),
+                    })?;
                 }
-                files[index] = result.file.clone();
-                progress.advance();
-                Ok(())
-            },
-        )?;
+            }
+            files[index] = result.file.clone();
+            completed += 1;
+            emit(Event::Progress {
+                completed,
+                total: paths.len(),
+            })
+        })?;
         Ok(files.into_iter().flatten().collect())
     }
 }
 
-fn report(path: &Path, result: &ScanResult, progress: Option<&Progress>) {
-    for failure in &result.errors {
-        let mut error = failure.error.clone().into_error();
+/// Scanning produces data only; terminal and transport adapters consume this stream.
+pub(in crate::commands) enum Event {
+    Progress { completed: usize, total: usize },
+    Diagnostic { error: ErrorReport },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(super) enum DirectoryError {
+    #[error(transparent)]
+    Input(anyhow::Error),
+    #[error(transparent)]
+    Execution(anyhow::Error),
+}
+
+fn errors<'a>(path: &'a Path, result: &'a ScanResult) -> impl Iterator<Item = anyhow::Error> + 'a {
+    result.errors.iter().map(move |failure| {
+        let error = failure.error.clone().into_error();
         if failure.loader.is_none() {
-            error = error.context(format!("failed to inspect {path:?}"));
+            error.context(format!("failed to inspect {path:?}"))
+        } else {
+            error
         }
-        match progress {
-            Some(progress) => progress.report(&error),
-            None => crate::diagnostics::error(&error),
-        }
+    })
+}
+
+struct Observer<'a>(&'a dyn Fn(Event) -> Result<()>);
+
+impl std::fmt::Debug for Observer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Observer")
+    }
+}
+
+struct Checkpoint<'a>(&'a dyn Fn() -> Result<()>);
+
+impl std::fmt::Debug for Checkpoint<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Checkpoint")
     }
 }
 

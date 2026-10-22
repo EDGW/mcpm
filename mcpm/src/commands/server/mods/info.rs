@@ -25,6 +25,7 @@ pub(super) fn run(args: InfoArgs) -> Result<()> {
         source.scope(),
         source.loaders(),
         true,
+        crate::commands::execution::default_parallelism().get(),
         inspect::Display::Info,
     )
 }

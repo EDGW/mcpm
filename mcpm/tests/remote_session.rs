@@ -32,7 +32,7 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
     let mut output = BufReader::new(child.stdout.take().unwrap());
     assert_eq!(
         event(&mut output),
-        json!({"guid":Uuid::nil(),"status":"ready","contents":{"version":3,"commands":[LIST,"mod.source.identify"],"max_concurrency":16}})
+        json!({"guid":Uuid::nil(),"status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info",LIST,"mod.source.identify"],"max_concurrency":16}})
     );
     let cases = [
         (
@@ -43,7 +43,7 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
         ),
         (LIST, json!({"paths":42}), vec!["error", "done"], false),
         (
-            "mod.info",
+            "mod.unsupported",
             json!({"path":"missing.jar"}),
             vec!["unsupported_command"],
             false,

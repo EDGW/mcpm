@@ -27,6 +27,7 @@ pub(super) fn run(args: DepsArgs) -> Result<()> {
         source.scope(),
         source.loaders(),
         true,
+        crate::commands::execution::default_parallelism().get(),
         inspect::Display::Dependencies(&args.paths_output),
     )
 }

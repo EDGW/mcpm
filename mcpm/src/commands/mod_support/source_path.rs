@@ -22,8 +22,25 @@ impl PathArgs {
         outer: &Path,
         nested: &[String],
     ) -> Vec<(String, Style)> {
+        let filename = outer
+            .file_name()
+            .unwrap_or(outer.as_os_str())
+            .to_string_lossy();
+        self.pieces_with_filename(outer, nested, &filename)
+    }
+
+    pub(super) fn pieces_with_filename(
+        &self,
+        outer: &Path,
+        nested: &[String],
+        filename: &str,
+    ) -> Vec<(String, Style)> {
         let mut pieces = Vec::new();
-        for (index, part) in self.parts(outer, nested).into_iter().enumerate() {
+        for (index, part) in self
+            .parts_with_filename(outer, nested, filename)
+            .into_iter()
+            .enumerate()
+        {
             if index > 0 {
                 pieces.push(("!".to_owned(), theme::console(Role::Important)));
             }
@@ -42,15 +59,6 @@ impl PathArgs {
             .into_iter()
             .map(|(part, paint)| style.paint(text(&part), paint))
             .collect()
-    }
-
-    /// Separate archive levels so renderers can highlight only the separators.
-    pub(super) fn parts(&self, outer: &Path, nested: &[String]) -> Vec<String> {
-        let filename = outer
-            .file_name()
-            .unwrap_or(outer.as_os_str())
-            .to_string_lossy();
-        self.parts_with_filename(outer, nested, &filename)
     }
 
     /// A remote filename is already parsed on its owning platform.

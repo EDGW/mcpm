@@ -18,7 +18,8 @@ use crate::terminal;
 
 use super::{
     scan::ScanSession,
-    selection::{Resolver, Scope, SelectedFile, SelectionArgs},
+    scan_output::ScanOutput,
+    selection::{ResolveError, Resolver, Scope, SelectedFile, Selection},
     source_path::PathArgs,
 };
 use columns::ColumnArgs;
@@ -114,20 +115,24 @@ pub(in crate::commands) fn run(
         "Local mod list input discovery completed"
     );
 
-    let mut session = ScanSession::new(loaders).with_parallelism(parallelism);
+    drop(progress);
+    let output = ScanOutput::default();
+    let observe = |event| output.event(event);
+    let mut session = ScanSession::new(loaders)
+        .with_parallelism(parallelism)
+        .with_observer(&observe);
     let paths: Vec<_> = entries
         .into_iter()
         .map(|entry| entry.path().to_owned())
         .collect();
     let files = session
-        .collect(&paths, &progress)?
+        .collect(&paths)?
         .into_iter()
         .map(|scanned| SelectedFile {
             scanned,
             records: None,
         })
         .collect::<Vec<_>>();
-    drop(progress);
     tracing::debug!(
         files = files.len(),
         failed = session.failed_count(),
@@ -148,15 +153,19 @@ pub(in crate::commands) fn run(
 
 /// Resolves server list queries through the same lazy indexes as info/deps.
 pub(in crate::commands) fn run_selection(
-    selection: SelectionArgs,
+    selection: Selection,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     parallelism: usize,
     args: ListDisplayArgs,
 ) -> Result<()> {
     let source_loaders = source_loaders(&loaders, true);
+    let output = ScanOutput::default();
+    let observe = |event| output.event(event);
     let mut resolver = Resolver::new(
-        ScanSession::new(loaders).with_parallelism(parallelism),
+        ScanSession::new(loaders)
+            .with_parallelism(parallelism)
+            .with_observer(&observe),
         scope,
     );
     let mut files = Vec::new();
@@ -172,7 +181,8 @@ pub(in crate::commands) fn run_selection(
         };
         match result {
             Ok(selected) => files.extend(selected),
-            Err(error) => {
+            Err(ResolveError::Execution(error)) => return Err(error),
+            Err(ResolveError::Input(error)) => {
                 crate::diagnostics::error(&error);
                 input_errors += 1;
             }

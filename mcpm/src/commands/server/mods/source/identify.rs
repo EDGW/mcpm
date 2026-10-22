@@ -3,7 +3,10 @@
 use anyhow::{Result, ensure};
 use clap::Args;
 
-use crate::commands::{mod_support::selection, source_support::identify};
+use crate::commands::{
+    mod_support::{scan_output::ScanOutput, selection},
+    source_support::identify,
+};
 
 use super::super::input::FileArgs;
 
@@ -22,7 +25,11 @@ pub(super) fn run(args: IdentifyArgs) -> Result<()> {
     let Some((server, selection)) = args.files.with_stdin()?.resolve()? else {
         return Ok(());
     };
-    let (paths, failed) = selection::resolve_paths(selection, server.scope(), server.loaders())?;
+    let output = ScanOutput::default();
+    let (paths, failed) =
+        selection::resolve_paths(selection, server.scope(), server.loaders(), |event| {
+            output.event(event)
+        })?;
     if !paths.is_empty() {
         identify::run_paths(args.options, paths)?;
     }
