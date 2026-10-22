@@ -8,7 +8,7 @@ remote never parses command-line arguments or business payloads.
 A **command ID** is a stable string such as `mod.list`, declared and registered
 by its command module. The client automatically generates a UUID v4 for each
 invocation session (**request GUID**) to correlate all its replies. Concurrent
-invocations of the same command ID have different GUIDs. `mod.list` and `mod.source.identify` are currently registered.
+invocations of the same command ID have different GUIDs. `mod.list`, `mod.info`, `mod.deps` and `mod.source.identify` are currently registered.
 
 ```json
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","command":"mod.list","contents":{"paths":["mods/"],"loaders":["fabric"]}}
@@ -30,7 +30,7 @@ immediately. Stdout is protocol-only; normal logs use a dedicated subscription. 
 Wait for ready before submitting:
 
 ```json
-{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":2,"commands":["mod.list","mod.source.identify"],"max_concurrency":8}}
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info","mod.list","mod.source.identify"],"max_concurrency":8}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"count","count":0}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"done","success":true}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"finished","contents":null}
@@ -65,7 +65,7 @@ The last 256 startup records are buffered before subscription; expired records
 produce a count warning. After stdin EOF, commands drain, logs drain, the log
 GUID receives finished, then the connection receives closed. Console logs wait
 until a full-screen TUI closes; file logging continues immediately. Protocol
-version 2 requires updating both client and server.
+version 3 requires updating both client and server.
 
 Remote decodes global errors rather than delivering them as command data:
 
@@ -117,6 +117,67 @@ failure) and message. All declarations/loaders/nested JARs for a file stay toget
 Invalid arguments emit business error then done false, followed by remote finished.
 Remote knows none of these business event names.
 
+## Mod info and deps contents
+
+`mod.info` and `mod.deps` share inspection acquisition and the same structured schema:
+
+```json
+{"directory":"/srv/mods","loaders":["fabric"],"selection":{"queries":[{"kind":"file","value":"example.jar"},{"kind":"modid","value":"nested_mod"}]}}
+```
+
+Optional positive `parallelism` defaults to 10. It bounds file reads for `--all`
+and lazy name/ID directory indexing. Independent file queries remain sequential.
+
+All fields are optional. Directory defaults to `.`, loaders to all builtins,
+and selection to no inputs (successful empty result). Query kinds are `auto`,
+`file`, `modid`, `name`; their order and duplicates are preserved. Values must
+be UTF-8. `auto` tries filename, exact ID, then exact name. `selection.all: true`
+scans the directory and cannot be combined with queries. Relative files are
+resolved against directory on the remote host; directories are not file inputs.
+A name/ID match selects its owning archive and descendants, retaining sibling
+declarations in that archive. Stdin never enters the remote command parser.
+
+Each uncached file read or directory scan emits `scan` progress. A scan starts
+with completed=0 and its total, followed by one increment per completion; failed,
+unrecognized and cached directory entries all count. Empty scans emit 0/0 once.
+Cache hits for individual files and already-built indexes emit no scan events.
+The next scan can start only after the previous one reaches its total. Progress
+arrives during parsing, before selected file results; clients validate the sequence
+and display progress based on local stderr TTY detection.
+
+Acquisition emits `scan`, `file` and `error` events, then exactly one `done`.
+Diagnostics may arrive during a scan; selected files follow scan completion:
+
+```json
+{"event":"scan","completed":0,"total":1}
+{"event":"scan","completed":1,"total":1}
+{"event":"file","index":0,"file":{"path":"/srv/mods/example.jar","filename":"example.jar","enabled":true,"metadata":[{"loader":"fabric","loader_name":"Fabric","records":[{"info":{"modid":"example","name":"Example","version":"1.0","dependencies":[]},"source":[]}]}],"failed_loaders":[]}}
+{"event":"error","error":{"message":"inspection failed","causes":["underlying cause"]}}
+{"event":"done","files":1,"failed":1,"ignored":0}
+```
+
+File indices start at zero and increase by one. Done.files must equal the number
+of file events. Records contain typed mod declarations and archive-member source
+chains; they already reflect query subtree selection. Paths and filenames belong
+to the remote platform and are never read by the client. Styling and path display
+options remain local. Partial loader failures retain successful metadata and
+failed loader IDs; error chains are separate events. Info omits files without
+metadata; deps can present their incomplete identification state.
+
+Done.failed counts unique scanned files with failures plus failed selections;
+repeated failed file queries share scan failures. Name/ID indexing can discover
+failures in other directory entries. Done.ignored counts unrecognized files skipped
+by loader filtering. Without filtering these are errors. Input and identification
+errors do not stop later queries. Argument errors emit error then done with
+files=0, failed=1, ignored=0. Business failures are followed by finished.
+Execution failures (including worker or consumer failures) terminate acquisition
+and propagate to the caller; remote handlers use a global error without business
+done or finished. Cancellation uses the global cancelled status and can leave
+partial results. Cancellation is checked between queries,
+selected files and directory scan completions. The client validates indices,
+completion counts, diagnostics/failure agreement and lifecycle before final success.
+Protocol version 3 requires updating both endpoints.
+
 ## mod.source.identify contents
 
 Source identify registers `mod.source.identify`, which **only computes file summaries**. Its CLI and mod-list TUI share one local provider scheduler. Generic Remote/SSH code never decodes these contents.
@@ -156,7 +217,7 @@ to decode payloads. Remote selects only handshake/global-error types and never
 interprets business fields. Handlers use checkpoint for cancellation.
 
 SSH lives in shared `src/ssh/`. `--ssh` and `--ssh-mcpm` are top-level global options,
-accepted before/after subcommands. Mod list TUI/Console/Raw and mod source identify use
+accepted before/after subcommands. Mod list TUI/Console/Raw, mod info/deps Console/Raw and mod source identify use
 them; other commands explicitly reject them. ssh-mcpm requires ssh and defaults
 to mcpm on the remote PATH. There is no legacy mod list --remote entry point.
 

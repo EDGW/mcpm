@@ -30,7 +30,7 @@ mcpm --raw mod list mods/ -C MF > mods.tsv
 
 ## 全局选项
 
-`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，目前仅 `mod list` 支持使用。详见 [Remote 会话](remote.md)。
+`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，`mod list`、`mod info`、`mod deps` 和 `mod source identify` 支持使用。详见 [Remote 会话](remote.md)。
 
 ```text
 mcpm [OPTIONS] <COMMAND>
