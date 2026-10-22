@@ -16,6 +16,8 @@ Help 依次将选项分为全局参数（Global options）、模式参数（Mode
 
 仅 TUI 会自动按列表顺序识别外层 JAR：每个文件查询 Modrinth，并通过 Curse.tools 查询 CurseForge。默认最多同时执行 10 个平台反查请求，期间仍可操作列表；`--identify-parallelism <COUNT>` 指定正整数并行度，设为 `1` 则顺序识别。Index 下方的第一位对应 Modrinth，第二位对应 CurseForge；识别时显示加载动画，验证匹配后显示平台色勾选。Details 中各平台占两行：首行显示状态，成功时的 Project ID 和 File ID 使用 dimmed；第二行在匹配成功时显示英文入口 `Enter to view release files →`，否则说明不可用原因。两行作为一个字段整体选择；复制仍包含文件名、匹配类型和大小等完整结果。单次请求失败后继续处理其他文件，退出 TUI 会取消剩余请求。重复文件路径共享识别结果。嵌套 JAR 不参与识别，也不会继承外层文件的成功标记。Console 和 Raw 不执行远程识别。
 
+识别期间，Filter 与 Details 之间显示 Identification 进度卡片，按已完成的平台查询数推进；无匹配和失败也计为完成，所有查询结束后自动隐藏。
+
 在 Details 中选中已识别成功的 Modrinth 或 CurseForge 字段，按 Enter 进入该项目的 files，自动将识别到的版本置顶为 `Selected`。命令行的 `--loader/--loaders` 筛选会一并传递，多选按任意匹配；未指定时不限制 loader。Esc 或 q 返回原列表，保留选中行、Details 字段和筛选条件。加载时可按 Esc 取消；请求失败会返回列表并显示错误。尚未匹配的来源和嵌套 JAR 不提供此入口。
 
 平台颜色从 `~/.mcpm/source_colors.toml` 读取，缺失项使用 `mcpm/config/source_colors.toml` 默认值。`source_colors.tui` 和 `source_colors.console` 表包含 `modrinth`、`curseforge` 的颜色；这些颜色不属于 `mcpm customize` 编辑项。

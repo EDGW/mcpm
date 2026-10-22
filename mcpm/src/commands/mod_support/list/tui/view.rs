@@ -11,10 +11,10 @@ use crate::theme::{
 };
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
     style::Style,
     text::{Line, Span, Text},
-    widgets::{Cell, ListItem, Padding, Paragraph, Row as TableRow, Wrap},
+    widgets::{Cell, Gauge, ListItem, Padding, Paragraph, Row as TableRow, Wrap},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -30,11 +30,14 @@ pub(super) fn draw(
     columns: &[Column],
     summary: &Summary<'_>,
 ) -> usize {
+    let identification = browser.identification_progress();
+    let filter_height = if browser.filter_open { 3 } else { 0 };
+    let identification_height = if identification.is_some() { 3 } else { 0 };
     let layout = BrowserLayout::new(
         frame.area(),
         browser.details || browser.ignored,
         browser.focus == Focus::Details,
-        if browser.filter_open { 3 } else { 0 },
+        filter_height + identification_height,
         0,
         10,
     );
@@ -64,8 +67,16 @@ pub(super) fn draw(
         draw_details(frame, layout.details, browser, summary);
         page = layout.details.height.saturating_sub(2).max(1) as usize;
     } else {
-        if layout.accessory.height > 0 {
-            draw_filter(frame, layout.accessory, browser);
+        let [filter, progress] = Layout::vertical([
+            Constraint::Length(filter_height),
+            Constraint::Length(identification_height),
+        ])
+        .areas(layout.accessory);
+        if filter.height > 0 {
+            draw_filter(frame, filter, browser);
+        }
+        if let Some((completed, total)) = identification {
+            draw_identification(frame, progress, completed, total);
         }
         page = draw_table(frame, layout.table, browser, columns);
         if layout.details.height > 0 {
@@ -113,6 +124,17 @@ pub(super) fn draw(
     .collect::<Vec<_>>();
     frame.render_widget(Paragraph::new(lines), footer);
     page
+}
+
+fn draw_identification(frame: &mut Frame, area: Rect, completed: usize, total: usize) {
+    frame.render_widget(
+        Gauge::default()
+            .block(panel(" Identification ", false).padding(Padding::horizontal(1)))
+            .gauge_style(style(Role::Primary))
+            .ratio(completed as f64 / total as f64)
+            .label(format!("{completed}/{total} lookups")),
+        area,
+    );
 }
 
 fn draw_filter(frame: &mut Frame, area: Rect, browser: &mut Browser) {

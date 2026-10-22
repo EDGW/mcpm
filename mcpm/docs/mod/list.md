@@ -29,7 +29,9 @@ all branches. `--expanded` starts with every branch open.
 In TUI mode, outer JARs are queued automatically in list order, with
 Modrinth and CurseForge (through Curse.tools) lookups for each file. Up to 10 provider lookups run concurrently by default while navigation remains
 available. `--identify-parallelism <COUNT>` sets a positive concurrency limit;
-use `1` for sequential identification. Below Index, the first position
+use `1` for sequential identification. An Identification progress card between
+Filter and Details shows completed provider lookups, including unmatched and
+failed results, and disappears when all lookups finish. Below Index, the first position
 belongs to Modrinth and the second to CurseForge: a spinner means identification
 is running, and a checkmark means a verified match. Details shows each provider's
 status in two-line entries. The first line shows the status and, on success,

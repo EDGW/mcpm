@@ -101,14 +101,17 @@ impl BrowserLayout {
                 accessory: Rect::default(),
             };
         }
-        let detail_height =
-            if content.height.saturating_sub(pinned) >= detail_height.saturating_add(6) {
-                detail_height
-            } else if details_focused {
-                content.height.min(detail_height)
-            } else {
-                0
-            };
+        let available = content
+            .height
+            .saturating_sub(pinned)
+            .saturating_sub(accessory);
+        let detail_height = if available >= detail_height.saturating_add(6) {
+            detail_height
+        } else if details_focused {
+            available.min(detail_height)
+        } else {
+            0
+        };
         let [pinned, table, accessory, details] = Layout::vertical([
             Constraint::Length(pinned),
             Constraint::Min(0),

@@ -240,6 +240,16 @@ impl Browser {
             self.identification[file][update.platform.index()] = update.state.clone();
         }
     }
+    fn identification_progress(&self) -> Option<(usize, usize)> {
+        let total = self.identification.len() * identify::Platform::ALL.len();
+        let completed = self
+            .identification
+            .iter()
+            .flatten()
+            .filter(|state| !matches!(state, identify::State::Queued | identify::State::Loading))
+            .count();
+        (completed < total).then_some((completed, total))
+    }
     fn spinner(&self) -> String {
         indicatif::ProgressStyle::default_spinner()
             .get_tick_str(self.tick)
