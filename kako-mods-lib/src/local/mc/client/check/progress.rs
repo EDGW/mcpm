@@ -1,3 +1,5 @@
+//! Resource check progress snapshots and synchronous observer notifications.
+
 use std::path::PathBuf;
 
 use super::{CheckReport, CheckTarget, CheckedFile, FileCheckStatus};
@@ -68,6 +70,22 @@ pub(super) struct Progress<'a> {
     inventory_complete: bool,
     completed_steps: usize,
     total_steps: usize,
+}
+
+impl std::fmt::Debug for Progress<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Progress")
+            .field("plan", &self.plan)
+            .field("cursor", &self.cursor)
+            .field("step", &self.step)
+            .field("step_active", &self.step_active)
+            .field("step_totals", &self.step_totals)
+            .field("step_done", &self.step_done)
+            .field("inventory_complete", &self.inventory_complete)
+            .field("completed_steps", &self.completed_steps)
+            .field("total_steps", &self.total_steps)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> Progress<'a> {

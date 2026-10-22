@@ -125,19 +125,19 @@ fn murmur2(bytes: &[u8]) -> Result<u32> {
     Ok(hash)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Matches {
     exact_matches: Vec<Match>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Match {
     id: u32,
     file: MatchedFile,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct MatchedFile {
     id: u32,

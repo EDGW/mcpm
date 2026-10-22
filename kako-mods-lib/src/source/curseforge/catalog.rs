@@ -34,7 +34,7 @@ impl CurseForgeSource {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct GameVersion {
     version_string: String,

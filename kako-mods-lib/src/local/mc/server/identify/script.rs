@@ -14,7 +14,7 @@ use std::{
 };
 use thiserror::Error;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct State {
     cwd: PathBuf,
     cwd_known: bool,
@@ -27,7 +27,7 @@ struct State {
 }
 
 /// Independent command evidence and diagnostics; one failure never erases earlier launches.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(super) struct ScriptEvidence {
     pub launches: Vec<ServerLaunch>,
     pub diagnostics: Vec<anyhow::Error>,

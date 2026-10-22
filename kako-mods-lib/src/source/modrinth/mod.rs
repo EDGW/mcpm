@@ -18,7 +18,7 @@ mod files;
 mod identify;
 
 /// A configured Modrinth v2 API endpoint and its source identity.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ModrinthSource {
     id: SourceId,
     client: Client,

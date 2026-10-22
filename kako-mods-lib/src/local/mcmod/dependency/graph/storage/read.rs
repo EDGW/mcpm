@@ -23,12 +23,12 @@ use super::{
 };
 
 // Read the version before interpreting the rest of the version-specific schema.
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct VersionHeader {
     format_version: u64,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct Snapshot {
     format_version: u64,
@@ -36,7 +36,7 @@ struct Snapshot {
     nodes: Vec<Node>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct Identifier {
     loader: String,
@@ -49,14 +49,14 @@ impl Identifier {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct Node {
     identifier: Identifier,
     candidates: Vec<Candidate>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Candidate {
     External {
@@ -73,7 +73,7 @@ enum Candidate {
     },
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct ModIdentity {
     name: String,
@@ -81,7 +81,7 @@ struct ModIdentity {
     version: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct Edge {
     target: Identifier,

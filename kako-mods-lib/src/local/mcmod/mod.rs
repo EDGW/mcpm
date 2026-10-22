@@ -31,6 +31,14 @@ pub struct ModEntry {
 }
 
 impl ModEntry {
+    /// Restores an entry whose filename was parsed separately from its path.
+    ///
+    /// This preserves foreign-platform paths without interpreting them using the
+    /// current platform's separators. Neither component is read from disk.
+    pub fn from_parts(path: PathBuf, name: ModEntryName) -> Self {
+        Self { path, name }
+    }
+
     /// Creates a mod entry by parsing the filename in the supplied path.
     ///
     /// This does not check whether the file exists.
@@ -59,6 +67,11 @@ impl ModEntry {
     /// Returns the filename with its `.jar` or `.jar.disabled` suffix removed.
     pub fn name(&self) -> &str {
         self.name.name()
+    }
+
+    /// Returns the parsed filename, including its enabled/disabled suffix.
+    pub fn filename(&self) -> &str {
+        &self.name.filename
     }
 
     /// Returns whether the mod is enabled, as indicated by its filename suffix.

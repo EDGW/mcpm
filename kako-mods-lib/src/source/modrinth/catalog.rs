@@ -34,7 +34,7 @@ impl ModrinthSource {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct GameVersion {
     version: String,
 }

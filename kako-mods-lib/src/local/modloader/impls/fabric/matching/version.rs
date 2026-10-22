@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 
 use super::super::super::utils::dependency::lexical;
 
+#[derive(Debug)]
 pub(super) struct SemanticVersion<'a> {
     pub components: Vec<i32>,
     pub prerelease: Option<&'a str>,

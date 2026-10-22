@@ -30,6 +30,17 @@ pub struct CurseForgeSource {
     api_key: Option<HeaderValue>,
 }
 
+impl std::fmt::Debug for CurseForgeSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CurseForgeSource")
+            .field("id", &self.id)
+            .field("client", &self.client)
+            .field("base_url", &self.base_url)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+
 impl CurseForgeSource {
     /// Uses the official API with the supplied key.
     pub fn new(id: SourceId, api_key: &str) -> Result<Self> {
