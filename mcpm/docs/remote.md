@@ -53,7 +53,9 @@ its local `--log-level` through a control message:
 
 This built-in subscription consumes no command slot and allows one unique non-nil
 GUID per connection. Records retain severity, target, fields and spans, including
-command invocation GUIDs. The local console filters by the selected level and
+command invocation GUIDs. Remote logs and remote error diagnostics are hidden
+on stderr unless the global `--remote-logs` option is present. This does not
+affect file logs or failure exit statuses. The local console also filters logs by the selected level and
 uses italic severity labels for remote events, without a prefix. Raw output,
 redirection and NO_COLOR disable styling. Forwarding retains at least debug for
 local file logs even with console logging off; trace is forwarded only when
@@ -137,7 +139,7 @@ Events use zero-based indices into the original paths. Duplicate physical paths 
 
 MurmurHash2 uses seed 1 and excludes TAB, LF, CR and SPACE; its field is null when not requested. Each path position has exactly one loading and one item, including failures. Items may arrive out of order. Done counts failures by original path position, followed by Remote's finished status. The client validates ranges, duplicates, completeness, failure totals and digest syntax. Invalid arguments, cancellation and handler failures use the common terminal error status; partial results may precede it.
 
-The local client queries Modrinth/CurseForge from summaries and verifies size and SHA-1, preserving primary/additional match semantics. Network egress, proxies and official API keys remain local; the remote host never queries providers. CLI output retains input order. Remote file failures use `remote error:`; local network failures use `error:`.
+The local client queries Modrinth/CurseForge from summaries and verifies size and SHA-1, preserving primary/additional match semantics. Network egress, proxies and official API keys remain local; the remote host never queries providers. CLI output retains input order. With `--remote-logs`, remote file failures use `remote error:`; local network failures use `error:` regardless of this option.
 
 SSH mod-list TUI requests summaries over its existing Session and shares the same local lookup pipeline. Identify parallelism bounds local file/provider requests together and remote file-summary reads separately. Exiting cancels local network tasks and unfinished remote acquisition without waiting for HTTP timeouts. Console and Raw lists do not automatically identify sources.
 
@@ -166,4 +168,5 @@ mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw mod list 'C:\mods'
 [Command reference](README.md) · [简体中文](../docs-zh/remote.md)
 
 Remote error payloads preserve `message` and ordered `causes` separately. The local
-frontend renders `remote error:` followed by indented `caused by:` entries.
+frontend renders `remote error:` followed by indented `caused by:` entries only
+with `--remote-logs`.

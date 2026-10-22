@@ -18,6 +18,9 @@ pub(crate) fn error(error: &anyhow::Error) {
 /// Render an already-recorded error while a caller suspends its progress display.
 pub(crate) fn display_error(error: &anyhow::Error) {
     let remote = error.chain().any(|cause| cause.is::<RemoteError>());
+    if remote && !crate::logging::remote_logs_enabled() {
+        return;
+    }
     for (depth, cause) in visible_chain(error).enumerate() {
         let indentation = if depth == 0 { "" } else { "  " };
         let label = if depth > 0 {

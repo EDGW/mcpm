@@ -64,7 +64,7 @@ ssh -T user@windows C:/mcpm.exe remote
 
 日志是 Remote 的连接级能力，不注册为业务命令，也不占用命令并发额度。同一连接只允许订阅一次，GUID 不能为零或与任何调用复用。日志保留级别、模块、字段和 span；命令 span 包含对应调用 GUID，允许追踪并行命令。
 
-终端按本地 `--log-level` 过滤，远端日志的 `INFO`、`DEBUG` 等级别标签采用斜体，不添加前缀。Raw、重定向或 `NO_COLOR` 下不输出样式。文件日志仍至少保留到 debug，因此即使终端为 off 也会传输 debug 日志；trace 仅在选择 trace 时传输，日志文件仍固定记录到 debug。远端也保留自己的日志文件。
+远端日志及远端错误诊断默认不在 stderr 显示，只有添加全局参数 `--remote-logs` 后才显示；文件日志和失败退出码不受影响。终端同时按本地 `--log-level` 过滤日志，远端日志的 `INFO`、`DEBUG` 等级别标签采用斜体，不添加前缀。Raw、重定向或 `NO_COLOR` 下不输出样式。文件日志仍至少保留到 debug，因此即使终端为 off 也会传输 debug 日志；trace 仅在选择 trace 时传输，日志文件仍固定记录到 debug。远端也保留自己的日志文件。
 
 订阅前缓存最近 256 条启动日志，超过上限时附带丢弃数量警告。关闭 stdin 后先排空命令，再排空日志，发送日志 GUID 的 finished，最后发送全零 GUID 的 closed。本地 TUI 打开期间延迟终端日志显示，关闭面板后输出；文件日志持续写入。当前协议版本为 2，调用方和远端需同时更新。
 
@@ -114,7 +114,7 @@ Remote 解码全局错误，不把它作为业务 contents 交给命令：
 
 每项加载完成立即发送 item，同时推进进度；必须恰好 count 条，index 对应原始输入位置，完整覆盖 `0..count`，每个索引恰好出现一次；各项允许乱序到达，调用方按索引恢复列表顺序。成功、失败、未识别均保留且仅保留一条记录；重复规范化路径共享扫描结果，但每个输入位置分别返回记录，空目录贡献零项，无法解析的输入路径贡献一条失败记录。文件失败不停止其他项，使 done.success 为 false。取消和传输异常可能使结果不完整。
 
-record 包含 path、name、enabled、status、metadata、errors。输入失败时 name/enabled 为 null；status 为 success、unrecognized、failed。metadata 包含 loader、mods 与递归 nested；errors 包含 loader（输入错误时为 null）、message 和按外层到根因排序的 causes 数组。本地用 `remote error:` 输出主错误，用缩进的 `caused by:` 逐层输出原因，不把整条错误链压成单行字符串。文件内多个声明、Loader、嵌套 JAR 和部分成功结果都保留在同一条记录中。
+record 包含 path、name、enabled、status、metadata、errors。输入失败时 name/enabled 为 null；status 为 success、unrecognized、failed。metadata 包含 loader、mods 与递归 nested；errors 包含 loader（输入错误时为 null）、message 和按外层到根因排序的 causes 数组。添加 `--remote-logs` 时，本地用 `remote error:` 输出主错误，用缩进的 `caused by:` 逐层输出原因，不把整条错误链压成单行字符串。文件内多个声明、Loader、嵌套 JAR 和部分成功结果都保留在同一条记录中。
 
 ## mod source identify 的 contents
 
@@ -138,7 +138,7 @@ Command ID 为 `mod.source.identify`，由 identify 模块注册，**只返回�
 
 MurmurHash2 使用 seed=1，忽略 TAB、LF、CR 和 SPACE；未请求时 murmur2 为 null。摘要成功、失败均保留每个原始输入位置。每个位置恰好经历一次 loading 和一次 item，item 可以乱序到达；done.failed 按原始路径位置计数，再由通用 Remote 发送 finished。接收端校验索引、重复项、完整性、失败总数和摘要格式。参数无效、取消、处理器异常通过通用 error 结束调用，允许保留部分结果。
 
-本地收到摘要后向 Modrinth / CurseForge 发起请求，验证返回文件的大小及 SHA-1，保留 primary/additional 语义。网络出口、代理和官方 API key 均属于本地，远端不访问平台。CLI 立即更新完成进度，但按输入顺序打印结果与逐项错误。远端读文件失败用 `remote error:`，本地网络查询失败用 `error:`。
+本地收到摘要后向 Modrinth / CurseForge 发起请求，验证返回文件的大小及 SHA-1，保留 primary/additional 语义。网络出口、代理和官方 API key 均属于本地，远端不访问平台。CLI 立即更新完成进度，但按输入顺序打印结果与逐项错误。远端读文件失败仅在指定 `--remote-logs` 时用 `remote error:` 输出，本地网络查询失败始终用 `error:` 输出。
 
 SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本地识别流程。`--identify-parallelism` 控制本地所有文件与平台合计的在途查询数，并传给远端控制摘要读取。退出 TUI 时取消本地网络任务和未完成的远端摘要调用，无需等待网络超时。Console 与 Raw 列表不自动识别来源。
 

@@ -39,6 +39,7 @@ fn main() -> ExitCode {
         cli.log_level,
         started,
         matches!(cli.command, cli::Command::Remote(_)),
+        cli.remote_logs,
     ) {
         diagnostics::error(&error);
         return ExitCode::FAILURE;

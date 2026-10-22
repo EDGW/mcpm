@@ -13,7 +13,7 @@ mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' mod source identify --sou
 
 `-p/--parallelism <COUNT>` must be positive and defaults to `10`, sharing the default with `mod list --identify-parallelism`. Completion immediately advances the stderr progress bar, using the mod-list style. Rows and per-file errors retain input order even when lookups finish out of order. Use `1` for sequential checks. Duplicate physical paths share a lookup but retain each original output position. `--raw` disables progress. Redirected stdout emits TSV; stderr independently controls progress visibility.
 
-Unmatched files produce `unmatched` rows, verified matches produce `matched` rows. Per-file read/request errors do not stop later inputs and result in a nonzero exit status. Errors preserve individual `caused by:` contexts; remote file errors use `remote error:` and local provider failures use `error:`.
+Unmatched files produce `unmatched` rows, verified matches produce `matched` rows. Per-file read/request errors do not stop later inputs and result in a nonzero exit status. Errors preserve individual `caused by:` contexts; remote file errors are displayed as `remote error:` only with the global `--remote-logs` option, and local provider failures use `error:` regardless of that option.
 
 Default columns are index, path, source, project, id, filename, size, role and status. Select columns with `--columns` or `-C`. Presentation options remain local.
 

@@ -43,6 +43,7 @@ mcpm [OPTIONS] <COMMAND>
 | --- | --- |
 | `--raw` | Force raw output: disable all TUI interaction, colors, terminal layout, progress indicators, and terminal-only hints. |
 | `--log-level LEVEL` | Diagnostic logging on stderr: off, error, warn (default), info, debug, trace. Available before or after subcommands. |
+| `--remote-logs` | Show remote logs and remote error diagnostics on stderr. Remote logs follow `--log-level`; hidden by default. |
 | `-h`, `--help` | Show help for the current command. |
 | `-V`, `--version` | Show the executable version at the top level. |
 
@@ -122,6 +123,9 @@ same file remains open across midnight. A UUID suffix resolves simultaneous-star
 filename collisions without overwriting existing logs. File logging records through `debug`
 (error, warn, info, debug), independently of `--log-level`, including when it is
 `off`. Files include timestamps, module targets and error chains, without colors.
+Remote logs and `remote error:` diagnostics are hidden on stderr by default.
+Enable the global `--remote-logs` option to display them; remote logs also follow
+`--log-level`. File logging and failure exit statuses are unaffected.
 Remote processes write logs under the remote user's home directory as well.
 Identity tokens and known credential arguments are redacted from command logs;
 environment variable values are not logged.

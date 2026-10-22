@@ -29,14 +29,25 @@ const REMOTE_TARGET: &str = "mcpm::remote_log";
 const DIAGNOSTIC_TARGET: &str = "mcpm::diagnostics";
 
 static LEVEL: OnceLock<LogLevel> = OnceLock::new();
+static REMOTE_LOGS: OnceLock<bool> = OnceLock::new();
 
 pub(crate) fn level() -> LogLevel {
     LEVEL.get().copied().unwrap_or(LogLevel::Warn)
 }
 
-pub(crate) fn init(level: LogLevel, started: SystemTime, remote: bool) -> Result<()> {
+pub(crate) fn remote_logs_enabled() -> bool {
+    REMOTE_LOGS.get().copied().unwrap_or(false)
+}
+
+pub(crate) fn init(
+    level: LogLevel,
+    started: SystemTime,
+    remote: bool,
+    remote_logs: bool,
+) -> Result<()> {
     let (file, path) = file::open(started)?;
     let _ = LEVEL.set(level);
+    let _ = REMOTE_LOGS.set(remote_logs);
     subscriber(level, writer::WriterFactory, file, remote)
         .try_init()
         .map_err(|error| anyhow::anyhow!("failed to initialize diagnostic logging: {error}"))?;
@@ -63,7 +74,10 @@ where
             level.filter()
         })
         // diagnostics renders its themed error chain separately on stderr.
-        .with_filter(filter_fn(|metadata| metadata.target() != DIAGNOSTIC_TARGET));
+        .with_filter(filter_fn(|metadata| {
+            metadata.target() != DIAGNOSTIC_TARGET
+                && (metadata.target() != REMOTE_TARGET || remote_logs_enabled())
+        }));
     let file = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_writer(Mutex::new(file))

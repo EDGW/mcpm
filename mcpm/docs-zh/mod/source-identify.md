@@ -13,7 +13,7 @@ mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' mod source identify --sou
 
 `-p/--parallelism <COUNT>` 必须为正整数，默认 `10`，与 `mod list --identify-parallelism` 共用默认值。并发任务完成后立即推进 stderr 进度条，样式沿用 mod list；结果及逐项错误始终按输入顺序输出。`--parallelism 1` 顺序检查。重复物理路径共享查询，但每个原始输入仍保留自己的输出位置。`--raw` 关闭进度条，stdout 重定向时结果使用 TSV，进度条是否显示由 stderr 的终端状态决定。
 
-未匹配输出 `unmatched`，匹配成功输出 `matched`。单项读取或请求失败不会阻止后续输入，错误保留逐级 `caused by:`，最终退出码为非零；远端读取错误标记为 `remote error:`，本地平台查询错误使用 `error:`。
+未匹配输出 `unmatched`，匹配成功输出 `matched`。单项读取或请求失败不会阻止后续输入，错误保留逐级 `caused by:`，最终退出码为非零；远端读取错误仅在指定全局参数 `--remote-logs` 时显示，标记为 `remote error:`；本地平台查询错误始终使用 `error:` 输出。
 
 默认列为 index、path、source、project、id、filename、size、role、status；使用 `--columns` 或 `-C` 选择列。展示选项留在本地，不作为远端命令参数。
 

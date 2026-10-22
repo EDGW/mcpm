@@ -39,6 +39,7 @@ mcpm [OPTIONS] <COMMAND>
 | 选项 | 说明 |
 | --- | --- |
 | `--raw` | 将输出流视为非终端：禁用颜色、终端排版、进度指示和仅终端可见的提示。 |
+| `--remote-logs` | 在 stderr 显示远端日志及远端错误诊断，默认隐藏；远端日志同时遵循 `--log-level`。 |
 | `-h`、`--help` | 显示当前命令的帮助。 |
 | `-V`、`--version` | 在顶层显示程序版本。 |
 
@@ -103,5 +104,6 @@ mcpm client launch 1.18.1 --no-logging-config --log-level debug
 日期和时间取程序启动时的本地时间，文件名兼容 Windows。同一时刻启动的进程在文件名冲突时追加 UUID，避免覆盖；跨午夜后继续写入同一文件。
 文件固定记录到 `debug`（包括 error、warn、info、debug），独立于 `--log-level`；
 即使 `--log-level off` 也会保留文件日志。文件包含时间戳、模块和错误链，不含颜色。
+远端日志和 `remote error:` 诊断默认不在 stderr 显示，添加全局参数 `--remote-logs` 后才显示；远端日志同时遵循 `--log-level`。文件日志和失败退出码不受此开关影响。
 Remote 进程同样在远端用户的主目录保存日志。
 启动命令日志对身份 token 和已知凭据参数脱敏，不记录环境变量的值。
