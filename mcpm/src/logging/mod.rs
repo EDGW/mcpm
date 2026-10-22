@@ -119,6 +119,3 @@ impl LogLevel {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

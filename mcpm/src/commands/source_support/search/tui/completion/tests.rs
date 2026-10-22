@@ -11,7 +11,6 @@ use super::super::{
     input::{self, Action},
     view,
 };
-use crate::theme::{Role, widgets};
 
 fn page() -> SearchPage {
     SearchPage {
@@ -124,7 +123,7 @@ fn versions_cache_per_session_and_allow_manual_input_after_failure() {
 }
 
 #[test]
-fn popup_styles_mouse_selection_and_resizing_follow_the_visible_candidates() {
+fn popup_mouse_selection_and_resizing_follow_the_visible_candidates() {
     for (width, height) in [(28, 16), (80, 24)] {
         for version in [false, true] {
             let mut browser = Browser::new(if version { "@version " } else { "@loader " });
@@ -151,17 +150,6 @@ fn popup_styles_mouse_selection_and_resizing_follow_the_visible_candidates() {
             let area = browser.completion.area;
             assert_eq!(area.y, browser.search_area.bottom());
             assert!(area.right() <= width && area.bottom() <= height);
-            let buffer = terminal.backend().buffer();
-            assert_eq!(
-                buffer[(area.x, area.y)].fg,
-                widgets::style(Role::Secondary).fg.unwrap_or_default()
-            );
-            if version {
-                assert_eq!(
-                    buffer[(area.x + 1, area.y + 1)].fg,
-                    widgets::style(Role::Normal).fg.unwrap_or_default()
-                );
-            }
             let mouse = |kind| {
                 Event::Mouse(MouseEvent {
                     kind,

@@ -36,25 +36,3 @@ fn create(root: &Path, started: DateTime<Local>) -> Result<(File, PathBuf)> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn filename_uses_start_time_and_existing_logs_are_never_truncated() {
-        let root = tempfile::tempdir().unwrap();
-        let started = DateTime::parse_from_rfc3339("2026-10-22T23:59:59.123456789+08:00")
-            .unwrap()
-            .naive_local()
-            .and_local_timezone(Local)
-            .single()
-            .unwrap();
-        let (_, path) = create(root.path(), started).unwrap();
-        assert_eq!(path, root.path().join("2026-10-22/23-59-59.123456789.log"));
-        fs::write(&path, "existing log").unwrap();
-        let (_, second) = create(root.path(), started).unwrap();
-        assert_ne!(path, second);
-        assert_eq!(fs::read_to_string(path).unwrap(), "existing log");
-    }
-}

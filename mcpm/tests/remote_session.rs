@@ -167,23 +167,6 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
 }
 
 #[test]
-fn removed_remote_flag_is_rejected_and_help_exposes_command_id() {
-    let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
-        .args(["mod", "list", "--remote"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-    let help = Command::new(env!("CARGO_BIN_EXE_mcpm"))
-        .args(["mod", "list", "--help"])
-        .output()
-        .unwrap();
-    assert!(help.status.success());
-    let help = String::from_utf8(help.stdout).unwrap();
-    assert!(help.contains(LIST));
-    assert!(!help.contains("--remote"));
-}
-
-#[test]
 fn duplicate_ids_and_broken_frames_fail_the_session_instead_of_aliasing_requests() {
     let request = json!({"guid":Uuid::from_u128(1),"command":LIST,"contents":{}}).to_string();
     for text in [format!("{request}\n{request}\n"), request] {

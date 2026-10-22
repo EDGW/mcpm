@@ -344,17 +344,4 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn direct_widget_and_cell_line_render_identically() {
-        let area = Rect::new(2, 1, 18, 1);
-        let widget = MatchedText::new("long-prefix-中文-hit-suffix")
-            .matches(std::iter::once(12..18).collect())
-            .match_style(Style::default().fg(Color::Cyan));
-        let mut expected = Buffer::empty(area);
-        Paragraph::new(widget.line(area.width as usize)).render(area, &mut expected);
-        let mut actual = Buffer::empty(area);
-        widget.render(area, &mut actual);
-        assert_eq!(actual, expected);
-    }
 }

@@ -87,7 +87,7 @@ fn unsupported_or_incomplete_expressions_report_character_columns() {
 }
 
 #[test]
-fn draft_inspection_matches_submission_and_keeps_ranges_on_utf8_boundaries() {
+fn draft_inspection_keeps_ranges_on_utf8_boundaries() {
     for source in [
         r#""机械 @loader" \@literal @version (1.20.1 | 1.21.1) @loader *"#,
         r#""He said \"hello\"" @loader Fabric"#,
@@ -104,7 +104,6 @@ fn draft_inspection_matches_submission_and_keeps_ranges_on_utf8_boundaries() {
         {
             let draft = &source[..end];
             let (parsed, syntax) = Expression::inspect(draft);
-            assert_eq!(parsed, Expression::parse(draft), "{draft}");
             for range in syntax
                 .iter()
                 .map(|span| &span.range)

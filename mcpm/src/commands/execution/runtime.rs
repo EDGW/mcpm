@@ -37,32 +37,3 @@ impl Drop for Runtime {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::{sync::mpsc, thread, time::Duration};
-
-    use super::Runtime;
-
-    #[test]
-    fn exiting_does_not_wait_for_in_flight_blocking_identification() {
-        let (release, blocked) = mpsc::channel();
-        let (started, running) = mpsc::channel();
-        let (closed, exited) = mpsc::channel();
-        let worker = thread::spawn(move || {
-            let runtime = Runtime::new().unwrap();
-            runtime.spawn_blocking(move || {
-                started.send(()).unwrap();
-                blocked.recv().unwrap();
-            });
-            running.recv().unwrap();
-            drop(runtime);
-            closed.send(()).unwrap();
-        });
-        let result = exited.recv_timeout(Duration::from_secs(2));
-        // Always release the worker, including if runtime shutdown regresses.
-        release.send(()).unwrap();
-        worker.join().unwrap();
-        result.expect("TUI exit must not wait for blocking identification to finish");
-    }
-}

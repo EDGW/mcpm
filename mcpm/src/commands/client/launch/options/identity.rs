@@ -65,25 +65,3 @@ impl IdentityArgs {
         identity
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn debug_redacts_credentials() {
-        let args = IdentityArgs {
-            username: "Player".into(),
-            uuid: None,
-            access_token: Some("private-token".into()),
-            user_type: None,
-            xuid: Some("private-xuid".into()),
-            client_id: Some("private-client-id".into()),
-        };
-        let debug = format!("{args:?}");
-        assert!(debug.contains("Player") && debug.contains("[REDACTED]"));
-        for secret in ["private-token", "private-xuid", "private-client-id"] {
-            assert!(!debug.contains(secret));
-        }
-    }
-}

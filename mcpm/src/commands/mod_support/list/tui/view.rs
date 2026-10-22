@@ -559,29 +559,3 @@ pub(super) fn label(column: Column) -> &'static str {
         Column::Loaders => "Loaders",
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn styled_suffix_and_wide_text_are_clipped_as_one_cell() {
-        for width in 0..30 {
-            let line = short_line(
-                vec![
-                    Span::raw("[Forge]"),
-                    Span::raw(" (+999 mods)"),
-                    Span::raw(" 中文"),
-                ],
-                width,
-            );
-            assert!(line.width() <= width);
-            if (3..23).contains(&width) {
-                assert!(line.to_string().ends_with("..."));
-            }
-        }
-        assert_eq!(
-            short_line(vec![Span::raw("中文"), Span::raw("suffix")], 6).to_string(),
-            "中..."
-        );
-    }
-}

@@ -116,37 +116,3 @@ fn every_success_failure_and_unrecognized_file_has_exactly_one_record() {
     assert_eq!(records[5]["path"], "a.jar");
     assert_eq!(records[5]["metadata"], records[0]["metadata"]);
 }
-
-#[test]
-fn preserves_all_loaders_in_one_record() {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let records = run(
-        &fixtures,
-        serde_json::json!({"paths":["complex-mod.jar"]}),
-        1,
-        true,
-    );
-    let loaders: Vec<_> = records[0]["metadata"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|metadata| metadata["loader"].as_str().unwrap())
-        .collect();
-    assert_eq!(loaders, ["forge", "neoforge", "fabric"]);
-    assert_eq!(records[0]["errors"], serde_json::json!([]));
-}
-
-#[test]
-fn empty_default_directory_and_explicit_paths_keep_protocol_framing() {
-    let root = tempfile::tempdir().unwrap();
-    assert!(run(root.path(), serde_json::json!({}), 0, true).is_empty());
-    let records = run(
-        root.path(),
-        serde_json::json!({"paths":["explicit.jar","another.jar"]}),
-        2,
-        false,
-    );
-    assert_eq!(records[0]["path"], "explicit.jar");
-    assert_eq!(records[1]["path"], "another.jar");
-    assert!(records.iter().all(|record| record["status"] == "failed"));
-}

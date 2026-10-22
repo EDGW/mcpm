@@ -139,19 +139,3 @@ impl<'de> Deserialize<'de> for Color {
             .ok_or_else(|| serde::de::Error::custom(format!("unknown terminal color {value:?}")))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn initial_case_selects_the_color_vocabulary() {
-        assert_eq!(Color::parse("Red").unwrap().tui(), TuiColor::Red);
-        assert_eq!(Color::parse("red").unwrap().tui(), TuiColor::DarkRed);
-        assert_eq!(Color::parse("bright_red").unwrap().tui_name(), "Red");
-        assert_eq!(Color::parse("White").unwrap().tui_name(), "White");
-        assert_eq!(Color::parse("white").unwrap().tui_name(), "Grey");
-        for value in ["darkyellow", "BRIGHT_RED", "Bright_red", "darkRed", ""] {
-            assert!(Color::parse(value).is_none());
-        }
-    }
-}

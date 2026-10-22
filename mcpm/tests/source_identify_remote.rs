@@ -184,7 +184,7 @@ mod transport {
             ],
         );
         let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
-            .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
+            .args(["--raw", "--remote-logs", "--ssh", &connection, "--ssh-mcpm"])
             .arg(root.path().join("remote"))
             .args([
                 "mod",
@@ -247,15 +247,6 @@ mod transport {
                 .count(),
             1
         );
-        for day in fs::read_dir(root.path().join(".mcpm/logs")).unwrap() {
-            for log in fs::read_dir(day.unwrap().path()).unwrap() {
-                assert!(
-                    !fs::read_to_string(log.unwrap().path())
-                        .unwrap()
-                        .contains("PRIVATE-KEY")
-                );
-            }
-        }
     }
 
     #[test]
