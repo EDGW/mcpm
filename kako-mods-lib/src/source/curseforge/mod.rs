@@ -152,8 +152,15 @@ impl Source for CurseForgeSource {
         self.fetch_game_versions().await
     }
 
-    async fn identify_file(&self, path: &std::path::Path) -> Result<Option<super::FileMatch>> {
-        self.identify_local_file(path).await
+    fn summary_requirements(&self) -> super::SummaryRequirements {
+        super::SummaryRequirements { murmur2: true }
+    }
+
+    async fn identify_summary(
+        &self,
+        summary: &super::FileSummary,
+    ) -> Result<Option<super::FileMatch>> {
+        self.identify_summary_file(summary).await
     }
 
     async fn search(&self, query: &SearchQuery) -> Result<SearchPage> {

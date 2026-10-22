@@ -1,27 +1,37 @@
 //! CurseForge fingerprint lookup with independent size and SHA-1 verification.
 
-use std::{fs::File, io::Read, path::Path};
-
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
-use sha1::{Digest, Sha1};
 
 use super::{CurseForgeSource, api};
-use crate::source::{FileHash, FileId, FileMatch, FileRef, MatchedFileRole, ProjectId, ProjectRef};
+use crate::source::{
+    FileHash, FileId, FileMatch, FileRef, FileSummary, MatchedFileRole, ProjectId, ProjectRef,
+};
 
 impl CurseForgeSource {
-    pub(super) async fn identify_local_file(&self, path: &Path) -> Result<Option<FileMatch>> {
-        let path = path.to_owned();
-        let (size, sha1, fingerprint) =
-            tokio::task::spawn_blocking(move || fingerprint_file(&path))
-                .await
-                .context("local file fingerprint task failed")??;
-        let response: api::Response<Matches> = self
+    pub(super) async fn identify_summary_file(
+        &self,
+        summary: &FileSummary,
+    ) -> Result<Option<FileMatch>> {
+        summary.validate()?;
+        let started = std::time::Instant::now();
+        tracing::debug!(
+            size = summary.size,
+            "Sending CurseForge identification request using file summary"
+        );
+        let size = summary.size;
+        let sha1 = &summary.sha1;
+        let fingerprint = summary
+            .murmur2
+            .context("CurseForge identification requires a MurmurHash2 fingerprint")?;
+        let response = self
             .request_with_method(reqwest::Method::POST, "fingerprints/432")?
             .json(&serde_json::json!({"fingerprints": [fingerprint]}))
             .send()
             .await
-            .context("CurseForge file identification failed")?
+            .context("CurseForge file identification failed")?;
+        tracing::debug!(status = %response.status(), elapsed_ms = started.elapsed().as_millis(), "Received CurseForge identification response");
+        let response: api::Response<Matches> = response
             .error_for_status()?
             .json()
             .await
@@ -66,63 +76,6 @@ impl CurseForgeSource {
         }
         Ok(matched)
     }
-}
-
-/// Hash raw bytes for verification and whitespace-filtered bytes for MurmurHash2.
-fn fingerprint_file(path: &Path) -> Result<(u64, String, u32)> {
-    let mut file =
-        File::open(path).with_context(|| format!("failed to open local file {path:?}"))?;
-    ensure!(
-        file.metadata()?.is_file(),
-        "local path must be a regular file"
-    );
-    let mut sha1 = Sha1::new();
-    let mut filtered = Vec::new();
-    let mut buffer = [0; 65536];
-    let mut size = 0;
-    loop {
-        let count = file
-            .read(&mut buffer)
-            .context("failed to read local file")?;
-        if count == 0 {
-            break;
-        }
-        size += count as u64;
-        sha1.update(&buffer[..count]);
-        filtered.extend(
-            buffer[..count]
-                .iter()
-                .copied()
-                .filter(|b| !matches!(b, 9 | 10 | 13 | 32)),
-        );
-    }
-    Ok((size, format!("{:x}", sha1.finalize()), murmur2(&filtered)?))
-}
-
-fn murmur2(bytes: &[u8]) -> Result<u32> {
-    const M: u32 = 0x5bd1e995;
-    let length = u32::try_from(bytes.len())
-        .context("local file exceeds the fingerprint algorithm's 32-bit length")?;
-    let mut hash = 1 ^ length;
-    let mut chunks = bytes.chunks_exact(4);
-    for chunk in &mut chunks {
-        let mut key = u32::from_le_bytes(chunk.try_into().expect("four-byte chunk"));
-        key = key.wrapping_mul(M);
-        key ^= key >> 24;
-        key = key.wrapping_mul(M);
-        hash = hash.wrapping_mul(M) ^ key;
-    }
-    let tail = chunks.remainder();
-    if !tail.is_empty() {
-        for (index, byte) in tail.iter().enumerate() {
-            hash ^= u32::from(*byte) << (8 * index);
-        }
-        hash = hash.wrapping_mul(M);
-    }
-    hash ^= hash >> 13;
-    hash = hash.wrapping_mul(M);
-    hash ^= hash >> 15;
-    Ok(hash)
 }
 
 #[derive(Deserialize, Debug)]
