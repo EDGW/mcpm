@@ -6,7 +6,9 @@ mod script;
 mod tokens;
 mod vanilla;
 
-use super::{MinecraftServerMetadata, ServerModLoader, ServerStartCommand};
+use super::{
+    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader, ServerStartCommand,
+};
 use crate::local::modloader::{LoaderId, ModLoaderMeta};
 use anyhow::{Context, Result};
 use std::{
@@ -142,7 +144,7 @@ fn identify_launch(
         {
             tracing::info!(loader = %loader.name(), minecraft_version = %identity.minecraft_version, loader_version = %identity.version, "identified server loader");
             recognized.push(MinecraftServerMetadata {
-                version: 1,
+                version: SERVER_METADATA_VERSION,
                 minecraft_version: identity.minecraft_version,
                 loader: Some(ServerModLoader {
                     loader_type: loader.id().to_string(),
@@ -172,7 +174,7 @@ fn identify_launch(
                 return Ok(None);
             };
             MinecraftServerMetadata {
-                version: 1,
+                version: SERVER_METADATA_VERSION,
                 minecraft_version: version,
                 loader: None,
                 start: None,

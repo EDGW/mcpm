@@ -30,7 +30,7 @@ mcpm --raw mod list mods/ -C MF > mods.tsv
 
 ## 全局选项
 
-`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，目前仅 `mod list` 支持使用。详见 [Remote 会话](remote.md)。
+`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，`mod list`、`mod info`、`mod deps`、`mod source identify`、`server init`、`server info` 和 `server mods list/info/deps/source search/files/identify` 支持使用。详见 [Remote 会话](remote.md)。
 
 ```text
 mcpm [OPTIONS] <COMMAND>
@@ -108,3 +108,5 @@ mcpm client launch 1.18.1 --no-logging-config --log-level debug
 远端日志和 `remote error:` 诊断默认不在 stderr 显示，添加全局参数 `--remote-logs` 后才显示；远端日志同时遵循 `--log-level`。文件日志和失败退出码不受此开关影响。
 Remote 进程同样在远端用户的主目录保存日志。
 启动命令日志对身份 token 和已知凭据参数脱敏，不记录环境变量的值。
+
+[服务器 Mod 检查与列表](server/mods.md)

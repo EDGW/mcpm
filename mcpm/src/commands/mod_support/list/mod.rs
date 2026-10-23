@@ -11,14 +11,13 @@ use kako_mods_lib::local::{
 };
 use thiserror::Error;
 
-use crate::commands::{
-    execution::DEFAULT_PARALLELISM, progress, source_support::identify::Location,
-};
-use crate::terminal;
+use crate::commands::{execution::DEFAULT_PARALLELISM, source_support::identify::Location};
+use crate::{progress, terminal};
 
 use super::{
     scan::ScanSession,
-    selection::{Resolver, Scope, SelectedFile, SelectionArgs},
+    scan_output::ScanOutput,
+    selection::{Scope, SelectedFile, Selection},
     source_path::PathArgs,
 };
 use columns::ColumnArgs;
@@ -27,7 +26,12 @@ use filter::Filter;
 mod columns;
 mod filter;
 mod output;
+pub(in crate::commands) mod protocol;
+mod records;
+pub(in crate::commands) mod remote_selection;
 mod rows;
+mod selection;
+pub(in crate::commands) mod ssh;
 mod tui;
 
 #[derive(Args, Debug)]
@@ -114,20 +118,24 @@ pub(in crate::commands) fn run(
         "Local mod list input discovery completed"
     );
 
-    let mut session = ScanSession::new(loaders).with_parallelism(parallelism);
+    drop(progress);
+    let output = ScanOutput::default();
+    let observe = |event| output.event(event);
+    let mut session = ScanSession::new(loaders)
+        .with_parallelism(parallelism)
+        .with_observer(&observe);
     let paths: Vec<_> = entries
         .into_iter()
         .map(|entry| entry.path().to_owned())
         .collect();
     let files = session
-        .collect(&paths, &progress)?
+        .collect(&paths)?
         .into_iter()
         .map(|scanned| SelectedFile {
             scanned,
             records: None,
         })
         .collect::<Vec<_>>();
-    drop(progress);
     tracing::debug!(
         files = files.len(),
         failed = session.failed_count(),
@@ -148,42 +156,33 @@ pub(in crate::commands) fn run(
 
 /// Resolves server list queries through the same lazy indexes as info/deps.
 pub(in crate::commands) fn run_selection(
-    selection: SelectionArgs,
+    selection: Selection,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     parallelism: usize,
     args: ListDisplayArgs,
 ) -> Result<()> {
     let source_loaders = source_loaders(&loaders, true);
-    let mut resolver = Resolver::new(
-        ScanSession::new(loaders).with_parallelism(parallelism),
-        scope,
-    );
+    let output = ScanOutput::default();
     let mut files = Vec::new();
-    let mut input_errors = 0;
-    let queries = match selection.into_queries() {
-        Some(queries) if !queries.is_empty() => queries.into_iter().map(Some).collect(),
-        _ => vec![None],
-    };
-    for query in queries {
-        let result = match query {
-            Some(query) => resolver.resolve_list(query),
-            None => resolver.all(),
-        };
-        match result {
-            Ok(selected) => files.extend(selected),
-            Err(error) => {
-                crate::diagnostics::error(&error);
-                input_errors += 1;
-            }
-        }
-    }
+    let counts = selection::load(
+        selection,
+        scope,
+        loaders,
+        parallelism,
+        || Ok(()),
+        |event| output.event(event),
+        |file| {
+            files.push(file);
+            Ok(())
+        },
+    )?;
     present(
         files,
         true,
         args,
-        input_errors,
-        resolver.scan.failed_count(),
+        counts.input_errors,
+        counts.failed,
         source_loaders,
         Location::Local,
     )

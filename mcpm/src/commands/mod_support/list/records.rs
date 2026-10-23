@@ -14,10 +14,10 @@ use crate::commands::mod_support::{
     selection::SelectedFile,
 };
 
-use super::super::remote::protocol::{Metadata, Record, Status};
+use super::protocol::{Metadata, Record, Status};
 
 #[derive(Debug)]
-pub(super) struct Loaded {
+pub(in crate::commands::mod_support::list) struct Loaded {
     pub files: Vec<SelectedFile>,
     pub input_errors: usize,
     pub failed: usize,
@@ -30,7 +30,10 @@ impl Loaded {
 }
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
-pub(super) fn convert(records: Vec<Record>) -> Result<Loaded> {
+pub(in crate::commands::mod_support::list) fn convert(
+    records: Vec<Record>,
+    report_errors: bool,
+) -> Result<Loaded> {
     tracing::debug!(count = records.len(), "Converting remote mod records");
     let mut loaded = Loaded {
         files: Vec::new(),
@@ -50,7 +53,9 @@ pub(super) fn convert(records: Vec<Record>) -> Result<Loaded> {
             let reason = format!("{source:#}");
             let diagnostic =
                 crate::diagnostics::RemoteError::wrap(source).context(record.path.clone());
-            crate::diagnostics::error(&diagnostic);
+            if report_errors {
+                crate::diagnostics::error(&diagnostic);
+            }
             if record.name.is_some() {
                 failures.push(FailedIdentification {
                     loader: loader(
@@ -89,6 +94,18 @@ pub(super) fn convert(records: Vec<Record>) -> Result<Loaded> {
             .into_iter()
             .map(metadata)
             .collect::<Result<_>>()?;
+        if let Some(keys) = &record.records {
+            ensure!(!keys.is_empty(), "empty selected declaration list");
+            for key in keys {
+                let meta = metadata
+                    .get(key.metadata)
+                    .context("invalid selected metadata index")?;
+                ensure!(
+                    key.record < crate::commands::mod_support::mod_records::collect(meta, "").len(),
+                    "invalid selected declaration index"
+                );
+            }
+        }
         if record.status == Status::Failed {
             loaded.failed += 1;
         }
@@ -97,7 +114,7 @@ pub(super) fn convert(records: Vec<Record>) -> Result<Loaded> {
                 file: ModFile { entry, metadata },
                 failures,
             }),
-            records: None,
+            records: record.records,
         });
     }
     tracing::debug!(

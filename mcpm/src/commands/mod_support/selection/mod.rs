@@ -7,20 +7,40 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use thiserror::Error;
 
 use super::{
     mod_records::{self, RecordKey},
-    scan::{ScanSession, ScannedFile},
+    scan::{DirectoryError, ScanSession, ScannedFile},
 };
 
 mod args;
+mod input;
 pub(in crate::commands) use args::{SelectionArgs, StdinArgs};
+pub(in crate::commands) use input::SelectionInput;
 mod paths;
 pub(in crate::commands) use paths::resolve_paths;
 
-#[derive(Clone, Copy, Debug)]
+/// Ordered business inputs, independent of CLI parsing and transport encoding.
+#[derive(Debug)]
+pub(in crate::commands) struct Selection {
+    queries: Vec<Query>,
+    all: bool,
+}
+
+impl Selection {
+    pub(in crate::commands::mod_support) fn into_queries(self) -> Option<Vec<Query>> {
+        (!self.all).then_some(self.queries)
+    }
+
+    pub(in crate::commands) fn is_empty(&self) -> bool {
+        !self.all && self.queries.is_empty()
+    }
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub(super) enum QueryKind {
     Auto,
     File,
@@ -95,16 +115,16 @@ type Index = HashMap<String, Vec<(Arc<ScannedFile>, RecordKey)>>;
 
 /// One query session owns its cache and initializes name/id indexes only on demand.
 #[derive(Debug)]
-pub(super) struct Resolver {
-    pub scan: ScanSession,
+pub(super) struct Resolver<'a> {
+    pub scan: ScanSession<'a>,
     scope: Scope,
     directory: Option<Vec<Arc<ScannedFile>>>,
     ids: Index,
     names: Index,
 }
 
-impl Resolver {
-    pub(super) fn new(scan: ScanSession, scope: Scope) -> Self {
+impl<'a> Resolver<'a> {
+    pub(super) fn new(scan: ScanSession<'a>, scope: Scope) -> Self {
         Self {
             scan,
             scope,
@@ -114,7 +134,7 @@ impl Resolver {
         }
     }
 
-    pub(super) fn all(&mut self) -> Result<Vec<SelectedFile>> {
+    pub(super) fn all(&mut self) -> std::result::Result<Vec<SelectedFile>, ResolveError> {
         self.ensure_index()?;
         Ok(self
             .directory
@@ -129,18 +149,31 @@ impl Resolver {
             .collect())
     }
 
-    pub(super) fn resolve(&mut self, query: Query) -> Result<Vec<SelectedFile>> {
+    pub(super) fn resolve(
+        &mut self,
+        query: Query,
+    ) -> std::result::Result<Vec<SelectedFile>, ResolveError> {
         self.resolve_query(query, false)
     }
 
     /// Lists also accept directories, while info/deps remain file inspections.
-    pub(super) fn resolve_list(&mut self, query: Query) -> Result<Vec<SelectedFile>> {
+    pub(super) fn resolve_list(
+        &mut self,
+        query: Query,
+    ) -> std::result::Result<Vec<SelectedFile>, ResolveError> {
         self.resolve_query(query, true)
     }
 
-    fn resolve_query(&mut self, query: Query, directories: bool) -> Result<Vec<SelectedFile>> {
+    fn resolve_query(
+        &mut self,
+        query: Query,
+        directories: bool,
+    ) -> std::result::Result<Vec<SelectedFile>, ResolveError> {
         if matches!(query.kind, QueryKind::Auto | QueryKind::File) {
-            let path = self.scope.file_path(Path::new(&query.value))?;
+            let path = self
+                .scope
+                .file_path(Path::new(&query.value))
+                .map_err(ResolveError::Input)?;
             let found = if matches!(query.kind, QueryKind::File) {
                 true
             } else {
@@ -148,7 +181,10 @@ impl Resolver {
                     Ok(_) => true,
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
                     Err(error) => {
-                        return Err(error).with_context(|| format!("failed to inspect {path:?}"));
+                        return Err(ResolveError::Input(
+                            anyhow::Error::new(error)
+                                .context(format!("failed to inspect {path:?}")),
+                        ));
                     }
                 }
             };
@@ -166,7 +202,8 @@ impl Resolver {
             if found {
                 return Ok(self
                     .scan
-                    .read(path, None)
+                    .read(path)
+                    .map_err(ResolveError::Execution)?
                     .into_iter()
                     .map(|scanned| SelectedFile {
                         scanned,
@@ -176,15 +213,24 @@ impl Resolver {
             }
         }
         self.ensure_index()?;
-        let value = query.value.to_str().ok_or(SelectionError::NonUtf8Query)?;
+        let value = query
+            .value
+            .to_str()
+            .ok_or(SelectionError::NonUtf8Query)
+            .map_err(|error| ResolveError::Input(error.into()))?;
         let matches = match query.kind {
             QueryKind::Auto => self.ids.get(value).or_else(|| self.names.get(value)),
             QueryKind::ModId => self.ids.get(value),
             QueryKind::Name => self.names.get(value),
             QueryKind::File => unreachable!(),
         }
-        .ok_or_else(|| SelectionError::NotFound {
-            value: query.value.clone(),
+        .ok_or_else(|| {
+            ResolveError::Input(
+                SelectionError::NotFound {
+                    value: query.value.clone(),
+                }
+                .into(),
+            )
         })?;
         let mut selected: Vec<SelectedFile> = Vec::new();
         for (file, key) in matches {
@@ -206,7 +252,7 @@ impl Resolver {
         Ok(selected)
     }
 
-    fn ensure_index(&mut self) -> Result<()> {
+    fn ensure_index(&mut self) -> std::result::Result<(), ResolveError> {
         if self.directory.is_some() {
             return Ok(());
         }
@@ -245,4 +291,22 @@ enum SelectionError {
         "mod file {path:?} must be relative to the server's mods directory without parent traversal"
     )]
     InvalidModPath { path: PathBuf },
+}
+
+/// Only input failures may be diagnosed and skipped; execution failures terminate acquisition.
+#[derive(Debug, Error)]
+pub(super) enum ResolveError {
+    #[error(transparent)]
+    Input(anyhow::Error),
+    #[error(transparent)]
+    Execution(anyhow::Error),
+}
+
+impl From<DirectoryError> for ResolveError {
+    fn from(error: DirectoryError) -> Self {
+        match error {
+            DirectoryError::Input(error) => Self::Input(error),
+            DirectoryError::Execution(error) => Self::Execution(error),
+        }
+    }
 }

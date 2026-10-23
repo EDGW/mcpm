@@ -185,11 +185,11 @@ fn statement(
     } else {
         path
     };
-    // Invocation arguments are empty: init does not accept arguments for the script.
+    // Shell invocation arguments are empty; batch %* is handled by the lexer.
     let line = if syntax == Syntax::Shell {
         line.strip_suffix(" \"$@\"").unwrap_or(line)
     } else {
-        line.strip_suffix(" %*").unwrap_or(line)
+        line
     };
     // Batch's conventional set "NAME=value" quotes encompass the assignment.
     let assignment = if syntax == Syntax::Batch && lower.starts_with("set ") {

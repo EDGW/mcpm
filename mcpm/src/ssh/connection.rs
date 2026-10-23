@@ -6,7 +6,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail, ensure};
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
-pub(super) fn command(source: &str) -> Result<Command> {
+pub(super) fn command(source: &str) -> Result<(Command, String)> {
     let words = shlex::split(source).context("invalid quoting in --ssh connection command")?;
     let executable = words.first().context("--ssh connection command is empty")?;
     ensure!(
@@ -67,7 +67,7 @@ pub(super) fn command(source: &str) -> Result<Command> {
         option_words = options.len(),
         "Parsed SSH connection and disabled PTY allocation"
     );
-    Ok(command)
+    Ok((command, destination.clone()))
 }
 
 #[cfg(test)]
@@ -76,8 +76,9 @@ mod tests {
 
     #[test]
     fn retains_option_values_and_forces_non_pty_after_connection_flags() {
-        let command =
+        let (command, destination) =
             command("ssh -4tt -i 'key with spaces' -p2222 -o RequestTTY=force user@host").unwrap();
+        assert_eq!(destination, "user@host");
         let args: Vec<_> = command
             .get_args()
             .map(|value| value.to_str().unwrap())

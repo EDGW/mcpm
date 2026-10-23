@@ -3,45 +3,31 @@
 use std::io::{self, Write};
 
 use super::super::dependency_output::{format_dependency, text};
-use super::super::mod_records::{self, RecordKey};
 use super::super::source_path;
 use crate::commands::output_style::OutputStyle;
 
-use kako_mods_lib::local::mcmod::{ModFile, ModStatus};
+use super::File;
 
-pub(super) fn write_info(
-    output: &mut impl Write,
-    file: &ModFile,
-    selected: Option<&[RecordKey]>,
-) -> io::Result<()> {
+pub(super) fn write_info(output: &mut impl Write, file: &File) -> io::Result<()> {
     let style = OutputStyle::new();
     writeln!(
         output,
         "{}",
-        style.muted(format!(
-            "File: {}",
-            text(&file.entry.path().display().to_string())
-        ))
+        style.muted(format!("File: {}", text(&file.path)))
     )?;
-    let status = match file.entry.status() {
-        ModStatus::Enabled => "enabled",
-        ModStatus::Disabled => "disabled",
-    };
+    let status = if file.enabled { "enabled" } else { "disabled" };
     writeln!(output, "{}", style.muted(format!("Status: {status}")))?;
 
-    for (metadata_index, metadata) in file.metadata.iter().enumerate() {
-        let records = mod_records::selected(metadata, metadata_index, "", selected);
-        if selected.is_some() && records.is_empty() {
-            continue;
-        }
+    for metadata in &file.metadata {
+        let records = &metadata.records;
         writeln!(
             output,
             "\n{}{}",
             style.muted("Loader: "),
-            style.loader(metadata.loader.id().as_str(), &text(metadata.loader.name()))
+            style.loader(&metadata.loader, &text(&metadata.loader_name))
         )?;
         for (index, record) in records.iter().enumerate() {
-            let info = record.info;
+            let info = &record.info;
             if index > 0 {
                 writeln!(output)?;
             }
@@ -67,7 +53,7 @@ pub(super) fn write_info(
                 output,
                 "{}{}",
                 style.muted("  Source: "),
-                source_path::full(file.entry.path(), &record.source, &style)
+                source_path::full(std::path::Path::new(&file.path), &record.source, &style)
             )?;
             if info.dependencies.is_empty() {
                 writeln!(output, "{}", style.muted("  Dependencies: none"))?;

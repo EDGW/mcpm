@@ -119,7 +119,7 @@ mod transport {
         let nil = "00000000-0000-0000-0000-000000000000";
         let command_id = "mod.list";
         let ready = format!(
-            "{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":2,\"commands\":[\"{command_id}\"],\"max_concurrency\":8}}}}\n"
+            "{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":3,\"commands\":[\"{command_id}\"],\"max_concurrency\":8}}}}\n"
         );
         for (body, status, message) in [
             (
@@ -206,7 +206,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             let remote = root.path().join("remote");
             let mut body = String::from("#!/bin/sh\n");
             body += &print(
-                json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":2,"commands":["mod.list"],"max_concurrency":8}}),
+                json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":3,"commands":["mod.list"],"max_concurrency":8}}),
                 "",
             );
             body += "IFS= read -r logs\nlog_guid=$(printf '%s' \"$logs\" | cut -d '\"' -f6)\n";

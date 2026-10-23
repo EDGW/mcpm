@@ -9,11 +9,11 @@ use crate::commands::mod_support::{inspect, loaders::LoaderArgs};
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Additional inputs are read from redirected stdin, one per line; --input sets their interpretation (default: filename, modid, then name matching)."
+    after_help = "Modes: Console (default in a terminal), Raw (--raw or redirected stdout). Remote: supported through mcpm remote (command ID: mod.info) and --ssh.\n\nAdditional inputs are read from redirected stdin, one per line; --input sets their interpretation (default: filename, modid, then name matching)."
 )]
 pub(super) struct InfoArgs {
     #[command(flatten)]
-    files: inspect::SelectionArgs,
+    files: crate::commands::mod_support::selection::SelectionArgs,
     #[command(flatten)]
     stdin: crate::commands::mod_support::selection::StdinArgs,
     /// Directory searched by modid/name and --all; relative filenames use this directory.
@@ -21,18 +21,18 @@ pub(super) struct InfoArgs {
     directory: PathBuf,
     #[command(flatten)]
     loaders: LoaderArgs,
+    #[command(flatten)]
+    loading: inspect::LoadingArgs,
 }
 
-pub(super) fn run(args: InfoArgs) -> Result<()> {
-    let selection = args.stdin.read(args.files)?;
-    if selection.is_empty() {
-        return inspect::prompt_for_input();
-    }
-    inspect::run(
+pub(super) fn run(args: InfoArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+    let selection = args.stdin.read(args.files)?.into_selection();
+    super::inspection::run(
         selection,
-        crate::commands::mod_support::selection::Scope::directory(args.directory),
-        args.loaders.select(),
-        args.loaders.is_filtered(),
+        args.directory,
+        args.loaders,
+        args.loading.parallelism(),
         inspect::Display::Info,
+        ssh,
     )
 }

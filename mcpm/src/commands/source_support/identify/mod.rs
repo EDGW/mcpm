@@ -47,6 +47,12 @@ pub(in crate::commands) struct IdentifyOptions {
     columns: columns::ColumnArgs,
 }
 
+impl IdentifyOptions {
+    pub(in crate::commands) fn parallelism(&self) -> usize {
+        self.parallelism.get()
+    }
+}
+
 impl std::fmt::Debug for IdentifyOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IdentifyOptions")
@@ -72,7 +78,7 @@ pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> 
         "provide file paths as arguments or one per stdin line"
     );
     let _span = tracing::info_span!("source_identify", source = "ssh").entered();
-    let mut session = crate::remote::client::Session::start(&mut ssh.command()?)?;
+    let mut session = ssh.connect()?;
     let result = present(args.options, paths, Some(&session));
     session.close()?;
     result
@@ -82,6 +88,22 @@ pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> 
 pub(in crate::commands) fn run_paths(options: IdentifyOptions, paths: Vec<PathBuf>) -> Result<()> {
     let _span = tracing::info_span!("source_identify", source = "local").entered();
     present(options, paths, None)
+}
+
+/// Identifies paths on the supplied host while retaining local provider requests and output.
+pub(in crate::commands) fn run_paths_at(
+    options: IdentifyOptions,
+    paths: Vec<PathBuf>,
+    location: Location<'_>,
+) -> Result<()> {
+    present(
+        options,
+        paths,
+        match location {
+            Location::Local => None,
+            Location::Remote(session) => Some(session),
+        },
+    )
 }
 
 fn present(
@@ -102,10 +124,8 @@ fn present(
     );
     tracing::debug!(?options, "Selected source identify options");
     let runtime = Runtime::new()?;
-    let progress = crate::commands::progress::Progress::new(
-        "Preparing file identification...",
-        "Identifying files",
-    );
+    let progress =
+        crate::progress::Progress::new("Preparing file identification...", "Identifying files");
     progress.set_total(paths.len());
     let columns = options.columns.selected();
     let source = SourceId(

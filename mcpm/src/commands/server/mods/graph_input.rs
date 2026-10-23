@@ -20,6 +20,7 @@ pub(super) struct ServerArgs {
 
 impl ServerArgs {
     pub(super) fn resolve(self) -> Result<(ServerMods, [ExternalCandidate; 2])> {
+        super::super::target::require_supported_local(&self.path, "server mods check/dep-graph")?;
         let source = ServerMods::load(self.path)?;
         let loader = source.container().loader();
         // Dependency ids follow each loader's metadata conventions.

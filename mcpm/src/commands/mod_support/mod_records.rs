@@ -6,7 +6,7 @@ use kako_mods_lib::local::{
 };
 
 /// Stable positions within collect() for one loader of one file.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub(in crate::commands) struct RecordKey {
     pub metadata: usize,
     pub record: usize,

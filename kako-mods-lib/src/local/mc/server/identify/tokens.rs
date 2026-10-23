@@ -97,6 +97,12 @@ pub(super) fn split(
             continue;
         }
         if syntax == Syntax::Batch && ch == '%' {
+            // Inspection supplies no script arguments. Preserve token/quote state:
+            // bare %* disappears, while quoted or embedded %* keeps its surroundings.
+            if chars.get(i + 1) == Some(&'*') {
+                i += 2;
+                continue;
+            }
             let tail: String = chars[i..].iter().collect();
             let (value, consumed) = if tail.to_ascii_lowercase().starts_with("%~dp0") {
                 (format!("{}/", script.parent().unwrap().display()), 5)

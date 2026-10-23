@@ -1,35 +1,30 @@
 //! SSH-backed list data acquisition, process cleanup and local presentation.
 
-use std::path::PathBuf;
-
 use anyhow::{Context, Result, bail};
 
 use crate::commands::mod_support::{list, loaders::LoaderArgs};
-use crate::remote::client::Session;
 
 use super::ListDisplayArgs;
-use crate::commands::progress::Progress;
+use crate::progress::Progress;
 use crate::ssh::SshArgs;
 
 mod read;
-mod records;
+use super::records;
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
-pub(super) fn run(
+pub(in crate::commands) fn run(
     ssh: SshArgs,
-    paths: Vec<PathBuf>,
+    command: &str,
+    contents: serde_json::Value,
     loaders: LoaderArgs,
-    parallelism: usize,
     display: ListDisplayArgs,
 ) -> Result<()> {
     let started = std::time::Instant::now();
     tracing::info!("Opening SSH data source for mod list");
-    let mut session =
-        Session::start(&mut ssh.command()?).context("failed to open SSH mcpm session")?;
+    let mut session = ssh.connect()?;
     let progress = Progress::new("Scanning mod directory...", "Identifying mods");
-    let (records, success) =
-        read::read(&session, request(paths, &loaders, parallelism)?, &progress)
-            .context("invalid remote mod list protocol")?;
+    let (records, success) = read::read(&session, command, contents, &progress)
+        .context("invalid remote mod list protocol")?;
     drop(progress);
     tracing::debug!(
         records = records.len(),
@@ -37,7 +32,7 @@ pub(super) fn run(
         elapsed_ms = started.elapsed().as_millis(),
         "Received SSH mod list data"
     );
-    let loaded = records::convert(records)?;
+    let loaded = records::convert(records, true)?;
     tracing::debug!(
         files = loaded.files.len(),
         input_errors = loaded.input_errors,
@@ -75,37 +70,4 @@ pub(super) fn run(
         "SSH mod list ended"
     );
     result
-}
-
-/// Adapt CLI selection to the independent remote argument schema at the frontend boundary.
-fn request(
-    paths: Vec<PathBuf>,
-    loaders: &LoaderArgs,
-    parallelism: usize,
-) -> Result<super::remote::Args> {
-    use super::remote::{Args, Loader};
-    let mut ids = if loaders.is_filtered() {
-        loaders
-            .select()
-            .keys()
-            .map(|id| id.as_str().to_owned())
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
-    ids.sort();
-    let loaders = ids
-        .iter()
-        .map(|id| match id.as_str() {
-            "forge" => Ok(Loader::Forge),
-            "neoforge" => Ok(Loader::Neoforge),
-            "fabric" => Ok(Loader::Fabric),
-            _ => anyhow::bail!("unsupported remote loader: {id}"),
-        })
-        .collect::<Result<_>>()?;
-    Ok(Args {
-        paths,
-        loaders,
-        parallelism: std::num::NonZeroUsize::new(parallelism).unwrap(),
-    })
 }

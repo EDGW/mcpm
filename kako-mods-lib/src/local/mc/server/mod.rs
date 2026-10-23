@@ -19,7 +19,9 @@ mod launch;
 pub use launch::{ServerLaunch, ServerOptionError};
 mod metadata;
 
-pub use metadata::{MinecraftServerMetadata, ServerModLoader, ServerStartCommand};
+pub use metadata::{
+    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader, ServerStartCommand,
+};
 
 /// A successfully loaded snapshot of a Minecraft server's declared metadata.
 /// Loading does not inspect JARs or guarantee that the server can launch.
@@ -36,7 +38,16 @@ impl MinecraftServer {
     /// a recognized built-in loader. Vanilla and unknown loaders create no directory.
     /// Paths are retained as supplied; `~` is not expanded.
     pub fn load(path: impl Into<PathBuf>) -> Result<Self, MinecraftServerError> {
-        let path = path.into();
+        Self::open(path.into(), true)
+    }
+
+    /// Opens a server without creating a missing `mods` directory. Metadata and
+    /// loader information remain available; `mods()` is `None` when it is absent.
+    pub fn inspect(path: impl Into<PathBuf>) -> Result<Self, MinecraftServerError> {
+        Self::open(path.into(), false)
+    }
+
+    fn open(path: PathBuf, create_mods: bool) -> Result<Self, MinecraftServerError> {
         let name = directory_name(&path)?;
         let manifest = path.join(".mcpm/server.json");
         let bytes = fs::read(&manifest).map_err(|source| MinecraftServerError::ReadMetadata {
@@ -46,11 +57,14 @@ impl MinecraftServer {
         let metadata: MinecraftServerMetadata =
             serde_json::from_slice(&bytes).map_err(|source| {
                 MinecraftServerError::ParseMetadata {
-                    path: manifest,
+                    path: manifest.clone(),
                     source,
                 }
             })?;
-        let mods = mod_container(&path, &metadata)?;
+        if metadata.version == 1 {
+            tracing::warn!(path = %manifest.display(), "Loading legacy server.json version 1; reinitialize explicitly to write version 2");
+        }
+        let mods = mod_container(&path, &metadata, create_mods)?;
         Ok(Self {
             path,
             name,
@@ -87,15 +101,18 @@ impl MinecraftServer {
         let mut bytes = serde_json::to_vec_pretty(&metadata)
             .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
         // Validate public, caller-constructed metadata before writing anything.
-        let metadata: MinecraftServerMetadata =
+        let mut metadata: MinecraftServerMetadata =
             serde_json::from_slice(&bytes).map_err(|source| {
                 MinecraftServerError::ParseMetadata {
                     path: manifest.clone(),
                     source,
                 }
             })?;
+        metadata.version = SERVER_METADATA_VERSION;
+        bytes = serde_json::to_vec_pretty(&metadata)
+            .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
         // Validate the optional mod directory before changing registration metadata.
-        let mods = mod_container(&path, &metadata)?;
+        let mods = mod_container(&path, &metadata, true)?;
         bytes.push(b'\n');
         let write = || -> io::Result<()> {
             let directory = path.join(".mcpm");
@@ -166,6 +183,7 @@ impl MinecraftServer {
 fn mod_container(
     root: &Path,
     metadata: &MinecraftServerMetadata,
+    create_missing: bool,
 ) -> Result<Option<ModContainer>, MinecraftServerError> {
     let Some(declaration) = &metadata.loader else {
         return Ok(None);
@@ -177,6 +195,9 @@ fn mod_container(
     // Create only after metadata validation and built-in loader resolution.
     match fs::symlink_metadata(&path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            if !create_missing {
+                return Ok(None);
+            }
             match fs::create_dir(&path) {
                 Ok(()) => {}
                 // Another caller may have created the entry; validate it below.

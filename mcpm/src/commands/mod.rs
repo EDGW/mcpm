@@ -7,7 +7,6 @@ mod execution;
 mod mod_support;
 pub(crate) mod mods;
 mod output_style;
-mod progress;
 pub(crate) mod server;
 mod source_support;
 mod stdin;
@@ -17,9 +16,9 @@ use anyhow::Result;
 use crate::cli::Command;
 
 pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if ssh.is_requested() && !matches!(command, Command::Mod(_)) {
+    if ssh.is_requested() && !matches!(command, Command::Mod(_) | Command::Server(_)) {
         anyhow::bail!(
-            "--ssh and --ssh-mcpm are currently supported only by mcpm mod list and mod source identify"
+            "--ssh and --ssh-mcpm are currently supported only by mcpm mod list, mod info, mod deps, mod source identify, server init/info and server mods list/info/deps/source"
         );
     }
     match command {
@@ -31,6 +30,6 @@ pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<()> {
         Command::Debug(args) => debug::run(args),
         Command::Mod(args) => mods::run(args, ssh),
         Command::Client(args) => client::run(args),
-        Command::Server(args) => server::run(args),
+        Command::Server(args) => server::run(args, ssh),
     }
 }

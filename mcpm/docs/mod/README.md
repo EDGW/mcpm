@@ -18,8 +18,8 @@ mcpm mod [OPTIONS] <COMMAND>
 ## SSH connections
 
 `--ssh <COMMAND>` and `--ssh-mcpm <PATH>` are top-level global options, so they
-can appear before or after its subcommands. Currently only `list` in TUI,
-Console and Raw modes support them. Other commands explicitly reject them. `--ssh-mcpm` requires `--ssh` and names one remote
+can appear before or after its subcommands. `list` supports TUI, Console and Raw; `info` and `deps` support Console and Raw;
+`source identify` also supports SSH. Other commands explicitly reject them. `--ssh-mcpm` requires `--ssh` and names one remote
 executable, defaulting to `mcpm` on the remote PATH.
 
 ```sh

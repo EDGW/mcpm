@@ -1,13 +1,11 @@
-//! Resolves file selection arguments against the registered server mod source.
+//! Server path and ordered CLI selections, without reading server metadata on the frontend.
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::mod_support::selection::{SelectionArgs, StdinArgs};
-
-use super::super::mod_source::ServerMods;
+use crate::commands::mod_support::selection::{Selection, SelectionArgs, StdinArgs};
 
 /// Input selection for server mod information and dependency inspection.
 #[derive(Args, Debug)]
@@ -28,12 +26,7 @@ impl FileArgs {
         Ok(self)
     }
 
-    pub(super) fn resolve(self) -> Result<Option<(ServerMods, SelectionArgs)>> {
-        if self.files.is_empty() {
-            crate::commands::mod_support::inspect::prompt_for_input()?;
-            return Ok(None);
-        }
-        let source = ServerMods::load(self.path)?;
-        Ok(Some((source, self.files)))
+    pub(super) fn into_parts(self) -> (PathBuf, Selection) {
+        (self.path, self.files.into_selection())
     }
 }

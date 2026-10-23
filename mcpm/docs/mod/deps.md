@@ -1,7 +1,7 @@
 # `mcpm mod deps`
 
 ```text
-mcpm mod deps [OPTIONS] <FILE>...
+mcpm mod deps [OPTIONS] [INPUT]...
 ```
 
 Show direct dependency declarations for every recognized mod in one or more
@@ -47,6 +47,31 @@ If a loader fails, successful records are retained and the file is marked
 returns a failure status and continues with other files. Unrecognized files
 without a loader filter are errors; unrecognized files with a filter are
 skipped. `deps` currently does not print an ignored-file hint.
+
+Console and Raw modes are supported; use `--raw` or redirect stdout for Raw.
+SSH uses the same modes and local formatting:
+
+```sh
+mcpm --ssh 'ssh user@host' mod deps --directory /srv/mods --modid example
+mcpm --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm.exe' --raw mod deps --directory 'D:\mods' --all
+```
+
+Inputs match filenames, then exact mod IDs, then exact names. Use repeated
+`--file`, `--modid`, or `--name` selectors to choose explicitly, or `--all` to
+inspect the directory. `--directory` defaults to `.`. Stdin lines append in
+order; `--input file|modid|name|unspecified` controls their interpretation.
+`--all` cannot be combined with queries. With SSH, selection, filesystem access,
+and loader parsing happen on the remote host; stdin is consumed locally before
+the request. Colors and dependency path styles stay local. Remote diagnostics
+follow `--remote-logs`; failures still produce a nonzero exit status.
+`--parallelism <COUNT>` defaults to 10 and bounds file reads for `--all` and
+lazy directory indexes used by name/ID queries, locally or over SSH. Multiple
+independent file inputs are processed sequentially and are unaffected by this
+option. Scan progress is reported after each completion, including failures and
+unrecognized files; stderr TTY detection controls the local progress display.
+
+Both endpoints require protocol version 3. See [Remote](../remote.md) for
+structured `mod.deps` requests.
 
 For shared options, see [Loader selection](README.md#loader-selection). For colors, ignored-file hints, and `--raw`, see [Terminal output](../README.md#terminal-output).
 

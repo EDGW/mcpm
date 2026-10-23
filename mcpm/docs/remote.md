@@ -8,7 +8,7 @@ remote never parses command-line arguments or business payloads.
 A **command ID** is a stable string such as `mod.list`, declared and registered
 by its command module. The client automatically generates a UUID v4 for each
 invocation session (**request GUID**) to correlate all its replies. Concurrent
-invocations of the same command ID have different GUIDs. `mod.list` and `mod.source.identify` are currently registered.
+invocations of the same command ID have different GUIDs. `mod.list`, `mod.info`, `mod.deps`, `mod.source.identify`, `server.info`, `server.init`, `server.init.recognize`, `server.mods.list`, `server.mods.info`, `server.mods.deps` and `server.mods.source.search/files/identify` are currently registered (the last notation represents three IDs).
 
 ```json
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","command":"mod.list","contents":{"paths":["mods/"],"loaders":["fabric"]}}
@@ -30,7 +30,7 @@ immediately. Stdout is protocol-only; normal logs use a dedicated subscription. 
 Wait for ready before submitting:
 
 ```json
-{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":2,"commands":["mod.list","mod.source.identify"],"max_concurrency":8}}
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.init","server.init.recognize","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"count","count":0}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"done","success":true}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"finished","contents":null}
@@ -65,7 +65,7 @@ The last 256 startup records are buffered before subscription; expired records
 produce a count warning. After stdin EOF, commands drain, logs drain, the log
 GUID receives finished, then the connection receives closed. Console logs wait
 until a full-screen TUI closes; file logging continues immediately. Protocol
-version 2 requires updating both client and server.
+version 3 requires updating both client and server.
 
 Remote decodes global errors rather than delivering them as command data:
 
@@ -75,7 +75,7 @@ Remote decodes global errors rather than delivering them as command data:
 
 Global codes: unsupported_command, busy, cancelled, handler_failed, protocol.
 The first four end only the target call. Handler failures/panics use handler_failed;
-argument and file errors belong to command data. Malformed frames and nil/reused
+Recoverable business errors use command data; invalid arguments or unreadable server metadata may terminate a handler with handler_failed. Malformed frames and nil/reused
 request GUIDs emit a nil-guid protocol error and terminate the session unsuccessfully.
 Unexpected EOF, unrelated GUIDs, missing terminal replies or abnormal process exit
 are transport failures.
@@ -117,6 +117,67 @@ failure) and message. All declarations/loaders/nested JARs for a file stay toget
 Invalid arguments emit business error then done false, followed by remote finished.
 Remote knows none of these business event names.
 
+## Mod info and deps contents
+
+`mod.info` and `mod.deps` share inspection acquisition and the same structured schema:
+
+```json
+{"directory":"/srv/mods","loaders":["fabric"],"selection":{"queries":[{"kind":"file","value":"example.jar"},{"kind":"modid","value":"nested_mod"}]}}
+```
+
+Optional positive `parallelism` defaults to 10. It bounds file reads for `--all`
+and lazy name/ID directory indexing. Independent file queries remain sequential.
+
+All fields are optional. Directory defaults to `.`, loaders to all builtins,
+and selection to no inputs (successful empty result). Query kinds are `auto`,
+`file`, `modid`, `name`; their order and duplicates are preserved. Values must
+be UTF-8. `auto` tries filename, exact ID, then exact name. `selection.all: true`
+scans the directory and cannot be combined with queries. Relative files are
+resolved against directory on the remote host; directories are not file inputs.
+A name/ID match selects its owning archive and descendants, retaining sibling
+declarations in that archive. Stdin never enters the remote command parser.
+
+Each uncached file read or directory scan emits `scan` progress. A scan starts
+with completed=0 and its total, followed by one increment per completion; failed,
+unrecognized and cached directory entries all count. Empty scans emit 0/0 once.
+Cache hits for individual files and already-built indexes emit no scan events.
+The next scan can start only after the previous one reaches its total. Progress
+arrives during parsing, before selected file results; clients validate the sequence
+and display progress based on local stderr TTY detection.
+
+Acquisition emits `scan`, `file` and `error` events, then exactly one `done`.
+Diagnostics may arrive during a scan; selected files follow scan completion:
+
+```json
+{"event":"scan","completed":0,"total":1}
+{"event":"scan","completed":1,"total":1}
+{"event":"file","index":0,"file":{"path":"/srv/mods/example.jar","filename":"example.jar","enabled":true,"metadata":[{"loader":"fabric","loader_name":"Fabric","records":[{"info":{"modid":"example","name":"Example","version":"1.0","dependencies":[]},"source":[]}]}],"failed_loaders":[]}}
+{"event":"error","error":{"message":"inspection failed","causes":["underlying cause"]}}
+{"event":"done","files":1,"failed":1,"ignored":0}
+```
+
+File indices start at zero and increase by one. Done.files must equal the number
+of file events. Records contain typed mod declarations and archive-member source
+chains; they already reflect query subtree selection. Paths and filenames belong
+to the remote platform and are never read by the client. Styling and path display
+options remain local. Partial loader failures retain successful metadata and
+failed loader IDs; error chains are separate events. Info omits files without
+metadata; deps can present their incomplete identification state.
+
+Done.failed counts unique scanned files with failures plus failed selections;
+repeated failed file queries share scan failures. Name/ID indexing can discover
+failures in other directory entries. Done.ignored counts unrecognized files skipped
+by loader filtering. Without filtering these are errors. Input and identification
+errors do not stop later queries. Argument errors emit error then done with
+files=0, failed=1, ignored=0. Business failures are followed by finished.
+Execution failures (including worker or consumer failures) terminate acquisition
+and propagate to the caller; remote handlers use a global error without business
+done or finished. Cancellation uses the global cancelled status and can leave
+partial results. Cancellation is checked between queries,
+selected files and directory scan completions. The client validates indices,
+completion counts, diagnostics/failure agreement and lifecycle before final success.
+Protocol version 3 requires updating both endpoints.
+
 ## mod.source.identify contents
 
 Source identify registers `mod.source.identify`, which **only computes file summaries**. Its CLI and mod-list TUI share one local provider scheduler. Generic Remote/SSH code never decodes these contents.
@@ -145,6 +206,39 @@ SSH mod-list TUI requests summaries over its existing Session and shares the sam
 
 Logs distinguish execution=local/remote and phase=summary/provider, including reads, requests, validation, failures and durations. Remote logs use the existing subscription and italic terminal severity. This command schema replaces the previous remote provider lookup schema; both client and server must be updated.
 
+## Server command contents
+
+Protocol version remains 3. Clients check the advertised command IDs, so an older v3 host that lacks these commands fails explicitly with unsupported_command. Update the remote executable to use server commands.
+
+- [`server.init` and `server.init.recognize`](server/init.md#remote-behavior): independent complete-data initialization and read-only recognition; candidate selection stays local.
+- [`server.info`](server/info.md#ssh): one source-host metadata snapshot, rendered locally.
+- [`server.mods.info/deps`](server/mods.md): server-owned scope with the shared inspection event stream.
+- [`server.mods.list`](server/mods.md#list): server-owned selections, streamed progress and records, local TUI/Console/Raw.
+- [`server.mods.source.search/files/identify`](server/source.md#ssh): remote compatibility or file summaries, local provider requests and credentials.
+
+Malformed requests and server metadata loading failures use the terminal global `handler_failed` status. Selection and scan errors can be reported in business events while valid results continue. No business completion event follows cancellation or an execution/transport failure. Initialization checks cancellation before its atomic write; interruption after that boundary can leave the configuration written even without a successful reply. Remote diagnostics are hidden unless `--remote-logs` is enabled; exit status still reflects failures.
+
+### Server initialization protocol
+
+`server.init.recognize` accepts `path` (default `.`), optional `start_script`, and optional `minecraft_version`, `loader`, and `loader_version` candidate filters. After requiring a Local workspace type, it only reads scripts and identity evidence, independently of existing server.json metadata. The file-owning host selects the default script. It emits:
+
+```json
+{"event":"stage","phase":"recognizing"}
+{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"/srv/server/run.sh","directory":"/srv/server","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
+```
+
+`server.init` accepts complete `metadata`, `path` (default `.`), and `force` (default false). No recognition token or cached candidate is required:
+
+```json
+{"path":"/srv/server","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
+```
+
+Metadata requires nonempty Minecraft/loader versions and explicit `loader` (`null` for vanilla). Optional `start` is the complete startup snapshot shown above; script/directory/executable must be nonempty, and executable/arguments cannot contain NUL. Initialization never rereads the script or requires its referenced files to exist. Wire v3 continues to emit metadata version 1 for compatibility; Local persistence writes disk version 2. Initialization emits `stage` with `validating`, then `writing`, then `initialized {server}` using the `server.info` schema. Successful operations finish with the common `finished` status; failures end with `error`. Clients validate phase order and exactly one result. Recognition and initialization share one SSH session when candidate selection is needed.
+
+All server endpoints, including recognition, require a Local workspace type. Remote references are resolved only by the frontend, never by `mcpm remote`. Initialization can create a new Local registration but cannot replace a Remote workspace, even with `force`. Recognition remains an independent script-only operation and does not follow workspace references.
+
+Metadata files are individually atomic, not a two-file transaction. mcpm registration writers hold a workspace lock and recheck its type before writing. A new Remote registration publishes `server.json` before `mcpm.json`; if publishing the type fails, it removes its new server file. An abrupt process termination may still leave an incomplete registration, which fails to load. Local initialization can persist `server.json` before publishing the Local marker; a marker failure reports that partial success, and a missing marker still defaults to Local. A completed atomic write is not rolled back after cancellation or connection loss; inspect `server info` before retrying an uncertain result.
+
 ## Registration and SSH
 
 Modules submit `inventory::submit! { Initcall(init) }`. Startup invokes all hooks;
@@ -156,8 +250,7 @@ to decode payloads. Remote selects only handshake/global-error types and never
 interprets business fields. Handlers use checkpoint for cancellation.
 
 SSH lives in shared `src/ssh/`. `--ssh` and `--ssh-mcpm` are top-level global options,
-accepted before/after subcommands. Mod list TUI/Console/Raw and mod source identify use
-them; other commands explicitly reject them. ssh-mcpm requires ssh and defaults
+accepted before/after subcommands. Supported commands are mod list/info/deps/source identify, server init/info, and server mods list/info/deps/source search/files/identify. List and source browsing keep their TUI local; inspection supports Console/Raw. Server mods check and dep-graph reject SSH. ssh-mcpm requires ssh and defaults
 to mcpm on the remote PATH. There is no legacy mod list --remote entry point.
 
 ```sh

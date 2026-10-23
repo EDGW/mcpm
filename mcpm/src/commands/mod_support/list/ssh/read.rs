@@ -2,29 +2,27 @@
 
 use anyhow::{Context, Result, ensure};
 
-use crate::commands::progress::Progress;
-use crate::remote::{client::Session, command::Command};
+use crate::progress::Progress;
+use crate::remote::client::Session;
 
-use super::super::remote::{
-    self,
-    protocol::{Contents, Record},
-};
+use super::super::protocol::{Contents, Record};
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn read(
     session: &Session,
-    args: remote::Args,
+    command: &str,
+    contents: serde_json::Value,
     progress: &Progress,
 ) -> Result<(Vec<Record>, bool)> {
     let started = std::time::Instant::now();
-    tracing::debug!(?args, "Requesting remote mod list");
+    tracing::debug!(command, "Requesting remote mod list");
     let mut count = None;
     let mut records = Vec::new();
     let mut errors = Vec::new();
     let mut received = 0usize;
     let mut done = None;
     session
-        .submit(remote::List::ID, serde_json::to_value(args)?)?
+        .submit(command, contents)?
         .collect(|reply| {
             let _span = tracing::debug_span!("mod_list_reply", guid = %reply.guid).entered();
             ensure!(done.is_none(), "remote list sent contents after completion");

@@ -1,9 +1,14 @@
+//! Local server metadata schemas, including read compatibility with format version 1.
+
 use serde::{Deserialize, Deserializer, Serialize};
+
+/// Format emitted for newly persisted local server metadata.
+pub const SERVER_METADATA_VERSION: u32 = 2;
 
 /// Contents of a server root's `.mcpm/server.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MinecraftServerMetadata {
-    /// Configuration format version. Currently only version 1 is supported.
+    /// Configuration format version. Versions 1 and 2 are accepted; writes use version 2.
     #[serde(deserialize_with = "format_version")]
     pub version: u32,
     /// Minecraft version, rather than the loader version.
@@ -29,9 +34,9 @@ pub struct ServerStartCommand {
 
 fn format_version<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
     let version = u32::deserialize(deserializer)?;
-    if version != 1 {
+    if version != 1 && version != SERVER_METADATA_VERSION {
         return Err(serde::de::Error::custom(format!(
-            "unsupported server metadata version {version}; expected 1"
+            "unsupported server metadata version {version}; expected 1 or {SERVER_METADATA_VERSION}"
         )));
     }
     Ok(version)

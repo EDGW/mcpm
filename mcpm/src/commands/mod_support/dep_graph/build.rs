@@ -18,7 +18,7 @@ use kako_mods_lib::local::{
 };
 
 use super::selector::ExternalSelector;
-use crate::commands::progress::Progress;
+use crate::progress::Progress;
 
 #[derive(Args, Debug)]
 pub(in crate::commands) struct BuildOptions {

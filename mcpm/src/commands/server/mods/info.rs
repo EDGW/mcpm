@@ -9,22 +9,20 @@ use super::input::FileArgs;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Additional inputs are read from redirected stdin, one per line; --input sets their interpretation (default: filename, modid, then name matching)."
+    after_help = "Modes: Console and Raw (--raw or redirected stdout). Remote supported through --ssh; server paths and selections resolve on the SSH host.\n\nAdditional inputs are read from redirected stdin, one per line; --input sets their interpretation (default: filename, modid, then name matching)."
 )]
 pub(super) struct InfoArgs {
     #[command(flatten)]
     files: FileArgs,
+    #[command(flatten)]
+    loading: inspect::LoadingArgs,
 }
 
-pub(super) fn run(args: InfoArgs) -> Result<()> {
-    let Some((source, selection)) = args.files.with_stdin()?.resolve()? else {
-        return Ok(());
-    };
-    inspect::run(
-        selection,
-        source.scope(),
-        source.loaders(),
-        true,
+pub(super) fn run(args: InfoArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+    super::inspection::run(
+        args.files,
+        args.loading.parallelism(),
         inspect::Display::Info,
+        ssh,
     )
 }

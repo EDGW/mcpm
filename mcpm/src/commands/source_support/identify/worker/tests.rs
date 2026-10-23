@@ -383,7 +383,7 @@ fn remote_summaries_drive_local_provider_requests_without_reading_remote_paths()
     };
     let script = format!(
         r#"
-printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{{"version":2,"commands":["mod.source.identify"],"max_concurrency":8}}}}'
+printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{{"version":3,"commands":["mod.source.identify"],"max_concurrency":8}}}}'
 IFS= read -r logs
 log_guid=$(printf '%s' "$logs" | cut -d '"' -f6)
 printf {} "$log_guid"

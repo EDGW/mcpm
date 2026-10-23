@@ -1,5 +1,6 @@
 //! Interactive server launch selection with shared TUI colors and loader styles.
 
+use super::model::Candidate;
 use crate::{commands::output_style::text, terminal as policy};
 use anyhow::{Context, Result, ensure};
 use crossterm::{
@@ -9,14 +10,13 @@ use crossterm::{
     style::{Print, PrintStyledContent},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use kako_mods_lib::local::mc::server::identify::ServerCandidate;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, Write};
 use unicode_width::UnicodeWidthChar;
 
-pub(super) fn select(candidates: &[ServerCandidate]) -> Result<Option<usize>> {
+pub(super) fn select(candidates: &[Candidate], no_ui: bool) -> Result<Option<usize>> {
     ensure!(
-        policy::stdout_is_tty() && io::stdin().is_terminal(),
-        "multiple identified server launches found; TUI selection requires terminal stdin, stdout and stderr without --raw; use a dedicated --start-script or manual version/loader options to disambiguate"
+        !no_ui && policy::stdout_is_tty() && policy::stderr_is_tty(),
+        "multiple identified server launches found; TUI selection requires terminal stdout and stderr without --raw/--no-ui; use a dedicated --start-script or manual version/loader options to disambiguate"
     );
     let mut screen = Screen {
         output: io::stderr(),
@@ -57,7 +57,7 @@ struct Screen {
     alternate: bool,
 }
 impl Screen {
-    fn render(&mut self, candidates: &[ServerCandidate], selected: usize) -> io::Result<()> {
+    fn render(&mut self, candidates: &[Candidate], selected: usize) -> io::Result<()> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
         let theme = crate::theme::get();
         let enabled = policy::stderr_color_enabled();
@@ -121,9 +121,16 @@ impl Screen {
                 &format!(
                     " {}  {}:{} [{}]",
                     text(version),
-                    text(&candidate.launch.script.display().to_string()),
-                    candidate.launch.line,
-                    text(&candidate.launch.main_class)
+                    text(
+                        &candidate
+                            .metadata
+                            .start
+                            .as_ref()
+                            .map(|start| start.script.display().to_string())
+                            .unwrap_or_default()
+                    ),
+                    candidate.line,
+                    text(&candidate.main_class)
                 ),
                 remaining,
             );
