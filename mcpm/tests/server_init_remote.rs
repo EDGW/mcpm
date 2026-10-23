@@ -10,7 +10,7 @@ use std::{
 use serde_json::{Value, json};
 
 fn metadata(version: &str) -> Value {
-    json!({"version":1,"minecraft_version":version,"loader":null})
+    json!({"version":2,"minecraft_version":version,"loader":null})
 }
 
 fn fixture(name: &str, target: &Path) {
@@ -215,7 +215,11 @@ fn recognition_ignores_existing_configuration_and_selected_snapshot_is_independe
     assert!(!events.iter().any(|event| event["phase"] == "writing"));
     let candidates = events.last().unwrap()["candidates"].as_array().unwrap();
     assert_eq!(candidates.len(), 1);
-    let selected = candidates[0]["metadata"].clone();
+    let mut selected = candidates[0]["metadata"].clone();
+    assert_eq!(
+        selected["version"], 1,
+        "protocol v3 retains the legacy metadata envelope"
+    );
     assert_eq!(selected["loader"]["type"], "forge");
     assert!(selected["start"]["directory"].as_str().is_some());
     // Recognition produces a snapshot. Commit neither opens scripts nor requires a token.
@@ -226,6 +230,8 @@ fn recognition_ignores_existing_configuration_and_selected_snapshot_is_independe
         &[("server.init", json!({"metadata":selected,"force":true}))],
     );
     succeeded(&replies);
+    // Wire v3 retains version 1, while persistence normalizes to disk version 2.
+    selected["version"] = 2.into();
     assert_eq!(
         serde_json::from_slice::<Value>(&fs::read(root.path().join(".mcpm/server.json")).unwrap())
             .unwrap(),
@@ -414,6 +420,7 @@ fn ssh_full_arguments_bypass_recognition_and_keep_paths_on_the_source() {
     assert_eq!(requests[0]["command"], "server.init");
     assert_eq!(requests[0]["contents"]["path"], relative);
     assert_eq!(requests[0]["contents"]["metadata"]["loader"], Value::Null);
+    assert_eq!(requests[0]["contents"]["metadata"]["version"], 1);
 }
 
 #[cfg(unix)]

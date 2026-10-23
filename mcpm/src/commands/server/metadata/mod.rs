@@ -3,6 +3,9 @@
 use kako_mods_lib::local::mc::server::MinecraftServer;
 use serde::{Deserialize, Serialize};
 
+mod remote;
+pub(super) use remote::load as load_ssh;
+
 /// Resolved metadata for presentation; paths retain their originating platform's spelling.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -9,23 +9,27 @@ use std::{
 use anyhow::{Context, Result};
 use clap::Args;
 
-use super::{metadata::ServerInfo, output};
+use super::{metadata::ServerInfo, output, target};
 use crate::{commands::progress::Progress, remote::client::Session, ssh::SshArgs};
 use model::{Initialize, Phase, Recognize};
 
 mod model;
 mod operation;
+mod reference;
 mod remote;
 mod selector;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Modes: TUI (multiple-candidate selection when stdout and stderr are terminals), Console (--no-ui), Raw (--raw or redirected stdout). Console and Raw require an unambiguous candidate or complete manual arguments.\n\nRemote supported through --ssh. Paths, script recognition, platform defaults and metadata writes belong to the SSH host; selection and output stay local.\nComplete --minecraft-version and --loader (plus --loader-version unless vanilla) initialize directly without reading scripts. Otherwise, recognition returns candidates before initialization.\nRecognition never writes configuration. Initialization accepts the selected complete snapshot without rereading its script. --force allows atomic replacement; a failed recognition or cancelled selection leaves existing metadata intact.\nCancellation is checked before writing. A disconnect or cancellation during/after the atomic write may leave initialization completed; inspect server info to check the result."
+    after_help = "Modes: TUI (candidate selection), Console (--no-ui), Raw (--raw or redirected stdout). Console and Raw require an unambiguous candidate or complete manual arguments.\n\nTwo different SSH operations:\n  mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <REMOTE_PATH>\n    Initialize a Local Server on the SSH host. The positional path is remote.\n  mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <PATH> --remote <REMOTE_PATH>\n    Create a Remote workspace locally. PATH is local; --remote points to an existing remote Local Server.\n\nComplete --minecraft-version and --loader (plus --loader-version unless vanilla) initialize directly without reading scripts. Otherwise, recognition returns candidates before initialization."
 )]
 pub(super) struct InitArgs {
-    /// Existing server directory on the data-source host; defaults to its current directory.
+    /// Existing server directory; with --ssh it is remote, but with --remote it is a local workspace.
     #[arg(value_name = "PATH", default_value = ".")]
     path: PathBuf,
+    /// Register PATH locally as a Remote workspace pointing to this existing remote Local Server.
+    #[arg(long, value_name = "REMOTE_PATH", conflicts_with_all = ["start_script", "minecraft_version", "loader", "loader_version"])]
+    remote: Option<String>,
     /// Statically inspect this script; conflicts with manual version/loader options.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["minecraft_version", "loader", "loader_version"])]
     start_script: Option<PathBuf>,
@@ -38,7 +42,7 @@ pub(super) struct InitArgs {
     /// Loader version, independent of Minecraft and FML versions.
     #[arg(long, value_name = "VERSION")]
     loader_version: Option<String>,
-    /// Atomically replace existing server.json after validation and any candidate selection.
+    /// Replace existing registration within the same Local/Remote workspace type.
     #[arg(long)]
     force: bool,
     /// Disable the local TUI; multiple candidates require more specific manual filters.
@@ -51,8 +55,13 @@ pub(super) struct InitArgs {
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
+    if let Some(remote_path) = args.remote {
+        let info = reference::create(args.path, remote_path, ssh, args.force)?;
+        return write_info(&info, args.full_command);
+    }
+    let (path, ssh) = target::resolve(args.path, ssh)?;
     let recognition = Recognize {
-        path: args.path,
+        path,
         start_script: args.start_script,
         minecraft_version: args.minecraft_version,
         loader: args.loader,
@@ -120,8 +129,12 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
     if let Some(session) = session.as_mut() {
         session.close()?;
     }
+    write_info(&info, args.full_command)
+}
+
+fn write_info(info: &ServerInfo, full_command: bool) -> Result<()> {
     let mut stdout = io::stdout().lock();
-    output::write_snapshot(&mut stdout, &info, args.full_command)
+    output::write_snapshot(&mut stdout, info, full_command)
         .context("failed to write initialized server information")?;
     stdout
         .flush()

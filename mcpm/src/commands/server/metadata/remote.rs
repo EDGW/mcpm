@@ -3,11 +3,10 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, ensure};
-use kako_mods_lib::local::mc::server::MinecraftServer;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::super::metadata::ServerInfo;
+use super::{super::workspace, ServerInfo};
 use crate::{
     remote::{
         client::Session,
@@ -26,7 +25,7 @@ impl Command for Info {
             serde_json::from_value(contents).context("invalid server info arguments")?;
         output.checkpoint()?;
         tracing::info!(path = %args.path.display(), "Reading remote server metadata");
-        let server = MinecraftServer::load(args.path)?;
+        let server = workspace::inspect_local(args.path)?;
         let info = ServerInfo::from_server(&server);
         tracing::debug!(name = %info.name, "Loaded remote server metadata");
         output.send(info)
@@ -45,7 +44,7 @@ fn default_path() -> PathBuf {
 }
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
-pub(super) fn load(ssh: SshArgs, path: PathBuf) -> Result<ServerInfo> {
+pub(in crate::commands::server) fn load(ssh: SshArgs, path: PathBuf) -> Result<ServerInfo> {
     tracing::info!("Opening SSH data source for server information");
     let mut session =
         Session::start(&mut ssh.command()?).context("failed to open SSH mcpm session")?;

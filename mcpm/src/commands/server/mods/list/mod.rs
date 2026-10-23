@@ -42,15 +42,16 @@ pub(super) struct ListArgs {
 
 pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     let selection = args.selection.with_stdin()?.into_selection();
+    let (path, ssh) = crate::commands::server::target::resolve(args.path, ssh)?;
     if ssh.is_requested() {
         return list::remote_selection::run_ssh(
             ssh,
             remote::List::ID,
-            remote::request(args.path, selection, args.loading.parallelism())?,
+            remote::request(path, selection, args.loading.parallelism())?,
             args.display,
         );
     }
-    let source = ServerMods::load(args.path)?;
+    let source = ServerMods::load(path)?;
     list::run_selection(
         selection,
         source.scope(),

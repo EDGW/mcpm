@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use kako_mods_lib::local::mc::server::{
-    MinecraftServerMetadata, ServerModLoader, identify::ServerCandidate,
+    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader, identify::ServerCandidate,
 };
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 pub(super) struct Initialize {
     #[serde(default = "default_path")]
     pub path: PathBuf,
+    #[serde(serialize_with = "wire_metadata")]
     pub metadata: MinecraftServerMetadata,
     #[serde(default)]
     pub force: bool,
@@ -42,7 +43,7 @@ impl Recognize {
             }),
         };
         Some(MinecraftServerMetadata {
-            version: 1,
+            version: SERVER_METADATA_VERSION,
             minecraft_version: minecraft_version.clone(),
             loader,
             start: None,
@@ -54,6 +55,7 @@ impl Recognize {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Candidate {
+    #[serde(serialize_with = "wire_metadata")]
     pub metadata: MinecraftServerMetadata,
     pub line: usize,
     pub main_class: String,
@@ -78,4 +80,15 @@ pub(super) enum Phase {
 
 fn default_path() -> PathBuf {
     PathBuf::from(".")
+}
+
+/// Protocol v3 already carries this schema with version 1. Keep it readable by
+/// existing clients; disk format upgrades are owned by the persistence API.
+fn wire_metadata<S: serde::Serializer>(
+    metadata: &MinecraftServerMetadata,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut metadata = metadata.clone();
+    metadata.version = 1;
+    metadata.serialize(serializer)
 }

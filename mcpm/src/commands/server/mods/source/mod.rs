@@ -53,10 +53,11 @@ struct CompatibilityArgs {
 
 impl CompatibilityArgs {
     fn defaults(self, ssh: SshArgs, command: &'static str) -> Result<Option<Compatibility>> {
+        let (path, ssh) = crate::commands::server::target::resolve(self.path, ssh)?;
         let defaults = if ssh.is_requested() {
-            remote::defaults(ssh, self.path, command)?
+            remote::defaults(ssh, path, command)?
         } else {
-            Compatibility::load(self.path)?
+            Compatibility::load(path)?
         };
         Ok((!self.all_versions).then_some(defaults))
     }

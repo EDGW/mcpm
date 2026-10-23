@@ -9,6 +9,7 @@ use kako_mods_lib::local::{
 };
 use thiserror::Error;
 
+use super::super::workspace::{self, Writer};
 use super::model::{Candidate, Initialize, Phase, Recognize};
 
 /// Recognition never loads registration metadata, creates directories, or writes configuration.
@@ -73,6 +74,7 @@ pub(super) fn initialize(
     checkpoint()?;
     phase(Phase::Validating)?;
     tracing::info!(path = %args.path.display(), force = args.force, "Validating complete server initialization data");
+    workspace::require_local(&args.path)?;
     validate_metadata(&args.metadata)?;
     let manifest = args.path.join(".mcpm/server.json");
     match fs::symlink_metadata(&manifest) {
@@ -95,11 +97,14 @@ pub(super) fn initialize(
     phase(Phase::Writing)?;
     checkpoint()?;
     tracing::info!(path = %args.path.display(), force = args.force, "Writing server registration metadata");
+    let writer = Writer::acquire(&args.path)?;
+    workspace::require_local(&args.path)?;
     let server = if args.force {
         MinecraftServer::replace(args.path, args.metadata)?
     } else {
         MinecraftServer::create(args.path, args.metadata)?
     };
+    writer.mark_local().context("Local server.json was written, but publishing mcpm.json failed; inspect the workspace before retrying")?;
     tracing::info!(path = %server.path().display(), "Server registration written");
     tracing::debug!(
         elapsed_ms = started.elapsed().as_millis(),

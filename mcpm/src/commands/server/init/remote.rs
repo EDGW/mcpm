@@ -39,6 +39,9 @@ impl Command for Recognition {
     fn run(contents: Value, output: &Output) -> Result<()> {
         let args: Recognize =
             serde_json::from_value(contents).context("invalid server recognition arguments")?;
+        // Remote execution never treats a Remote workspace as a Local target.
+        // Recognition itself remains independent of server.json registration data.
+        super::super::workspace::require_local(&args.path)?;
         let candidates = operation::recognize(
             args,
             || output.checkpoint(),

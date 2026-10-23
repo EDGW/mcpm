@@ -4,7 +4,6 @@ use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
 use kako_mods_lib::local::{
-    mc::server::MinecraftServer,
     mcmod::ModContainer,
     modloader::{LoaderId, ModLoaderMeta},
 };
@@ -21,7 +20,7 @@ pub(super) struct ServerMods {
 
 impl ServerMods {
     pub(super) fn load(path: PathBuf) -> Result<Self> {
-        let server = MinecraftServer::load(path)?;
+        let server = super::workspace::load_local(path)?;
         let container = server
             .mods()
             .ok_or_else(|| match &server.metadata().loader {

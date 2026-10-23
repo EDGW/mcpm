@@ -31,6 +31,7 @@ pub(super) fn run(args: IdentifyArgs, ssh: SshArgs) -> Result<()> {
         crate::commands::mod_support::inspect::prompt_for_input()?;
         return Ok(());
     }
+    let (server, ssh) = crate::commands::server::target::resolve(server, ssh)?;
     let parallelism = args.options.parallelism();
     let (paths, failed, mut session) = if ssh.is_requested() {
         tracing::info!("Opening SSH data source for server source identification");

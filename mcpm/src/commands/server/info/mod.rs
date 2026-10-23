@@ -7,12 +7,12 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
-use kako_mods_lib::local::mc::server::MinecraftServer;
 
-use super::{metadata::ServerInfo, output};
+use super::{
+    metadata::{self, ServerInfo},
+    output, target, workspace,
+};
 use crate::ssh::SshArgs;
-
-mod remote;
 
 #[derive(Args, Debug)]
 #[command(
@@ -29,11 +29,12 @@ pub(super) struct InfoArgs {
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(args: InfoArgs, ssh: SshArgs) -> Result<()> {
+    let (path, ssh) = target::resolve(args.path, ssh)?;
     let info = if ssh.is_requested() {
-        remote::load(ssh, args.path)?
+        metadata::load_ssh(ssh, path)?
     } else {
-        tracing::info!(path = %args.path.display(), "Reading server metadata");
-        let server = MinecraftServer::load(args.path)?;
+        tracing::info!(path = %path.display(), "Reading server metadata");
+        let server = workspace::inspect_local(path)?;
         ServerInfo::from_server(&server)
     };
     let mut stdout = io::stdout().lock();

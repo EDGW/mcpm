@@ -20,6 +20,7 @@ pub(super) fn run(
     if selection.is_empty() {
         return inspect::prompt_for_input();
     }
+    let (path, ssh) = crate::commands::server::target::resolve(path, ssh)?;
     if ssh.is_requested() {
         remote::run(ssh, path, selection, parallelism, display)
     } else {

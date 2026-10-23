@@ -1,9 +1,12 @@
 //! Shared global SSH options and non-PTY remote mcpm command construction.
 
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
+
+mod config;
+pub(crate) use config::Connection;
 
 mod connection;
 mod windows;
@@ -26,6 +29,8 @@ pub(crate) struct SshArgs {
         help_heading = "Global options"
     )]
     ssh_mcpm: Option<String>,
+    #[arg(skip)]
+    directory: Option<PathBuf>,
 }
 
 impl SshArgs {
@@ -40,29 +45,30 @@ impl SshArgs {
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
-    pub(crate) fn command(&self) -> Result<Command> {
+    pub(crate) fn connection(&self) -> Result<Connection> {
         self.validate()?;
-        let connection = self
-            .ssh
-            .as_deref()
-            .context("missing --ssh connection command")?;
-        let executable = self.ssh_mcpm.as_deref().unwrap_or("mcpm");
-        // Only the executable and a fixed subcommand cross the shell boundary.
-        // Command arguments travel as JSON over the session's stdin.
-        let windows = executable.contains('\\')
-            || executable.as_bytes().get(1) == Some(&b':')
-            || executable.ends_with(".exe");
-        tracing::debug!(executable, windows, "Preparing remote mcpm invocation");
-        let remote = if windows {
-            windows::command(&[executable, "remote"])?
-        } else {
-            shlex::try_join([executable, "remote"])
-                .context("remote executable cannot contain NUL bytes")?
-        };
-        let mut command = connection::command(connection)?;
-        command.arg(remote);
-        tracing::debug!("Prepared non-PTY SSH command for persistent mcpm session");
+        Ok(Connection {
+            ssh: self
+                .ssh
+                .clone()
+                .context("missing --ssh connection command")?,
+            ssh_mcpm: self.ssh_mcpm.clone(),
+        })
+    }
+
+    pub(crate) fn from_connection(connection: Connection, directory: PathBuf) -> Self {
+        Self {
+            ssh: Some(connection.ssh),
+            ssh_mcpm: connection.ssh_mcpm,
+            directory: Some(directory),
+        }
+    }
+
+    pub(crate) fn command(&self) -> Result<Command> {
+        let mut command = self.connection()?.command()?;
+        if let Some(directory) = &self.directory {
+            command.current_dir(directory);
+        }
         Ok(command)
     }
 }

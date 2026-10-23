@@ -9,6 +9,8 @@ mod metadata;
 mod mod_source;
 mod mods;
 mod output;
+mod target;
+mod workspace;
 
 #[derive(Args, Debug)]
 pub(crate) struct ServerArgs {
@@ -18,7 +20,7 @@ pub(crate) struct ServerArgs {
 
 #[derive(Subcommand, Debug)]
 enum ServerCommand {
-    /// Initialize .mcpm/server.json from a verified start script or explicit metadata.
+    /// Register a Local Server or a Remote workspace.
     Init(init::InitArgs),
     /// Show server metadata from .mcpm/server.json.
     Info(info::InfoArgs),
