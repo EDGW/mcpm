@@ -1,6 +1,7 @@
 //! Shared CLI support for mod inspection, independent of command input sources.
 
 pub(super) mod cache;
+pub(super) mod caching;
 pub(super) mod dep_graph;
 pub(super) mod dependency_output;
 pub(super) mod ignored_output;

@@ -3,6 +3,7 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
+mod cache;
 mod check;
 mod dep_graph;
 mod deps;
@@ -27,6 +28,8 @@ enum ModsCommand {
     Check(check::CheckArgs),
     /// List mods using the server's declared loader.
     List(list::ListArgs),
+    /// Cache server mod archives and metadata using the declared loader.
+    Cache(cache::CacheArgs),
     /// Show metadata and dependencies of server mod files.
     Info(info::InfoArgs),
     /// Show direct dependency declarations from server mod files.
@@ -51,6 +54,7 @@ pub(super) fn run(args: ModsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
             );
             check::run(args)
         }
+        ModsCommand::Cache(args) => cache::run(args, ssh),
         ModsCommand::List(args) => list::run(args, ssh),
         ModsCommand::Info(args) => info::run(args, ssh),
         ModsCommand::Deps(args) => deps::run(args, ssh),

@@ -64,6 +64,10 @@ fn all_server_endpoints_reject_remote_targets_without_following_their_connection
         ("server.init.recognize", json!({})),
         ("server.mods.list", json!({})),
         (
+            "server.mods.cache",
+            json!({"server":".","selection":{"all":true},"writing":{}}),
+        ),
+        (
             "server.mods.info",
             json!({"selection":{"queries":[{"kind":"file","value":"a.jar"}]}}),
         ),
