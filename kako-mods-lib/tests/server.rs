@@ -33,6 +33,21 @@ fn legacy_metadata_is_read_without_rewriting_and_only_migrates_on_explicit_persi
 }
 
 #[test]
+fn inspection_resolves_loader_without_creating_missing_mod_directory() {
+    use kako_mods_lib::local::mc::server::MinecraftServer;
+
+    let root = TempDir::new().unwrap();
+    fs::create_dir(root.path().join(".mcpm")).unwrap();
+    fs::write(root.path().join(".mcpm/server.json"), br#"{"version":2,"minecraft_version":"1.21.1","loader":{"type":"fabric","version":"0.16.10"}}"#).unwrap();
+    let inspected = MinecraftServer::inspect(root.path()).unwrap();
+    assert_eq!(inspected.loader().unwrap().version, "0.16.10");
+    assert!(inspected.mods().is_none());
+    assert!(!root.path().join("mods").exists());
+    assert!(MinecraftServer::load(root.path()).unwrap().mods().is_some());
+    assert!(root.path().join("mods").is_dir());
+}
+
+#[test]
 fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments() {
     use kako_mods_lib::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
 
