@@ -184,7 +184,14 @@ mod transport {
             ],
         );
         let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
-            .args(["--raw", "--remote-logs", "--ssh", &connection, "--ssh-mcpm"])
+            .args([
+                "--raw",
+                "--log-level",
+                "off",
+                "--ssh",
+                &connection,
+                "--ssh-mcpm",
+            ])
             .arg(root.path().join("remote"))
             .args([
                 "mod",

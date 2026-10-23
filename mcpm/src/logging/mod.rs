@@ -35,7 +35,7 @@ pub(crate) fn level() -> LogLevel {
     LEVEL.get().copied().unwrap_or(LogLevel::Warn)
 }
 
-pub(crate) fn remote_logs_enabled() -> bool {
+fn remote_logs_enabled() -> bool {
     REMOTE_LOGS.get().copied().unwrap_or(false)
 }
 

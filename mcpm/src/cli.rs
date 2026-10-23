@@ -23,7 +23,7 @@ pub(crate) struct Cli {
         help_heading = "Global options"
     )]
     pub(crate) log_level: crate::logging::LogLevel,
-    /// Show remote logs and remote error diagnostics on stderr; logs follow --log-level.
+    /// Show remote logs on stderr, filtered by --log-level; remote errors are always shown.
     #[arg(long, global = true, help_heading = "Global options")]
     pub(crate) remote_logs: bool,
     #[command(flatten)]
