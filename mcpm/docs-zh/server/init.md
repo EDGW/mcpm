@@ -1,79 +1,92 @@
-# `mcpm server init`
+## `mcpm server init`
+
+为现有服务端建立 Local 登记，或者在本机建立指向远端 Local Server 的 Remote 工作目录。此命令不安装服务端，也不启动游戏进程。
 
 ```sh
-mcpm server init [PATH] [OPTIONS]
-mcpm server init /path/to/server
-mcpm server init --start-script ./start.sh
-mcpm server init --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
-mcpm server init --minecraft-version 1.21.1 --loader vanilla
-```
+# 在本机识别并登记服务端
+mcpm server init ./server
+mcpm server init ./server --start-script run.bat
 
-默认读取数据来源主机的服务端目录下的启动脚本：Windows 使用 `run.bat`，Unix 使用 `run.sh`；指定 `--ssh` 时按远端系统选择。
-`--start-script FILE` 相对于服务端目录解析，也支持绝对路径。它与手动字段
-`--minecraft-version`（别名 `--mc-version`）、`--loader`、`--loader-version` 互斥。
-`--loader` 支持 `forge`、`neoforge`、`fabric`、`vanilla`。手动信息完整时直接注册；
-缺少字段时从默认脚本识别，并以手动信息筛选已验证候选，无法匹配则失败。
-原版没有 Loader 版本，不能同时指定 `--loader vanilla` 与 `--loader-version`。
+# 使用完整信息直接登记本机服务端
+mcpm server init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
+mcpm server init ./server --minecraft-version 1.21.1 --loader vanilla
 
-已经存在 `.mcpm/server.json` 时，默认阻止写入，包括内容损坏的配置；只读识别本身不检查已有配置。
-`--force` 允许覆盖；仅在识别、选择和校验成功后原子替换，失败或取消选择保留旧配置。
-这些选项及 `--full-command`、全局选项可与 `--start-script` 搭配。
-
-识别只做静态读取，不运行脚本、Java 或安装器，不下载文件。
-支持明确赋值的变量、引号、续行、`cd`/`pushd`/`popd`、shell 的 `source`/`.`、
-`sh`/`bash`/直接脚本引用，以及 BAT 的 `call`、`%~dp0` 和简单 `setlocal`。
-shell 的 `$(dirname "$0")` 是唯一支持的命令替换模式；改变工作目录后使用 `$0`
-会保守失败。脚本参数按空处理：忽略 shell 常规尾部 `"$@"`，BAT 的 `%*`
-无论位于何处都展开为空，并保留周围的文本和引号语义。
-环境变量不从当前进程补全；子脚本中的本地变量和导出变量遵守所支持的静态范围。
-条件、循环、管道、重定向、任意命令替换、延迟 BAT 展开、脚本循环引用或
-无法确定的变量都会失败。
-
-Java 的 `@参数文件` 被展平，已知的 classpath/module-path、主类、`-jar` 和
-相关属性用于识别。未知 JVM option 原样保留并忽略，不验证 JVM 参数合法性。
-不认识的带独立操作数选项无法猜测其参数数量；若影响入口解析，仍可能识别失败。
-Loader 验证使用实际引用的 Maven 坐标、JAR 中的身份标记和游戏版本元数据，
-避免从目录中残留的旧版本猜测。当前支持常见 Forge/NeoForge 参数文件、
-Forge shim、Fabric 普通安装器与自动安装启动器，以及具有版本元数据的原版 JAR。
-旧版无版本信息的 JAR、第三方启动包装器和未支持的布局会失败。
-识别成功表示本地身份元数据一致，不保证文件真实可信、Java 参数有效或能够启动。
-
-只有一个可靠候选时直接初始化；多个候选在 TUI 中使用上下键选择、Enter 确认、
-Esc 或 Ctrl-C 取消。stdout/stderr 非 TTY、`--raw` 或 `--no-ui` 下出现多个候选会失败，可以通过更具体的
-入口脚本或手动版本条件消除歧义。不可用的启动项不会丢弃其他成功识别的候选；没有候选时识别失败。没有 Loader 证据不会直接视为原版。识别失败会明确提示未识别，
-需要使用完整的版本与 Loader 参数手动初始化；已知原版必须显式指定 `--loader vanilla`。
-
-成功后输出与 [`server info`](info.md) 相同的信息。配置保存选定启动项的脚本、
-工作目录、Java 可执行文件和展平参数，作为初始化时的快照。
-非 raw 模式下 Full command 默认只占一行，超出部分显示 `(+N)`（省略字符数）；
-`--full-command` 显示完整命令。命令使用灰色，路径值使用普通色。
-
-## SSH 与初始化协议
-
-```sh
+# 在远端目录初始化 Local Server，位置参数是远端路径
 mcpm --ssh 'ssh user@host' server init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' server init 'D:\server' --start-script run.bat
+
+# 在本机目录创建 Remote 工作目录：位置参数是本地路径，--remote 后是远端路径
+mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' server init ./workspace --remote 'D:\EDGW-26Summer'
+
+# 创建工作目录后，后续命令自动使用保存的连接
+mcpm server info ./workspace
+mcpm server mods list --server ./workspace
 ```
 
-手动参数完整时直接调用 `server.init`；否则先调用 `server.init.recognize`，在本地选择候选，再通过同一 SSH 会话调用 `server.init`。Console/Raw 要求唯一候选；TUI 选择根据本地 stdout/stderr 判断，不以 stdin 检测决定模式，`--no-ui` 禁用选择。最终输出复用 `server info` 的本地格式，阶段进度显示在 stderr。
+## 参数解释
 
-`server.init.recognize` 是独立的只读操作：读取启动脚本和身份依据，忽略已有登记配置，不写配置、不创建 mods 目录。接受 `path`（默认 `.`）、可选 `start_script`，以及可选筛选字段 `minecraft_version`、`loader`、`loader_version`。默认脚本由文件所属主机决定，回传事件如下：
+- `[PATH]`：已存在的目录，默认 `.`。普通初始化时是服务端目录；使用全局 `--ssh` 时是远端服务端目录；同时指定 `--remote` 时则是本地工作目录。
+- `--remote <REMOTE_PATH>`：在本地 `PATH` 创建 Remote 工作目录，指向指定的远端目录。必须配合全局 `--ssh`；全局 `--ssh-mcpm` 可选。目标必须已经是可打开的 Local Server。此选项与 `--start-script`、`--minecraft-version`、`--loader`、`--loader-version` 互斥。
+- `--start-script <FILE>`：静态识别指定启动脚本。相对路径以实际服务端目录为基准，也接受绝对路径。与所有手动版本及 Loader 参数互斥。
+- `--minecraft-version <VERSION>`：Minecraft 版本，别名 `--mc-version`。信息完整时直接登记；不完整时作为自动识别候选的筛选条件。不能为空白。
+- `--loader <LOADER>`：服务端加载器，支持 `forge`、`neoforge`、`fabric`、`vanilla`。已知原版必须显式填写 `vanilla`，不能通过缺少 Loader 证据推断原版。
+- `--loader-version <VERSION>`：Loader 版本，与 Minecraft/FML 版本区分。模组加载器的完整手动登记需要此参数；`vanilla` 禁止指定此参数。不能为空白。
+- `--force`：允许替换已有登记，包括损坏的 `server.json`。普通初始化替换服务端元数据，`--remote` 模式替换本地保存的连接配置。不能用它切换 Local/Remote 类型，也不能替换配置路径上的目录。
+- `--no-ui`：关闭候选选择 TUI，使用 Console 模式。多个候选必须通过更具体的识别条件消除歧义；与全局 `--raw` 同用时使用 Raw 模式。
+- `--full-command`：在初始化结果中显示完整启动命令。默认 Console 输出只占一行，超出部分显示 `(+N)`；Raw 输出始终保留完整内容。
+
+SSH 连接和远端 mcpm 程序均复用[全局参数](../README.md#全局选项)，不是 `server init` 的独立参数。
+
+## 行为
+
+### 本地行为
+
+未指定全局 SSH 参数、且 `PATH` 为 Local 或尚未登记时，在本机初始化。成功后目录中包含：
+
+```text
+.mcpm/
+├── mcpm.json    # version: 1, type: local
+└── server.json  # Local 服务端元数据，version: 2
+```
+
+`mcpm.json` 由 mcpm 管理，决定工作目录类型；Local 的 `server.json` 由 kako-mods-lib 解析和持久化。没有 `mcpm.json` 的旧目录按 Local 处理。Local `server.json` 的 v1 仍可读取，会产生一条 warning 日志；读取不改写文件，重新初始化时写为 v2。
+
+完整指定 `--minecraft-version`、`--loader`，以及非 vanilla 所需的 `--loader-version`，会直接登记，不读取启动脚本。不完整时默认识别 `run.bat`（Windows）或 `run.sh`（Unix），并以已提供的字段筛选可靠候选。
+
+识别只读取脚本和身份依据，不运行脚本、Java、安装器，也不下载文件。支持常见 Forge/NeoForge、Forge shim、Fabric 安装布局及带有版本信息的原版 JAR。静态识别支持明确赋值、引号、续行、目录切换、脚本引用和 Java 参数文件；动态条件、循环、管道、无法确定的变量和递归引用等布局可能无法识别。识别成功不保证服务端可启动；无法识别时应提供完整手动参数。
+
+唯一候选直接登记；多个候选在 TUI 中使用上下键选择、Enter 确认、Esc/Ctrl-C 取消。TUI 要求本地 stdout/stderr 为终端且未指定 `--raw`/`--no-ui`；Console 和 Raw 模式要求唯一候选。stdout 重定向时自动使用 Raw。
+
+登记保存所选启动项的快照，成功后输出与 [`server info`](info.md) 相同的信息。默认不覆盖已有登记；识别失败或取消选择保留旧登记。
+
+### 远程行为
+
+以下两条命令使用相同的全局 SSH 参数，作用不同：
+
+```text
+mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <REMOTE_PATH>
+mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <PATH> --remote <REMOTE_PATH>
+```
+
+| 用法 | 位置参数 | `--remote` 参数 | 登记写入位置 |
+|---|---|---|---|
+| 不带 `--remote` | 远端服务端目录 | 无 | 远端目录，登记为 Local |
+| 带 `--remote` | 本地工作目录 | 已登记的远端 Local Server 目录 | 本地目录，登记为 Remote |
+
+不带 `--remote` 时，脚本、默认入口与元数据读写属于 SSH 主机，候选选择和输出在本地。可以像本地初始化一样使用识别参数或完整手动参数。
+
+带 `--remote` 时，只验证远端 Local Server 并保存本地连接，不初始化或修改远端。生成的 `.mcpm/mcpm.json` 为 `{"version":1,"type":"remote"}`，`.mcpm/server.json` 由 mcpm 管理，例如：
 
 ```json
-{"event":"stage","phase":"recognizing"}
-{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"/srv/minecraft/run.sh","directory":"/srv/minecraft","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
+{
+  "version": 2,
+  "ssh": "ssh user@host",
+  "ssh_mcpm": null,
+  "path": "/srv/minecraft"
+}
 ```
 
-`server.init` 接受完整数据，不要求识别 token 或远端候选缓存：
+`ssh_mcpm` 省略或为 `null` 时使用远端 PATH 中的 `mcpm`。SSH 命令中的相对路径（例如 `-i keys/key`）以本地工作目录为基准；远端目录按远端系统解释。
 
-```json
-{"path":"/srv/minecraft","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
-```
+后续 `server init/info` 和已支持远程的 `server mods list/info/deps/source` 在没有显式全局 SSH 参数时自动使用保存的连接。`server init ./workspace --force ...` 因此会重新登记远端 Local Server；若要修改本地保存的连接，应重新使用完整的 `--ssh ... server init ./workspace --remote ... --force`。显式 `--ssh` 优先，位置参数直接按远端路径处理；单独指定 `--ssh-mcpm` 仍然报错。
 
-`metadata` 使用现有服务器配置结构，必须提供格式版本 `version: 1`、非空 `minecraft_version`，并显式指定 `loader`：原版为 `null`，有加载器则如 `{ "type": "fabric", "version": "0.16.10" }`，也支持 Forge/NeoForge。可选 `start` 提供完整脚本、工作目录、可执行文件、参数数组及 Windows 引用规则标记，结构如上。脚本、目录和可执行文件不能为空，可执行文件与参数不能含 NUL。这是初始化快照，写入时不重新识别脚本，不要求快照中的引用文件仍存在，也不保证可启动；路径和 argv 保留来源机器的表示。
-
-初始化检查数据和当前写入目标，回传阶段事件 `stage {phase: "validating"}`、`stage {phase: "writing"}`，最后以 `initialized {server}` 返回 `server.info` 同结构的快照，再由会话发送 `finished`。识别、校验或写入失败以终止性 `error` 结束，不发送成功结果。客户端校验阶段顺序及唯一结果，进度只展示阶段，不编造百分比。
-
-写入复用原子持久化：不指定 `force` 时，即使另一个初始化在校验后先写入，也不会覆盖它；指定 `force` 时替换失败保留旧文件。识别和初始化彼此独立，识别后脚本改变也不会使用户选定的完整快照失效。
-
-取消在阶段边界及写入前检查。静态识别和文件持久化是同步操作，不能中途强制打断。原子写入完成后，取消、连接中断或结果未送达不会回滚配置；结果不确定时先通过 `server info` 检查。协议保持 v3，识别流程要求远端握手声明两个新命令 ID。
+`mcpm remote` 只打开 Local Server，目标为 Remote 工作目录时拒绝执行，禁止多段 Remote 引用。`server mods check/dep-graph` 暂不支持 Remote 工作目录。配置损坏或连接失败会明确报错，不回退为本地操作。

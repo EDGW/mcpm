@@ -1,87 +1,92 @@
-# `mcpm server init`
+## `mcpm server init`
+
+Register an existing Local Server, or create a local Remote workspace that points to an existing remote Local Server. This command neither installs server software nor starts Minecraft.
 
 ```sh
-mcpm server init [PATH] [OPTIONS]
-mcpm server init /path/to/server
-mcpm server init --start-script ./start.sh
-mcpm server init --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
-mcpm server init --minecraft-version 1.21.1 --loader vanilla
-```
+# Recognize and register a server on this machine
+mcpm server init ./server
+mcpm server init ./server --start-script run.bat
 
-Defaults to `run.bat` on Windows and `run.sh` on Unix in the server directory on the data-source host (the SSH host with `--ssh`).
-`--start-script FILE` accepts a path relative to that directory or an absolute
-path, and conflicts with manual `--minecraft-version` (alias `--mc-version`),
-`--loader`, and `--loader-version`. Loader choices are `forge`, `neoforge`,
-`fabric`, and `vanilla`. Complete manual metadata registers directly. Incomplete
-metadata is filled by inspecting the default script and filtering verified
-candidates against every supplied field; no match fails. Vanilla cannot have a
-loader version.
+# Register directly using complete metadata
+mcpm server init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
+mcpm server init ./server --minecraft-version 1.21.1 --loader vanilla
 
-An existing `.mcpm/server.json`, even invalid JSON, blocks writing unless `--force` is supplied. Recognition itself does not inspect existing registration metadata.
-`--force` allows atomic replacement after successful verification and selection;
-failure before writing or cancellation of candidate selection preserves the previous file. `--force`, `--full-command`,
-the directory argument, and global options can accompany `--start-script`.
-
-Inspection never runs scripts, Java, installers, or downloads. Static syntax
-includes literal assignments, quoting, continuations, directory changes,
-shell source/child-script references and batch `call`, `%~dp0`, and basic
-`setlocal`. `$(dirname "$0")` is the only supported command substitution;
-using `$0` after changing directories is rejected. Script invocation arguments
-are empty: conventional trailing `"$@"` is omitted, and batch `%*` expands to
-empty wherever it occurs. The inspector does not import environment variables.
-Dynamic conditions, loops, redirection, pipes, arbitrary substitutions, delayed
-batch expansion, unresolved variables, and recursive references fail.
-
-Java argument files are flattened. Recognized classpath/module-path options,
-entry classes, `-jar`, and relevant properties drive identification; unknown JVM
-options are retained and ignored. Their validity is not checked. Unknown options
-with separate operands may still prevent accurate entry parsing, since their
-arity cannot be guessed. Loader detection cross-checks referenced Maven artifacts,
-identity markers inside JARs, and Minecraft version metadata. It does not pick
-the newest cached library. Supported layouts include common Forge/NeoForge
-argument files, Forge shims, both Fabric installer layouts, and vanilla JARs
-with version metadata. Older JARs without metadata, third-party wrappers, and
-unsupported layouts fail. Recognition verifies consistent declared identity,
-not authenticity, JVM argument validity, or launchability.
-
-A unique verified candidate initializes immediately. Multiple candidates open a
-TUI: Up/Down selects, Enter confirms, Esc/Ctrl-C cancels. Multiple candidates fail
-with `--no-ui`, raw output, or non-TTY stdout/stderr; use a more specific script or manual version filters. Unavailable launches do not discard other recognized candidates; when no candidate survives, recognition fails. Missing
-loader evidence never proves vanilla. Failure explicitly reports an unrecognized
-server and asks for manual initialization with complete version and loader options;
-use `--loader vanilla` explicitly for a known vanilla server.
-
-The selected script, JVM directory, executable and flattened argv are saved as a
-snapshot. Successful output matches [`server info`](info.md). Non-raw command
-display fits one terminal line with `(+N)` omitted-character count. Use
-`--full-command` to display it all. Commands are gray; path values use plain color.
-
-## SSH and initialization protocol
-
-```sh
+# Initialize a Local Server on the SSH host; the positional path is remote
 mcpm --ssh 'ssh user@host' server init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' server init 'D:\server' --start-script run.bat
+
+# Create a Remote workspace here; the positional path is local, --remote is remote
+mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' server init ./workspace --remote 'D:\EDGW-26Summer'
+
+# Subsequent commands use the saved connection automatically
+mcpm server info ./workspace
+mcpm server mods list --server ./workspace
 ```
 
-Complete manual arguments invoke `server.init` directly. Otherwise the client invokes `server.init.recognize`, selects a candidate locally, then invokes `server.init` on the same SSH session. Console and Raw require a unique candidate. TUI selection uses local stdout/stderr terminal policy and does not inspect stdin to choose a mode. `--no-ui` disables selection. Output uses the same local formatter as `server info`; phase spinners use stderr.
+## Arguments
 
-`server.init.recognize` is independent and read-only: it reads scripts and identity evidence, ignores existing registration metadata and never writes configuration or creates a mods directory. It accepts `path` (default `.`), optional `start_script`, and optional `minecraft_version`, `loader`, `loader_version` filters. The default script is chosen by the file-owning host. It emits:
+- `[PATH]`: An existing directory, default `.`. Normally the server directory; with global `--ssh`, the remote server directory; with `--remote`, a local workspace directory.
+- `--remote <REMOTE_PATH>`: Register local `PATH` as a Remote workspace pointing to this remote directory. Requires global `--ssh`; global `--ssh-mcpm` is optional. The target must already be a loadable Local Server. Conflicts with `--start-script`, `--minecraft-version`, `--loader`, and `--loader-version`.
+- `--start-script <FILE>`: Statically recognize this startup script. Relative paths resolve from the actual server directory; absolute paths are accepted. Conflicts with all manual version and loader arguments.
+- `--minecraft-version <VERSION>`: Minecraft version; alias `--mc-version`. Complete manual metadata registers directly; otherwise this filters recognized candidates. Whitespace-only values are rejected.
+- `--loader <LOADER>`: One of `forge`, `neoforge`, `fabric`, or `vanilla`. Known vanilla servers require explicit `vanilla`; missing loader evidence does not imply vanilla.
+- `--loader-version <VERSION>`: Loader version, distinct from Minecraft and FML versions. Required for complete manual modded-server registration; prohibited with `vanilla`. Whitespace-only values are rejected.
+- `--force`: Replace an existing registration, including a damaged `server.json`. Normal initialization replaces server metadata; `--remote` replaces the connection saved locally. Does not convert between Local and Remote types or replace a directory at the configuration path.
+- `--no-ui`: Disable candidate selection TUI and use Console mode. Multiple candidates require more specific recognition filters. Combined with global `--raw`, uses Raw mode.
+- `--full-command`: Show the complete startup command in the result. Console output normally fits one line with `(+N)` for omitted characters; Raw output always retains the complete command.
+
+SSH connection settings and the remote mcpm executable use the existing [global options](../README.md#global-options), rather than separate `server init` arguments.
+
+## Behavior
+
+### Local behavior
+
+Without explicit global SSH options, a Local or unregistered `PATH` initializes on this machine. Successful initialization produces:
+
+```text
+.mcpm/
+├── mcpm.json    # version: 1, type: local
+└── server.json  # Local server metadata, version: 2
+```
+
+mcpm owns `mcpm.json`, which selects the workspace type. kako-mods-lib parses and persists Local `server.json`. Legacy directories without `mcpm.json` are Local. Local metadata version 1 remains readable with a warning; reading never rewrites it, and explicit reinitialization writes version 2.
+
+Complete `--minecraft-version` and `--loader` arguments, plus `--loader-version` unless vanilla, initialize directly without reading scripts. Otherwise recognition uses `run.bat` on Windows or `run.sh` on Unix and filters verified candidates against the supplied fields.
+
+Recognition reads scripts and identity evidence without running scripts, Java, installers, or downloads. Common Forge/NeoForge layouts, Forge shims, Fabric installations, and vanilla JARs with version metadata are supported. Static recognition handles literal assignments, quoting, continuations, directory changes, script references, and Java argument files. Dynamic conditions, loops, pipes, unresolved variables, and recursive references may prevent recognition. Successful recognition does not guarantee launchability; supply complete manual metadata when recognition is unavailable.
+
+A unique candidate registers immediately. Multiple candidates open the TUI: Up/Down selects, Enter confirms, and Esc/Ctrl-C cancels. Selection requires local terminal stdout/stderr without `--raw` or `--no-ui`. Console and Raw require an unambiguous candidate; redirected stdout automatically selects Raw.
+
+Registration saves the selected startup snapshot and prints the same information as [`server info`](info.md). Existing registration is protected by default; failed recognition or cancelled selection preserves it.
+
+### Remote behavior
+
+These commands share the same global SSH options but perform different operations:
+
+```text
+mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <REMOTE_PATH>
+mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <PATH> --remote <REMOTE_PATH>
+```
+
+| Invocation | Positional path | `--remote` value | Registration destination |
+|---|---|---|---|
+| Without `--remote` | Remote server directory | None | Remote directory, as Local |
+| With `--remote` | Local workspace directory | Existing remote Local Server directory | Local directory, as Remote |
+
+Without `--remote`, scripts, platform defaults, and metadata operations belong to the SSH host. Selection and output remain local. Recognition and complete manual arguments work as they do for local initialization.
+
+With `--remote`, mcpm validates the existing remote Local Server and saves its connection locally, without initializing or modifying the remote server. `.mcpm/mcpm.json` contains `{"version":1,"type":"remote"}`. mcpm owns the Remote `.mcpm/server.json`, for example:
 
 ```json
-{"event":"stage","phase":"recognizing"}
-{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"/srv/minecraft/run.sh","directory":"/srv/minecraft","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
+{
+  "version": 2,
+  "ssh": "ssh user@host",
+  "ssh_mcpm": null,
+  "path": "/srv/minecraft"
+}
 ```
 
-`server.init` accepts complete data with no recognition token or cached server-side state:
+Omitted or null `ssh_mcpm` uses `mcpm` from the remote PATH. Relative SSH option paths, such as `-i keys/key`, resolve from the local workspace. The remote directory retains its remote-platform interpretation.
 
-```json
-{"path":"/srv/minecraft","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
-```
+Later `server init/info` and supported `server mods list/info/deps/source` commands use the saved connection when no global SSH options are supplied. Thus `server init ./workspace --force ...` reinitializes the remote Local Server. To replace the connection saved locally, use the complete `--ssh ... server init ./workspace --remote ... --force` invocation again. Explicit `--ssh` takes precedence and makes the positional path remote; `--ssh-mcpm` alone remains invalid.
 
-`metadata` uses the persisted server metadata schema. Its `version` and nonempty `minecraft_version` are required. `loader` must be explicit: `null` for vanilla, or `{ "type": "fabric", "version": "0.16.10" }` (also Forge/NeoForge). Optional `start` contains the complete script, directory, executable, argument array and Windows quoting flag shown above. Script/directory/executable must be nonempty; executable and arguments cannot contain NUL. It is a snapshot: initialization neither rereads the script nor checks whether its referenced files still exist or are launchable. Paths and argv retain the originating host's representation.
-
-The command validates the data and current destination, then emits `stage` events with `validating` and `writing`, followed by `initialized {server}` using the `server.info` snapshot schema. Success is followed by the session's `finished` status. Failed validation, recognition or persistence uses a terminal `error`; no result follows. Clients validate phase order and exactly one matching result. Progress describes phases, with no artificial percentage.
-
-Writing reuses atomic metadata persistence. Without `force`, even a registration created after validation cannot be overwritten. With `force`, a failed replacement preserves the prior file. Recognition and initialization are separate operations: a script changed after recognition does not invalidate a deliberately selected snapshot.
-
-Cancellation is checked at phase boundaries and immediately before writing. Static recognition and filesystem persistence are synchronous and cannot be interrupted mid-operation. Once an atomic write succeeds, cancellation, lost connectivity or failure to receive the reply does not roll it back. Check `server info` before retrying if the outcome is uncertain. Protocol version remains 3; the remote executable must advertise both command IDs for the recognition flow.
+`mcpm remote` only opens Local Servers and rejects Remote workspaces, preventing chained Remote references. `server mods check/dep-graph` do not yet support Remote workspaces. Invalid configuration or connection failure reports an error without falling back to local execution.

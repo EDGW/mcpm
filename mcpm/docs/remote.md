@@ -210,13 +210,34 @@ Logs distinguish execution=local/remote and phase=summary/provider, including re
 
 Protocol version remains 3. Clients check the advertised command IDs, so an older v3 host that lacks these commands fails explicitly with unsupported_command. Update the remote executable to use server commands.
 
-- [`server.init` and `server.init.recognize`](server/init.md#ssh-and-initialization-protocol): independent complete-data initialization and read-only recognition; candidate selection stays local.
+- [`server.init` and `server.init.recognize`](server/init.md#remote-behavior): independent complete-data initialization and read-only recognition; candidate selection stays local.
 - [`server.info`](server/info.md#ssh): one source-host metadata snapshot, rendered locally.
 - [`server.mods.info/deps`](server/mods.md): server-owned scope with the shared inspection event stream.
 - [`server.mods.list`](server/mods.md#list): server-owned selections, streamed progress and records, local TUI/Console/Raw.
 - [`server.mods.source.search/files/identify`](server/source.md#ssh): remote compatibility or file summaries, local provider requests and credentials.
 
 Malformed requests and server metadata loading failures use the terminal global `handler_failed` status. Selection and scan errors can be reported in business events while valid results continue. No business completion event follows cancellation or an execution/transport failure. Initialization checks cancellation before its atomic write; interruption after that boundary can leave the configuration written even without a successful reply. Remote diagnostics are hidden unless `--remote-logs` is enabled; exit status still reflects failures.
+
+### Server initialization protocol
+
+`server.init.recognize` accepts `path` (default `.`), optional `start_script`, and optional `minecraft_version`, `loader`, and `loader_version` candidate filters. After requiring a Local workspace type, it only reads scripts and identity evidence, independently of existing server.json metadata. The file-owning host selects the default script. It emits:
+
+```json
+{"event":"stage","phase":"recognizing"}
+{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"/srv/server/run.sh","directory":"/srv/server","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
+```
+
+`server.init` accepts complete `metadata`, `path` (default `.`), and `force` (default false). No recognition token or cached candidate is required:
+
+```json
+{"path":"/srv/server","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
+```
+
+Metadata requires nonempty Minecraft/loader versions and explicit `loader` (`null` for vanilla). Optional `start` is the complete startup snapshot shown above; script/directory/executable must be nonempty, and executable/arguments cannot contain NUL. Initialization never rereads the script or requires its referenced files to exist. Wire v3 continues to emit metadata version 1 for compatibility; Local persistence writes disk version 2. Initialization emits `stage` with `validating`, then `writing`, then `initialized {server}` using the `server.info` schema. Successful operations finish with the common `finished` status; failures end with `error`. Clients validate phase order and exactly one result. Recognition and initialization share one SSH session when candidate selection is needed.
+
+All server endpoints, including recognition, require a Local workspace type. Remote references are resolved only by the frontend, never by `mcpm remote`. Initialization can create a new Local registration but cannot replace a Remote workspace, even with `force`. Recognition remains an independent script-only operation and does not follow workspace references.
+
+Metadata files are individually atomic, not a two-file transaction. mcpm registration writers hold a workspace lock and recheck its type before writing. A new Remote registration publishes `server.json` before `mcpm.json`; if publishing the type fails, it removes its new server file. An abrupt process termination may still leave an incomplete registration, which fails to load. Local initialization can persist `server.json` before publishing the Local marker; a marker failure reports that partial success, and a missing marker still defaults to Local. A completed atomic write is not rolled back after cancellation or connection loss; inspect `server info` before retrying an uncertain result.
 
 ## Registration and SSH
 

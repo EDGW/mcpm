@@ -196,13 +196,34 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 协议版本继续使用 3。客户端检查握手声明的命令 ID；旧版 v3 远端若没有这些命令，会明确返回 unsupported_command，使用前需更新远端程序。
 
-- [`server.init` 与 `server.init.recognize`](server/init.md#ssh-与初始化协议)：独立的完整参数初始化和只读识别，本地选择候选。
+- [`server.init` 与 `server.init.recognize`](server/init.md#远程行为)：独立的完整参数初始化和只读识别，本地选择候选。
 - [`server.info`](server/info.md#ssh)：来源主机的元数据快照，在本地渲染。
 - [`server.mods.info/deps`](server/mods.md)：远端解析服务器范围，复用检查事件流。
 - [`server.mods.list`](server/mods.md#列表)：远端选择文件、回传进度和记录，本地展示 TUI/Console/Raw。
 - [`server.mods.source.search/files/identify`](server/source.md#ssh)：远端提供兼容参数或文件摘要，来源服务请求及凭据留在本地。
 
 非法请求或无法加载服务器元数据时，以终止性的全局 `handler_failed` 状态结束。选择和扫描错误可通过业务事件报告，同时继续返回有效结果。取消、执行错误及传输失败后不发送业务完成事件。初始化在原子写入前检查取消；超过该边界后中断，即使没有成功回复，也可能已写入配置。远端诊断需要 `--remote-logs` 才显示，但失败仍影响退出状态。
+
+### Server 初始化协议
+
+`server.init.recognize` 接受 `path`（默认 `.`）、可选 `start_script`，以及可选的 `minecraft_version`、`loader`、`loader_version` 候选筛选条件。它先要求 Local 工作目录类型，再只读取脚本和身份依据，与已有 server.json 元数据独立；默认脚本由文件所属主机决定。回传事件：
+
+```json
+{"event":"stage","phase":"recognizing"}
+{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"/srv/server/run.sh","directory":"/srv/server","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
+```
+
+`server.init` 接受完整 `metadata`、`path`（默认 `.`）和 `force`（默认 false），不要求识别 token 或缓存候选：
+
+```json
+{"path":"/srv/server","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
+```
+
+元数据要求非空的 Minecraft/Loader 版本及显式 `loader`（原版为 `null`）。可选 `start` 为上面的完整启动快照；脚本、目录和可执行文件不能为空，可执行文件及参数不能含 NUL。初始化不重读脚本，也不要求引用文件仍存在。为兼容既有客户端，wire v3 仍输出 metadata version 1；Local 磁盘持久化写为 version 2。初始化依次回传 `stage {phase: "validating"}`、`stage {phase: "writing"}`、`initialized {server}`，最后一个使用 `server.info` 结构。成功由通用 `finished` 结束，失败以 `error` 结束；客户端校验阶段顺序和唯一结果。需要候选选择时，识别与初始化共用同一 SSH 会话。
+
+所有 server 端点（包括识别）都要求 Local 工作目录类型。Remote 引用仅由前端解析，`mcpm remote` 不跟随引用。初始化可以创建 Local 登记，但即使带 `force` 也不能替换 Remote 工作目录。识别继续作为独立的脚本读取操作，不跟随工作目录引用。
+
+元数据文件分别原子写入，不构成双文件事务。mcpm 登记写入持有工作目录锁，并在写入前重新检查类型。新 Remote 登记先写 `server.json`，再发布 `mcpm.json`；发布类型失败则删除刚创建的服务端文件。进程突然终止仍可能留下无法加载的未完成登记。Local 初始化可能先保存 `server.json` 再发布 Local 标记；标记失败会明确报告部分成功，缺失标记仍按 Local 处理。原子写入完成后，取消或连接中断不回滚配置；结果不确定时先通过 `server info` 检查。
 
 ## 模块注册与 SSH
 
