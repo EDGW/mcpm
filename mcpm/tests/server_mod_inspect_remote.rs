@@ -146,7 +146,7 @@ fn selections_use_server_loader_and_scoped_paths_with_cached_failures() {
         );
         assert_eq!(
             **events.last().unwrap(),
-            json!({"event":"done","files":5,"failed":3,"ignored":0})
+            json!({"event":"done","files":5,"failed":3,"ignored":0,"cache":{"fully_cached":0,"partially_cached":0,"total":3}})
         );
     }
 }
@@ -190,7 +190,7 @@ fn all_reports_progress_while_invalid_server_or_request_fails_without_completion
         assert_eq!(file["file"]["metadata"][0]["loader"], "forge");
         assert_eq!(
             **events.last().unwrap(),
-            json!({"event":"done","files":2,"failed":1,"ignored":0})
+            json!({"event":"done","files":2,"failed":1,"ignored":0,"cache":{"fully_cached":0,"partially_cached":0,"total":2}})
         );
         for contents in [
             json!({"server":"unsupported","selection":{"all":true}}),
@@ -260,6 +260,9 @@ fn ssh_resolves_server_and_stdin_on_source_and_matches_local_output() {
                 server,
             ])
             .args(options);
+        if command == "info" {
+            process.arg("--no-cache");
+        }
         if over_ssh {
             process.current_dir(client.path()).args([
                 "--ssh",

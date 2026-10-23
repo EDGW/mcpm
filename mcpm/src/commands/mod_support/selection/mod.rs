@@ -17,7 +17,7 @@ use super::{
 
 mod args;
 mod input;
-pub(in crate::commands) use args::{SelectionArgs, StdinArgs};
+pub(in crate::commands) use args::{ItemArgs, SelectionArgs};
 pub(in crate::commands) use input::SelectionInput;
 mod paths;
 pub(in crate::commands) use paths::resolve_paths;
@@ -132,6 +132,52 @@ impl<'a> Resolver<'a> {
             ids: HashMap::new(),
             names: HashMap::new(),
         }
+    }
+
+    /// Visits selected files in query order. Input failures are diagnosed and
+    /// counted; cancellation, scan execution and consumer failures remain fatal.
+    /// Consumers decide which recognized or unrecognized files they accept.
+    pub(super) fn visit(
+        &mut self,
+        selection: Selection,
+        checkpoint: impl Fn() -> Result<()>,
+        mut on_error: impl FnMut(crate::diagnostics::ErrorReport) -> Result<()>,
+        mut on_file: impl FnMut(SelectedFile) -> Result<()>,
+    ) -> Result<usize> {
+        let mut failed = 0;
+        let queries = match selection.into_queries() {
+            Some(queries) => queries.into_iter().map(Some).collect(),
+            None => vec![None],
+        };
+        for (index, query) in queries.into_iter().enumerate() {
+            checkpoint()?;
+            tracing::debug!(index, ?query, "Resolving mod selection query");
+            let result = match query {
+                Some(query) => self.resolve(query),
+                None => self.all(),
+            };
+            checkpoint()?;
+            let selected = match result {
+                Ok(selected) => selected,
+                Err(ResolveError::Execution(error)) => return Err(error),
+                Err(ResolveError::Input(error)) => {
+                    tracing::debug!(index, error = %format_args!("{error:#}"), "Mod selection failed");
+                    on_error(crate::diagnostics::ErrorReport::capture(&error))?;
+                    failed += 1;
+                    continue;
+                }
+            };
+            tracing::debug!(
+                index,
+                files = selected.len(),
+                "Resolved mod selection query"
+            );
+            for selected in selected {
+                checkpoint()?;
+                on_file(selected)?;
+            }
+        }
+        Ok(failed)
     }
 
     pub(super) fn all(&mut self) -> std::result::Result<Vec<SelectedFile>, ResolveError> {

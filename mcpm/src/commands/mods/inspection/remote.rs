@@ -47,6 +47,8 @@ struct Request {
     loaders: Vec<String>,
     #[serde(default = "crate::commands::execution::default_parallelism")]
     parallelism: NonZeroUsize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cache: Option<kako_mods_lib::local::mcmod::ModOpenCache>,
 }
 
 fn default_directory() -> PathBuf {
@@ -77,10 +79,13 @@ fn serve(contents: Value, output: &Output) -> Result<()> {
             args.directory,
             loaders,
             filtered,
-            args.parallelism.get(),
+            crate::commands::mod_support::scan::Options {
+                parallelism: args.parallelism.get(),
+                cache: args.cache,
+            },
         ))
     })();
-    let (selection, directory, loaders, filtered, parallelism) = match decoded {
+    let (selection, directory, loaders, filtered, loading) = match decoded {
         Ok(args) => args,
         Err(error) => {
             tracing::debug!(error = %format_args!("{error:#}"), "Rejected invalid mod inspection arguments");
@@ -92,6 +97,7 @@ fn serve(contents: Value, output: &Output) -> Result<()> {
                 files: 0,
                 failed: 1,
                 ignored: 0,
+                cache: None,
             });
         }
     };
@@ -100,7 +106,7 @@ fn serve(contents: Value, output: &Output) -> Result<()> {
         Scope::directory(directory),
         loaders,
         filtered,
-        parallelism,
+        loading,
         || output.checkpoint(),
         |event| {
             if let Event::Error { error } = &event {
@@ -117,7 +123,7 @@ pub(super) fn run_ssh(
     selection: Selection,
     directory: PathBuf,
     loaders: LoaderArgs,
-    parallelism: usize,
+    loading: crate::commands::mod_support::scan::Options,
     display: Display<'_>,
 ) -> Result<()> {
     let command = match display {
@@ -138,8 +144,9 @@ pub(super) fn run_ssh(
         selection: SelectionInput::from_selection(selection)?,
         directory,
         loaders: ids,
-        parallelism: NonZeroUsize::new(parallelism)
+        parallelism: NonZeroUsize::new(loading.parallelism)
             .context("inspection parallelism must be positive")?,
+        cache: loading.cache,
     };
     inspect::run_ssh(ssh, command, serde_json::to_value(args)?, display)
 }

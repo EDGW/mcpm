@@ -46,6 +46,7 @@ mod transport {
         )
         .unwrap();
         let options = [
+            "--no-cache",
             "--loader",
             "fabric",
             "--expanded",
@@ -146,7 +147,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             )).unwrap();
             fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
             let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
-                .args(["--raw", "mod", "list", "--ssh", &connection, "--ssh-mcpm"])
+                .args(["--raw", "mod", "list", "--no-cache", "--ssh", &connection, "--ssh-mcpm"])
                 .arg(&remote)
                 .stdin(Stdio::null())
                 .output()
@@ -250,7 +251,8 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
                 .args([
                     "mod",
                     "list",
-                            "z.jar",
+                    "--no-cache",
+                    "z.jar",
                     "a.jar",
                     "--parallelism",
                     "2",

@@ -9,7 +9,7 @@ use super::{Event, File};
 use crate::{
     commands::mod_support::{
         scan::ScanSession,
-        selection::{ResolveError, Resolver, Scope, Selection},
+        selection::{Resolver, Scope, Selection},
     },
     diagnostics::ErrorReport,
 };
@@ -19,7 +19,7 @@ pub(in crate::commands) fn load(
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     hide_unrecognized: bool,
-    parallelism: usize,
+    loading: impl Into<crate::commands::mod_support::scan::Options>,
     checkpoint: impl Fn() -> Result<()>,
     emit: impl FnMut(Event) -> Result<()>,
 ) -> Result<()> {
@@ -38,45 +38,19 @@ pub(in crate::commands) fn load(
     };
     let mut resolver = Resolver::new(
         ScanSession::new(loaders)
-            .with_parallelism(parallelism)
+            .with_options(loading.into())?
             .with_checkpoint(&checkpoint)
             .with_observer(&observe),
         scope,
     );
-    let mut selection_failures = 0;
+    let mut unrecognized = 0;
     let mut ignored = 0;
     let mut files = 0;
-    let queries = match selection.into_queries() {
-        Some(queries) => queries.into_iter().map(Some).collect(),
-        None => vec![None],
-    };
-    for (index, query) in queries.into_iter().enumerate() {
-        checkpoint()?;
-        tracing::debug!(index, ?query, "Resolving mod inspection query");
-        let result = match query {
-            Some(query) => resolver.resolve(query),
-            None => resolver.all(),
-        };
-        checkpoint()?;
-        let selected = match result {
-            Ok(selected) => selected,
-            Err(ResolveError::Execution(error)) => return Err(error),
-            Err(ResolveError::Input(error)) => {
-                tracing::debug!(index, error = %format_args!("{error:#}"), "Mod inspection selection failed");
-                (emit.borrow_mut())(Event::Error {
-                    error: ErrorReport::capture(&error),
-                })?;
-                selection_failures += 1;
-                continue;
-            }
-        };
-        tracing::debug!(
-            index,
-            files = selected.len(),
-            "Resolved mod inspection query"
-        );
-        for selected in selected {
-            checkpoint()?;
+    let selection_failures = resolver.visit(
+        selection,
+        &checkpoint,
+        |error| (emit.borrow_mut())(Event::Error { error }),
+        |selected| {
             let file = &selected.scanned.file;
             if selected.scanned.failures.is_empty() && file.metadata.is_empty() {
                 if hide_unrecognized {
@@ -89,9 +63,9 @@ pub(in crate::commands) fn load(
                     (emit.borrow_mut())(Event::Error {
                         error: ErrorReport::capture(&error),
                     })?;
-                    selection_failures += 1;
+                    unrecognized += 1;
                 }
-                continue;
+                return Ok(());
             }
             tracing::debug!(path = %file.entry.path().display(), loaders = file.metadata.len(), failures = selected.scanned.failures.len(), "Emitting inspected mod file");
             (emit.borrow_mut())(Event::File {
@@ -99,13 +73,15 @@ pub(in crate::commands) fn load(
                 file: File::from(&selected),
             })?;
             files += 1;
-        }
-    }
-    let failed = resolver.scan.failed_count() + selection_failures;
+            Ok(())
+        },
+    )?;
+    let failed = resolver.scan.failed_count() + selection_failures + unrecognized;
     (emit.borrow_mut())(Event::Done {
         files,
         failed,
         ignored,
+        cache: Some(resolver.scan.cache_summary()),
     })?;
     tracing::debug!(
         failed,

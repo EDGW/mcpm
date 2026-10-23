@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
 use kako_mods_lib::local::{
-    mcmod::{ModEntry, ModEntryName, ModFile, ModMeta, NestedModMeta},
+    mcmod::{ModEntry, ModEntryName, ModFile},
     modloader::{BUILTIN_LOADERS, ModLoaderMeta},
 };
 
@@ -14,7 +14,7 @@ use crate::commands::mod_support::{
     selection::SelectedFile,
 };
 
-use super::protocol::{Metadata, Record, Status};
+use super::protocol::{Record, Status};
 
 #[derive(Debug)]
 pub(in crate::commands::mod_support::list) struct Loaded {
@@ -91,9 +91,10 @@ pub(in crate::commands::mod_support::list) fn convert(
         let entry = ModEntry::from_parts(PathBuf::from(&record.path), ModEntryName::new(filename)?);
         let metadata: Vec<_> = record
             .metadata
-            .into_iter()
-            .map(metadata)
-            .collect::<Result<_>>()?;
+            .iter()
+            .map(|metadata| metadata.to_mod_meta(&BUILTIN_LOADERS))
+            .collect::<Result<_, _>>()
+            .with_context(|| format!("invalid remote mod metadata for {:?}", record.path))?;
         if let Some(keys) = &record.records {
             ensure!(!keys.is_empty(), "empty selected declaration list");
             for key in keys {
@@ -126,29 +127,72 @@ pub(in crate::commands::mod_support::list) fn convert(
     Ok(loaded)
 }
 
-fn metadata(remote: Metadata) -> Result<ModMeta> {
-    let loader = loader(&remote.loader)?;
-    let mut nested = Vec::new();
-    for child in remote.nested {
-        ensure!(
-            child.meta.loader == remote.loader,
-            "remote nested loader differs from its parent"
-        );
-        nested.push(NestedModMeta {
-            path: child.path,
-            meta: metadata(child.meta)?,
-        });
-    }
-    Ok(ModMeta {
-        loader,
-        mods: remote.mods,
-        nested,
-    })
-}
-
 fn loader(id: &str) -> Result<ModLoaderMeta> {
     BUILTIN_LOADERS
         .get(id)
         .cloned()
         .with_context(|| format!("unsupported remote loader {id:?}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kako_mods_lib::local::mcmod::MetadataConversionError;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn remote_metadata_uses_shared_tree_validation_at_every_depth() {
+        let leaf = json!({"loader":"fabric", "mods":[], "nested":[]});
+        let child = json!({"path":"META-INF/jars/child.jar", "meta":leaf});
+        let metadata = json!({"loader":"fabric", "mods":[], "nested":[child]});
+        let convert_metadata = |metadata: Value| {
+            let record = serde_json::from_value(json!({
+                "path":"mods/example.jar", "name":"example", "enabled":true,
+                "status":"unrecognized", "metadata":[metadata], "errors":[]
+            }))
+            .unwrap();
+            convert(vec![record], false)
+        };
+
+        let loaded = convert_metadata(metadata.clone()).unwrap();
+        assert_eq!(
+            loaded.files[0].scanned.file.metadata[0].nested[0].path,
+            "META-INF/jars/child.jar"
+        );
+
+        for path in ["", "/absolute.jar", "../escape.jar", "jars/../escape.jar"] {
+            for nested in [false, true] {
+                let mut invalid = metadata.clone();
+                let invalid_child = json!({"path":path, "meta":leaf});
+                if nested {
+                    invalid["nested"][0]["meta"]["nested"] = json!([invalid_child]);
+                } else {
+                    invalid["nested"] = json!([invalid_child]);
+                }
+                let error = convert_metadata(invalid).unwrap_err();
+                assert!(matches!(
+                    error.downcast_ref::<MetadataConversionError>(),
+                    Some(MetadataConversionError::InvalidNestedPath(rejected)) if rejected == path
+                ));
+            }
+        }
+
+        let mut duplicate = metadata.clone();
+        duplicate["nested"] = json!([child, child]);
+        assert!(matches!(
+            convert_metadata(duplicate)
+                .unwrap_err()
+                .downcast_ref::<MetadataConversionError>(),
+            Some(MetadataConversionError::InvalidNestedPath(_))
+        ));
+
+        let mut mixed = metadata;
+        mixed["nested"][0]["meta"]["loader"] = json!("forge");
+        assert!(matches!(
+            convert_metadata(mixed)
+                .unwrap_err()
+                .downcast_ref::<MetadataConversionError>(),
+            Some(MetadataConversionError::MixedLoaders)
+        ));
+    }
 }

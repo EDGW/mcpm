@@ -33,6 +33,7 @@ pub(super) struct Summary<'a> {
     pub ignored_files: &'a [PathBuf],
     pub input_errors: usize,
     pub failed: usize,
+    pub cache: Option<crate::commands::mod_support::scan::CacheSummary>,
 }
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]

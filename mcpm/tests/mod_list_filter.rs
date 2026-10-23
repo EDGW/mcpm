@@ -7,11 +7,12 @@ use std::{
 };
 
 fn run(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+    command
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"))
-        .args(args)
-        .output()
-        .unwrap()
+        .args(args);
+    command.arg("--no-cache");
+    command.output().unwrap()
 }
 
 fn stdout(output: Output) -> String {

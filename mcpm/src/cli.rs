@@ -34,6 +34,8 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
+    /// Manage explicitly stored cache objects (Console, Raw).
+    Cache(crate::commands::cache::CacheArgs),
     /// Serve concurrent commands over one persistent stdin/stdout JSON session (Raw).
     Remote(RemoteArgs),
     /// Customize terminal themes and loader colors (TUI, Console, Raw).

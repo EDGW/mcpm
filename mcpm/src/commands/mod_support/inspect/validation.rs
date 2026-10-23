@@ -34,7 +34,15 @@ impl Validator {
                 );
                 self.files += 1;
             }
-            Event::Done { files, failed, .. } => {
+            Event::Done {
+                files,
+                failed,
+                cache,
+                ..
+            } => {
+                if let Some(cache) = cache {
+                    cache.validate()?;
+                }
                 ensure!(
                     self.scan.is_complete(),
                     "mod inspection ended with incomplete scan progress"
@@ -94,6 +102,7 @@ mod tests {
             files,
             failed,
             ignored: 0,
+            cache: None,
         }
     }
 

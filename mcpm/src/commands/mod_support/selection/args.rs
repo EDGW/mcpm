@@ -8,6 +8,23 @@ use thiserror::Error;
 
 use super::{Query, QueryKind, Selection};
 
+/// Shared ordered selectors and stdin interpretation for mod item commands.
+#[derive(Args, Debug)]
+pub(in crate::commands) struct ItemArgs {
+    #[command(flatten)]
+    files: SelectionArgs,
+    #[command(flatten)]
+    stdin: StdinArgs,
+}
+
+impl ItemArgs {
+    pub(in crate::commands) fn read(self) -> Result<Selection> {
+        self.stdin
+            .read(self.files)
+            .map(SelectionArgs::into_selection)
+    }
+}
+
 /// CLI and stdin queries in user-supplied order, or an explicit complete scan.
 #[derive(Debug)]
 pub(in crate::commands) struct SelectionArgs {

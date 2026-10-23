@@ -161,7 +161,7 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
     );
     assert_eq!(
         event(&mut output),
-        json!({"guid":Uuid::from_u128(7),"status":"data","contents":{"event":"done","success":true}})
+        json!({"guid":Uuid::from_u128(7),"status":"data","contents":{"event":"done","success":true,"cache":{"fully_cached":0,"partially_cached":0,"total":0}}})
     );
     assert_eq!(event(&mut output)["status"], "finished");
     drop(input);

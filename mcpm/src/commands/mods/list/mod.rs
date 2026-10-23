@@ -36,6 +36,8 @@ pub(super) struct ListArgs {
     display: ListDisplayArgs,
     #[command(flatten)]
     loading: ListLoadingArgs,
+    #[command(flatten)]
+    cache: crate::commands::mod_support::cache::CacheArgs,
     #[command(flatten, next_help_heading = "Filter")]
     loaders: LoaderArgs,
 }
@@ -56,16 +58,16 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         paths.push(PathBuf::from("."));
     }
     debug!(?paths, "Resolved mod list input paths");
+    let loading = crate::commands::mod_support::scan::Options {
+        parallelism: args.loading.parallelism(),
+        cache: args.cache.selection(),
+    };
     let result = if ssh.is_requested() {
         debug!("Dispatching remote mod.list request over SSH");
         list::ssh::run(
             ssh,
             remote::List::ID,
-            serde_json::to_value(remote::request(
-                paths,
-                &args.loaders,
-                args.loading.parallelism(),
-            )?)?,
+            serde_json::to_value(remote::request(paths, &args.loaders, loading)?)?,
             args.loaders,
             args.display,
         )
@@ -79,7 +81,7 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
             inputs,
             args.loaders.select(),
             args.loaders.is_filtered(),
-            args.loading.parallelism(),
+            loading,
             args.display,
         )
     };

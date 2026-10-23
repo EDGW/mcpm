@@ -43,16 +43,22 @@ pub fn build_with_progress(
     on_progress(0, total);
     for (index, entry) in entries.into_iter().enumerate() {
         let path = entry.path().to_owned();
-        let mut file = mcmod::open(entry, loaders.clone(), |entry, loader, _, error| {
-            on_error(error);
-            graph.identification_failures.push(IdentificationFailure {
-                path: entry.path().to_owned(),
-                loader: loader.id().as_str().to_owned(),
-                error: format!("{error:#}"),
-            });
-            IdentificationErrorAction::Skip
-        })
-        .with_context(|| format!("failed to build dependency graph from {path:?}"))?;
+        let mut file = mcmod::open(
+            entry,
+            loaders.clone(),
+            &mcmod::ModOpenContext::default(),
+            |entry, loader, _, error| {
+                on_error(error);
+                graph.identification_failures.push(IdentificationFailure {
+                    path: entry.path().to_owned(),
+                    loader: loader.id().as_str().to_owned(),
+                    error: format!("{error:#}"),
+                });
+                IdentificationErrorAction::Skip
+            },
+        )
+        .with_context(|| format!("failed to build dependency graph from {path:?}"))?
+        .file;
         file.metadata
             .sort_by(|left, right| left.loader.id().cmp(right.loader.id()));
         for metadata in &file.metadata {

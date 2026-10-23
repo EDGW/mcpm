@@ -1,6 +1,6 @@
 //! Shared JSON records for remote list production and SSH consumption.
 
-use kako_mods_lib::local::mcmod::{ModInfo, ModMeta, ModStatus};
+use kako_mods_lib::local::mcmod::{CachedModMeta, MetadataConversionError, ModMeta, ModStatus};
 use serde::{Deserialize, Serialize};
 
 use crate::{commands::mod_support::scan::ScanResult, diagnostics::ErrorReport};
@@ -22,6 +22,8 @@ pub(in crate::commands) enum Contents {
     },
     Done {
         success: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<crate::commands::mod_support::scan::CacheSummary>,
     },
 }
 
@@ -31,7 +33,7 @@ pub(in crate::commands) struct Record {
     pub(in crate::commands) name: Option<String>,
     pub(in crate::commands) enabled: Option<bool>,
     pub(in crate::commands) status: Status,
-    pub(in crate::commands) metadata: Vec<Metadata>,
+    pub(in crate::commands) metadata: Vec<CachedModMeta>,
     pub(in crate::commands) errors: Vec<LoadError>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::commands) records:
@@ -39,9 +41,12 @@ pub(in crate::commands) struct Record {
 }
 
 impl Record {
-    pub(in crate::commands) fn from_scan(path: &std::path::Path, result: &ScanResult) -> Self {
+    pub(in crate::commands) fn from_scan(
+        path: &std::path::Path,
+        result: &ScanResult,
+    ) -> Result<Self, MetadataConversionError> {
         let file = result.file.as_ref().map(|scanned| &scanned.file);
-        Self {
+        Ok(Self {
             records: None,
             path: path.to_string_lossy().into_owned(),
             name: file.map(|file| file.entry.name().to_owned()),
@@ -54,7 +59,8 @@ impl Record {
                 Status::Unrecognized
             },
             metadata: file
-                .map(|file| file.metadata.iter().map(Metadata::from).collect())
+                .map(|file| file.metadata.iter().map(CachedModMeta::capture).collect())
+                .transpose()?
                 .unwrap_or_default(),
             errors: result
                 .errors
@@ -67,15 +73,15 @@ impl Record {
                     error: error.error.clone(),
                 })
                 .collect(),
-        }
+        })
     }
 
     pub(in crate::commands) fn from_selected(
         selected: &crate::commands::mod_support::selection::SelectedFile,
-    ) -> Self {
+    ) -> Result<Self, MetadataConversionError> {
         let scanned = &selected.scanned;
         let file = &scanned.file;
-        Self {
+        Ok(Self {
             path: file.entry.path().to_string_lossy().into_owned(),
             name: Some(file.entry.name().to_owned()),
             enabled: Some(matches!(file.entry.status(), ModStatus::Enabled)),
@@ -86,7 +92,11 @@ impl Record {
             } else {
                 Status::Unrecognized
             },
-            metadata: file.metadata.iter().map(Metadata::from).collect(),
+            metadata: file
+                .metadata
+                .iter()
+                .map(CachedModMeta::capture)
+                .collect::<Result<_, _>>()?,
             errors: scanned
                 .failures
                 .iter()
@@ -99,7 +109,7 @@ impl Record {
                 })
                 .collect(),
             records: selected.records.clone(),
-        }
+        })
     }
 
     pub(in crate::commands) fn failed_input(path: &std::path::Path, error: &anyhow::Error) -> Self {
@@ -124,36 +134,6 @@ pub(in crate::commands) enum Status {
     Success,
     Unrecognized,
     Failed,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub(in crate::commands) struct Metadata {
-    pub(in crate::commands) loader: String,
-    pub(in crate::commands) mods: Vec<ModInfo>,
-    pub(in crate::commands) nested: Vec<NestedMetadata>,
-}
-
-impl From<&ModMeta> for Metadata {
-    fn from(meta: &ModMeta) -> Self {
-        Self {
-            loader: meta.loader.id().as_str().to_owned(),
-            mods: meta.mods.clone(),
-            nested: meta
-                .nested
-                .iter()
-                .map(|child| NestedMetadata {
-                    path: child.path.clone(),
-                    meta: (&child.meta).into(),
-                })
-                .collect(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub(in crate::commands) struct NestedMetadata {
-    pub(in crate::commands) path: String,
-    pub(in crate::commands) meta: Metadata,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

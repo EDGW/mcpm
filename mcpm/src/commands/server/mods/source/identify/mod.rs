@@ -30,7 +30,7 @@ pub(super) struct IdentifyArgs {
 }
 
 pub(super) fn run(args: IdentifyArgs, ssh: SshArgs) -> Result<()> {
-    let (server, selection) = args.files.with_stdin()?.into_parts();
+    let (server, selection) = args.files.read()?;
     if selection.is_empty() {
         inspect::prompt_for_input()?;
         return Ok(());

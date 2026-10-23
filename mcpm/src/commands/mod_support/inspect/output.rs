@@ -79,12 +79,18 @@ impl<'a> Presentation<'a> {
                 self.written = true;
             }
             Event::Done {
-                failed, ignored, ..
+                failed,
+                ignored,
+                cache,
+                ..
             } => {
                 if matches!(self.display, Display::Info) {
                     let mut stdout = io::stdout().lock();
                     ignored_output::write_loader_filtered(&mut stdout, ignored, &[])
                         .context("failed to write ignored mod files summary")?;
+                    if let Some(cache) = cache {
+                        super::super::cache::write_summary(&mut stdout, cache)?;
+                    }
                     stdout.flush().context("failed to flush mod information")?;
                 }
                 self.failed = failed;

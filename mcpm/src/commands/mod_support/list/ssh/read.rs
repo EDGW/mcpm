@@ -13,7 +13,11 @@ pub(super) fn read(
     command: &str,
     contents: serde_json::Value,
     progress: &Progress,
-) -> Result<(Vec<Record>, bool)> {
+) -> Result<(
+    Vec<Record>,
+    bool,
+    Option<crate::commands::mod_support::scan::CacheSummary>,
+)> {
     let started = std::time::Instant::now();
     tracing::debug!(command, "Requesting remote mod list");
     let mut count = None;
@@ -49,14 +53,15 @@ pub(super) fn read(
                     tracing::debug!(error = %error.message, "Received remote mod list business error");
                     errors.push(error);
                 },
-                Contents::Done { success } => {
+                Contents::Done { success, cache } => {
                     tracing::debug!(success, received, "Received remote mod list completion");
-                    done = Some(success);
+                    if let Some(cache) = &cache { cache.validate()?; }
+                    done = Some((success, cache));
                 },
             }
             Ok(())
         })?;
-    let success = done.context("missing remote mod list completion")?;
+    let (success, cache) = done.context("missing remote mod list completion")?;
     if !errors.is_empty() {
         for error in errors {
             progress.report(&crate::diagnostics::RemoteError::wrap(error.into_error()));
@@ -81,5 +86,6 @@ pub(super) fn read(
             .map(|record| record.expect("all indices validated"))
             .collect(),
         success,
+        cache,
     ))
 }

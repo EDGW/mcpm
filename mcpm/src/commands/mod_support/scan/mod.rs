@@ -8,13 +8,15 @@ use std::{
 
 use anyhow::Result;
 use kako_mods_lib::local::{
-    mcmod::{ModDirectory, ModFile},
+    mcmod::{ModDirectory, ModFile, ModOpenCache, ModOpenContext},
     modloader::{LoaderId, ModLoaderMeta},
 };
 
 use crate::diagnostics::ErrorReport;
 
-mod batch;
+use crate::commands::execution::blocking;
+mod summary;
+pub(in crate::commands) use summary::CacheSummary;
 mod file;
 mod progress;
 pub(in crate::commands) use file::ScanResult;
@@ -32,12 +34,28 @@ pub(in crate::commands) struct FailedIdentification {
     pub reason: String,
 }
 
+/// File-host scan configuration; cache interpretation remains inside the library.
+#[derive(Debug)]
+pub(in crate::commands) struct Options {
+    pub parallelism: usize,
+    pub cache: Option<ModOpenCache>,
+}
+impl From<usize> for Options {
+    fn from(parallelism: usize) -> Self {
+        Self {
+            parallelism,
+            cache: None,
+        }
+    }
+}
+
 /// Results, including failures, live for this command only; no filesystem invalidation.
 #[derive(Debug)]
 pub(in crate::commands) struct ScanSession<'a> {
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     cache: HashMap<PathBuf, Arc<ScanResult>>,
     parallelism: usize,
+    context: ModOpenContext,
     checkpoint: Checkpoint<'a>,
     observer: Option<Observer<'a>>,
 }
@@ -47,9 +65,16 @@ impl<'a> ScanSession<'a> {
             loaders,
             cache: HashMap::new(),
             parallelism: 1,
+            context: ModOpenContext::default(),
             checkpoint: Checkpoint(&|| Ok(())),
             observer: None,
         }
+    }
+
+    pub(in crate::commands) fn with_options(mut self, options: Options) -> Result<Self> {
+        self.parallelism = options.parallelism.max(1);
+        self.context = ModOpenContext::new(options.cache)?;
+        Ok(self)
     }
 
     pub(in crate::commands) fn with_parallelism(mut self, parallelism: usize) -> Self {
@@ -76,6 +101,11 @@ impl<'a> ScanSession<'a> {
         Ok(())
     }
 
+    /// Counts each normalized input once, before display filtering or query expansion.
+    pub(in crate::commands) fn cache_summary(&self) -> CacheSummary {
+        CacheSummary::from_results(self.cache.values().map(|result| result.cache_reuse))
+    }
+
     pub(in crate::commands) fn failed_count(&self) -> usize {
         self.cache.values().filter(|result| result.failed()).count()
     }
@@ -91,7 +121,7 @@ impl<'a> ScanSession<'a> {
             total: 1,
         })?;
         (self.checkpoint.0)()?;
-        let result = Arc::new(file::read(path.clone(), &self.loaders));
+        let result = Arc::new(file::read(path.clone(), &self.loaders, &self.context));
         (self.checkpoint.0)()?;
         for error in errors(&path, &result) {
             self.emit(Event::Diagnostic {
@@ -138,10 +168,11 @@ impl<'a> ScanSession<'a> {
             "Starting mod scan batch"
         );
         let loaders = &self.loaders;
-        let result = batch::run(
+        let context = &self.context;
+        let result = blocking::run(
             jobs.len(),
             self.parallelism,
-            |index| file::read(jobs[index].1.clone(), loaders),
+            |index| file::read(jobs[index].1.clone(), loaders, context),
             checkpoint,
             |index, result| {
                 let (key, _, indices) = &jobs[index];
@@ -211,6 +242,8 @@ impl<'a> ScanSession<'a> {
 }
 
 /// Scanning produces data only; terminal and transport adapters consume this stream.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub(in crate::commands) enum Event {
     Progress { completed: usize, total: usize },
     Diagnostic { error: ErrorReport },

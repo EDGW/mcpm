@@ -23,7 +23,7 @@ pub(super) struct DepsArgs {
 pub(super) fn run(args: DepsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     super::inspection::run(
         args.files,
-        args.loading.parallelism(),
+        args.loading.parallelism().into(),
         inspect::Display::Dependencies(&args.paths_output),
         ssh,
     )

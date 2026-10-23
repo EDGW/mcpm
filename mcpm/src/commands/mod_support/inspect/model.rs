@@ -1,6 +1,6 @@
 //! Inspection data shared by acquisition and presentation, without filesystem handles.
 
-use kako_mods_lib::local::mcmod::{ModInfo, ModStatus};
+use kako_mods_lib::local::mcmod::{ModInfo, ModMeta, ModStatus};
 use serde::{Deserialize, Serialize};
 
 use super::super::{mod_records, selection::SelectedFile};
@@ -24,6 +24,8 @@ pub(in crate::commands) enum Event {
         files: usize,
         failed: usize,
         ignored: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<super::super::scan::CacheSummary>,
     },
 }
 
@@ -54,17 +56,7 @@ impl From<&SelectedFile> for File {
                     if selected.records.is_some() && records.is_empty() {
                         return None;
                     }
-                    Some(Metadata {
-                        loader: metadata.loader.id().as_str().to_owned(),
-                        loader_name: metadata.loader.name().to_owned(),
-                        records: records
-                            .into_iter()
-                            .map(|record| Declaration {
-                                info: record.info.clone(),
-                                source: record.source,
-                            })
-                            .collect(),
-                    })
+                    Some(Metadata::from_records(metadata, records))
                 })
                 .collect(),
             failed_loaders: selected
@@ -82,6 +74,26 @@ pub(in crate::commands) struct Metadata {
     pub loader: String,
     pub loader_name: String,
     pub records: Vec<Declaration>,
+}
+
+impl Metadata {
+    pub(in crate::commands) fn from_mod_meta(metadata: &ModMeta) -> Self {
+        Self::from_records(metadata, mod_records::collect(metadata, ""))
+    }
+
+    fn from_records(metadata: &ModMeta, records: Vec<mod_records::ModRecord<'_>>) -> Self {
+        Self {
+            loader: metadata.loader.id().as_str().to_owned(),
+            loader_name: metadata.loader.name().to_owned(),
+            records: records
+                .into_iter()
+                .map(|record| Declaration {
+                    info: record.info.clone(),
+                    source: record.source,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

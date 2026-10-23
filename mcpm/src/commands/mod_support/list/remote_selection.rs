@@ -42,6 +42,8 @@ enum Event {
         files: usize,
         input_errors: usize,
         failed: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<scan::CacheSummary>,
     },
 }
 
@@ -49,7 +51,7 @@ pub(in crate::commands) fn serve(
     selection: Selection,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
-    parallelism: usize,
+    loading: impl Into<scan::Options>,
     output: &Output,
 ) -> Result<()> {
     output.send(Event::Scope {
@@ -60,7 +62,7 @@ pub(in crate::commands) fn serve(
         selection,
         scope,
         loaders,
-        parallelism,
+        loading,
         || output.checkpoint(),
         |event| {
             output.send(match event {
@@ -74,7 +76,7 @@ pub(in crate::commands) fn serve(
         |selected| {
             output.send(Event::Item {
                 index: files,
-                record: Record::from_selected(&selected),
+                record: Record::from_selected(&selected)?,
             })?;
             files += 1;
             Ok(())
@@ -84,6 +86,7 @@ pub(in crate::commands) fn serve(
         files,
         input_errors: counts.input_errors,
         failed: counts.failed,
+        cache: Some(counts.cache),
     })
 }
 
@@ -122,20 +125,25 @@ pub(in crate::commands) fn run_ssh(
             Event::Done {
                 input_errors,
                 failed,
+                cache,
                 ..
-            } => counts = Some((input_errors, failed)),
+            } => counts = Some((input_errors, failed, cache)),
         }
         Ok(())
     })?;
     validator.finish()?;
     drop(output);
-    let (input_errors, failed) = counts.context("missing remote server mod list completion")?;
+    let (input_errors, failed, cache) =
+        counts.context("missing remote server mod list completion")?;
     let result = super::present(
         files,
         true,
         display,
-        input_errors,
-        failed,
+        super::Counts {
+            input_errors,
+            failed,
+            cache,
+        },
         source_loaders,
         Location::Remote(&session),
     );
@@ -189,7 +197,11 @@ impl Validator {
                 files,
                 input_errors,
                 failed,
+                cache,
             } => {
+                if let Some(cache) = cache {
+                    cache.validate()?;
+                }
                 ensure!(
                     self.scan.is_complete() && *files == self.files,
                     "remote list completion mismatch"
@@ -224,6 +236,7 @@ mod tests {
             files,
             input_errors: 0,
             failed,
+            cache: None,
         }
     }
     fn item(index: usize, failed: bool) -> Event {

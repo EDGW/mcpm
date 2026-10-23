@@ -33,15 +33,21 @@ pub(super) fn draw(
     let identification = browser.identification_progress();
     let filter_height = if browser.filter_open { 3 } else { 0 };
     let identification_height = if identification.is_some() { 3 } else { 0 };
+    let [browser_area, footer_extension] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(if summary.cache.is_some() { 1 } else { 0 }),
+    ])
+    .areas(frame.area());
     let layout = BrowserLayout::new(
-        frame.area(),
+        browser_area,
         browser.details || browser.ignored,
         browser.focus == Focus::Details,
         filter_height + identification_height,
         0,
         10,
     );
-    let (title, footer) = (layout.title, layout.footer);
+    let title = layout.title;
+    let footer = layout.footer.union(footer_extension);
     let title_text = format!(
         "Mod List · {} / {} rows{}",
         browser.matches.len(),
@@ -111,17 +117,26 @@ pub(super) fn draw(
     } else {
         "↑/↓ Move · ←/→ Collapse/Expand · Space Toggle · e Expand All"
     };
-    let lines = [
-        (status.0, status.1),
+    let mut lines = vec![(status.0, status.1)];
+    if let Some(cache) = summary.cache {
+        lines.push((
+            crate::commands::mod_support::cache::summary_line(cache),
+            Role::Muted,
+        ));
+    }
+    lines.extend([
         (help.to_owned(), Role::Normal),
         (
             "Tab Switch Card · F Filter · r Reset · i Skipped · q / Esc Quit".to_owned(),
             Role::Muted,
         ),
-    ]
-    .into_iter()
-    .map(|(text, role)| short_line(vec![Span::styled(text, style(role))], footer.width as usize))
-    .collect::<Vec<_>>();
+    ]);
+    let lines = lines
+        .into_iter()
+        .map(|(text, role)| {
+            short_line(vec![Span::styled(text, style(role))], footer.width as usize)
+        })
+        .collect::<Vec<_>>();
     frame.render_widget(Paragraph::new(lines), footer);
     page
 }

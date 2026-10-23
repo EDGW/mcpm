@@ -23,7 +23,7 @@ pub(in crate::commands) fn run(
     tracing::info!("Opening SSH data source for mod list");
     let mut session = ssh.connect()?;
     let progress = Progress::new("Scanning mod directory...", "Identifying mods");
-    let (records, success) = read::read(&session, command, contents, &progress)
+    let (records, success, cache) = read::read(&session, command, contents, &progress)
         .context("invalid remote mod list protocol")?;
     drop(progress);
     tracing::debug!(
@@ -58,8 +58,11 @@ pub(in crate::commands) fn run(
         loaded.files,
         loaders.is_filtered(),
         display,
-        loaded.input_errors,
-        loaded.failed,
+        list::Counts {
+            input_errors: loaded.input_errors,
+            failed: loaded.failed,
+            cache,
+        },
         source_loaders,
         crate::commands::source_support::identify::Location::Remote(&session),
     );

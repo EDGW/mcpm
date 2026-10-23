@@ -13,9 +13,7 @@ use crate::commands::mod_support::{inspect, loaders::LoaderArgs, source_path::Pa
 )]
 pub(super) struct DepsArgs {
     #[command(flatten)]
-    files: crate::commands::mod_support::selection::SelectionArgs,
-    #[command(flatten)]
-    stdin: crate::commands::mod_support::selection::StdinArgs,
+    items: crate::commands::mod_support::selection::ItemArgs,
     /// Directory searched by modid/name and --all; relative filenames use this directory.
     #[arg(long, value_name = "PATH", default_value = ".")]
     directory: PathBuf,
@@ -28,7 +26,7 @@ pub(super) struct DepsArgs {
 }
 
 pub(super) fn run(args: DepsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    let selection = args.stdin.read(args.files)?.into_selection();
+    let selection = args.items.read()?;
     super::inspection::run(
         selection,
         args.directory,

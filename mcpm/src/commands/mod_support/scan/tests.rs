@@ -1,105 +1,10 @@
 //! Regression coverage for bounded concurrency, ordered collection and cached failures/aliases.
 
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-        mpsc,
-    },
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
 use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
 
-use super::{ScanSession, batch};
-
-#[test]
-fn bounded_workers_deliver_later_completion_without_waiting_for_first_input() {
-    let (release, blocked) = mpsc::channel();
-    let blocked = Mutex::new(blocked);
-    let (began, running) = mpsc::channel();
-    let running = Mutex::new(running);
-    let active = AtomicUsize::new(0);
-    let maximum = AtomicUsize::new(0);
-    let mut order = Vec::new();
-    batch::run(
-        8,
-        2,
-        |index| {
-            let concurrency = active.fetch_add(1, Ordering::SeqCst) + 1;
-            maximum.fetch_max(concurrency, Ordering::SeqCst);
-            if index == 0 {
-                began.send(()).unwrap();
-                // Timeout avoids hanging the suite if scheduling accidentally becomes serial.
-                blocked
-                    .lock()
-                    .unwrap()
-                    .recv_timeout(Duration::from_secs(3))
-                    .unwrap();
-            }
-            if index == 1 {
-                running
-                    .lock()
-                    .unwrap()
-                    .recv_timeout(Duration::from_secs(3))
-                    .unwrap();
-            }
-            active.fetch_sub(1, Ordering::SeqCst);
-            index
-        },
-        || Ok(()),
-        |index, result| {
-            assert_eq!(index, result);
-            order.push(index);
-            if index == 1 {
-                release.send(()).unwrap();
-            }
-            Ok(())
-        },
-    )
-    .unwrap();
-    assert_eq!(maximum.load(Ordering::SeqCst), 2);
-    assert_ne!(order[0], 0);
-    order.sort_unstable();
-    assert_eq!(order, (0..8).collect::<Vec<_>>());
-
-    // Consumer/transport errors stop the batch without blocked channel senders.
-    let failure = batch::run(
-        100,
-        2,
-        |index| index,
-        || Ok(()),
-        |_, _| -> Result<()> { anyhow::bail!("consumer closed") },
-    );
-    assert!(failure.unwrap_err().to_string().contains("consumer closed"));
-
-    let cancelled = std::cell::Cell::new(false);
-    let started = AtomicUsize::new(0);
-    let failure = batch::run(
-        100,
-        2,
-        |_| {
-            started.fetch_add(1, Ordering::SeqCst);
-        },
-        || {
-            if cancelled.get() {
-                anyhow::bail!("cancelled");
-            }
-            Ok(())
-        },
-        |_, _| {
-            cancelled.set(true);
-            Ok(())
-        },
-    );
-    assert!(failure.unwrap_err().to_string().contains("cancelled"));
-    assert!(
-        started.load(Ordering::SeqCst) <= 6,
-        "cancellation must stop dispatch rather than drain all work"
-    );
-}
+use super::ScanSession;
 
 #[test]
 fn normalized_duplicates_share_success_and_failure_but_disabled_alias_is_separate() {

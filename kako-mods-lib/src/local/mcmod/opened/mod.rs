@@ -10,6 +10,14 @@ use crate::local::{
     modloader::{LoaderId, ModLoaderMeta},
 };
 
+mod cache;
+pub use cache::{
+    LoaderCacheMissReason, LoaderCacheUsage, ModCacheReuse, ModOpenCache, ModOpenCacheReport,
+    ModOpenContext, ModOpenReport,
+};
+
+use super::cache::{CacheStatus, CachedIdentification};
+
 /// A mod file with independent metadata records from its loaders.
 #[derive(Debug)]
 pub struct ModFile {
@@ -85,26 +93,62 @@ pub enum IdentificationErrorAction {
 /// separate metadata record; loaders that return `None` are skipped.
 /// If no loader recognizes the entry, the returned file has empty metadata.
 /// The entry and loader map are consumed, and the file is not modified.
+/// Use a shared context across opens to reuse cache selection and lookup setup.
 /// On failure, `on_error` receives the entry, loader, attempt number (starting
 /// at one for each loader), and the error with loader/path context. It may retry,
 /// skip, or abort. Skipped errors are the caller's responsibility to record.
+/// Valid cached recognition and non-recognition bypass the loader; missing or
+/// unavailable results are identified normally. Cache use is read-only: opening
+/// never imports files, creates hard links, changes permissions or saves metadata.
+/// Use explicit cache operations to store files or refresh metadata.
+/// The returned file retains the input path and enabled state.
 /// An empty metadata list can mean no recognition or that all errors were skipped.
 ///
 /// # Errors
 ///
 /// Returns the original contextual error when `on_error` selects
-/// [`IdentificationErrorAction::Abort`]. No partial file is returned in that case.
+/// [`IdentificationErrorAction::Abort`], or a cache directory/lookup error.
+/// No partial file is returned in those cases.
 pub fn open<F>(
     entry: ModEntry,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
+    context: &ModOpenContext,
     mut on_error: F,
-) -> Result<ModFile>
+) -> Result<ModOpenReport>
 where
     F: FnMut(&ModEntry, &ModLoaderMeta, usize, &anyhow::Error) -> IdentificationErrorAction,
 {
     let mut metadata = Vec::new();
+    let cached = context.find(entry.path())?;
+    tracing::debug!(path = %entry.path().display(), cache = ?cached.as_ref().map(|entry| (entry.id(), entry.status())), "Checked mod cache association");
+    let mut usage = HashMap::new();
 
     for loader in loaders.values() {
+        if let Some(cached) = &cached {
+            let result = if cached.status() != &CacheStatus::Available {
+                LoaderCacheUsage::Miss(LoaderCacheMissReason::Unavailable)
+            } else if let Some(digest) = cached.digest() {
+                match digest.identification(loader.id().as_str()) {
+                    CachedIdentification::Missing => {
+                        LoaderCacheUsage::Miss(LoaderCacheMissReason::Missing)
+                    }
+                    CachedIdentification::Unrecognized => LoaderCacheUsage::Unrecognized,
+                    CachedIdentification::Recognized(meta) => match meta.to_mod_meta(&loaders) {
+                        Ok(meta) => {
+                            metadata.push(meta);
+                            LoaderCacheUsage::Recognized
+                        }
+                        Err(_) => LoaderCacheUsage::Miss(LoaderCacheMissReason::InvalidMetadata),
+                    },
+                }
+            } else {
+                LoaderCacheUsage::Miss(LoaderCacheMissReason::Unavailable)
+            };
+            usage.insert(loader.id().clone(), result);
+            if !matches!(result, LoaderCacheUsage::Miss(_)) {
+                continue;
+            }
+        }
         let mut attempt = 1;
         loop {
             let identified = loader.instance().try_identify(&entry).with_context(|| {
@@ -116,9 +160,7 @@ where
             });
             match identified {
                 Ok(identified) => {
-                    if let Some(identified) = identified {
-                        metadata.push(identified);
-                    }
+                    metadata.extend(identified);
                     break;
                 }
                 Err(error) => match on_error(&entry, loader, attempt, &error) {
@@ -130,5 +172,20 @@ where
         }
     }
 
-    Ok(ModFile { entry, metadata })
+    let cache = match cached {
+        Some(cached) => ModOpenCacheReport::Matched {
+            root: context
+                .root()
+                .expect("cache enabled for a match")
+                .to_owned(),
+            id: cached.id(),
+            status: cached.status().clone(),
+            loaders: usage,
+        },
+        None => context.report(),
+    };
+    Ok(ModOpenReport {
+        file: ModFile { entry, metadata },
+        cache,
+    })
 }

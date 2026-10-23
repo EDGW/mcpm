@@ -112,7 +112,7 @@ fn nested_queries_preserve_archive_subtrees_order_and_deduplicated_failure_count
         // Building the name/id index also encounters broken.jar; repeated missing inputs share a failure.
         assert_eq!(
             events.last().unwrap(),
-            &json!({"event":"done","files":4,"failed":2,"ignored":0})
+            &json!({"event":"done","files":4,"failed":2,"ignored":0,"cache":{"fully_cached":0,"partially_cached":0,"total":3}})
         );
         assert_eq!(
             events
@@ -169,6 +169,9 @@ fn ssh_resolves_queries_on_remote_host_and_preserves_local_presentation() {
                 command,
             ])
             .args(options);
+        if command == "info" {
+            process.arg("--no-cache");
+        }
         if over_ssh {
             process.args([
                 "--ssh",

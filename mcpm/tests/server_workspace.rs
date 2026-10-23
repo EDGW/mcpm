@@ -244,6 +244,9 @@ fn remote_registration_is_read_only_then_routes_commands_from_any_client_directo
             ],
             name => vec!["server", "mods", name, "example.jar"],
         };
+        if matches!(subcommand, "list" | "info") {
+            tail.push("--no-cache");
+        }
         tail.extend(["--server", workspace.to_str().unwrap()]);
         let auto = run(fixture.root.path(), &tail);
         let last = tail.len() - 1;

@@ -90,7 +90,7 @@ fn selected_records_and_failure_counts_are_independent_of_output_multiplicity() 
     // The failed index-only file is not an item; done remains the scan's unique accounting.
     assert_eq!(
         events.last().unwrap(),
-        &json!({"event":"done","files":3,"input_errors":1,"failed":1})
+        &json!({"event":"done","files":3,"input_errors":1,"failed":1,"cache":{"fully_cached":0,"partially_cached":0,"total":2}})
     );
     assert_eq!(events.iter().filter(|e| e["event"] == "error").count(), 2);
     let empty = tempfile::tempdir().unwrap();
@@ -101,7 +101,7 @@ fn selected_records_and_failure_counts_are_independent_of_output_multiplicity() 
     assert_eq!(events[1], json!({"event":"scan","completed":0,"total":0}));
     assert_eq!(
         events.last().unwrap(),
-        &json!({"event":"done","files":0,"input_errors":0,"failed":0})
+        &json!({"event":"done","files":0,"input_errors":0,"failed":0,"cache":{"fully_cached":0,"partially_cached":0,"total":0}})
     );
 }
 
@@ -160,6 +160,7 @@ fn ssh_keeps_nested_selection_filtering_and_paths_equivalent_to_local_lists() {
                     "server",
                     "mods",
                     "list",
+                    "--no-cache",
                     "--parallelism",
                     "2",
                 ])

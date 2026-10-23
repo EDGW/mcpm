@@ -15,6 +15,7 @@ use super::{
 
 mod deps;
 mod info;
+pub(in crate::commands) use info::write_metadata;
 mod load;
 mod loading;
 mod model;
@@ -27,7 +28,7 @@ pub(in crate::commands) use validation::Validator;
 
 pub(in crate::commands) use load::load;
 pub(in crate::commands) use loading::LoadingArgs;
-pub(in crate::commands) use model::{Event, File};
+pub(in crate::commands) use model::{Event, File, Metadata};
 
 /// Selects the presentation without changing identification or input semantics.
 #[derive(Clone, Copy)]
@@ -52,7 +53,7 @@ pub(in crate::commands) fn run(
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     hide_unrecognized: bool,
-    parallelism: usize,
+    loading: impl Into<super::scan::Options>,
     display: Display<'_>,
 ) -> Result<()> {
     let mut presentation = Presentation::new(display, false);
@@ -62,7 +63,7 @@ pub(in crate::commands) fn run(
         scope,
         loaders,
         hide_unrecognized,
-        parallelism,
+        loading,
         || Ok(()),
         |event| {
             validator.accept(&event)?;

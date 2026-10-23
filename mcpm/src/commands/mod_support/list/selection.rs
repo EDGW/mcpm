@@ -14,21 +14,22 @@ use std::collections::HashMap;
 pub(super) struct Counts {
     pub input_errors: usize,
     pub failed: usize,
+    pub cache: super::super::scan::CacheSummary,
 }
 
 pub(super) fn load(
     selection: Selection,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
-    parallelism: usize,
+    loading: impl Into<scan::Options>,
     checkpoint: impl Fn() -> Result<()>,
     observe: impl Fn(scan::Event) -> Result<()>,
     mut emit: impl FnMut(SelectedFile) -> Result<()>,
 ) -> Result<Counts> {
-    tracing::info!(parallelism, "Resolving server mod list selections");
+    tracing::info!("Resolving server mod list selections");
     let mut resolver = Resolver::new(
         ScanSession::new(loaders)
-            .with_parallelism(parallelism)
+            .with_options(loading.into())?
             .with_checkpoint(&checkpoint)
             .with_observer(&observe),
         scope,
@@ -63,6 +64,7 @@ pub(super) fn load(
     let counts = Counts {
         input_errors,
         failed: resolver.scan.failed_count(),
+        cache: resolver.scan.cache_summary(),
     };
     tracing::debug!(?counts, "Server mod list selections resolved");
     Ok(counts)

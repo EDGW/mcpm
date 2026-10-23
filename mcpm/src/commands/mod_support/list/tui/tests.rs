@@ -23,9 +23,11 @@ fn fixture(expanded: bool) -> Browser {
         ModEntry::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex-mod.jar"))
             .unwrap(),
         BUILTIN_LOADERS.clone(),
+        &mcmod::ModOpenContext::default(),
         |_, _, _, _| IdentificationErrorAction::Abort,
     )
-    .unwrap();
+    .unwrap()
+    .file;
     let files = [ListedFile {
         scanned: Arc::new(ScannedFile {
             file,
@@ -52,6 +54,7 @@ fn summary() -> Summary<'static> {
         ignored_files: &[],
         input_errors: 0,
         failed: 0,
+        cache: None,
     }
 }
 

@@ -1,9 +1,9 @@
-//! Single-file loader inspection and complete diagnostics, without caching or presentation.
+//! Adapts library identification reports to command-local scan results and diagnostics.
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use kako_mods_lib::local::{
-    mcmod::{self, IdentificationErrorAction, ModEntry},
+    mcmod::{self, IdentificationErrorAction, ModCacheReuse, ModEntry, ModOpenContext},
     modloader::{LoaderId, ModLoaderMeta},
 };
 
@@ -15,6 +15,7 @@ use crate::{commands::mod_support::loaders, diagnostics::ErrorReport};
 pub(in crate::commands) struct ScanResult {
     pub file: Option<Arc<ScannedFile>>,
     pub errors: Vec<ScanError>,
+    pub cache_reuse: ModCacheReuse,
 }
 impl ScanResult {
     pub fn failed(&self) -> bool {
@@ -28,13 +29,17 @@ pub(in crate::commands) struct ScanError {
     pub error: ErrorReport,
 }
 
-pub(super) fn read(path: PathBuf, loaders: &HashMap<LoaderId, ModLoaderMeta>) -> ScanResult {
+pub(super) fn read(
+    path: PathBuf,
+    loaders: &HashMap<LoaderId, ModLoaderMeta>,
+    context: &ModOpenContext,
+) -> ScanResult {
     let started = std::time::Instant::now();
     tracing::debug!(path = %path.display(), "Identifying mod file");
     let mut errors = Vec::new();
     let mut failures = Vec::new();
     let result = ModEntry::new(path.clone()).and_then(|entry| {
-        mcmod::open(entry, loaders.clone(), |_, loader, _, error| {
+        mcmod::open(entry, loaders.clone(), context, |_, loader, _, error| {
             tracing::debug!(path = %path.display(), loader = %loader.id(), error = %format_args!("{error:#}"), "Mod loader identification failed");
             failures.push(FailedIdentification {
                 loader: loader.clone(),
@@ -44,8 +49,12 @@ pub(super) fn read(path: PathBuf, loaders: &HashMap<LoaderId, ModLoaderMeta>) ->
             IdentificationErrorAction::Skip
         })
     });
+    let mut cache_reuse = ModCacheReuse::None;
     let file = match result {
-        Ok(mut file) => {
+        Ok(report) => {
+            tracing::debug!(cache = ?report.cache, "Mod cache usage");
+            cache_reuse = report.cache.reuse();
+            let mut file = report.file;
             loaders::sort_metadata(&mut file);
             Some(Arc::new(ScannedFile { file, failures }))
         }
@@ -65,5 +74,9 @@ pub(super) fn read(path: PathBuf, loaders: &HashMap<LoaderId, ModLoaderMeta>) ->
             .cmp(&b.loader.as_ref().map(|loader| loader.id()))
     });
     tracing::debug!(path = %path.display(), loaded = file.is_some(), errors = errors.len(), elapsed_ms = started.elapsed().as_millis(), "Mod identification completed");
-    ScanResult { file, errors }
+    ScanResult {
+        file,
+        errors,
+        cache_reuse,
+    }
 }

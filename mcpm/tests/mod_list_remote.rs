@@ -49,10 +49,8 @@ fn run(root: &Path, args: Value, count: usize, success: bool) -> Vec<Value> {
         events[0],
         serde_json::json!({"event":"count","count":count})
     );
-    assert_eq!(
-        events[count + 1],
-        serde_json::json!({"event":"done","success":success})
-    );
+    assert_eq!(events[count + 1]["event"], "done");
+    assert_eq!(events[count + 1]["success"], success);
     assert_eq!(envelopes[count + 3]["status"], "finished");
     assert_eq!(envelopes[count + 4]["status"], "closed");
     let mut records = vec![None; count];

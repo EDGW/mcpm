@@ -87,13 +87,20 @@ impl ListLoadingArgs {
 
 type ListedFile = SelectedFile;
 
+/// Acquisition totals stay independent of display filtering and declaration rows.
+pub(in crate::commands) struct Counts {
+    pub input_errors: usize,
+    pub failed: usize,
+    pub cache: Option<super::scan::CacheSummary>,
+}
+
 /// Lists batches of entries supplied by a command, retaining per-input diagnostics.
 /// Loader selection and input resolution belong to the caller.
 pub(in crate::commands) fn run(
     inputs: impl IntoIterator<Item = Result<Vec<ModEntry>>>,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     hide_unrecognized: bool,
-    parallelism: usize,
+    loading: impl Into<super::scan::Options>,
     args: ListDisplayArgs,
 ) -> Result<()> {
     let started = std::time::Instant::now();
@@ -122,7 +129,7 @@ pub(in crate::commands) fn run(
     let output = ScanOutput::default();
     let observe = |event| output.event(event);
     let mut session = ScanSession::new(loaders)
-        .with_parallelism(parallelism)
+        .with_options(loading.into())?
         .with_observer(&observe);
     let paths: Vec<_> = entries
         .into_iter()
@@ -147,8 +154,11 @@ pub(in crate::commands) fn run(
         files,
         hide_unrecognized,
         args,
-        input_errors,
-        session.failed_count(),
+        Counts {
+            input_errors,
+            failed: session.failed_count(),
+            cache: Some(session.cache_summary()),
+        },
         source_loaders,
         Location::Local,
     )
@@ -159,7 +169,7 @@ pub(in crate::commands) fn run_selection(
     selection: Selection,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
-    parallelism: usize,
+    loading: impl Into<super::scan::Options>,
     args: ListDisplayArgs,
 ) -> Result<()> {
     let source_loaders = source_loaders(&loaders, true);
@@ -169,7 +179,7 @@ pub(in crate::commands) fn run_selection(
         selection,
         scope,
         loaders,
-        parallelism,
+        loading,
         || Ok(()),
         |event| output.event(event),
         |file| {
@@ -181,8 +191,11 @@ pub(in crate::commands) fn run_selection(
         files,
         true,
         args,
-        counts.input_errors,
-        counts.failed,
+        Counts {
+            input_errors: counts.input_errors,
+            failed: counts.failed,
+            cache: Some(counts.cache),
+        },
         source_loaders,
         Location::Local,
     )
@@ -194,11 +207,15 @@ pub(in crate::commands) fn present(
     files: Vec<ListedFile>,
     hide_unrecognized: bool,
     args: ListDisplayArgs,
-    input_errors: usize,
-    failed: usize,
+    counts: Counts,
     source_loaders: Vec<String>,
     location: Location<'_>,
 ) -> Result<()> {
+    let Counts {
+        input_errors,
+        failed,
+        cache,
+    } = counts;
     let local_files = location.is_local();
     let formatted = terminal::stdout_is_tty();
     let interactive = formatted && terminal::stderr_is_tty() && !args.no_ui;
@@ -267,6 +284,7 @@ pub(in crate::commands) fn present(
                 ignored_files: &ignored_files,
                 input_errors,
                 failed,
+                cache,
             },
         )?;
     } else {
@@ -309,6 +327,9 @@ pub(in crate::commands) fn present(
             .context("failed to write mod list")?;
         super::ignored_output::write_loader_filtered(&mut stdout, ignored, &ignored_files)
             .context("failed to write ignored mod files summary")?;
+        if let Some(cache) = cache {
+            super::cache::write_summary(&mut stdout, cache)?;
+        }
         stdout.flush().context("failed to flush mod list")?;
     }
 
