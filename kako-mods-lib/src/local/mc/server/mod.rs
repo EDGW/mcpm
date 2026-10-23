@@ -19,7 +19,9 @@ mod launch;
 pub use launch::{ServerLaunch, ServerOptionError};
 mod metadata;
 
-pub use metadata::{MinecraftServerMetadata, ServerModLoader, ServerStartCommand};
+pub use metadata::{
+    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader, ServerStartCommand,
+};
 
 /// A successfully loaded snapshot of a Minecraft server's declared metadata.
 /// Loading does not inspect JARs or guarantee that the server can launch.
@@ -46,10 +48,13 @@ impl MinecraftServer {
         let metadata: MinecraftServerMetadata =
             serde_json::from_slice(&bytes).map_err(|source| {
                 MinecraftServerError::ParseMetadata {
-                    path: manifest,
+                    path: manifest.clone(),
                     source,
                 }
             })?;
+        if metadata.version == 1 {
+            tracing::warn!(path = %manifest.display(), "Loading legacy server.json version 1; reinitialize explicitly to write version 2");
+        }
         let mods = mod_container(&path, &metadata)?;
         Ok(Self {
             path,
@@ -87,13 +92,16 @@ impl MinecraftServer {
         let mut bytes = serde_json::to_vec_pretty(&metadata)
             .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
         // Validate public, caller-constructed metadata before writing anything.
-        let metadata: MinecraftServerMetadata =
+        let mut metadata: MinecraftServerMetadata =
             serde_json::from_slice(&bytes).map_err(|source| {
                 MinecraftServerError::ParseMetadata {
                     path: manifest.clone(),
                     source,
                 }
             })?;
+        metadata.version = SERVER_METADATA_VERSION;
+        bytes = serde_json::to_vec_pretty(&metadata)
+            .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
         // Validate the optional mod directory before changing registration metadata.
         let mods = mod_container(&path, &metadata)?;
         bytes.push(b'\n');

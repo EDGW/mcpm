@@ -4,6 +4,35 @@ use std::fs;
 use tempfile::TempDir;
 
 #[test]
+fn legacy_metadata_is_read_without_rewriting_and_only_migrates_on_explicit_persistence() {
+    use kako_mods_lib::local::mc::server::{MinecraftServer, SERVER_METADATA_VERSION};
+
+    let root = TempDir::new().unwrap();
+    fs::create_dir(root.path().join(".mcpm")).unwrap();
+    let manifest = root.path().join(".mcpm/server.json");
+    let legacy = b"{\"version\":1,\"minecraft_version\":\"1.21.1\",\"loader\":null}\n";
+    fs::write(&manifest, legacy).unwrap();
+    let server = MinecraftServer::load(root.path()).unwrap();
+    assert_eq!(fs::read(&manifest).unwrap(), legacy);
+    let mut invalid = server.metadata().clone();
+    invalid.version = 99;
+    assert!(MinecraftServer::replace(root.path(), invalid).is_err());
+    assert_eq!(fs::read(&manifest).unwrap(), legacy);
+    let updated = MinecraftServer::replace(root.path(), server.metadata().clone()).unwrap();
+    assert_eq!(updated.metadata().version, SERVER_METADATA_VERSION);
+    let mut expected: serde_json::Value = serde_json::from_slice(legacy).unwrap();
+    expected["version"] = SERVER_METADATA_VERSION.into();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&fs::read(manifest).unwrap()).unwrap(),
+        expected
+    );
+    assert_eq!(
+        MinecraftServer::load(root.path()).unwrap().metadata(),
+        updated.metadata()
+    );
+}
+
+#[test]
 fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments() {
     use kako_mods_lib::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
 
