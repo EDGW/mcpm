@@ -3,10 +3,9 @@
 use anyhow::{Context, Result, bail};
 
 use crate::commands::mod_support::{list, loaders::LoaderArgs};
-use crate::remote::client::Session;
 
 use super::ListDisplayArgs;
-use crate::commands::progress::Progress;
+use crate::progress::Progress;
 use crate::ssh::SshArgs;
 
 mod read;
@@ -22,8 +21,7 @@ pub(in crate::commands) fn run(
 ) -> Result<()> {
     let started = std::time::Instant::now();
     tracing::info!("Opening SSH data source for mod list");
-    let mut session =
-        Session::start(&mut ssh.command()?).context("failed to open SSH mcpm session")?;
+    let mut session = ssh.connect()?;
     let progress = Progress::new("Scanning mod directory...", "Identifying mods");
     let (records, success) = read::read(&session, command, contents, &progress)
         .context("invalid remote mod list protocol")?;

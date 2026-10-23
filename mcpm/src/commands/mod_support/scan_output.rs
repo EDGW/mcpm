@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use anyhow::Result;
 
 use super::scan::Event;
-use crate::commands::progress::Progress;
+use crate::progress::Progress;
 
 #[derive(Default)]
 pub(in crate::commands) struct ScanOutput {

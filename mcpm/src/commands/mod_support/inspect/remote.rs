@@ -1,7 +1,7 @@
 //! Shared SSH inspection consumption, with validated events and local presentation.
 
 use super::{Display, Event, Presentation, Validator};
-use crate::{remote::client::Session, ssh::SshArgs};
+use crate::ssh::SshArgs;
 use anyhow::{Context, Result};
 use serde_json::Value;
 
@@ -12,8 +12,7 @@ pub(in crate::commands) fn run_ssh(
     display: Display<'_>,
 ) -> Result<()> {
     tracing::info!(command, "Opening SSH data source for mod inspection");
-    let mut session =
-        Session::start(&mut ssh.command()?).context("failed to open SSH mcpm session")?;
+    let mut session = ssh.connect()?;
     tracing::debug!(command, "Requesting remote mod inspection");
     let mut presentation = Presentation::new(display, true);
     let mut validator = Validator::default();

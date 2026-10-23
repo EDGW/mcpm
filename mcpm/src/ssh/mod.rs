@@ -1,9 +1,11 @@
 //! Shared global SSH options and non-PTY remote mcpm command construction.
 
-use std::{path::PathBuf, process::Command};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
+
+use crate::{progress::Progress, remote::client::Session};
 
 mod config;
 pub(crate) use config::Connection;
@@ -64,11 +66,16 @@ impl SshArgs {
         }
     }
 
-    pub(crate) fn command(&self) -> Result<Command> {
-        let mut command = self.connection()?.command()?;
+    /// Display connection progress until the remote handshake and log subscription are ready.
+    pub(crate) fn connect(&self) -> Result<Session> {
+        let (mut command, destination) = self.connection()?.prepare()?;
         if let Some(directory) = &self.directory {
             command.current_dir(directory);
         }
-        Ok(command)
+        let _progress = Progress::new(
+            &format!("Connecting {}...", destination.escape_debug()),
+            "Connecting",
+        );
+        Session::start(&mut command).context("failed to open SSH mcpm session")
     }
 }

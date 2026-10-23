@@ -15,6 +15,10 @@ pub(crate) struct Connection {
 impl Connection {
     #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
     pub(crate) fn command(&self) -> Result<Command> {
+        Ok(self.prepare()?.0)
+    }
+
+    pub(super) fn prepare(&self) -> Result<(Command, String)> {
         let executable = self.ssh_mcpm.as_deref().unwrap_or("mcpm");
         ensure!(
             !executable.trim().is_empty(),
@@ -32,8 +36,8 @@ impl Connection {
             shlex::try_join([executable, "remote"])
                 .context("remote executable cannot contain NUL bytes")?
         };
-        let mut command = connection::command(&self.ssh)?;
+        let (mut command, destination) = connection::command(&self.ssh)?;
         command.arg(remote);
-        Ok(command)
+        Ok((command, destination))
     }
 }

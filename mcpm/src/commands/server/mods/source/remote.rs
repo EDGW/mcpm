@@ -8,10 +8,7 @@ use serde_json::Value;
 
 use super::Compatibility;
 use crate::{
-    remote::{
-        client::Session,
-        command::{Command, Output},
-    },
+    remote::command::{Command, Output},
     ssh::SshArgs,
 };
 
@@ -57,7 +54,7 @@ pub(super) fn defaults(
     command: &'static str,
 ) -> Result<Compatibility> {
     tracing::info!(command, "Opening SSH data source for server compatibility");
-    let mut session = Session::start(&mut ssh.command()?)?;
+    let mut session = ssh.connect()?;
     let mut defaults = None;
     session
         .submit(command, serde_json::to_value(Request { server })?)?

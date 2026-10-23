@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 
 use super::{metadata::ServerInfo, output, target};
-use crate::{commands::progress::Progress, remote::client::Session, ssh::SshArgs};
+use crate::{progress::Progress, ssh::SshArgs};
 use model::{Initialize, Phase, Recognize};
 
 mod model;
@@ -72,7 +72,7 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
     let path = recognition.path.clone();
     let mut session = if ssh.is_requested() {
         tracing::info!("Opening SSH data source for server initialization");
-        Some(Session::start(&mut ssh.command()?).context("failed to open SSH mcpm session")?)
+        Some(ssh.connect()?)
     } else {
         None
     };

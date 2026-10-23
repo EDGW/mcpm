@@ -78,7 +78,7 @@ pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> 
         "provide file paths as arguments or one per stdin line"
     );
     let _span = tracing::info_span!("source_identify", source = "ssh").entered();
-    let mut session = crate::remote::client::Session::start(&mut ssh.command()?)?;
+    let mut session = ssh.connect()?;
     let result = present(args.options, paths, Some(&session));
     session.close()?;
     result
@@ -124,10 +124,8 @@ fn present(
     );
     tracing::debug!(?options, "Selected source identify options");
     let runtime = Runtime::new()?;
-    let progress = crate::commands::progress::Progress::new(
-        "Preparing file identification...",
-        "Identifying files",
-    );
+    let progress =
+        crate::progress::Progress::new("Preparing file identification...", "Identifying files");
     progress.set_total(paths.len());
     let columns = options.columns.selected();
     let source = SourceId(

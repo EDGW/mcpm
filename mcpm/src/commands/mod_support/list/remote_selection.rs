@@ -17,7 +17,7 @@ use crate::{
         source_support::identify::Location,
     },
     diagnostics::ErrorReport,
-    remote::{client::Session, command::Output},
+    remote::command::Output,
     ssh::SshArgs,
 };
 
@@ -94,8 +94,7 @@ pub(in crate::commands) fn run_ssh(
     display: ListDisplayArgs,
 ) -> Result<()> {
     tracing::info!(command, "Opening SSH data source for server mod list");
-    let mut session =
-        Session::start(&mut ssh.command()?).context("failed to open SSH mcpm session")?;
+    let mut session = ssh.connect()?;
     let output = ScanOutput::remote();
     let mut validator = Validator::default();
     let mut files = Vec::new();

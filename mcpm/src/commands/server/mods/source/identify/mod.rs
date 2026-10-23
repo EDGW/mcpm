@@ -10,7 +10,7 @@ use crate::commands::{
 
 use super::super::super::mod_source::ServerMods;
 use super::super::input::FileArgs;
-use crate::{remote::client::Session, ssh::SshArgs};
+use crate::ssh::SshArgs;
 
 mod remote;
 
@@ -35,7 +35,7 @@ pub(super) fn run(args: IdentifyArgs, ssh: SshArgs) -> Result<()> {
     let parallelism = args.options.parallelism();
     let (paths, failed, mut session) = if ssh.is_requested() {
         tracing::info!("Opening SSH data source for server source identification");
-        let session = Session::start(&mut ssh.command()?)?;
+        let session = ssh.connect()?;
         let (paths, failed) = remote::resolve(&session, server, selection, parallelism)?;
         (paths, failed, Some(session))
     } else {

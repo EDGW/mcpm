@@ -6,6 +6,7 @@ mod diagnostics;
 mod help;
 mod initcall;
 mod logging;
+mod progress;
 mod remote;
 mod ssh;
 mod terminal;

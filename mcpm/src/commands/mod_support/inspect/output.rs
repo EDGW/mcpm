@@ -14,7 +14,7 @@ pub(in crate::commands) struct Presentation<'a> {
     remote: bool,
     written: bool,
     failed: usize,
-    progress: Option<crate::commands::progress::Progress>,
+    progress: Option<crate::progress::Progress>,
 }
 
 impl<'a> Presentation<'a> {
@@ -33,7 +33,7 @@ impl<'a> Presentation<'a> {
             Event::Scan { completed, total } => {
                 if completed == 0 {
                     tracing::debug!(total, "Started inspection scan progress");
-                    let progress = crate::commands::progress::Progress::new(
+                    let progress = crate::progress::Progress::new(
                         "Scanning mod directory...",
                         "Identifying mods",
                     );

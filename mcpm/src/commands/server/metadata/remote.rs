@@ -8,10 +8,7 @@ use serde_json::Value;
 
 use super::{super::workspace, ServerInfo};
 use crate::{
-    remote::{
-        client::Session,
-        command::{Command, Output},
-    },
+    remote::command::{Command, Output},
     ssh::SshArgs,
 };
 
@@ -46,8 +43,7 @@ fn default_path() -> PathBuf {
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(in crate::commands::server) fn load(ssh: SshArgs, path: PathBuf) -> Result<ServerInfo> {
     tracing::info!("Opening SSH data source for server information");
-    let mut session =
-        Session::start(&mut ssh.command()?).context("failed to open SSH mcpm session")?;
+    let mut session = ssh.connect()?;
     tracing::debug!(path = %path.display(), "Requesting remote server metadata");
     let mut info = None;
     session

@@ -11,10 +11,8 @@ use kako_mods_lib::local::{
 };
 use thiserror::Error;
 
-use crate::commands::{
-    execution::DEFAULT_PARALLELISM, progress, source_support::identify::Location,
-};
-use crate::terminal;
+use crate::commands::{execution::DEFAULT_PARALLELISM, source_support::identify::Location};
+use crate::{progress, terminal};
 
 use super::{
     scan::ScanSession,

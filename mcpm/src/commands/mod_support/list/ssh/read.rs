@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result, ensure};
 
-use crate::commands::progress::Progress;
+use crate::progress::Progress;
 use crate::remote::client::Session;
 
 use super::super::protocol::{Contents, Record};
