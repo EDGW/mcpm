@@ -72,10 +72,11 @@ impl SshArgs {
         if let Some(directory) = &self.directory {
             command.current_dir(directory);
         }
-        let _progress = Progress::new(
-            &format!("Connecting {}...", destination.escape_debug()),
-            "Connecting",
-        );
+        let message = match destination {
+            Some(destination) => format!("Connecting {}...", destination.escape_debug()),
+            None => "Connecting...".into(),
+        };
+        let _progress = Progress::new(&message, "Connecting");
         Session::start(&mut command).context("failed to open SSH mcpm session")
     }
 }

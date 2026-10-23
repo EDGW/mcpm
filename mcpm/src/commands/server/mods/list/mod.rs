@@ -2,22 +2,28 @@
 
 use std::path::PathBuf;
 
-use crate::remote::command::Command;
 use anyhow::Result;
 use clap::Args;
 
-mod remote;
-
-use crate::commands::mod_support::{
-    list::{self, ListDisplayArgs, ListLoadingArgs},
-    selection::SelectionArgs,
+use super::super::{
+    mod_source::ServerMods,
+    target::{self, Target},
+};
+use crate::{
+    commands::mod_support::{
+        list::{self, ListDisplayArgs, ListLoadingArgs},
+        selection::SelectionArgs,
+    },
+    help,
+    remote::command::Command,
+    ssh::SshArgs,
 };
 
-use super::super::mod_source::ServerMods;
+mod remote;
 
 #[derive(Args, Debug)]
 #[command(
-    defer(|command| crate::help::grouped(command, &[
+    defer(|command| help::grouped(command, &[
         "Global options", "Mode options", "Loading options", "Input options", "Filter", "Style options",
         "Console-only options",
     ])),
@@ -40,9 +46,9 @@ pub(super) struct ListArgs {
     loading: ListLoadingArgs,
 }
 
-pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+pub(super) fn run(args: ListArgs, ssh: SshArgs) -> Result<()> {
     let selection = args.selection.with_stdin()?.into_selection();
-    let (path, ssh) = crate::commands::server::target::resolve(args.path, ssh)?;
+    let Target { path, ssh, .. } = target::resolve(args.path, ssh)?;
     if ssh.is_requested() {
         return list::remote_selection::run_ssh(
             ssh,

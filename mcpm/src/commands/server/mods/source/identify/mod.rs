@@ -3,14 +3,18 @@
 use anyhow::{Result, ensure};
 use clap::Args;
 
-use crate::commands::{
-    mod_support::{scan_output::ScanOutput, selection},
-    source_support::identify,
-};
-
-use super::super::super::mod_source::ServerMods;
 use super::super::input::FileArgs;
-use crate::ssh::SshArgs;
+use crate::{
+    commands::{
+        mod_support::{inspect, scan_output::ScanOutput, selection},
+        server::{
+            mod_source::ServerMods,
+            target::{self, Target},
+        },
+        source_support::identify,
+    },
+    ssh::SshArgs,
+};
 
 mod remote;
 
@@ -28,10 +32,12 @@ pub(super) struct IdentifyArgs {
 pub(super) fn run(args: IdentifyArgs, ssh: SshArgs) -> Result<()> {
     let (server, selection) = args.files.with_stdin()?.into_parts();
     if selection.is_empty() {
-        crate::commands::mod_support::inspect::prompt_for_input()?;
+        inspect::prompt_for_input()?;
         return Ok(());
     }
-    let (server, ssh) = crate::commands::server::target::resolve(server, ssh)?;
+    let Target {
+        path: server, ssh, ..
+    } = target::resolve(server, ssh)?;
     let parallelism = args.options.parallelism();
     let (paths, failed, mut session) = if ssh.is_requested() {
         tracing::info!("Opening SSH data source for server source identification");

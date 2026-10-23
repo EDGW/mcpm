@@ -18,6 +18,16 @@ Raw and non-TTY output is one TSV row with six fields: name, path,
 Minecraft version, loader, loader version, full command. Loader version is empty
 for absent or unknown loaders. Control characters are escaped. Errors go to stderr.
 
+When a Remote workspace supplies the connection, output also includes its saved configuration:
+
+- Remote server path.
+- SSH command, showing only the first and last three characters with `***` between them. Short commands reveal fewer characters so the middle always stays hidden.
+- Remote mcpm executable, or `mcpm` when no override is saved.
+
+Console output shows the saved Remote configuration first, then a short separator and the server information.
+Raw output places these three TSV fields first in that order, followed by the six server fields, for nine fields total; no separator is emitted.
+`--full-command` never disables SSH masking. Explicit `--ssh` uses the remote PATH directly and does not load a local Remote registration.
+
 The command and its working directory come from the snapshot saved by
 [`server init`](init.md); scripts are not reread. Older/manual configurations
 without a saved command display `unavailable`. In non-raw mode the command fits

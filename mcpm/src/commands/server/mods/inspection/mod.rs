@@ -2,7 +2,13 @@
 
 use anyhow::Result;
 
-use super::{super::mod_source::ServerMods, input::FileArgs};
+use super::{
+    super::{
+        mod_source::ServerMods,
+        target::{self, Target},
+    },
+    input::FileArgs,
+};
 use crate::{
     commands::mod_support::inspect::{self, Display},
     ssh::SshArgs,
@@ -20,7 +26,7 @@ pub(super) fn run(
     if selection.is_empty() {
         return inspect::prompt_for_input();
     }
-    let (path, ssh) = crate::commands::server::target::resolve(path, ssh)?;
+    let Target { path, ssh, .. } = target::resolve(path, ssh)?;
     if ssh.is_requested() {
         remote::run(ssh, path, selection, parallelism, display)
     } else {

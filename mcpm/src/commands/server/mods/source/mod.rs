@@ -7,7 +7,10 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 
-use super::super::mod_source::ServerMods;
+use super::super::{
+    mod_source::ServerMods,
+    target::{self, Target},
+};
 
 mod files;
 mod identify;
@@ -53,7 +56,7 @@ struct CompatibilityArgs {
 
 impl CompatibilityArgs {
     fn defaults(self, ssh: SshArgs, command: &'static str) -> Result<Option<Compatibility>> {
-        let (path, ssh) = crate::commands::server::target::resolve(self.path, ssh)?;
+        let Target { path, ssh, .. } = target::resolve(self.path, ssh)?;
         let defaults = if ssh.is_requested() {
             remote::defaults(ssh, path, command)?
         } else {

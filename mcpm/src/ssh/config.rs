@@ -18,7 +18,11 @@ impl Connection {
         Ok(self.prepare()?.0)
     }
 
-    pub(super) fn prepare(&self) -> Result<(Command, String)> {
+    pub(crate) fn destination(&self) -> Option<String> {
+        connection::destination(&self.ssh)
+    }
+
+    pub(super) fn prepare(&self) -> Result<(Command, Option<String>)> {
         let executable = self.ssh_mcpm.as_deref().unwrap_or("mcpm");
         ensure!(
             !executable.trim().is_empty(),
