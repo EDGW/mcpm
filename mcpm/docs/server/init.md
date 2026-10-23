@@ -27,10 +27,10 @@ includes literal assignments, quoting, continuations, directory changes,
 shell source/child-script references and batch `call`, `%~dp0`, and basic
 `setlocal`. `$(dirname "$0")` is the only supported command substitution;
 using `$0` after changing directories is rejected. Script invocation arguments
-are empty, so conventional trailing `"$@"` and `%*` are omitted. The inspector
-does not import environment variables. Dynamic conditions, loops, redirection,
-pipes, arbitrary substitutions, delayed batch expansion, unresolved variables,
-and recursive references fail.
+are empty: conventional trailing `"$@"` is omitted, and batch `%*` expands to
+empty wherever it occurs. The inspector does not import environment variables.
+Dynamic conditions, loops, redirection, pipes, arbitrary substitutions, delayed
+batch expansion, unresolved variables, and recursive references fail.
 
 Java argument files are flattened. Recognized classpath/module-path options,
 entry classes, `-jar`, and relevant properties drive identification; unknown JVM

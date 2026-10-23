@@ -1,7 +1,65 @@
-//! Server identification errors retain archive context and parser causes.
+//! Server launch identification, argument expansion, and diagnostic context.
 
 use std::fs;
 use tempfile::TempDir;
+
+#[test]
+fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments() {
+    use kako_mods_lib::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
+
+    let root = TempDir::new().unwrap();
+    let argument_file = "libraries/net/neoforged/neoforge/21.1.233/win_args.txt";
+    let arguments = "cpw.mods.bootstraplauncher.BootstrapLauncher --launchTarget neoforgeserver \
+        --fml.neoForgeVersion 21.1.233 --fml.mcVersion 1.21.1";
+    fs::create_dir_all(root.path().join(argument_file).parent().unwrap()).unwrap();
+    fs::write(root.path().join(argument_file), arguments).unwrap();
+    fs::write(root.path().join("user_jvm_args.txt"), "-Xmx2G\n").unwrap();
+    let executable = r"C:\Program Files\Java\jdk-21\bin\java.exe";
+
+    for (suffix, expected) in [
+        ("%*", vec![]),
+        ("%* nogui", vec!["nogui"]),
+        ("nogui %*", vec!["nogui"]),
+        (
+            "%* --custom \"value with spaces\"",
+            vec!["--custom", "value with spaces"],
+        ),
+        ("%*\tnogui %* --demo", vec!["nogui", "--demo"]),
+        ("\"%*\" nogui", vec!["", "nogui"]),
+        ("before%*after nogui", vec!["beforeafter", "nogui"]),
+        ("%EXTRA% %* nogui", vec!["--demo", "nogui"]),
+    ] {
+        fs::write(
+            root.path().join("run.bat"),
+            format!(
+                "@echo off\r\nset \"EXTRA=--demo\"\r\n\"{executable}\" \
+                 @user_jvm_args.txt -XX:+UseZGC @{argument_file} {suffix}\r\npause\r\n"
+            ),
+        )
+        .unwrap();
+        let candidates = identify(root.path(), "run.bat", &BUILTIN_LOADERS)
+            .unwrap_or_else(|error| panic!("{suffix:?}: {error:#}"));
+        assert_eq!(candidates.len(), 1, "{suffix:?}");
+        let candidate = &candidates[0];
+        assert_eq!(candidate.metadata.minecraft_version, "1.21.1");
+        let loader = candidate.metadata.loader.as_ref().unwrap();
+        assert_eq!(loader.loader_type, "neoforge");
+        assert_eq!(loader.version, "21.1.233");
+        assert_eq!(candidate.launch.executable, executable);
+        let expected: Vec<_> = ["-Xmx2G", "-XX:+UseZGC"]
+            .into_iter()
+            .chain(arguments.split_whitespace())
+            .chain(expected)
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(candidate.launch.arguments, expected, "{suffix:?}");
+        assert_eq!(
+            candidate.metadata.start.as_ref().unwrap().arguments,
+            expected,
+            "{suffix:?}"
+        );
+    }
+}
 
 #[test]
 fn identification_errors_retain_script_archive_member_and_parser_cause() {
