@@ -35,7 +35,7 @@ impl Connection {
             || executable.ends_with(".exe");
         tracing::debug!(executable, windows, "Preparing remote mcpm invocation");
         let remote = if windows {
-            windows::command(&[executable, "remote"])?
+            windows::command(executable)?
         } else {
             shlex::try_join([executable, "remote"])
                 .context("remote executable cannot contain NUL bytes")?

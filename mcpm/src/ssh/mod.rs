@@ -23,7 +23,7 @@ pub(crate) struct SshArgs {
         help_heading = "Global options"
     )]
     ssh: Option<String>,
-    /// Remote mcpm executable path (default: mcpm); requires --ssh.
+    /// Remote mcpm executable path (default: mcpm); requires --ssh. Windows SSH must use cmd as its default shell.
     #[arg(
         long,
         global = true,

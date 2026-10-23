@@ -29,12 +29,14 @@ mod transport {
     #[test]
     fn keeps_quoted_filters_and_display_options_local_and_sends_stdin_paths() {
         let root = tempfile::Builder::new()
-            .prefix("mcpm ssh '")
+            .prefix("mcpm ssh '& 中文 ")
             .tempdir()
             .unwrap();
         let connection = setup(root.path());
         let executable = root.path().join("mcpm");
         symlink(env!("CARGO_BIN_EXE_mcpm"), &executable).unwrap();
+        let windows_executable = root.path().join("mcpm.exe");
+        symlink(env!("CARGO_BIN_EXE_mcpm"), &windows_executable).unwrap();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex-mod.jar");
         let quick = root.path().join("quick.jar.disabled");
         fs::copy(
@@ -72,7 +74,10 @@ mod transport {
             .output()
             .unwrap();
         assert!(local.status.success(), "{:?}", local);
-        for explicit in [false, true] {
+        for (index, remote_executable) in [None, Some(&executable), Some(&windows_executable)]
+            .into_iter()
+            .enumerate()
+        {
             let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm"));
             command
                 .args(["--raw", "--ssh", &connection, "mod", "list", "--no-ui"])
@@ -85,8 +90,8 @@ mod transport {
                         std::env::var("PATH").unwrap()
                     ),
                 );
-            if explicit {
-                command.arg("--ssh-mcpm").arg(&executable);
+            if let Some(remote_executable) = remote_executable {
+                command.arg("--ssh-mcpm").arg(remote_executable);
             }
             let mut child = command
                 .stdin(Stdio::piped())
@@ -107,7 +112,7 @@ mod transport {
             assert!(output.stderr.is_empty(), "{:?}", output);
             assert_eq!(output.stdout, local.stdout);
             let connections = fs::read_to_string(root.path().join("connections")).unwrap();
-            assert_eq!(connections.lines().count(), if explicit { 2 } else { 1 });
+            assert_eq!(connections.lines().count(), index + 1);
         }
     }
 
@@ -245,7 +250,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
                 .args([
                     "mod",
                     "list",
-                    "z.jar",
+                            "z.jar",
                     "a.jar",
                     "--parallelism",
                     "2",
