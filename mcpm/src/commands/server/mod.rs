@@ -29,10 +29,7 @@ enum ServerCommand {
 pub(crate) fn run(args: ServerArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     ssh.validate()?;
     match args.command {
-        ServerCommand::Init(args) => {
-            anyhow::ensure!(!ssh.is_requested(), "server init does not support --ssh");
-            init::run(args)
-        }
+        ServerCommand::Init(args) => init::run(args, ssh),
         ServerCommand::Info(args) => info::run(args, ssh),
         ServerCommand::Mods(args) => mods::run(args, ssh),
     }

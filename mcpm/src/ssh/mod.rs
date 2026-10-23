@@ -10,7 +10,7 @@ mod windows;
 
 #[derive(Args, Debug)]
 pub(crate) struct SshArgs {
-    /// SSH connection command, e.g. "ssh -i key -p 2222 user@host"; supported by mod list/info/deps/source identify and server info/mods list/info/deps/source.
+    /// SSH connection command, e.g. "ssh -i key -p 2222 user@host"; supported by mod list/info/deps/source identify and server init/info/mods list/info/deps/source.
     #[arg(
         long,
         global = true,

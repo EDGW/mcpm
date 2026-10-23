@@ -8,7 +8,7 @@ remote never parses command-line arguments or business payloads.
 A **command ID** is a stable string such as `mod.list`, declared and registered
 by its command module. The client automatically generates a UUID v4 for each
 invocation session (**request GUID**) to correlate all its replies. Concurrent
-invocations of the same command ID have different GUIDs. `mod.list`, `mod.info`, `mod.deps`, `mod.source.identify`, `server.info`, `server.mods.list`, `server.mods.info`, `server.mods.deps` and `server.mods.source.search/files/identify` are currently registered (the last notation represents three IDs).
+invocations of the same command ID have different GUIDs. `mod.list`, `mod.info`, `mod.deps`, `mod.source.identify`, `server.info`, `server.init`, `server.init.recognize`, `server.mods.list`, `server.mods.info`, `server.mods.deps` and `server.mods.source.search/files/identify` are currently registered (the last notation represents three IDs).
 
 ```json
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","command":"mod.list","contents":{"paths":["mods/"],"loaders":["fabric"]}}
@@ -30,7 +30,7 @@ immediately. Stdout is protocol-only; normal logs use a dedicated subscription. 
 Wait for ready before submitting:
 
 ```json
-{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.init","server.init.recognize","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"count","count":0}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"done","success":true}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"finished","contents":null}
@@ -210,12 +210,13 @@ Logs distinguish execution=local/remote and phase=summary/provider, including re
 
 Protocol version remains 3. Clients check the advertised command IDs, so an older v3 host that lacks these commands fails explicitly with unsupported_command. Update the remote executable to use server commands.
 
+- [`server.init` and `server.init.recognize`](server/init.md#ssh-and-initialization-protocol): independent complete-data initialization and read-only recognition; candidate selection stays local.
 - [`server.info`](server/info.md#ssh): one source-host metadata snapshot, rendered locally.
 - [`server.mods.info/deps`](server/mods.md): server-owned scope with the shared inspection event stream.
 - [`server.mods.list`](server/mods.md#list): server-owned selections, streamed progress and records, local TUI/Console/Raw.
 - [`server.mods.source.search/files/identify`](server/source.md#ssh): remote compatibility or file summaries, local provider requests and credentials.
 
-Malformed requests and server metadata loading failures use the terminal global `handler_failed` status. Selection and scan errors can be reported in business events while valid results continue. No business completion event follows cancellation or an execution/transport failure. Remote diagnostics are hidden unless `--remote-logs` is enabled; exit status still reflects failures.
+Malformed requests and server metadata loading failures use the terminal global `handler_failed` status. Selection and scan errors can be reported in business events while valid results continue. No business completion event follows cancellation or an execution/transport failure. Initialization checks cancellation before its atomic write; interruption after that boundary can leave the configuration written even without a successful reply. Remote diagnostics are hidden unless `--remote-logs` is enabled; exit status still reflects failures.
 
 ## Registration and SSH
 
@@ -228,7 +229,7 @@ to decode payloads. Remote selects only handshake/global-error types and never
 interprets business fields. Handlers use checkpoint for cancellation.
 
 SSH lives in shared `src/ssh/`. `--ssh` and `--ssh-mcpm` are top-level global options,
-accepted before/after subcommands. Supported commands are mod list/info/deps/source identify, server info, and server mods list/info/deps/source search/files/identify. List and source browsing keep their TUI local; inspection supports Console/Raw. Server init, mods check and dep-graph reject SSH. ssh-mcpm requires ssh and defaults
+accepted before/after subcommands. Supported commands are mod list/info/deps/source identify, server init/info, and server mods list/info/deps/source search/files/identify. List and source browsing keep their TUI local; inspection supports Console/Raw. Server mods check and dep-graph reject SSH. ssh-mcpm requires ssh and defaults
 to mcpm on the remote PATH. There is no legacy mod list --remote entry point.
 
 ```sh

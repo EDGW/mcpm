@@ -4,20 +4,10 @@ use std::io::{self, Write};
 
 use super::metadata::{ServerInfo, StartCommand};
 
-use kako_mods_lib::local::mc::server::MinecraftServer;
-
 use crate::{
     commands::output_style::{OutputStyle, text},
     terminal,
 };
-
-pub(super) fn write_info(
-    output: &mut impl Write,
-    server: &MinecraftServer,
-    show_full_command: bool,
-) -> io::Result<()> {
-    write_snapshot(output, &ServerInfo::from_server(server), show_full_command)
-}
 
 pub(super) fn write_snapshot(
     output: &mut impl Write,

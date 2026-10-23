@@ -33,7 +33,7 @@ with `cargo run --manifest-path mcpm/Cargo.toml --`.
 
 ## Global options
 
-`--ssh` and `--ssh-mcpm` are global; supported by `mod list`, `mod info`, `mod deps`, `mod source identify`, `server info`, and `server mods list/info/deps/source search/files/identify`. See [Remote sessions](remote.md).
+`--ssh` and `--ssh-mcpm` are global; supported by `mod list`, `mod info`, `mod deps`, `mod source identify`, `server init`, `server info`, and `server mods list/info/deps/source search/files/identify`. See [Remote sessions](remote.md).
 
 ```text
 mcpm [OPTIONS] <COMMAND>

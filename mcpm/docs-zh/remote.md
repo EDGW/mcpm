@@ -11,7 +11,7 @@ ssh -T user@windows C:/mcpm.exe remote
 
 ## Command ID、调用会话 GUID 与统一回复
 
-- **command ID**：命令类型的字符串 ID，由命令模块声明并通过 initcall 注册。当前注册 `mod.list`、`mod.info`、`mod.deps`、`mod.source.identify`、`server.info`、`server.mods.list`、`server.mods.info`、`server.mods.deps`，以及 `server.mods.source.search`、`server.mods.source.files`、`server.mods.source.identify`。
+- **command ID**：命令类型的字符串 ID，由命令模块声明并通过 initcall 注册。当前注册 `mod.list`、`mod.info`、`mod.deps`、`mod.source.identify`、`server.info`、`server.init`、`server.init.recognize`、`server.mods.list`、`server.mods.info`、`server.mods.deps`，以及 `server.mods.source.search`、`server.mods.source.files`、`server.mods.source.identify`。
 - **调用会话 GUID**（request GUID）：客户端为每次调用自动生成 UUID v4，用于关联该调用的所有回复。同一连接内不得复用；同一 command ID 可以同时发起多次调用，各自拥有不同 GUID。
 
 请求包含自动生成的调用会话 GUID、字符串 command ID 和不透明 contents：
@@ -41,7 +41,7 @@ ssh -T user@windows C:/mcpm.exe remote
 先等待握手：
 
 ```json
-{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.init","server.init.recognize","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
 ```
 
 调用方检查版本与需要的 command ID。支持能力来自 initcall 注册表，不从 CLI 子命令推断。目前 mod list、mod info、mod deps 与 mod source identify 注册。
@@ -196,18 +196,19 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 协议版本继续使用 3。客户端检查握手声明的命令 ID；旧版 v3 远端若没有这些命令，会明确返回 unsupported_command，使用前需更新远端程序。
 
+- [`server.init` 与 `server.init.recognize`](server/init.md#ssh-与初始化协议)：独立的完整参数初始化和只读识别，本地选择候选。
 - [`server.info`](server/info.md#ssh)：来源主机的元数据快照，在本地渲染。
 - [`server.mods.info/deps`](server/mods.md)：远端解析服务器范围，复用检查事件流。
 - [`server.mods.list`](server/mods.md#列表)：远端选择文件、回传进度和记录，本地展示 TUI/Console/Raw。
 - [`server.mods.source.search/files/identify`](server/source.md#ssh)：远端提供兼容参数或文件摘要，来源服务请求及凭据留在本地。
 
-非法请求或无法加载服务器元数据时，以终止性的全局 `handler_failed` 状态结束。选择和扫描错误可通过业务事件报告，同时继续返回有效结果。取消、执行错误及传输失败后不发送业务完成事件。远端诊断需要 `--remote-logs` 才显示，但失败仍影响退出状态。
+非法请求或无法加载服务器元数据时，以终止性的全局 `handler_failed` 状态结束。选择和扫描错误可通过业务事件报告，同时继续返回有效结果。取消、执行错误及传输失败后不发送业务完成事件。初始化在原子写入前检查取消；超过该边界后中断，即使没有成功回复，也可能已写入配置。远端诊断需要 `--remote-logs` 才显示，但失败仍影响退出状态。
 
 ## 模块注册与 SSH
 
 各模块通过 `inventory::submit! { Initcall(init) }` 提交自己的 initcall。程序启动统一执行 initcall，模块在自己的 init 中调用 `remote::registry::register::<Command>()`。Remote 不引用业务实现，中央入口不逐项列举命令。重复 command ID 在启动时明确报错。命令自己定义业务类型，通过 `Output::send(业务值)` 发送回复；序列化由 `Reply::new` 封装，接收端通过 `Reply::decode::<业务类型>()` 解码。Remote 仅选择握手和全局错误类型，不认识业务字段；处理器使用 checkpoint 响应取消。
 
-SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；支持 `mod list/info/deps/source identify`、`server info` 和 `server mods list/info/deps/source search/files/identify`。列表和来源浏览的 TUI 在本地运行，检查命令支持 Console/Raw。`server init`、`mods check` 和 `dep-graph` 明确拒绝 SSH。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
+SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；支持 `mod list/info/deps/source identify`、`server init/info` 和 `server mods list/info/deps/source search/files/identify`。列表和来源浏览的 TUI 在本地运行，检查命令支持 Console/Raw。`server mods check` 和 `dep-graph` 明确拒绝 SSH。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
 
 ```sh
 mcpm --ssh 'ssh -i key user@host' mod list mods/ --no-ui
