@@ -45,7 +45,7 @@ mcpm --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm.exe' --raw mod deps --director
 `--directory` 默认为 `.`。stdin 每行追加一个输入，`--input file|modid|name|unspecified`
 决定其解释方式；`--all` 不能与查询混用。
 SSH 模式在远端完成选择、文件读取和 Loader 解析，本地先读取 stdin，再发送结构化请求。
-颜色和依赖路径样式由本地控制。远端诊断遵循 `--remote-logs`，失败仍返回非零状态。
+颜色和依赖路径样式由本地控制。远端错误始终显示；远端日志需要 `--remote-logs`，并遵循 `--log-level`。失败返回非零状态。
 `--parallelism <COUNT>` 默认为 10，控制 `--all` 和名称/ID 查询建立目录索引时的
 文件扫描并发，本地与 SSH 均适用。多个独立文件输入仍顺序处理，不受此参数影响。
 每个扫描项完成后回传进度，包括失败和未识别文件；本地依据 stderr 是否为 TTY 显示进度。

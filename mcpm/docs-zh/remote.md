@@ -11,7 +11,7 @@ ssh -T user@windows C:/mcpm.exe remote
 
 ## Command ID、调用会话 GUID 与统一回复
 
-- **command ID**：命令类型的字符串 ID，由命令模块声明并通过 initcall 注册。当前注册 `mod.list`、`mod.info`、`mod.deps`、`mod.source.identify`、`server.info`、`server.init`、`server.init.recognize`、`server.mods.list`、`server.mods.info`、`server.mods.deps`，以及 `server.mods.source.search`、`server.mods.source.files`、`server.mods.source.identify`。
+- **command ID**：命令类型的字符串 ID，由命令模块声明并通过 initcall 注册。当前注册 `mod.list`、`mod.info`、`mod.deps`、`mod.source.identify`、`server.info`、`server.init`、`server.init.recognize`、`server.mods.cache`、`server.mods.list`、`server.mods.info`、`server.mods.deps`，以及 `server.mods.source.search`、`server.mods.source.files`、`server.mods.source.identify`。
 - **调用会话 GUID**（request GUID）：客户端为每次调用自动生成 UUID v4，用于关联该调用的所有回复。同一连接内不得复用；同一 command ID 可以同时发起多次调用，各自拥有不同 GUID。
 
 请求包含自动生成的调用会话 GUID、字符串 command ID 和不透明 contents：
@@ -41,7 +41,7 @@ ssh -T user@windows C:/mcpm.exe remote
 先等待握手：
 
 ```json
-{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.init","server.init.recognize","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.init","server.init.recognize","server.mods.cache","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
 ```
 
 调用方检查版本与需要的 command ID。支持能力来自 initcall 注册表，不从 CLI 子命令推断。目前 mod list、mod info、mod deps 与 mod source identify 注册。
@@ -64,7 +64,7 @@ ssh -T user@windows C:/mcpm.exe remote
 
 日志是 Remote 的连接级能力，不注册为业务命令，也不占用命令并发额度。同一连接只允许订阅一次，GUID 不能为零或与任何调用复用。日志保留级别、模块、字段和 span；命令 span 包含对应调用 GUID，允许追踪并行命令。
 
-远端日志及远端错误诊断默认不在 stderr 显示，只有添加全局参数 `--remote-logs` 后才显示；文件日志和失败退出码不受影响。终端同时按本地 `--log-level` 过滤日志，远端日志的 `INFO`、`DEBUG` 等级别标签采用斜体，不添加前缀。Raw、重定向或 `NO_COLOR` 下不输出样式。文件日志仍至少保留到 debug，因此即使终端为 off 也会传输 debug 日志；trace 仅在选择 trace 时传输，日志文件仍固定记录到 debug。远端也保留自己的日志文件。
+远端日志默认不在 stderr 显示，只有添加全局参数 `--remote-logs` 后才显示；远端操作错误始终以 `remote error:` 显示，不受 `--remote-logs` 和 `--log-level` 影响。文件日志和失败退出码不受影响。终端同时按本地 `--log-level` 过滤日志，远端日志的 `INFO`、`DEBUG` 等级别标签采用斜体，不添加前缀。Raw、重定向或 `NO_COLOR` 下不输出样式。文件日志仍至少保留到 debug，因此即使终端为 off 也会传输 debug 日志；trace 仅在选择 trace 时传输，日志文件仍固定记录到 debug。远端也保留自己的日志文件。
 
 订阅前缓存最近 256 条启动日志，超过上限时附带丢弃数量警告。关闭 stdin 后先排空命令，再排空日志，发送日志 GUID 的 finished，最后发送全零 GUID 的 closed。本地 TUI 打开期间延迟终端日志显示，关闭面板后输出；文件日志持续写入。当前协议版本为 3，调用方和远端需同时更新。
 
@@ -114,7 +114,7 @@ Remote 解码全局错误，不把它作为业务 contents 交给命令：
 
 每项加载完成立即发送 item，同时推进进度；必须恰好 count 条，index 对应原始输入位置，完整覆盖 `0..count`，每个索引恰好出现一次；各项允许乱序到达，调用方按索引恢复列表顺序。成功、失败、未识别均保留且仅保留一条记录；重复规范化路径共享扫描结果，但每个输入位置分别返回记录，空目录贡献零项，无法解析的输入路径贡献一条失败记录。文件失败不停止其他项，使 done.success 为 false。取消和传输异常可能使结果不完整。
 
-record 包含 path、name、enabled、status、metadata、errors。输入失败时 name/enabled 为 null；status 为 success、unrecognized、failed。metadata 包含 loader、mods 与递归 nested；errors 包含 loader（输入错误时为 null）、message 和按外层到根因排序的 causes 数组。添加 `--remote-logs` 时，本地用 `remote error:` 输出主错误，用缩进的 `caused by:` 逐层输出原因，不把整条错误链压成单行字符串。文件内多个声明、Loader、嵌套 JAR 和部分成功结果都保留在同一条记录中。
+record 包含 path、name、enabled、status、metadata、errors。输入失败时 name/enabled 为 null；status 为 success、unrecognized、failed。metadata 包含 loader、mods 与递归 nested；errors 包含 loader（输入错误时为 null）、message 和按外层到根因排序的 causes 数组。本地始终用 `remote error:` 输出主错误，用缩进的 `caused by:` 逐层输出原因，不把整条错误链压成单行字符串。文件内多个声明、Loader、嵌套 JAR 和部分成功结果都保留在同一条记录中。
 
 ## mod info 和 deps 的 contents
 
@@ -186,7 +186,7 @@ Command ID 为 `mod.source.identify`，由 identify 模块注册，**只返回�
 
 MurmurHash2 使用 seed=1，忽略 TAB、LF、CR 和 SPACE；未请求时 murmur2 为 null。摘要成功、失败均保留每个原始输入位置。每个位置恰好经历一次 loading 和一次 item，item 可以乱序到达；done.failed 按原始路径位置计数，再由通用 Remote 发送 finished。接收端校验索引、重复项、完整性、失败总数和摘要格式。参数无效、取消、处理器异常通过通用 error 结束调用，允许保留部分结果。
 
-本地收到摘要后向 Modrinth / CurseForge 发起请求，验证返回文件的大小及 SHA-1，保留 primary/additional 语义。网络出口、代理和官方 API key 均属于本地，远端不访问平台。CLI 立即更新完成进度，但按输入顺序打印结果与逐项错误。远端读文件失败仅在指定 `--remote-logs` 时用 `remote error:` 输出，本地网络查询失败始终用 `error:` 输出。
+本地收到摘要后向 Modrinth / CurseForge 发起请求，验证返回文件的大小及 SHA-1，保留 primary/additional 语义。网络出口、代理和官方 API key 均属于本地，远端不访问平台。CLI 立即更新完成进度，但按输入顺序打印结果与逐项错误。远端读文件失败始终用 `remote error:` 输出，本地网络查询失败始终用 `error:` 输出，均不受 `--remote-logs` 和 `--log-level` 影响。
 
 SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本地识别流程。`--identify-parallelism` 控制本地所有文件与平台合计的在途查询数，并传给远端控制摘要读取。退出 TUI 时取消本地网络任务和未完成的远端摘要调用，无需等待网络超时。Console 与 Raw 列表不自动识别来源。
 
@@ -200,9 +200,10 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 - [`server.info`](server/info.md#ssh)：来源主机的元数据快照，在本地渲染。
 - [`server.mods.info/deps`](server/mods.md)：远端解析服务器范围，复用检查事件流。
 - [`server.mods.list`](server/mods.md#列表)：远端选择文件、回传进度和记录，本地展示 TUI/Console/Raw。
+- [`server.mods.cache`](server/mods.md#缓存)：在文件主机显式导入服务器归档并刷新声明 loader 的元数据。
 - [`server.mods.source.search/files/identify`](server/source.md#ssh)：远端提供兼容参数或文件摘要，来源服务请求及凭据留在本地。
 
-非法请求或无法加载服务器元数据时，以终止性的全局 `handler_failed` 状态结束。选择和扫描错误可通过业务事件报告，同时继续返回有效结果。取消、执行错误及传输失败后不发送业务完成事件。初始化在原子写入前检查取消；超过该边界后中断，即使没有成功回复，也可能已写入配置。远端诊断需要 `--remote-logs` 才显示，但失败仍影响退出状态。
+非法请求或无法加载服务器元数据时，以终止性的全局 `handler_failed` 状态结束。选择和扫描错误可通过业务事件报告，同时继续返回有效结果。取消、执行错误及传输失败后不发送业务完成事件。初始化在原子写入前检查取消；超过该边界后中断，即使没有成功回复，也可能已写入配置。远端错误始终显示，不受 `--remote-logs` 和 `--log-level` 影响；失败返回非零退出状态。
 
 ### Server 初始化协议
 
@@ -229,7 +230,9 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 各模块通过 `inventory::submit! { Initcall(init) }` 提交自己的 initcall。程序启动统一执行 initcall，模块在自己的 init 中调用 `remote::registry::register::<Command>()`。Remote 不引用业务实现，中央入口不逐项列举命令。重复 command ID 在启动时明确报错。命令自己定义业务类型，通过 `Output::send(业务值)` 发送回复；序列化由 `Reply::new` 封装，接收端通过 `Reply::decode::<业务类型>()` 解码。Remote 仅选择握手和全局错误类型，不认识业务字段；处理器使用 checkpoint 响应取消。
 
-SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；支持 `mod list/info/deps/source identify`、`server init/info` 和 `server mods list/info/deps/source search/files/identify`。列表和来源浏览的 TUI 在本地运行，检查命令支持 Console/Raw。`server mods check` 和 `dep-graph` 明确拒绝 SSH。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
+SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；支持 `mod list/info/deps/source identify`、`server init/info` 和 `server mods list/info/cache/deps/source search/files/identify`。列表和来源浏览的 TUI 在本地运行，检查命令支持 Console/Raw。`server mods check` 和 `dep-graph` 明确拒绝 SSH。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
+
+SSH 默认 shell 直接启动 `mcpm remote`。Windows 连接要求默认 shell 为 cmd；可执行文件路径自动加双引号，不能包含双引号、换行、NUL、`%` 或 `!`。POSIX 可执行文件使用 shell 引号转义。业务参数通过 JSON 传输，不依赖 shell 语法。
 
 ```sh
 mcpm --ssh 'ssh -i key user@host' mod list mods/ --no-ui
@@ -237,3 +240,34 @@ mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw mod list 'C:\mods'
 ```
 
 [命令参考](README.md) · [列表命令](mod/list.md) · [English](../docs/remote.md)
+
+## Mod 识别缓存参数
+
+CLI 的 `mod info/list` 默认发送使用用户缓存的选择；`--no-cache` 关闭，`--cache-dir PATH` 指定远端目录。结构化协议中的 `cache` 省略或为 null 仍表示关闭，保持已有调用者和 deps 的行为。
+
+`mod.list`、`mod.info` 及共享请求结构的 `mod.deps` 接受可选 `cache`：
+
+```json
+{"kind":"default"}
+{"kind":"directory","path":"/srv/mod-cache"}
+```
+
+- 省略或 null 表示关闭；路径与默认目录都在远端文件所属主机解释。
+- 默认目录不存在或为空时初始化；指定目录必须已有受支持的缓存 manifest。目录损坏会使请求失败。
+- 通过 imohash/identity 候选匹配或完整 BLAKE3 查找，复用有效的已识别及未识别结果。缺失、过期或无效结果正常识别；检查不导入文件、不建立硬链接、不写回 metadata。
+- 全局持久缓存与单次命令的重复输入缓存独立。持久缓存命中仍计为一次文件检查完成；单次命令内复用已有检查才不再次产生扫描进度。
+
+## 识别缓存统计
+
+检查和列表的 `done` 事件包含可选 `cache` 统计：
+
+```json
+{"fully_cached":8,"partially_cached":3,"total":15}
+```
+
+- 按文件所属主机实际检查的规范化路径去重，包含失败和未识别项，展示筛选前计算；重复输入、嵌套声明不增加总数。
+- 全部命中指所有请求 Loader 结果均被复用；部分命中指至少一个被复用且至少一个现场识别。“未识别”缓存也算命中；关闭缓存时两项命中数均为零。
+- 与可能包含重复查询和声明选择的 file/item 数独立。客户端拒绝命中总和超过 total 的统计；旧端点缺少统计时不展示。
+- 本地 Raw 文本不变；Console 与 list TUI 使用这些结构化统计生成摘要行。
+
+忽略旧端点发送的 `added`、`updated` 字段；检查不再写入缓存数据。

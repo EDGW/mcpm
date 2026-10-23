@@ -1,16 +1,18 @@
 # mcpm 命令参考
 
-`mcpm` 用于检查和启动本地 Minecraft 客户端、检查服务端信息和 Mod 归档。可用命令包括 `client list`、`client check`、`client launch`、`server init`、`server info`、`mod list`、`mod info`、`mod deps` 和 `mod dep-graph build`。Mod 归档只被读取，依赖图可另存为文件。
+`mcpm` 用于检查和启动本地 Minecraft 客户端、检查服务端信息和 Mod 归档。可用命令包括 `client list`、`client check`、`client launch`、`server init`、`server info`、`mod list`、`mod info`、`mod cache`、`mod deps` 和 `mod dep-graph build`。检查命令只读取 Mod 归档；`mod cache` 显式存储文件与摘要，可选择硬链接保护。依赖图可另存为文件。
 
 [客户端列表](client/list.md) · [完整性检查](client/check.md) · [启动客户端](client/launch.md)
 
 [初始化服务端](server/init.md) · [服务端信息](server/info.md) · [服务端 Mod 来源](server/source.md)
 
-[Mod 命令](mod/README.md)：[list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
+[Mod 命令](mod/README.md)：[list](mod/list.md) · [info](mod/info.md) · [cache](mod/cache.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
 [自定义界面](customize.md) · [调试调色板](debug/palette.md)
 
 [持久远程会话](remote.md)
+
+[Mod 缓存管理](cache.md)
 
 [English](../docs/README.md)
 
@@ -30,7 +32,7 @@ mcpm --raw mod list mods/ -C MF > mods.tsv
 
 ## 全局选项
 
-`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，`mod list`、`mod info`、`mod deps`、`mod source identify`、`server init`、`server info` 和 `server mods list/info/deps/source search/files/identify` 支持使用。详见 [Remote 会话](remote.md)。
+`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，`mod list`、`mod info`、`mod deps`、`mod source identify`、`server init`、`server info` 和 `server mods list/info/cache/deps/source search/files/identify` 支持使用。详见 [Remote 会话](remote.md)。
 
 ```text
 mcpm [OPTIONS] <COMMAND>
@@ -39,7 +41,7 @@ mcpm [OPTIONS] <COMMAND>
 | 选项 | 说明 |
 | --- | --- |
 | `--raw` | 将输出流视为非终端：禁用颜色、终端排版、进度指示和仅终端可见的提示。 |
-| `--remote-logs` | 在 stderr 显示远端日志及远端错误诊断，默认隐藏；远端日志同时遵循 `--log-level`。 |
+| `--remote-logs` | 在 stderr 显示远端日志，默认隐藏，并遵循 `--log-level`；远端错误始终显示。 |
 | `-h`、`--help` | 显示当前命令的帮助。 |
 | `-V`、`--version` | 在顶层显示程序版本。 |
 
@@ -59,6 +61,7 @@ mcpm client check --help
 mcpm client launch --help
 mcpm mod list --help
 mcpm mod info --help
+mcpm mod cache --help
 mcpm mod deps --help
 mcpm mod dep-graph build --help
 mcpm mod dep-graph test --help
@@ -105,8 +108,8 @@ mcpm client launch 1.18.1 --no-logging-config --log-level debug
 日期和时间取程序启动时的本地时间，文件名兼容 Windows。同一时刻启动的进程在文件名冲突时追加 UUID，避免覆盖；跨午夜后继续写入同一文件。
 文件固定记录到 `debug`（包括 error、warn、info、debug），独立于 `--log-level`；
 即使 `--log-level off` 也会保留文件日志。文件包含时间戳、模块和错误链，不含颜色。
-远端日志和 `remote error:` 诊断默认不在 stderr 显示，添加全局参数 `--remote-logs` 后才显示；远端日志同时遵循 `--log-level`。文件日志和失败退出码不受此开关影响。
+远端日志默认不在 stderr 显示，添加全局参数 `--remote-logs` 后才显示，并遵循 `--log-level`。远端操作错误始终以 `remote error:` 显示，不受这两个选项影响。文件日志和失败退出码不受此开关影响。
 Remote 进程同样在远端用户的主目录保存日志。
 启动命令日志对身份 token 和已知凭据参数脱敏，不记录环境变量的值。
 
-[服务器 Mod 检查与列表](server/mods.md)
+[服务器 Mod 检查、列表与缓存](server/mods.md)

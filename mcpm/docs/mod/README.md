@@ -1,6 +1,6 @@
 # `mcpm mod`
 
-Inspect local Minecraft mod archives without modifying them.
+Inspect local Minecraft mod archives, explicitly cache files, and search mod sources.
 
 ```text
 mcpm mod [OPTIONS] <COMMAND>
@@ -9,6 +9,7 @@ mcpm mod [OPTIONS] <COMMAND>
 | Command | Description |
 | --- | --- |
 | [`list`](list.md) | List mod declarations from files and directories. |
+| [`cache`](cache.md) | Explicitly store selected files and identification metadata. |
 | [`info`](info.md) | Inspect metadata and dependencies in one or more files. |
 | [`deps`](deps.md) | Show direct dependency declarations and their archive sources. |
 | [`dep-graph`](dep-graph.md) | Build graphs, validate snapshots, or display a mod dependency tree. |
@@ -31,7 +32,7 @@ See [SSH listing](list.md#ssh-listing) for transport and presentation behavior.
 
 ## Loader selection
 
-`list`, `info`, `deps`, and `dep-graph build` accept these options:
+`list`, `info`, `deps`, `cache`, and `dep-graph build` accept these options:
 
 | Option | Description |
 | --- | --- |

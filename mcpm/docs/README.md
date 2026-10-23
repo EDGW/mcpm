@@ -1,18 +1,20 @@
 # mcpm command reference
 
 `mcpm` inspects and launches local Minecraft clients, and inspects mod archives. The available commands are
-`client list`, `client check`, `client launch`, `server init`, `server info`, `mod list`, `mod info`, `mod deps`, and `mod dep-graph build`. Mod archives
-are read without modifying them; graph snapshots can be written to a separate file.
+`client list`, `client check`, `client launch`, `server init`, `server info`, `mod list`, `mod info`, `mod cache`, `mod deps`, and `mod dep-graph build`. Mod archives
+are read without modifying them by inspection commands; `mod cache` explicitly stores files and metadata, with optional hard-link protection. Graph snapshots can be written to a separate file.
 
 [Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
 
 [Server init](server/init.md) · [server info](server/info.md) · [server mods](server/mods.md) · [server mod sources](server/source.md)
 
-[Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
+[Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [cache](mod/cache.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
 [Customize presentation](customize.md) · [Debug palette](debug/palette.md)
 
 [Persistent remote sessions](remote.md)
+
+[Mod cache management](cache.md)
 
 [简体中文](../docs-zh/README.md)
 
@@ -33,7 +35,7 @@ with `cargo run --manifest-path mcpm/Cargo.toml --`.
 
 ## Global options
 
-`--ssh` and `--ssh-mcpm` are global; supported by `mod list`, `mod info`, `mod deps`, `mod source identify`, `server init`, `server info`, and `server mods list/info/deps/source search/files/identify`. See [Remote sessions](remote.md).
+`--ssh` and `--ssh-mcpm` are global; supported by `mod list`, `mod info`, `mod deps`, `mod source identify`, `server init`, `server info`, and `server mods list/info/cache/deps/source search/files/identify`. See [Remote sessions](remote.md).
 
 ```text
 mcpm [OPTIONS] <COMMAND>
@@ -43,7 +45,7 @@ mcpm [OPTIONS] <COMMAND>
 | --- | --- |
 | `--raw` | Force raw output: disable all TUI interaction, colors, terminal layout, progress indicators, and terminal-only hints. |
 | `--log-level LEVEL` | Diagnostic logging on stderr: off, error, warn (default), info, debug, trace. Available before or after subcommands. |
-| `--remote-logs` | Show remote logs and remote error diagnostics on stderr. Remote logs follow `--log-level`; hidden by default. |
+| `--remote-logs` | Show remote logs on stderr, filtered by `--log-level`; hidden by default. Remote errors are always shown. |
 | `-h`, `--help` | Show help for the current command. |
 | `-V`, `--version` | Show the executable version at the top level. |
 
@@ -63,6 +65,7 @@ mcpm client check --help
 mcpm client launch --help
 mcpm mod list --help
 mcpm mod info --help
+mcpm mod cache --help
 mcpm mod deps --help
 mcpm mod dep-graph build --help
 mcpm mod dep-graph test --help
@@ -124,9 +127,10 @@ same file remains open across midnight. A UUID suffix resolves simultaneous-star
 filename collisions without overwriting existing logs. File logging records through `debug`
 (error, warn, info, debug), independently of `--log-level`, including when it is
 `off`. Files include timestamps, module targets and error chains, without colors.
-Remote logs and `remote error:` diagnostics are hidden on stderr by default.
-Enable the global `--remote-logs` option to display them; remote logs also follow
-`--log-level`. File logging and failure exit statuses are unaffected.
+Remote logs are hidden on stderr by default. Enable the global `--remote-logs`
+option to display them; remote logs also follow `--log-level`. Operational errors
+from remote commands always appear as `remote error:`, independently of both
+options. File logging and failure exit statuses are unaffected.
 Remote processes write logs under the remote user's home directory as well.
 Identity tokens and known credential arguments are redacted from command logs;
 environment variable values are not logged.

@@ -62,8 +62,9 @@ inspect the directory. `--directory` defaults to `.`. Stdin lines append in
 order; `--input file|modid|name|unspecified` controls their interpretation.
 `--all` cannot be combined with queries. With SSH, selection, filesystem access,
 and loader parsing happen on the remote host; stdin is consumed locally before
-the request. Colors and dependency path styles stay local. Remote diagnostics
-follow `--remote-logs`; failures still produce a nonzero exit status.
+the request. Colors and dependency path styles stay local. Remote errors are
+always displayed; remote logs require `--remote-logs` and follow `--log-level`.
+Failures produce a nonzero exit status.
 `--parallelism <COUNT>` defaults to 10 and bounds file reads for `--all` and
 lazy directory indexes used by name/ID queries, locally or over SSH. Multiple
 independent file inputs are processed sequentially and are unaffected by this
