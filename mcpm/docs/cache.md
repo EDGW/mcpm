@@ -32,6 +32,8 @@ printf '%s\n' HASH1 HASH2 | mcpm cache mods refresh ident
 mcpm cache mods verify HASH1 HASH2
 mcpm cache mods verify --all
 mcpm cache mods verify --all --parallelism 4
+mcpm cache mods verify --all --details
+mcpm cache mods verify --all --autoremove
 mcpm cache mods export HASH1 restored.jar another-copy.jar
 mcpm cache mods remove HASH1
 mcpm cache mods remove --all
@@ -62,10 +64,11 @@ malformed manifests and incompatible versions are rejected. No automatic migrati
 - info, verify, refresh and remove accept `--all` to select the complete inventory in BLAKE3 order,
   including orphan metadata and invalid content types. It conflicts with HASH arguments and nonblank stdin.
   Empty inventory succeeds without processing entries. Selection does not decode metadata.
-  Orphans and invalid types can be shown by info; refresh and verify stop at the first entry they cannot process.
+  Orphans and invalid types can be shown by info. Refresh stops at the first entry it cannot process;
+  verify continues through every selected entry.
 - With `--all`, refresh and verify process up to `--parallelism COUNT` entries concurrently (default `10`).
   COUNT must be positive; `1` processes entries sequentially. Explicit HASH inputs remain sequential.
-  Results retain BLAKE3 order regardless of completion order. info does not accept this option.
+  Results retain selection order (`--all` uses BLAKE3 order), regardless of completion order. info does not accept this option.
   Sources within one refresh entry still run sequentially, so concurrent source writes never target the same entry.
 - Place refresh HASH arguments before meta or ident.
 - Combine `--columns A,B`, repeated `--column A`, and `-C BFSHTM`. Explicit selections replace defaults.
@@ -94,6 +97,22 @@ Content `available` means a regular content file exists; `not_found` means no co
 Use verify to establish its full content identity. meta and ident report independent states, and missing/corrupt
 metadata does not make content verification fail. `--structure-only` checks regular-file presence only and
 cannot detect same-size content corruption.
+
+## Verification
+
+- Default output shows only failed entries (`unavailable` or `not_found`). `--details` includes
+  `available` entries in both Console and Raw. Results retain selection order.
+- Verification continues after individual errors. Every error is reported to stderr with its cause chain.
+  Any verification failure produces a nonzero exit code after the complete batch.
+- `--autoremove` removes each failed entry's content and associated metadata using the same behavior as
+  `remove`. Valid entries, exported copies and external hard links remain. Removal errors are reported
+  without stopping verification; unexpected directories are never recursively deleted.
+- `--structure-only` also controls the check used with `--autoremove`; it cannot detect content corruption.
+- A progress bar on terminal stderr tracks completed entries, including optional removal. `--raw` disables it;
+  redirecting stdout alone keeps progress enabled when stderr is a terminal.
+- Final statistics go to stderr: entries checked, available and failed. With `--autoremove`, they also
+  include entries removed, already absent and failed to remove. Removed entries still count as failed verification.
+- `--headers` prints one Raw TSV header before the first displayed result; there is no header if all results are hidden.
 
 ## Refresh
 

@@ -15,6 +15,7 @@ mod opened;
 
 pub use opened::*;
 
+pub mod backup;
 pub mod dependency;
 mod version_constraint;
 mod version_operator;

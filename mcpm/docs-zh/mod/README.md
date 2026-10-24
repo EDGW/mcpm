@@ -10,6 +10,7 @@ mcpm mod [OPTIONS] <COMMAND>
 | --- | --- |
 | [`list`](list.md) | 列出文件和目录中的 Mod 声明。 |
 | [`cache`](cache.md) | 显式缓存选中文件及其识别摘要。 |
+| [`backup create/verify/apply/delete`](backup.md) | 创建、单独校验、应用或删除文件备份。 |
 | [`info`](info.md) | 检查一个或多个文件的元数据和依赖。 |
 | [`deps`](deps.md) | 显示直接依赖声明及其来源归档。 |
 | [`dep-graph`](dep-graph.md) | 构建目录依赖图、校验快照，或查看单个 Mod 的依赖树。 |

@@ -1,4 +1,4 @@
-//! Ordered cache-batch coordination and failure cutoffs under simultaneous worker completions.
+//! Ordered cache-batch coordination with continuing and stopping failure policies.
 
 use std::{
     sync::{
@@ -12,7 +12,7 @@ use std::{
 use anyhow::Result;
 use kako_mods_lib::local::cache::hash::Blake3Hash;
 
-use super::run;
+use super::{FailurePolicy, run};
 
 #[test]
 fn parallel_batches_bound_work_and_deliver_results_in_input_order() -> Result<()> {
@@ -27,6 +27,7 @@ fn parallel_batches_bound_work_and_deliver_results_in_input_order() -> Result<()
     run(
         &ids,
         2,
+        FailurePolicy::Stop,
         |id| {
             let count = active.fetch_add(1, Ordering::SeqCst) + 1;
             maximum.fetch_max(count, Ordering::SeqCst);
@@ -71,6 +72,7 @@ fn failed_entry_stops_new_work_and_waits_for_inflight_operations() {
     let error = run(
         &ids,
         2,
+        FailurePolicy::Stop,
         |id| -> Result<()> {
             processed.fetch_add(1, Ordering::SeqCst);
             if id == ids[0] {
@@ -99,4 +101,37 @@ fn failed_entry_stops_new_work_and_waits_for_inflight_operations() {
     assert_eq!(delivered, [ids[0]]);
     assert_eq!(processed.load(Ordering::SeqCst), 2);
     assert_eq!(finished.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn continuing_batches_deliver_every_worker_failure_in_input_order() -> Result<()> {
+    let ids: Vec<_> = (0..32).map(|value| Blake3Hash::new([value; 32])).collect();
+    for parallelism in [1, 2] {
+        let processed = AtomicUsize::new(0);
+        let mut delivered = Vec::new();
+        let mut failures = Vec::new();
+        run(
+            &ids,
+            parallelism,
+            FailurePolicy::Continue,
+            |id| {
+                processed.fetch_add(1, Ordering::SeqCst);
+                if id == ids[0] || id == ids[16] {
+                    anyhow::bail!("verification failed for {id}");
+                }
+                Ok(())
+            },
+            |id, result| {
+                delivered.push(id);
+                if result.is_err() {
+                    failures.push(id);
+                }
+                Ok(())
+            },
+        )?;
+        assert_eq!(processed.load(Ordering::SeqCst), ids.len());
+        assert_eq!(delivered, ids);
+        assert_eq!(failures, [ids[0], ids[16]]);
+    }
+    Ok(())
 }

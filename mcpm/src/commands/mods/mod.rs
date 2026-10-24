@@ -3,6 +3,7 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
+mod backup;
 mod cache;
 mod dep_graph;
 mod deps;
@@ -19,6 +20,8 @@ pub(crate) struct ModArgs {
 
 #[derive(Subcommand, Debug)]
 enum ModCommand {
+    /// Create, verify, apply and delete Mod file backups (Console, Raw).
+    Backup(backup::BackupArgs),
     /// Store selected mod files and identification metadata (Console, Raw).
     Cache(cache::CacheArgs),
     /// Build and export local mod dependency graphs.
@@ -34,7 +37,11 @@ enum ModCommand {
 }
 
 pub(crate) fn run(args: ModArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if ssh.is_requested() && matches!(args.command, ModCommand::DepGraph(_) | ModCommand::Cache(_))
+    if ssh.is_requested()
+        && matches!(
+            args.command,
+            ModCommand::DepGraph(_) | ModCommand::Cache(_) | ModCommand::Backup(_)
+        )
     {
         anyhow::bail!(
             "--ssh and --ssh-mcpm are currently supported only by mcpm mod list, mod info, mod deps and mod source identify"
@@ -42,6 +49,7 @@ pub(crate) fn run(args: ModArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     }
     match args.command {
         ModCommand::Cache(args) => cache::run(args),
+        ModCommand::Backup(args) => backup::run(args),
         ModCommand::DepGraph(args) => dep_graph::run(args),
         ModCommand::Deps(args) => deps::run(args, ssh),
         ModCommand::Info(args) => info::run(args, ssh),

@@ -32,6 +32,8 @@ printf '%s\n' HASH1 HASH2 | mcpm cache mods refresh ident
 mcpm cache mods verify HASH1 HASH2
 mcpm cache mods verify --all
 mcpm cache mods verify --all --parallelism 4
+mcpm cache mods verify --all --details
+mcpm cache mods verify --all --autoremove
 mcpm cache mods export HASH1 restored.jar another-copy.jar
 mcpm cache mods remove HASH1
 mcpm cache mods remove --all
@@ -61,10 +63,10 @@ mcpm cache mods rebuild-index
 - `info`、`verify`、`refresh`、`remove` 支持 `--all`，按 BLAKE3 顺序选择完整缓存清单，
   包括孤立 metadata 和异常内容类型；与 HASH 参数及非空 stdin 输入互斥。
   空缓存成功结束，不处理任何条目。选取条目不解释 metadata 内容。
-  info 可以展示孤立 metadata 和异常类型；refresh、verify 遇到无法处理的条目时停止。
+  info 可以展示孤立 metadata 和异常类型；refresh 遇到无法处理的条目时停止，verify 继续校验全部选中条目。
 - refresh、verify 使用 `--all` 时，可用 `--parallelism COUNT` 控制同时处理的条目数量，默认 `10`。
   COUNT 必须为正整数，设为 `1` 即顺序处理；显式 HASH 输入仍顺序处理。
-  输出始终按 BLAKE3 顺序排列，不受任务完成先后影响。info 不接受该参数。
+  输出保持选择顺序（`--all` 时为 BLAKE3 顺序），不受任务完成先后影响。info 不接受该参数。
   refresh 单个条目内的来源仍按顺序执行，避免同一条目的来源并发写入。
 - `refresh` 的 HASH 放在 `meta` 或 `ident` 前面。
 - 列可通过 `--columns A,B`、重复 `--column A` 和 `-C BFSHTM` 合并选择；显式选择覆盖默认列。
@@ -92,6 +94,21 @@ mcpm cache mods rebuild-index
 内容结构的 `available` 仅表示普通内容文件存在；`not_found` 表示没有内容文件。
 完整内容身份由 `verify` 检查。meta、ident 各自的状态独立，缺失或损坏不会使完整内容验证失败。
 `--structure-only` 只检查普通内容文件的存在，不能发现同尺寸内容损坏。
+
+## 校验行为
+
+- 默认只展示校验失败的条目（`unavailable` 或 `not_found`）；`--details` 在 Console 和 Raw 中
+  都包含 `available` 条目，结果保持选择顺序。
+- 单个条目失败不终止校验；每个错误通过 stderr 展示完整错误链。
+  所有条目处理完毕后，只要存在校验失败，退出码就非 0。
+- `--autoremove` 使用与 `remove` 相同的行为，删除校验失败条目的内容及关联 metadata。
+  校验通过的条目、已导出的副本及外部硬链接保留。删除失败会报告错误并继续校验，不递归删除异常目录。
+- `--structure-only` 同样决定 `--autoremove` 使用的校验方式，不能发现内容损坏。
+- stderr 为终端时显示进度条，按完成校验及可选删除的条目推进；`--raw` 关闭进度条。
+  仅重定向 stdout 时，stderr 若仍为终端则继续显示进度。
+- 最后通过 stderr 汇总已校验、通过、失败的条目数；启用 `--autoremove` 时还统计已删除、
+  已不存在、删除失败的条目数。删除成功的条目仍计入校验失败。
+- `--headers` 在第一条展示的结果前输出一次 Raw TSV 表头；所有结果都隐藏时不输出表头。
 
 ## 刷新行为
 

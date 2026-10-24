@@ -9,6 +9,19 @@ use super::{
     style::{OutputStyle, text},
 };
 
+/// Keeps the shared cause chain and adds typed, command-independent detail renderers.
+pub(crate) fn diagnostic(
+    output: &mut ConsoleWriter<'_>,
+    error: &anyhow::Error,
+    remote: bool,
+) -> io::Result<()> {
+    let report = ErrorReport::capture_with(error, |cause| {
+        super::backup::verification_message(cause).unwrap_or_else(|| cause.to_string())
+    });
+    write(output, &report, remote)?;
+    super::backup::verification(output, error)
+}
+
 /// The diagnostic owner supplies captured causes and decides when stderr is available.
 pub(crate) fn write(
     output: &mut ConsoleWriter<'_>,

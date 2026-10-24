@@ -18,11 +18,7 @@ pub(crate) fn error(error: &anyhow::Error) {
 pub(crate) fn display_error(error: &anyhow::Error) {
     let remote = error.chain().any(|cause| cause.is::<RemoteError>());
     let mut stderr = io::stderr().lock();
-    let _ = display::write(
-        &mut ConsoleWriter::new(&mut stderr),
-        &ErrorReport::capture(error),
-        remote,
-    );
+    let _ = display::diagnostic(&mut ConsoleWriter::new(&mut stderr), error, remote);
 }
 
 fn visible_chain(
@@ -41,7 +37,15 @@ pub(crate) struct ErrorReport {
 
 impl ErrorReport {
     pub(crate) fn capture(error: &anyhow::Error) -> Self {
-        let mut chain = visible_chain(error).map(ToString::to_string);
+        Self::capture_with(error, ToString::to_string)
+    }
+
+    /// Allows Display to shorten typed causes while retaining every context in order.
+    pub(crate) fn capture_with(
+        error: &anyhow::Error,
+        message: impl FnMut(&(dyn std::error::Error + 'static)) -> String,
+    ) -> Self {
+        let mut chain = visible_chain(error).map(message);
         Self {
             message: chain.next().unwrap_or_default(),
             causes: chain.collect(),

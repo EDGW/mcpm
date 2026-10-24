@@ -12,7 +12,7 @@
 
 [持久远程会话](remote.md)
 
-[Mod 缓存管理](cache.md)
+[Mod 缓存管理](cache.md) · [Mod 文件备份](mod/backup.md)
 
 [English](../docs/README.md)
 

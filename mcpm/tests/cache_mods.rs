@@ -1,4 +1,4 @@
-//! Batch cache CLI ownership: ordered imports, repeated exports and partial failure.
+//! Cache CLI workflows, batch failure recovery and content/metadata ownership.
 
 use std::{
     fs,
@@ -317,6 +317,87 @@ fn all_selection_rejects_mixed_inputs_and_includes_orphan_and_invalid_entries() 
     );
     let invalid_content = batch(root.path(), cache.path(), &["verify", "--all"], "");
     assert!(!invalid_content.status.success(), "{invalid_content:?}");
+}
+
+#[test]
+fn verification_and_autoremove_continue_after_content_and_removal_failures() {
+    use kako_mods_lib::local::cache::{
+        CacheDir, CacheLinkPreference, codec::CacheDirMetadata, hash::Blake3Hash,
+        mods::ModsCacheDir,
+    };
+
+    // Exercise explicit sequential inputs as well as sequential and concurrent inventories.
+    for parallelism in [None, Some("1"), Some("2")] {
+        let root = tempfile::tempdir().unwrap();
+        let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+        let ids = [b"valid content", b"other content", b"orphan source"].map(|bytes| {
+            let source = root.path().join("source.jar");
+            fs::write(&source, bytes).unwrap();
+            cache.import(&source, CacheLinkPreference::Copy).unwrap()
+        });
+        let [valid, corrupt, orphan] = ids;
+        let generic = CacheDir::new(cache.path()).unwrap();
+        for id in ids {
+            generic
+                .write_metadata(&id, "custom", &CacheDirMetadata::new())
+                .unwrap()
+                .unwrap();
+        }
+        // Replace the immutable cached file to simulate corruption without changing its permissions.
+        fs::remove_file(cache.content_path(&corrupt)).unwrap();
+        fs::write(cache.content_path(&corrupt), b"broken content").unwrap();
+        let external = root.path().join("external.jar");
+        fs::hard_link(cache.content_path(&corrupt), &external).unwrap();
+        fs::remove_file(cache.content_path(&orphan)).unwrap();
+        let invalid = Blake3Hash::new([0; 32]);
+        fs::create_dir_all(cache.content_path(&invalid)).unwrap();
+        let invalid_child = cache.content_path(&invalid).join("retained");
+        fs::write(&invalid_child, b"do not recursively remove").unwrap();
+        let absent = Blake3Hash::new([255; 32]);
+        let explicit = [invalid, corrupt, valid, orphan, absent].map(|id| id.to_string());
+        let mut arguments = vec!["verify"];
+        if let Some(parallelism) = parallelism {
+            arguments.extend(["--all", "--parallelism", parallelism]);
+        } else {
+            arguments.extend(explicit.iter().map(String::as_str));
+        }
+        let verified = batch(root.path(), cache.path(), &arguments, "");
+        assert!(!verified.status.success(), "{verified:?}");
+        let output = String::from_utf8(verified.stdout).unwrap();
+        // Both later failures must be checked after the invalid first entry.
+        assert!(output.contains(&format!("{corrupt}\tunavailable\t\n")));
+        assert!(output.contains(&format!("{orphan}\tnot_found\t\n")));
+        assert!(!output.contains(&valid.to_string()));
+        assert!(cache.content_path(&corrupt).is_file());
+        assert!(
+            cache
+                .inspect(&orphan)
+                .unwrap()
+                .metadata
+                .iter()
+                .any(|metadata| metadata.name == "custom")
+        );
+
+        arguments.extend(["--autoremove", "--details"]);
+        let removed = batch(root.path(), cache.path(), &arguments, "");
+        assert!(!removed.status.success(), "{removed:?}");
+        let output = String::from_utf8(removed.stdout).unwrap();
+        assert!(output.contains(&format!("{valid}\tavailable\t\n")));
+        assert!(cache.content_path(&valid).is_file());
+        let metadata = cache.inspect(&valid).unwrap().metadata;
+        assert_eq!(metadata.len(), 1);
+        assert_eq!(metadata[0].name, "custom");
+        for id in [corrupt, orphan] {
+            let inspection = cache.inspect(&id).unwrap();
+            assert!(!cache.content_path(&id).exists());
+            assert!(inspection.metadata.is_empty());
+        }
+        assert_eq!(fs::read(external).unwrap(), b"broken content");
+        assert_eq!(
+            fs::read(invalid_child).unwrap(),
+            b"do not recursively remove"
+        );
+    }
 }
 
 #[test]

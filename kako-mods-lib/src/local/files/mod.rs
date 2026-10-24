@@ -7,11 +7,20 @@ use std::{
 
 use thiserror::Error;
 
+mod content;
+pub mod hash;
+pub(crate) use content::Content;
+mod transfer;
+pub(crate) use transfer::stage;
+pub use transfer::{CacheLinkPreference, TransferMethod};
+
 mod identity;
 pub use identity::FileIdentity;
 
 mod protection;
 pub use protection::protect_file_contents;
+mod removal;
+pub(crate) use removal::remove_protected_tree;
 
 /// Creates a hard link without overwriting a destination or falling back to copying.
 ///
@@ -55,3 +64,5 @@ impl HardLinkError {
         false
     }
 }
+
+pub(crate) use protection::DirectoryProtection;

@@ -18,9 +18,12 @@ impl FileIdentity {
     #[cfg(windows)]
     pub fn read(path: &Path) -> io::Result<Self> {
         use std::os::windows::fs::OpenOptionsExt;
-        use windows_sys::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES,
+        };
         let file = std::fs::OpenOptions::new()
             .access_mode(FILE_READ_ATTRIBUTES)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
             .open(path)?;
         Self::from_file(&file)
     }

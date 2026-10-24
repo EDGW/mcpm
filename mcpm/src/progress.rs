@@ -55,11 +55,14 @@ impl Progress {
         self.bar.inc(1);
     }
 
+    pub(crate) fn suspend<T>(&self, output: impl FnOnce() -> T) -> T {
+        self.bar.suspend(output)
+    }
+
     pub(crate) fn report(&self, error: &anyhow::Error) {
         crate::logging::record_error(error);
         if !crate::logging::stream::is_forwarding() {
-            self.bar
-                .suspend(|| crate::diagnostics::display_error(error));
+            self.suspend(|| crate::diagnostics::display_error(error));
         }
     }
 }

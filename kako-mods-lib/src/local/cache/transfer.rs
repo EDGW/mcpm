@@ -7,6 +7,8 @@ use super::{
     storage::{self, Content},
 };
 use crate::local::files;
+use crate::local::files::stage;
+pub use crate::local::files::{CacheLinkPreference, TransferMethod};
 use anyhow::{Context, Result, ensure};
 use std::{
     fs, io,
@@ -179,20 +181,6 @@ impl CacheDir {
     }
 }
 
-/// Requested policy; only capability errors permit fallback from hard linking.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CacheLinkPreference {
-    HardLink,
-    PreferHardLink,
-    Copy,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TransferMethod {
-    HardLink,
-    Copy,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImportOutcome {
     pub key: Blake3Hash,
@@ -206,31 +194,4 @@ pub struct ImportOutcome {
 pub struct ExportOutcome {
     pub destination: PathBuf,
     pub method: TransferMethod,
-}
-
-fn stage(
-    source: &mut Content,
-    destination: &Path,
-    preference: CacheLinkPreference,
-) -> Result<TransferMethod> {
-    if preference != CacheLinkPreference::Copy {
-        match files::hard_link(source.path(), destination) {
-            Ok(()) => {
-                let linked = Content::open(destination)?.context("staged hard link is missing")?;
-                source.validate()?;
-                ensure!(
-                    linked.identity() == source.identity(),
-                    "hard-link source changed: {:?}",
-                    source.path()
-                );
-                return Ok(TransferMethod::HardLink);
-            }
-            Err(error)
-                if preference == CacheLinkPreference::PreferHardLink
-                    && error.allows_copy_fallback() => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    source.copy_to(destination)?;
-    Ok(TransferMethod::Copy)
 }

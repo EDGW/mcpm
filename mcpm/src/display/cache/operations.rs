@@ -159,6 +159,53 @@ pub(crate) fn verification(
     )
 }
 
+#[derive(Default)]
+pub(crate) struct VerificationSummary {
+    pub available: usize,
+    pub failed: usize,
+    pub removal: Option<RemovalSummary>,
+}
+
+#[derive(Default)]
+pub(crate) struct RemovalSummary {
+    pub removed: usize,
+    pub absent: usize,
+    pub failed: usize,
+}
+
+/// Verification statistics use stderr so Raw stdout remains a stream of TSV receipts.
+pub(crate) fn verification_summary(
+    out: &mut ConsoleWriter<'_>,
+    summary: &VerificationSummary,
+) -> Result<()> {
+    let style = OutputStyle::stderr();
+    writeln!(
+        out,
+        "Verification: {} checked, {} available, {} failed",
+        summary.available + summary.failed,
+        style.success(summary.available),
+        if summary.failed == 0 {
+            style.normal(summary.failed)
+        } else {
+            style.danger(summary.failed)
+        },
+    )?;
+    if let Some(removal) = &summary.removal {
+        writeln!(
+            out,
+            "Autoremove: {} removed, {} already absent, {} failed",
+            style.success(removal.removed),
+            removal.absent,
+            if removal.failed == 0 {
+                style.normal(removal.failed)
+            } else {
+                style.danger(removal.failed)
+            },
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn rebuilt_index(out: &mut impl Write, count: usize, headers: bool) -> Result<()> {
     row(
         out,
