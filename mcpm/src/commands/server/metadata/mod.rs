@@ -1,6 +1,6 @@
 //! Transport-safe snapshots of server metadata, captured on the machine owning the server.
 
-use kako_mods_lib::local::mc::server::MinecraftServer;
+use mcpm_backend::local::mc::server::MinecraftServer;
 use serde::{Deserialize, Serialize};
 
 mod remote;

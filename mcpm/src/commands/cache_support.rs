@@ -1,7 +1,7 @@
 //! Shared CLI transfer strategies for explicit cache import/export workflows.
 
 use clap::ValueEnum;
-use kako_mods_lib::local::cache::CacheLinkPreference;
+use mcpm_backend::local::cache::CacheLinkPreference;
 
 #[derive(Debug, Default, Clone, Copy, ValueEnum, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]

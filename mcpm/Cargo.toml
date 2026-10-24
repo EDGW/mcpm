@@ -16,7 +16,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 terminal-colorsaurus = "1"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "unstable-rendered-line-info"] }
 regex = "1"
-kako-mods-lib = { path = "../kako-mods-lib" }
+mcpm-backend = { path = "../mcpm-backend" }
 owo-colors = "4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1", features = ["derive"] }

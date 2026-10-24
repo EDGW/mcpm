@@ -3,7 +3,7 @@
 use super::{Event, Stage, Status};
 use crate::commands::supports::mods::scan::{self, ProgressState};
 use anyhow::{Result, ensure};
-use kako_mods_lib::local::cache::hash::Blake3Hash;
+use mcpm_backend::local::cache::hash::Blake3Hash;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]

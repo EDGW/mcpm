@@ -61,7 +61,7 @@ impl ModrinthSource {
     fn request(&self, path: &str) -> Result<reqwest::RequestBuilder> {
         Ok(self.client.get(self.base_url.join(path)?).header(
             USER_AGENT,
-            concat!("kako-mods-lib/", env!("CARGO_PKG_VERSION")),
+            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")),
         ))
     }
 

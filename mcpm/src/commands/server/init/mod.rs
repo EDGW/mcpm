@@ -147,7 +147,7 @@ fn write_info(info: &ServerInfo, full_command: bool) -> Result<()> {
 
 /// CLI choices come from the same loader registry used by recognition and initialization.
 fn loader_parser() -> clap::builder::PossibleValuesParser {
-    let mut loaders: Vec<_> = kako_mods_lib::local::modloader::BUILTIN_LOADERS
+    let mut loaders: Vec<_> = mcpm_backend::local::modloader::BUILTIN_LOADERS
         .keys()
         .map(|id| id.as_str())
         .collect();

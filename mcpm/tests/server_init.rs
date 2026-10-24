@@ -1,6 +1,6 @@
 //! CLI server identification and initialization using declarations rather than launch validation.
 
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mc::server::{MinecraftServer, identify},
     modloader::BUILTIN_LOADERS,
 };

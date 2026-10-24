@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Args;
-use kako_mods_lib::local::mcmod::dependency::graph::{
+use mcpm_backend::local::mcmod::dependency::graph::{
     candidate::ExternalCandidate, identifier::DependencyIdentifier,
 };
 

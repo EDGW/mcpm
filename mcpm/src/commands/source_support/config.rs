@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use kako_mods_lib::source::{
+use mcpm_backend::source::{
     Source, SourceId, curseforge::CurseForgeSource, modrinth::ModrinthSource,
 };
 

@@ -1,6 +1,6 @@
 //! Print a local launch plan; pass --run explicitly to prepare and launch it.
 use anyhow::{Context, Result, bail};
-use kako_mods_lib::local::mc::client::{
+use mcpm_backend::local::mc::client::{
     ClientPlatform, MinecraftDirectory, RuleEnvironment,
     launch::{Identity, LaunchOptions},
 };

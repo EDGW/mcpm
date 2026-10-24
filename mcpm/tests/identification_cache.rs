@@ -1,16 +1,16 @@
 //! CLI cache-category selection and read-only Identify reuse independent of loader descriptors.
 
-use kako_mods_lib::local::cache::hash::Blake3Hash;
-use kako_mods_lib::local::cache::mods::ModsCacheDir;
-use kako_mods_lib::source::FileHash;
-use kako_mods_lib::source::FileId;
-use kako_mods_lib::source::FileMatch;
-use kako_mods_lib::source::FileRef;
-use kako_mods_lib::source::FileSummary;
-use kako_mods_lib::source::MatchedFileRole;
-use kako_mods_lib::source::ProjectId;
-use kako_mods_lib::source::ProjectRef;
-use kako_mods_lib::source::SourceId;
+use mcpm_backend::local::cache::hash::Blake3Hash;
+use mcpm_backend::local::cache::mods::ModsCacheDir;
+use mcpm_backend::source::FileHash;
+use mcpm_backend::source::FileId;
+use mcpm_backend::source::FileMatch;
+use mcpm_backend::source::FileRef;
+use mcpm_backend::source::FileSummary;
+use mcpm_backend::source::MatchedFileRole;
+use mcpm_backend::source::ProjectId;
+use mcpm_backend::source::ProjectRef;
+use mcpm_backend::source::SourceId;
 use serde_json::Value;
 use std::{
     fs,
@@ -23,7 +23,7 @@ fn seed(cache: &ModsCacheDir, source: &Path) -> Blake3Hash {
     let id = writer
         .import(
             source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let summary = FileSummary::read(source, Default::default()).unwrap();
@@ -231,10 +231,7 @@ fn remote_publication_acknowledges_verified_data_and_rejects_incorrect_content()
     fs::write(&path, b"abc").unwrap();
     let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
     let id = cache
-        .import(
-            &path,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
-        )
+        .import(&path, mcpm_backend::local::cache::CacheLinkPreference::Copy)
         .unwrap();
     let summary = FileSummary::read(&path, Default::default()).unwrap();
     let file = FileMatch {

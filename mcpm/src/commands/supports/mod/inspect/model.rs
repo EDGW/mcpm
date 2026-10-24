@@ -1,6 +1,6 @@
 //! Inspection data shared by acquisition and presentation, without filesystem handles.
 
-use kako_mods_lib::local::mcmod::{ModInfo, ModMeta, ModStatus};
+use mcpm_backend::local::mcmod::{ModInfo, ModMeta, ModStatus};
 use serde::{Deserialize, Serialize};
 
 use super::super::{mod_records, selection::SelectedFile};

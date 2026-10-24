@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use kako_mods_lib::source::{
+use mcpm_backend::source::{
     FileQuery, ProjectId, ProjectRef, Source, SourceId, curseforge::CurseForgeSource,
     modrinth::ModrinthSource,
 };

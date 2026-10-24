@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mcmod::{ModEntry, ModEntryName, ModFile},
     modloader::{BUILTIN_LOADERS, ModLoaderMeta},
 };
@@ -138,7 +138,7 @@ fn loader(id: &str) -> Result<ModLoaderMeta> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kako_mods_lib::local::mcmod::MetadataConversionError;
+    use mcpm_backend::local::mcmod::MetadataConversionError;
     use serde_json::{Value, json};
 
     #[test]

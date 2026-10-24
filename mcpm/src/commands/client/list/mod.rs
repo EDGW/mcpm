@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mc::client::{MinecraftDirectory, MinecraftModLoader, MinecraftVersion},
     modloader::BUILTIN_LOADERS,
 };

@@ -5,7 +5,7 @@ use std::{
     io::{self, Write},
 };
 
-use kako_mods_lib::local::mcmod::dependency::{
+use mcpm_backend::local::mcmod::dependency::{
     Dependency, DependencyKind, DependencyMatch,
     graph::{DependencyGraph, candidate::DependencyCandidate, identifier::DependencyIdentifier},
 };

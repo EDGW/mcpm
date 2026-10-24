@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::Args;
-use kako_mods_lib::local::mcmod::ModOpenCache;
+use mcpm_backend::local::mcmod::ModOpenCache;
 
 #[derive(Debug, Args)]
 pub(in crate::commands) struct CacheArgs {

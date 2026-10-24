@@ -2,7 +2,7 @@
 
 use std::{fs, path::Path};
 
-use kako_mods_lib::local::mc::client::{
+use mcpm_backend::local::mc::client::{
     AssetError, CheckEvent, CheckOptionValue, CheckOptions, CheckPlatform, CheckProblem,
     CheckRules, CheckStep, CheckTarget, FileCheckStatus, LibraryError, MinecraftDirectory,
     MinecraftVersionManifest,

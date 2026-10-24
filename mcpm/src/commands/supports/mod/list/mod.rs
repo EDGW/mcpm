@@ -5,7 +5,7 @@ use std::io::{self, Write};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mcmod::ModEntry,
     modloader::{LoaderId, ModLoaderMeta},
 };
@@ -37,7 +37,7 @@ mod tui;
 #[derive(Args, Debug)]
 pub(in crate::commands) struct ListDisplayArgs {
     #[arg(skip)]
-    identification_cache: Option<kako_mods_lib::local::cache::mods::ModsCacheSelection>,
+    identification_cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
     /// Filter matching rows with the same expression used by the TUI Filter card.
     #[arg(short = 'F', long, value_name = "FILTER", help_heading = "Filter", long_help = filter::HELP)]
     filter: Option<Filter>,
@@ -78,7 +78,7 @@ impl ListDisplayArgs {
     /// Share the command's file-host cache policy with TUI source acquisition.
     pub fn with_cache(
         mut self,
-        cache: Option<kako_mods_lib::local::cache::mods::ModsCacheSelection>,
+        cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
     ) -> Self {
         self.identification_cache = cache;
         self

@@ -1,6 +1,6 @@
 //! Display records derived from a loader's archive tree, without changing its metadata.
 
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mcmod::{ModInfo, ModMeta},
     modloader::ModLoaderMeta,
 };

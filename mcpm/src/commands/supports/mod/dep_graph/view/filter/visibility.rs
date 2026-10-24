@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use kako_mods_lib::local::mcmod::dependency::{
+use mcpm_backend::local::mcmod::dependency::{
     Dependency,
     graph::{DependencyGraph, candidate::DependencyCandidate, identifier::DependencyIdentifier},
 };

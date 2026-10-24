@@ -109,7 +109,7 @@ impl CurseForgeSource {
             .request(method, self.base_url.join(path)?)
             .header(
                 USER_AGENT,
-                concat!("kako-mods-lib/", env!("CARGO_PKG_VERSION")),
+                concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")),
             );
         if let Some(key) = &self.api_key {
             request = request.header("x-api-key", key.clone());

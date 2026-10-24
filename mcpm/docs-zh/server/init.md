@@ -48,7 +48,7 @@ SSH 连接和远端 mcpm 程序均复用[全局参数](../README.md#全局选项
 └── server.json  # Local 服务端元数据，version: 2
 ```
 
-`mcpm.json` 由 mcpm 管理，决定工作目录类型；Local 的 `server.json` 由 kako-mods-lib 解析和持久化。没有 `mcpm.json` 的旧目录按 Local 处理。Local `server.json` 的 v1 仍可读取，会产生一条 warning 日志；读取不改写文件，重新初始化时写为 v2。
+`mcpm.json` 由 mcpm 管理，决定工作目录类型；Local 的 `server.json` 由 mcpm-backend 解析和持久化。没有 `mcpm.json` 的旧目录按 Local 处理。Local `server.json` 的 v1 仍可读取，会产生一条 warning 日志；读取不改写文件，重新初始化时写为 v2。
 
 完整指定 `--minecraft-version`、`--loader`，以及非 vanilla 所需的 `--loader-version`，会直接登记，不读取启动脚本。不完整时默认识别 `run.bat`（Windows）或 `run.sh`（Unix），并以已提供的字段筛选可靠候选。
 

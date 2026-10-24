@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use kako_mods_lib::source::{FileQuery, SearchPage, SearchQuery, Source};
+use mcpm_backend::source::{FileQuery, SearchPage, SearchQuery, Source};
 use tokio::runtime::Runtime;
 
 use super::super::request;
@@ -121,7 +121,7 @@ impl Browser {
         accepted
     }
 
-    fn project<'a>(&self, page: &'a SearchPage) -> Option<&'a kako_mods_lib::source::ProjectInfo> {
+    fn project<'a>(&self, page: &'a SearchPage) -> Option<&'a mcpm_backend::source::ProjectInfo> {
         page.projects.get(self.table.selected()?)
     }
 

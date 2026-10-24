@@ -1,7 +1,7 @@
 //! Inspect a Minecraft root: `cargo run --example inspect_client -- /path/to/.minecraft`.
 
 use anyhow::{Context, Result};
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mc::client::{MinecraftDirectory, MinecraftVersion},
     modloader::BUILTIN_LOADERS,
 };

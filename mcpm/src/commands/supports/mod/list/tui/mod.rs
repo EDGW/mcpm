@@ -9,7 +9,7 @@ use super::{
 use crate::commands::{execution::Runtime, source_support::identify::Location};
 use anyhow::{Context, Result};
 use crossterm::event;
-use kako_mods_lib::source::FileRef;
+use mcpm_backend::source::FileRef;
 use ratatui::widgets::TableState;
 use std::{
     collections::HashMap,
@@ -29,7 +29,7 @@ mod tests;
 #[derive(Debug)]
 pub(super) struct Summary<'a> {
     pub location: Location<'a>,
-    pub source_cache: Option<kako_mods_lib::local::cache::mods::ModsCacheSelection>,
+    pub source_cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
     pub ignored: usize,
     pub ignored_files: &'a [PathBuf],
     pub input_errors: usize,

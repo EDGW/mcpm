@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use kako_mods_lib::local::mcmod::{ModDirectory, ModEntry};
+use mcpm_backend::local::mcmod::{ModDirectory, ModEntry};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

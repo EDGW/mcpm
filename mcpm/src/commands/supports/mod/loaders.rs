@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use clap::{Args, ValueEnum};
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mcmod::ModFile,
     modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta},
 };

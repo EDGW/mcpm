@@ -3,12 +3,12 @@
 use std::{io::Write, path::Path};
 
 use anyhow::Result;
-use kako_mods_lib::local::cache::mods::meta::CacheEntry;
-use kako_mods_lib::local::cache::{
+use mcpm_backend::local::cache::mods::meta::CacheEntry;
+use mcpm_backend::local::cache::{
     hash::Blake3Hash,
     mods::ident::{CacheIdentInfo, RefreshStatus},
 };
-use kako_mods_lib::source::{FileMatch, SourceId};
+use mcpm_backend::source::{FileMatch, SourceId};
 
 use crate::display::{
     console::ConsoleWriter,

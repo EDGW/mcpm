@@ -1,4 +1,4 @@
-//! Workspace type dispatch and Remote registration storage; local server metadata belongs to kako-mods-lib.
+//! Workspace type dispatch and Remote registration storage; local server metadata belongs to mcpm-backend.
 
 use std::{
     fs::{self, File, OpenOptions},
@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, ensure};
-use kako_mods_lib::local::mc::server::MinecraftServer;
+use mcpm_backend::local::mc::server::MinecraftServer;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

@@ -3,7 +3,7 @@
 use crate::commands::cache_support::FileStrategy;
 use anyhow::{Context, Result};
 use clap::Args;
-use kako_mods_lib::local::cache::{hash::Blake3Hash, mods::ModsCacheSelection};
+use mcpm_backend::local::cache::{hash::Blake3Hash, mods::ModsCacheSelection};
 use std::{io::Write, path::PathBuf};
 
 #[derive(Debug, Args)]

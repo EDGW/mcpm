@@ -13,7 +13,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mcmod::dependency::graph::{DependencyGraph, identifier::DependencyIdentifier, storage},
     modloader::BUILTIN_LOADERS,
 };

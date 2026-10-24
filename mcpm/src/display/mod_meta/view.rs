@@ -1,6 +1,6 @@
 //! Borrowed display views for runtime, cached and selected Mod declarations.
 
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     cache::mods::meta::CachedIdentification,
     mcmod::{CachedModMeta, ModInfo, ModMeta},
 };

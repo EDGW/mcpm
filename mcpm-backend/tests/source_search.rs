@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use kako_mods_lib::source::{
+use mcpm_backend::source::{
     SearchQuery, Source, SourceId, curseforge::CurseForgeSource, modrinth::ModrinthSource,
 };
 use serde_json::{Value, json};

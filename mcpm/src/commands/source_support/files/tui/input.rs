@@ -2,7 +2,7 @@
 
 use super::{Browser, Focus, view};
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
-use kako_mods_lib::source::{FilePage, ProjectFile};
+use mcpm_backend::source::{FilePage, ProjectFile};
 use ratatui::layout::Position;
 
 #[derive(Debug, PartialEq, Eq)]

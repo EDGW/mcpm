@@ -1,7 +1,7 @@
 //! Offline check: `cargo run --example check_client -- ROOT VERSION OS ARCH OS_VERSION BITS`.
 
 use anyhow::{Context, Result};
-use kako_mods_lib::local::mc::client::{
+use mcpm_backend::local::mc::client::{
     CheckOptions, CheckPlatform, CheckRules, MinecraftDirectory,
 };
 

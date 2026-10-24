@@ -1,5 +1,5 @@
 [package]
-name = "kako-mods-lib"
+name = "mcpm-backend"
 version = "0.1.1"
 edition = "2024"
 

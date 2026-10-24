@@ -1,9 +1,9 @@
 //! Explicit source-result publication on the file host, without provider configuration or secrets.
 
 use anyhow::{Context, Result, ensure};
-use kako_mods_lib::local::cache::hash::Blake3Hash;
-use kako_mods_lib::local::cache::mods::ModsCacheSelection;
-use kako_mods_lib::source::FileMatch;
+use mcpm_backend::local::cache::hash::Blake3Hash;
+use mcpm_backend::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::source::FileMatch;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

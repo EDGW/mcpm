@@ -6,7 +6,7 @@ use super::super::{
 };
 use crate::diagnostics::ErrorReport;
 use anyhow::Result;
-use kako_mods_lib::local::modloader::{LoaderId, ModLoaderMeta};
+use mcpm_backend::local::modloader::{LoaderId, ModLoaderMeta};
 use std::collections::HashMap;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mcmod::dependency::graph::identifier::DependencyIdentifier, modloader::LoaderId,
 };
 use thiserror::Error;

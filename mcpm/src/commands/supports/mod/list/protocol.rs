@@ -1,6 +1,6 @@
 //! Shared JSON records for remote list production and SSH consumption.
 
-use kako_mods_lib::local::mcmod::{CachedModMeta, MetadataConversionError, ModMeta, ModStatus};
+use mcpm_backend::local::mcmod::{CachedModMeta, MetadataConversionError, ModMeta, ModStatus};
 use serde::{Deserialize, Serialize};
 
 use crate::{commands::supports::mods::scan::ScanResult, diagnostics::ErrorReport};

@@ -1,6 +1,6 @@
 //! Shared dependency text and formatting for mod records and graph views.
 
-use kako_mods_lib::local::mcmod::{
+use mcpm_backend::local::mcmod::{
     VersionConstraint, VersionOperator,
     dependency::{Dependency, DependencyKind, DependencyOrdering, DependencySide},
 };

@@ -1,6 +1,6 @@
 //! Cache management checks for initialization, diagnostic inventory and owned-name deletion.
 
-use kako_mods_lib::local::cache::{
+use mcpm_backend::local::cache::{
     CacheDir, CacheFileKind, CacheLinkPreference, TransferMethod, codec::CacheDirMetadata,
     hash::Blake3Hash,
 };

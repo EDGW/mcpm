@@ -2,7 +2,7 @@
 
 use crate::commands::source_support::identify::{self as acquisition, Event, Location, Outcome};
 use anyhow::Result;
-use kako_mods_lib::source::{FileMatch, MatchedFileRole};
+use mcpm_backend::source::{FileMatch, MatchedFileRole};
 use std::{
     path::PathBuf,
     sync::mpsc::{Receiver, channel},
@@ -88,7 +88,7 @@ pub(super) fn start(
     paths: Vec<PathBuf>,
     parallelism: usize,
     location: Location<'_>,
-    cache: Option<kako_mods_lib::local::cache::mods::ModsCacheSelection>,
+    cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
 ) -> Result<Receiver<Update>> {
     let (sender, receiver) = channel();
     let count = paths.len();

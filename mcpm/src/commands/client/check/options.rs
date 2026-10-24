@@ -1,7 +1,7 @@
 //! CLI verification modes and resource-specific check options.
 
 use clap::{Args, ValueEnum};
-use kako_mods_lib::local::mc::client::{CheckOptionValue, CheckOptions};
+use mcpm_backend::local::mc::client::{CheckOptionValue, CheckOptions};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Mode {

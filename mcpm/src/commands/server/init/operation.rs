@@ -3,7 +3,7 @@
 use std::{fs, io, path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result, bail, ensure};
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mc::server::{MinecraftServer, MinecraftServerMetadata, identify},
     modloader::BUILTIN_LOADERS,
 };
@@ -273,7 +273,7 @@ mod tests {
         .unwrap_err();
         assert!(
             error
-                .downcast_ref::<kako_mods_lib::local::mc::server::MinecraftServerError>()
+                .downcast_ref::<mcpm_backend::local::mc::server::MinecraftServerError>()
                 .is_some()
         );
         assert_eq!(fs::read(manifest).unwrap(), winner);

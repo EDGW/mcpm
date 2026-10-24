@@ -3,7 +3,7 @@
 use std::{num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result};
-use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
+use mcpm_backend::local::modloader::BUILTIN_LOADERS;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -48,7 +48,7 @@ struct Request {
     #[serde(default = "crate::commands::execution::default_parallelism")]
     parallelism: NonZeroUsize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    cache: Option<kako_mods_lib::local::mcmod::ModOpenCache>,
+    cache: Option<mcpm_backend::local::mcmod::ModOpenCache>,
 }
 
 fn default_directory() -> PathBuf {

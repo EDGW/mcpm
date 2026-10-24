@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::Result;
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mcmod::{ModDirectory, ModFile, ModOpenCache, ModOpenContext},
     modloader::{LoaderId, ModLoaderMeta},
 };

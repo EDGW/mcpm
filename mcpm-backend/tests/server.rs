@@ -5,7 +5,7 @@ use tempfile::TempDir;
 
 #[test]
 fn legacy_metadata_is_read_without_rewriting_and_only_migrates_on_explicit_persistence() {
-    use kako_mods_lib::local::mc::server::{MinecraftServer, SERVER_METADATA_VERSION};
+    use mcpm_backend::local::mc::server::{MinecraftServer, SERVER_METADATA_VERSION};
 
     let root = TempDir::new().unwrap();
     fs::create_dir(root.path().join(".mcpm")).unwrap();
@@ -34,7 +34,7 @@ fn legacy_metadata_is_read_without_rewriting_and_only_migrates_on_explicit_persi
 
 #[test]
 fn inspection_resolves_loader_without_creating_missing_mod_directory() {
-    use kako_mods_lib::local::mc::server::MinecraftServer;
+    use mcpm_backend::local::mc::server::MinecraftServer;
 
     let root = TempDir::new().unwrap();
     fs::create_dir(root.path().join(".mcpm")).unwrap();
@@ -49,7 +49,7 @@ fn inspection_resolves_loader_without_creating_missing_mod_directory() {
 
 #[test]
 fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments() {
-    use kako_mods_lib::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
+    use mcpm_backend::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
 
     let root = TempDir::new().unwrap();
     let argument_file = "libraries/net/neoforged/neoforge/21.1.233/win_args.txt";
@@ -107,7 +107,7 @@ fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments(
 
 #[test]
 fn identification_errors_retain_script_archive_member_and_parser_cause() {
-    use kako_mods_lib::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
+    use mcpm_backend::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
     use std::io::{Cursor, Write};
     use zip::{ZipWriter, write::SimpleFileOptions};
     let root = TempDir::new().unwrap();

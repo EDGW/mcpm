@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use kako_mods_lib::local::cache::{
+use mcpm_backend::local::cache::{
     hash::Blake3Hash,
     mods::{ident::CacheIdentInfo, meta::CacheEntry},
 };
@@ -26,8 +26,8 @@ pub(crate) enum Metadata {
 impl Metadata {
     pub(crate) fn name(&self) -> &str {
         match self {
-            Self::Meta(_) => kako_mods_lib::local::cache::mods::meta::NAME,
-            Self::Ident(_) => kako_mods_lib::local::cache::mods::ident::NAME,
+            Self::Meta(_) => mcpm_backend::local::cache::mods::meta::NAME,
+            Self::Ident(_) => mcpm_backend::local::cache::mods::ident::NAME,
             Self::Other(name) => name,
         }
     }

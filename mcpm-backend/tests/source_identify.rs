@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use kako_mods_lib::{
+use mcpm_backend::{
     local::cache::{
         CacheLinkPreference,
         mods::{MetadataRefresh, ModsCacheDir, ident::RefreshStatus},

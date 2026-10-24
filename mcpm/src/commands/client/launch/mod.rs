@@ -7,7 +7,7 @@ use std::{collections::HashSet, io, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use kako_mods_lib::local::mc::client::{MinecraftDirectory, launch::LaunchProcess};
+use mcpm_backend::local::mc::client::{MinecraftDirectory, launch::LaunchProcess};
 use thiserror::Error;
 
 use super::{input, output as client_output, platform, selector};

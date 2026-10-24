@@ -4,7 +4,7 @@ use std::{io, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use kako_mods_lib::local::mcmod::backup;
+use mcpm_backend::local::mcmod::backup;
 
 use super::{DisplayArgs, input};
 use crate::{commands::execution::default_parallelism, display::backup::Presentation};

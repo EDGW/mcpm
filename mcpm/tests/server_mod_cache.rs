@@ -1,8 +1,8 @@
 //! Server cache integration: scoped selection, declared loaders, read-only reuse and host routing.
 
-use kako_mods_lib::local::cache::mods::ModsCacheDir;
-use kako_mods_lib::local::cache::mods::meta::CachedIdentification;
-use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
+use mcpm_backend::local::cache::mods::ModsCacheDir;
+use mcpm_backend::local::cache::mods::meta::CachedIdentification;
+use mcpm_backend::local::modloader::BUILTIN_LOADERS;
 use serde_json::{Value, json};
 use std::{
     fs,

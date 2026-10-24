@@ -103,7 +103,7 @@ impl Screen {
             )?;
             let (id, name, version) = match &candidate.metadata.loader {
                 Some(loader) => {
-                    let name = kako_mods_lib::local::modloader::BUILTIN_LOADERS
+                    let name = mcpm_backend::local::modloader::BUILTIN_LOADERS
                         .get(loader.loader_type.as_str())
                         .map(|m| m.name())
                         .unwrap_or(&loader.loader_type);
