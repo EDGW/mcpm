@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use kako_mods_lib::source::SearchQuery;
+use mcpm_backend::source::SearchQuery;
 use thiserror::Error;
 
 use syntax::{Kind, Parser};

@@ -11,23 +11,23 @@ use std::{
     },
 };
 
-use kako_mods_lib::local::cache::CacheLinkPreference;
-use kako_mods_lib::local::cache::mods::MetadataRefresh;
-use kako_mods_lib::local::cache::mods::ModsCacheDir;
-use kako_mods_lib::local::mcmod;
-use kako_mods_lib::local::mcmod::CachedModMeta;
-use kako_mods_lib::local::mcmod::IdentificationErrorAction;
-use kako_mods_lib::local::mcmod::LoaderCacheMissReason;
-use kako_mods_lib::local::mcmod::LoaderCacheUsage;
-use kako_mods_lib::local::mcmod::ModEntry;
-use kako_mods_lib::local::mcmod::ModMeta;
-use kako_mods_lib::local::mcmod::ModOpenCache;
-use kako_mods_lib::local::mcmod::ModOpenCacheReport;
-use kako_mods_lib::local::mcmod::ModOpenContext;
-use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
-use kako_mods_lib::local::modloader::LoaderId;
-use kako_mods_lib::local::modloader::ModLoader;
-use kako_mods_lib::local::modloader::ModLoaderMeta;
+use mcpm_backend::local::cache::CacheLinkPreference;
+use mcpm_backend::local::cache::mods::MetadataRefresh;
+use mcpm_backend::local::cache::mods::ModsCacheDir;
+use mcpm_backend::local::mcmod;
+use mcpm_backend::local::mcmod::CachedModMeta;
+use mcpm_backend::local::mcmod::IdentificationErrorAction;
+use mcpm_backend::local::mcmod::LoaderCacheMissReason;
+use mcpm_backend::local::mcmod::LoaderCacheUsage;
+use mcpm_backend::local::mcmod::ModEntry;
+use mcpm_backend::local::mcmod::ModMeta;
+use mcpm_backend::local::mcmod::ModOpenCache;
+use mcpm_backend::local::mcmod::ModOpenCacheReport;
+use mcpm_backend::local::mcmod::ModOpenContext;
+use mcpm_backend::local::modloader::BUILTIN_LOADERS;
+use mcpm_backend::local::modloader::LoaderId;
+use mcpm_backend::local::modloader::ModLoader;
+use mcpm_backend::local::modloader::ModLoaderMeta;
 
 #[derive(Debug)]
 struct CountingLoader {
@@ -113,7 +113,7 @@ fn recognized_and_null_results_bypass_loaders_and_preserve_input_identity() {
     let id = writer
         .import(
             &source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     writer
@@ -173,7 +173,7 @@ fn missing_loader_is_identified_but_cached_null_is_not() {
     let id = writer
         .import(
             &source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let forge_only = [(LoaderId::from("forge"), loaders["forge"].clone())]
@@ -214,7 +214,7 @@ fn cache_misses_never_import_files_or_change_the_source() {
     let root = tempfile::tempdir().unwrap();
     let (cache, source) = fixture(root.path());
     let (loaders, fabric_calls, forge_calls) = loaders();
-    let identity = kako_mods_lib::local::files::FileIdentity::read(&source).unwrap();
+    let identity = mcpm_backend::local::files::FileIdentity::read(&source).unwrap();
     let contents = fs::read(&source).unwrap();
     #[cfg(unix)]
     let mode = {
@@ -231,7 +231,7 @@ fn cache_misses_never_import_files_or_change_the_source() {
     assert_eq!(fabric_calls.load(Ordering::SeqCst), 2);
     assert_eq!(forge_calls.load(Ordering::SeqCst), 2);
     assert_eq!(
-        kako_mods_lib::local::files::FileIdentity::read(&source).unwrap(),
+        mcpm_backend::local::files::FileIdentity::read(&source).unwrap(),
         identity
     );
     assert_eq!(fs::read(&source).unwrap(), contents);
@@ -349,7 +349,7 @@ fn independent_copies_reuse_content_without_becoming_hard_links() {
     let id = writer
         .import(
             &source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     writer
@@ -358,10 +358,10 @@ fn independent_copies_reuse_content_without_becoming_hard_links() {
     let data = writer.mod_metadata(id).data_path().to_owned();
     let copy = root.path().join("copy.jar");
     fs::copy(&source, &copy).unwrap();
-    let copy_identity = kako_mods_lib::local::files::FileIdentity::read(&copy).unwrap();
+    let copy_identity = mcpm_backend::local::files::FileIdentity::read(&copy).unwrap();
     assert_ne!(
         copy_identity,
-        kako_mods_lib::local::files::FileIdentity::read(&data).unwrap()
+        mcpm_backend::local::files::FileIdentity::read(&data).unwrap()
     );
     fabric_calls.store(0, Ordering::SeqCst);
     let context = context(&cache);
@@ -369,7 +369,7 @@ fn independent_copies_reuse_content_without_becoming_hard_links() {
     assert_eq!(report.cache.reuse(), mcmod::ModCacheReuse::Full);
     assert_eq!(fabric_calls.load(Ordering::SeqCst), 0);
     assert_eq!(
-        kako_mods_lib::local::files::FileIdentity::read(&copy).unwrap(),
+        mcpm_backend::local::files::FileIdentity::read(&copy).unwrap(),
         copy_identity
     );
     cache.remove(&(id)).unwrap();
@@ -388,7 +388,7 @@ fn missing_and_corrupt_digests_are_not_written_by_open() {
     let id = writer
         .import(
             &source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let entry = writer.mod_metadata(id);
@@ -464,10 +464,10 @@ fn concurrent_initialization_publishes_one_valid_directory() {
 #[cfg(unix)]
 #[test]
 fn default_cache_process_worker() {
-    let Some(expected) = std::env::var_os("KAKO_DEFAULT_CACHE_EXPECT") else {
+    let Some(expected) = std::env::var_os("MCPM_BACKEND_DEFAULT_CACHE_EXPECT") else {
         return;
     };
-    let result = kako_mods_lib::local::cache::mods::ModsCacheSelection::Default.open();
+    let result = mcpm_backend::local::cache::mods::ModsCacheSelection::Default.open();
     if expected == "valid" {
         assert!(result.is_ok(), "{result:?}");
     } else {
@@ -508,7 +508,7 @@ fn default_directory_initialization_is_coordinated_across_processes_and_temp_dir
                     .env("TEMP", &temp)
                     .env("TMP", &temp)
                     .env(
-                        "KAKO_DEFAULT_CACHE_EXPECT",
+                        "MCPM_BACKEND_DEFAULT_CACHE_EXPECT",
                         if valid { "valid" } else { "broken" },
                     )
                     .stdout(Stdio::null())
@@ -566,7 +566,7 @@ fn unusable_cached_content_falls_back_to_loader_and_source_identification() {
         let source_snapshot = cache.find_ident_info(&source).unwrap().unwrap();
         assert!(matches!(
             source_snapshot.status(),
-            kako_mods_lib::local::cache::mods::CacheStatus::Unavailable(_)
+            mcpm_backend::local::cache::mods::CacheStatus::Unavailable(_)
         ));
         assert_eq!(source_snapshot.matches().count(), 0);
         // Errors in the actual input must remain errors rather than cache misses.

@@ -4,7 +4,7 @@ use std::io::{self, BufRead, IsTerminal, Write};
 
 use anyhow::{Context, Result, ensure};
 use clap::{Args, ValueEnum};
-use kako_mods_lib::source::{FileId, FilePage, FileQuery, FileRef, ProjectFile, ReleaseType};
+use mcpm_backend::source::{FileId, FilePage, FileQuery, FileRef, ProjectFile, ReleaseType};
 
 mod columns;
 mod output;

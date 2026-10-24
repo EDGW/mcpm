@@ -4,7 +4,7 @@ use std::{io, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use kako_mods_lib::local::mcmod::backup::{self, ApplyOptions};
+use mcpm_backend::local::mcmod::backup::{self, ApplyOptions};
 
 use super::DisplayArgs;
 use crate::{

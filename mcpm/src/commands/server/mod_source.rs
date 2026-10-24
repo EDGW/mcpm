@@ -3,7 +3,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mcmod::ModContainer,
     modloader::{LoaderId, ModLoaderMeta},
 };

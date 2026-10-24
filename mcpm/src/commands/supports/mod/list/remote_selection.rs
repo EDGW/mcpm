@@ -1,7 +1,7 @@
 //! Transport adapter for ordered list selections, reusing list records and local presentation.
 
 use anyhow::{Context, Result, ensure};
-use kako_mods_lib::local::modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta};
+use mcpm_backend::local::modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

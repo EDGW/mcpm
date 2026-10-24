@@ -1,7 +1,7 @@
 //! Command-owned source-identification registration, structured arguments and reply validation.
 
 use anyhow::{Context, Result, ensure};
-use kako_mods_lib::source::SummaryRequirements;
+use mcpm_backend::source::SummaryRequirements;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{num::NonZeroUsize, path::PathBuf};
@@ -62,7 +62,7 @@ pub(super) struct Request {
     #[serde(default = "default_parallelism")]
     pub parallelism: NonZeroUsize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cache: Option<kako_mods_lib::local::cache::mods::ModsCacheSelection>,
+    pub cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
 }
 impl Request {
     fn validate(&self) -> Result<()> {

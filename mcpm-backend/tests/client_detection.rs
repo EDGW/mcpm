@@ -1,6 +1,6 @@
 use std::fs;
 
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mc::client::{
         MinecraftDirectory, MinecraftVersion, MinecraftVersionError, MinecraftVersionManifest,
     },

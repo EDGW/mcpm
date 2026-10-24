@@ -76,7 +76,7 @@ fn batch(root: &Path, cache: &Path, arguments: &[&str], input: &str) -> Output {
 
 #[test]
 fn batch_refresh_and_queries_keep_content_and_named_metadata_independent() {
-    use kako_mods_lib::{
+    use mcpm_backend::{
         local::cache::{
             CacheLinkPreference,
             mods::{CacheStatus, CacheUnavailableReason, ModsCacheDir},
@@ -205,7 +205,7 @@ fn batch_refresh_and_queries_keep_content_and_named_metadata_independent() {
 
 #[test]
 fn all_selection_rejects_mixed_inputs_and_includes_orphan_and_invalid_entries() {
-    use kako_mods_lib::local::cache::{
+    use mcpm_backend::local::cache::{
         CacheDir, CacheLinkPreference,
         codec::CacheDirMetadata,
         hash::Blake3Hash,
@@ -321,7 +321,7 @@ fn all_selection_rejects_mixed_inputs_and_includes_orphan_and_invalid_entries() 
 
 #[test]
 fn verification_and_autoremove_continue_after_content_and_removal_failures() {
-    use kako_mods_lib::local::cache::{
+    use mcpm_backend::local::cache::{
         CacheDir, CacheLinkPreference, codec::CacheDirMetadata, hash::Blake3Hash,
         mods::ModsCacheDir,
     };
@@ -402,7 +402,7 @@ fn verification_and_autoremove_continue_after_content_and_removal_failures() {
 
 #[test]
 fn remove_all_deletes_content_and_orphan_metadata_through_cache_inventory() {
-    use kako_mods_lib::local::cache::{
+    use mcpm_backend::local::cache::{
         CacheDir, CacheLinkPreference, codec::CacheDirMetadata, mods::ModsCacheDir,
     };
 
@@ -544,10 +544,10 @@ fn batches_preserve_input_order_and_completed_items_when_a_later_item_fails() {
 /// Exercise identity reuse, duplicate paths, nested declarations and aggregation on the file host.
 #[test]
 fn remote_inspection_counts_full_partial_and_uncached_files_before_expanding_rows() {
-    use kako_mods_lib::local::cache::CacheLinkPreference;
-    use kako_mods_lib::local::cache::mods::MetadataRefresh;
-    use kako_mods_lib::local::cache::mods::ModsCacheDir;
-    use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
+    use mcpm_backend::local::cache::CacheLinkPreference;
+    use mcpm_backend::local::cache::mods::MetadataRefresh;
+    use mcpm_backend::local::cache::mods::ModsCacheDir;
+    use mcpm_backend::local::modloader::BUILTIN_LOADERS;
     use serde_json::json;
     use std::io::Write;
 
@@ -560,7 +560,7 @@ fn remote_inspection_counts_full_partial_and_uncached_files_before_expanding_row
     let full = writer
         .import(
             &fixture,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     writer
@@ -578,7 +578,7 @@ fn remote_inspection_counts_full_partial_and_uncached_files_before_expanding_row
     let partial = writer
         .import(
             &partial_fixture,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let fabric = BUILTIN_LOADERS

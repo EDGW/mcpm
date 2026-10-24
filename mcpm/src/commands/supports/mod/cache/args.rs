@@ -4,9 +4,9 @@ use super::Options;
 use crate::commands::{cache_support::FileStrategy, execution::default_parallelism};
 use anyhow::{Result, ensure};
 use clap::{Args, ValueEnum};
-use kako_mods_lib::local::cache::mods::MetadataRefresh;
-use kako_mods_lib::local::modloader::LoaderId;
-use kako_mods_lib::local::modloader::ModLoaderMeta;
+use mcpm_backend::local::cache::mods::MetadataRefresh;
+use mcpm_backend::local::modloader::LoaderId;
+use mcpm_backend::local::modloader::ModLoaderMeta;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, num::NonZeroUsize, path::PathBuf};
 
@@ -73,8 +73,8 @@ impl WriteArgs {
     pub fn parallelism(&self) -> usize {
         self.parallelism.get()
     }
-    pub fn cache_selection(&self) -> kako_mods_lib::local::cache::mods::ModsCacheSelection {
-        use kako_mods_lib::local::cache::mods::ModsCacheSelection;
+    pub fn cache_selection(&self) -> mcpm_backend::local::cache::mods::ModsCacheSelection {
+        use mcpm_backend::local::cache::mods::ModsCacheSelection;
         match &self.cache_dir {
             Some(path) => ModsCacheSelection::Directory { path: path.clone() },
             None => ModsCacheSelection::Default,

@@ -7,14 +7,14 @@ use std::{
 };
 
 use anyhow::Result;
-use kako_mods_lib::local::cache::CacheLinkPreference;
-use kako_mods_lib::local::cache::ImportOutcome;
-use kako_mods_lib::local::cache::mods::MetadataRefresh;
-use kako_mods_lib::local::cache::mods::ModsCacheDir;
-use kako_mods_lib::local::cache::mods::meta::CacheEntry;
-use kako_mods_lib::local::mcmod::ModEntry;
-use kako_mods_lib::local::modloader::LoaderId;
-use kako_mods_lib::local::modloader::ModLoaderMeta;
+use mcpm_backend::local::cache::CacheLinkPreference;
+use mcpm_backend::local::cache::ImportOutcome;
+use mcpm_backend::local::cache::mods::MetadataRefresh;
+use mcpm_backend::local::cache::mods::ModsCacheDir;
+use mcpm_backend::local::cache::mods::meta::CacheEntry;
+use mcpm_backend::local::mcmod::ModEntry;
+use mcpm_backend::local::modloader::LoaderId;
+use mcpm_backend::local::modloader::ModLoaderMeta;
 
 use super::{
     scan,

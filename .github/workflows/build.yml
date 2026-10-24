@@ -61,7 +61,7 @@ jobs:
         with:
           workspaces: |
             mcpm -> target
-            kako-mods-lib -> target
+            mcpm-backend -> target
           key: ${{ matrix.target }}
 
       - name: Install Zig
@@ -83,7 +83,7 @@ jobs:
 
       - name: Test Windows environment names
         if: runner.os == 'Windows'
-        run: cargo test --manifest-path kako-mods-lib/Cargo.toml --locked --lib env_name
+        run: cargo test --manifest-path mcpm-backend/Cargo.toml --locked --lib env_name
 
       - name: Build macOS or Windows binary
         if: runner.os != 'Linux'

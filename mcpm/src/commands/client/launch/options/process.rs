@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 
 use clap::{Args, ValueEnum};
-use kako_mods_lib::local::mc::client::{
+use mcpm_backend::local::mc::client::{
     CheckOptionValue, CheckOptions,
     launch::{LaunchOptions, ProcessStream},
 };

@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mcmod::{self, IdentificationErrorAction, ModEntry, ModMeta},
     modloader::BUILTIN_LOADERS,
 };

@@ -3,7 +3,7 @@
 use std::{cell::RefCell, collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
-use kako_mods_lib::local::modloader::{LoaderId, ModLoaderMeta};
+use mcpm_backend::local::modloader::{LoaderId, ModLoaderMeta};
 
 use super::{Event, File};
 use crate::{
@@ -102,7 +102,7 @@ struct UnrecognizedModFile {
 mod tests {
     use std::cell::Cell;
 
-    use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
+    use mcpm_backend::local::modloader::BUILTIN_LOADERS;
     use serde_json::{Value, json};
 
     use super::*;

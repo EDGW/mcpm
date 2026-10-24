@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
-use kako_mods_lib::local::mc::client::MinecraftDirectory;
+use mcpm_backend::local::mc::client::MinecraftDirectory;
 use thiserror::Error;
 
 use super::{input, output as client_output, platform, selector};

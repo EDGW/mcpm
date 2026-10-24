@@ -1,6 +1,6 @@
 //! Shared source-identification request, indexed events and provider-neutral result models.
 
-use kako_mods_lib::source::FileMatch;
+use mcpm_backend::source::FileMatch;
 
 /// Business result shared by CLI output, TUI state and remote messages.
 #[derive(Debug, Clone)]

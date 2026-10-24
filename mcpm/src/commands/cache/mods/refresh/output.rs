@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use anyhow::{Context, Result};
-use kako_mods_lib::{
+use mcpm_backend::{
     local::cache::{
         hash::Blake3Hash,
         mods::{ModsCacheDir, ident::RefreshStatus, meta::CacheEntry},

@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
+use mcpm_backend::local::modloader::BUILTIN_LOADERS;
 
 use super::ScanSession;
 

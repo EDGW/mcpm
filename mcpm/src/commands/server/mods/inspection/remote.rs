@@ -41,7 +41,7 @@ struct Request {
     #[serde(default = "crate::commands::execution::default_parallelism")]
     parallelism: NonZeroUsize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    cache: Option<kako_mods_lib::local::mcmod::ModOpenCache>,
+    cache: Option<mcpm_backend::local::mcmod::ModOpenCache>,
 }
 fn default_server() -> PathBuf {
     PathBuf::from(".")

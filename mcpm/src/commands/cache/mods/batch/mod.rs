@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use clap::Args;
-use kako_mods_lib::local::cache::hash::Blake3Hash;
+use mcpm_backend::local::cache::hash::Blake3Hash;
 
 use crate::commands::execution::{blocking, default_parallelism};
 

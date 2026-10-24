@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use std::ops::Range;
 
 use crate::theme::Role;
-use kako_mods_lib::local::mcmod::ModEntry;
-use kako_mods_lib::local::modloader::ModLoaderMeta;
+use mcpm_backend::local::mcmod::ModEntry;
+use mcpm_backend::local::modloader::ModLoaderMeta;
 use unicode_width::UnicodeWidthStr;
 
 use super::super::{mod_records, source_path::PathArgs};

@@ -1,7 +1,7 @@
 //! CLI player identity options and redacted debug formatting.
 
 use clap::Args;
-use kako_mods_lib::local::mc::client::launch::{Identity, Secret};
+use mcpm_backend::local::mc::client::launch::{Identity, Secret};
 
 #[derive(Args)]
 #[command(next_help_heading = "Identity")]

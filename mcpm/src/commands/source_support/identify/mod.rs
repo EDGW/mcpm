@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Result, ensure};
 use clap::Args;
-use kako_mods_lib::source::SourceId;
+use mcpm_backend::source::SourceId;
 use std::num::NonZeroUsize;
 
 use crate::commands::execution::{DEFAULT_PARALLELISM, Runtime};

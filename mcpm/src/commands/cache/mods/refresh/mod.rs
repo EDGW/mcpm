@@ -4,7 +4,7 @@ use std::io::Write;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use kako_mods_lib::local::cache::mods::{MetadataRefresh, ModsCacheSelection};
+use mcpm_backend::local::cache::mods::{MetadataRefresh, ModsCacheSelection};
 
 use super::{batch::Parallelism, input::Inputs};
 

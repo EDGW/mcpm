@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use kako_mods_lib::local::mc::server::{
+use mcpm_backend::local::mc::server::{
     MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader, identify::ServerCandidate,
 };
 use serde::{Deserialize, Serialize};

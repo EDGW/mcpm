@@ -3,7 +3,7 @@
 use std::io;
 
 use clap::ValueEnum;
-use kako_mods_lib::source::{ProjectInfo, SearchPage, SearchQuery};
+use mcpm_backend::source::{ProjectInfo, SearchPage, SearchQuery};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},

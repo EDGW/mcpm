@@ -1,6 +1,6 @@
 //! File-level cache reuse totals shared by local acquisition and remote completion events.
 
-use kako_mods_lib::local::mcmod::ModCacheReuse;
+use mcpm_backend::local::mcmod::ModCacheReuse;
 use serde::{Deserialize, Serialize};
 
 /// Counts independent inspections, including errors and unrecognized files.

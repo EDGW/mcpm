@@ -5,7 +5,7 @@ use std::{num::NonZeroUsize, path::PathBuf};
 use crate::commands::{execution::DEFAULT_PARALLELISM, supports::mods::scan::ScanSession};
 
 use anyhow::{Context, Result};
-use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
+use mcpm_backend::local::modloader::BUILTIN_LOADERS;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -130,7 +130,7 @@ pub(super) struct Args {
     #[serde(default = "default_parallelism")]
     pub parallelism: NonZeroUsize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cache: Option<kako_mods_lib::local::mcmod::ModOpenCache>,
+    pub cache: Option<mcpm_backend::local::mcmod::ModOpenCache>,
 }
 
 /// Remote values are independent of Clap option names and CLI argument layout.

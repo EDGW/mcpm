@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use kako_mods_lib::local::mc::client::{ClientPlatform, RuleEnvironment};
+use mcpm_backend::local::mc::client::{ClientPlatform, RuleEnvironment};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

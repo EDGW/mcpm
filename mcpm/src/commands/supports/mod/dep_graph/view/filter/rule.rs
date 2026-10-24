@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use kako_mods_lib::local::mcmod::dependency::{DependencyKind, DependencyMatch};
+use mcpm_backend::local::mcmod::dependency::{DependencyKind, DependencyMatch};
 use thiserror::Error;
 
 use super::RelationType;

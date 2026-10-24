@@ -2,7 +2,7 @@
 
 use std::{ffi::OsString, fs, io::Write, path::Path};
 
-use kako_mods_lib::local::mc::client::{
+use mcpm_backend::local::mc::client::{
     ClientPlatform, MinecraftDirectory, RuleEnvironment,
     launch::{
         Identity, JavaVersionCheck, LaunchOptions, LaunchPlanError, LoggingOptions,
@@ -307,7 +307,7 @@ fn legacy_arguments_and_explicit_replacements_use_the_same_placeholder_rules() {
 #[cfg(unix)]
 #[test]
 fn launch_process_receives_exact_argv_environment_and_cwd_and_retains_natives() {
-    use kako_mods_lib::local::mc::client::launch::ProcessStream;
+    use mcpm_backend::local::mc::client::launch::ProcessStream;
     use std::os::unix::fs::PermissionsExt;
     let root = root();
     profile(root.path(), "base", base());
@@ -378,7 +378,7 @@ fn launch_library_and_argument_errors_preserve_nested_causes() {
     assert!(matches!(
         error,
         LaunchPlanError::Library {
-            source: kako_mods_lib::local::mc::client::LibraryError::Path(_),
+            source: mcpm_backend::local::mc::client::LibraryError::Path(_),
             ..
         }
     ));

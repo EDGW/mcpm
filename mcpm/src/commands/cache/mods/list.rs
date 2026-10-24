@@ -4,7 +4,7 @@ use std::io::Write;
 
 use anyhow::Result;
 use clap::Args;
-use kako_mods_lib::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::local::cache::mods::ModsCacheSelection;
 
 use super::{columns::Columns, entry};
 use crate::{

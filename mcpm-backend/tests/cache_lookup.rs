@@ -1,6 +1,6 @@
 //! Lookup integration: real sampling collisions, read-only fallback and pinned handles.
 
-use kako_mods_lib::local::cache::{
+use mcpm_backend::local::cache::{
     CacheContent, CacheDir, CacheLinkPreference, ContentVerification,
     codec::CacheDirMetadata,
     hash::{self, Blake3Hash},

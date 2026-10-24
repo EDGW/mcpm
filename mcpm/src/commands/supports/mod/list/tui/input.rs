@@ -5,7 +5,7 @@ use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, 
 
 pub(super) enum Update {
     Quit,
-    OpenFiles(kako_mods_lib::source::FileRef),
+    OpenFiles(mcpm_backend::source::FileRef),
     Redraw,
     Ignore,
 }

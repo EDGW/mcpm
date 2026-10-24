@@ -11,21 +11,21 @@ use std::{
     },
 };
 
-use kako_mods_lib::local::cache::CacheLinkPreference;
-use kako_mods_lib::local::cache::TransferMethod;
-use kako_mods_lib::local::cache::VerificationMode;
-use kako_mods_lib::local::cache::hash::Blake3Hash;
-use kako_mods_lib::local::cache::mods::CacheStatus;
-use kako_mods_lib::local::cache::mods::CacheUnavailableReason;
-use kako_mods_lib::local::cache::mods::MetadataRefresh;
-use kako_mods_lib::local::cache::mods::ModsCacheDir;
-use kako_mods_lib::local::cache::mods::meta::CachedIdentification;
-use kako_mods_lib::local::mcmod::ModEntry;
-use kako_mods_lib::local::mcmod::ModMeta;
-use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
-use kako_mods_lib::local::modloader::LoaderId;
-use kako_mods_lib::local::modloader::ModLoader;
-use kako_mods_lib::local::modloader::ModLoaderMeta;
+use mcpm_backend::local::cache::CacheLinkPreference;
+use mcpm_backend::local::cache::TransferMethod;
+use mcpm_backend::local::cache::VerificationMode;
+use mcpm_backend::local::cache::hash::Blake3Hash;
+use mcpm_backend::local::cache::mods::CacheStatus;
+use mcpm_backend::local::cache::mods::CacheUnavailableReason;
+use mcpm_backend::local::cache::mods::MetadataRefresh;
+use mcpm_backend::local::cache::mods::ModsCacheDir;
+use mcpm_backend::local::cache::mods::meta::CachedIdentification;
+use mcpm_backend::local::mcmod::ModEntry;
+use mcpm_backend::local::mcmod::ModMeta;
+use mcpm_backend::local::modloader::BUILTIN_LOADERS;
+use mcpm_backend::local::modloader::LoaderId;
+use mcpm_backend::local::modloader::ModLoader;
+use mcpm_backend::local::modloader::ModLoaderMeta;
 use serde_json::{Value, json};
 
 #[test]
@@ -38,13 +38,13 @@ fn imports_deduplicate_content_and_copy_snapshots_remain_independent() {
     let first = access
         .import(
             &source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let second = access
         .import(
             &source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     assert_eq!(first, second);
@@ -84,7 +84,7 @@ fn status_distinguishes_orphaned_halves_invalid_versions_and_same_size_corruptio
     let id = access
         .import(
             &source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let entry = access
@@ -167,7 +167,7 @@ fn nested_metadata_roundtrips_and_loader_updates_publish_all_or_nothing() {
     let id = access
         .import(
             &source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let fabric = selected(&["fabric"]);
@@ -231,7 +231,7 @@ fn unrecognized_is_a_cached_result_not_a_missing_digest() {
     let id = writer
         .import(
             &source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let missing = writer.mod_metadata(id);
@@ -312,7 +312,7 @@ fn protected_hard_links_survive_cache_deletion_and_can_be_replaced() {
     let id = access
         .import(
             &source,
-            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::local::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let entry = access.mod_metadata(id);
@@ -374,7 +374,7 @@ fn protected_hard_links_survive_cache_deletion_and_can_be_replaced() {
 
 #[test]
 fn hard_link_import_protects_source_and_copy_import_remains_independent() {
-    use kako_mods_lib::local::files::FileIdentity;
+    use mcpm_backend::local::files::FileIdentity;
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("input.jar");
     fs::write(&source, b"shared content").unwrap();
@@ -427,7 +427,7 @@ fn hard_link_import_protects_source_and_copy_import_remains_independent() {
 
 #[test]
 fn duplicate_hard_link_import_reuses_copy_without_connecting_or_protecting_source() {
-    use kako_mods_lib::local::files::FileIdentity;
+    use mcpm_backend::local::files::FileIdentity;
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("source.jar");
     fs::write(&source, b"duplicate content").unwrap();
@@ -472,13 +472,13 @@ fn duplicate_hard_link_import_reuses_copy_without_connecting_or_protecting_sourc
 
 #[test]
 fn cache_process_worker() {
-    use kako_mods_lib::local::files::FileIdentity;
+    use mcpm_backend::local::files::FileIdentity;
     use std::time::{Duration, Instant};
-    let Some(root) = std::env::var_os("KAKO_CACHE_WORKER_ROOT") else {
+    let Some(root) = std::env::var_os("MCPM_BACKEND_CACHE_WORKER_ROOT") else {
         return;
     };
-    let marker = std::env::var_os("KAKO_CACHE_WORKER_MARKER").unwrap();
-    let start = std::env::var_os("KAKO_CACHE_WORKER_START").unwrap();
+    let marker = std::env::var_os("MCPM_BACKEND_CACHE_WORKER_MARKER").unwrap();
+    let start = std::env::var_os("MCPM_BACKEND_CACHE_WORKER_START").unwrap();
     let cache = ModsCacheDir::new(root).unwrap();
     let writer = &cache;
     fs::write(Path::new(&marker).with_extension("ready"), b"ready").unwrap();
@@ -489,7 +489,7 @@ fn cache_process_worker() {
     }
     let outcome = writer
         .import_with_outcome(
-            Path::new(&std::env::var_os("KAKO_CACHE_WORKER_SOURCE").unwrap()),
+            Path::new(&std::env::var_os("MCPM_BACKEND_CACHE_WORKER_SOURCE").unwrap()),
             CacheLinkPreference::Copy,
         )
         .unwrap();
@@ -504,7 +504,7 @@ fn cache_process_worker() {
 
 #[test]
 fn simultaneous_process_imports_publish_one_object_without_replacing_its_identity() {
-    use kako_mods_lib::local::files::FileIdentity;
+    use mcpm_backend::local::files::FileIdentity;
     use std::{
         process::{Command, Stdio},
         time::{Duration, Instant},
@@ -520,10 +520,10 @@ fn simultaneous_process_imports_publish_one_object_without_replacing_its_identit
         let marker = root.path().join(format!("child-{index}"));
         let child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "cache_process_worker"])
-            .env("KAKO_CACHE_WORKER_ROOT", cache.path())
-            .env("KAKO_CACHE_WORKER_SOURCE", &source)
-            .env("KAKO_CACHE_WORKER_MARKER", &marker)
-            .env("KAKO_CACHE_WORKER_START", &start)
+            .env("MCPM_BACKEND_CACHE_WORKER_ROOT", cache.path())
+            .env("MCPM_BACKEND_CACHE_WORKER_SOURCE", &source)
+            .env("MCPM_BACKEND_CACHE_WORKER_MARKER", &marker)
+            .env("MCPM_BACKEND_CACHE_WORKER_START", &start)
             .stdout(Stdio::null())
             .spawn()
             .unwrap();

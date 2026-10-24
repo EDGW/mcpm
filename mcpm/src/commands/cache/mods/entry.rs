@@ -1,7 +1,7 @@
 //! Cache observation for selected fields; decoding remains in the Mod cache owner.
 
 use anyhow::{Context, Result};
-use kako_mods_lib::local::cache::{
+use mcpm_backend::local::cache::{
     CacheFileKind, CacheInspection,
     hash::Blake3Hash,
     mods::{CacheStatus, ModsCacheDir, ident, meta},

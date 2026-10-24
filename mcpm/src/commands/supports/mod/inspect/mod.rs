@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use kako_mods_lib::local::modloader::{LoaderId, ModLoaderMeta};
+use mcpm_backend::local::modloader::{LoaderId, ModLoaderMeta};
 
 use super::{
     selection::{Scope, Selection},

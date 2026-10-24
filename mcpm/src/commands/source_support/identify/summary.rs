@@ -1,10 +1,10 @@
 //! File-summary acquisition shared by local identification and the remote command handler.
 
 use anyhow::{Context, Result};
-use kako_mods_lib::local::cache::mods::ModsCacheSelection;
-use kako_mods_lib::source::FileMatch;
-use kako_mods_lib::source::FileSummary;
-use kako_mods_lib::source::SummaryRequirements;
+use mcpm_backend::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::source::FileMatch;
+use mcpm_backend::source::FileSummary;
+use mcpm_backend::source::SummaryRequirements;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},

@@ -3,7 +3,7 @@
 use std::{io::Write, path::Path};
 
 use anyhow::Result;
-use kako_mods_lib::local::cache::{ImportOutcome, TransferMethod, hash::Blake3Hash};
+use mcpm_backend::local::cache::{ImportOutcome, TransferMethod, hash::Blake3Hash};
 
 use super::super::{
     console::ConsoleWriter,
@@ -51,7 +51,7 @@ pub(crate) fn initialized(out: &mut impl Write, path: &Path, headers: bool) -> R
         &["directory", "version"],
         &[
             path.to_string_lossy().into_owned(),
-            kako_mods_lib::local::cache::codec::CACHE_DIRECTORY_VERSION.to_string(),
+            mcpm_backend::local::cache::codec::CACHE_DIRECTORY_VERSION.to_string(),
         ],
         headers,
         format!(

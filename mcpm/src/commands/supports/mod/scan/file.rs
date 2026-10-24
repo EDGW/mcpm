@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use kako_mods_lib::local::{
+use mcpm_backend::local::{
     mcmod::{self, IdentificationErrorAction, ModCacheReuse, ModEntry, ModOpenContext},
     modloader::{LoaderId, ModLoaderMeta},
 };

@@ -4,7 +4,7 @@ use std::io::Write;
 
 use anyhow::Result;
 use clap::ValueEnum;
-use kako_mods_lib::local::cache::mods::{CacheStatus, CacheUnavailableReason};
+use mcpm_backend::local::cache::mods::{CacheStatus, CacheUnavailableReason};
 
 use super::{
     console::ConsoleWriter,
@@ -235,7 +235,7 @@ fn write_metadatas(out: &mut ConsoleWriter<'_>, entry: &Entry) -> Result<()> {
                     source_match::View::new(
                         0,
                         &entry.file,
-                        &kako_mods_lib::source::SourceId(source.into()),
+                        &mcpm_backend::source::SourceId(source.into()),
                         Some(file),
                     )
                     .write_console(

@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use kako_mods_lib::source::{FilePage, ProjectFile, ProjectRef, ReleaseType};
+use mcpm_backend::source::{FilePage, ProjectFile, ProjectRef, ReleaseType};
 
 use crate::{
     display::style::{OutputStyle, text},

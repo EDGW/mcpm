@@ -48,7 +48,7 @@ Without explicit global SSH options, a Local or unregistered `PATH` initializes 
 └── server.json  # Local server metadata, version: 2
 ```
 
-mcpm owns `mcpm.json`, which selects the workspace type. kako-mods-lib parses and persists Local `server.json`. Legacy directories without `mcpm.json` are Local. Local metadata version 1 remains readable with a warning; reading never rewrites it, and explicit reinitialization writes version 2.
+mcpm owns `mcpm.json`, which selects the workspace type. mcpm-backend parses and persists Local `server.json`. Legacy directories without `mcpm.json` are Local. Local metadata version 1 remains readable with a warning; reading never rewrites it, and explicit reinitialization writes version 2.
 
 Complete `--minecraft-version` and `--loader` arguments, plus `--loader-version` unless vanilla, initialize directly without reading scripts. Otherwise recognition uses `run.bat` on Windows or `run.sh` on Unix and filters verified candidates against the supplied fields.
 

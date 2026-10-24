@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use kako_mods_lib::local::cache::{hash::Blake3Hash, mods::ModsCacheDir};
+use mcpm_backend::local::cache::{hash::Blake3Hash, mods::ModsCacheDir};
 
 #[derive(Debug, Args)]
 pub(super) struct Inputs {
