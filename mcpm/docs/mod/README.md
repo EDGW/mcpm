@@ -10,6 +10,7 @@ mcpm mod [OPTIONS] <COMMAND>
 | --- | --- |
 | [`list`](list.md) | List mod declarations from files and directories. |
 | [`cache`](cache.md) | Explicitly store selected files and identification metadata. |
+| [`backup create/verify/apply/delete`](backup.md) | Create, verify, apply or delete file backups. |
 | [`info`](info.md) | Inspect metadata and dependencies in one or more files. |
 | [`deps`](deps.md) | Show direct dependency declarations and their archive sources. |
 | [`dep-graph`](dep-graph.md) | Build graphs, validate snapshots, or display a mod dependency tree. |

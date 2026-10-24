@@ -14,7 +14,7 @@ are read without modifying them by inspection commands; `mod cache` explicitly s
 
 [Persistent remote sessions](remote.md)
 
-[Mod cache management](cache.md)
+[Mod cache management](cache.md) · [Mod file backups](mod/backup.md)
 
 [简体中文](../docs-zh/README.md)
 
