@@ -9,7 +9,11 @@ use std::{
 use anyhow::{Context, Result};
 use clap::Args;
 
-use super::{metadata::ServerInfo, output, target};
+use super::{
+    metadata::ServerInfo,
+    output,
+    target::{self, Target},
+};
 use crate::{progress::Progress, ssh::SshArgs};
 use model::{Initialize, Phase, Recognize};
 
@@ -59,7 +63,7 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
         let info = reference::create(args.path, remote_path, ssh, args.force)?;
         return write_info(&info, args.full_command);
     }
-    let (path, ssh) = target::resolve(args.path, ssh)?;
+    let Target { path, ssh, .. } = target::resolve(args.path, ssh)?;
     let recognition = Recognize {
         path,
         start_script: args.start_script,
@@ -134,7 +138,7 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
 
 fn write_info(info: &ServerInfo, full_command: bool) -> Result<()> {
     let mut stdout = io::stdout().lock();
-    output::write_snapshot(&mut stdout, info, full_command)
+    output::write_snapshot(&mut stdout, info, full_command, None)
         .context("failed to write initialized server information")?;
     stdout
         .flush()

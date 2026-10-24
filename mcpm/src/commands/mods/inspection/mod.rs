@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 
 use crate::{
-    commands::mod_support::{
+    commands::supports::mods::{
         inspect::{self, Display},
         loaders::LoaderArgs,
         selection::{Scope, Selection},
@@ -20,10 +20,11 @@ pub(super) fn run(
     selection: Selection,
     directory: PathBuf,
     loaders: LoaderArgs,
-    parallelism: usize,
+    loading: impl Into<crate::commands::supports::mods::scan::Options>,
     display: Display<'_>,
     ssh: SshArgs,
 ) -> Result<()> {
+    let loading = loading.into();
     let started = std::time::Instant::now();
     let command = match display {
         Display::Info => "mod.info",
@@ -40,7 +41,7 @@ pub(super) fn run(
         ?selection,
         ?directory,
         ?loaders,
-        parallelism,
+        parallelism = loading.parallelism,
         "Selected mod inspection options"
     );
     ssh.validate()?;
@@ -48,14 +49,14 @@ pub(super) fn run(
         return inspect::prompt_for_input();
     }
     let result = if ssh.is_requested() {
-        remote::run_ssh(ssh, selection, directory, loaders, parallelism, display)
+        remote::run_ssh(ssh, selection, directory, loaders, loading, display)
     } else {
         inspect::run(
             selection,
             Scope::directory(directory),
             loaders.select(),
             loaders.is_filtered(),
-            parallelism,
+            loading,
             display,
         )
     };

@@ -2,22 +2,30 @@
 
 use std::path::PathBuf;
 
-use crate::remote::command::Command;
 use anyhow::Result;
 use clap::Args;
 
-mod remote;
-
-use crate::commands::mod_support::{
-    list::{self, ListDisplayArgs, ListLoadingArgs},
-    selection::SelectionArgs,
+use super::super::{
+    mod_source::ServerMods,
+    target::{self, Target},
+};
+use crate::{
+    commands::supports::mods::{
+        list::{self, ListDisplayArgs, ListLoadingArgs},
+        reuse::CacheArgs,
+        scan,
+        selection::SelectionArgs,
+    },
+    help,
+    remote::command::Command,
+    ssh::SshArgs,
 };
 
-use super::super::mod_source::ServerMods;
+mod remote;
 
 #[derive(Args, Debug)]
 #[command(
-    defer(|command| crate::help::grouped(command, &[
+    defer(|command| help::grouped(command, &[
         "Global options", "Mode options", "Loading options", "Input options", "Filter", "Style options",
         "Console-only options",
     ])),
@@ -38,17 +46,24 @@ pub(super) struct ListArgs {
     display: ListDisplayArgs,
     #[command(flatten)]
     loading: ListLoadingArgs,
+    #[command(flatten)]
+    cache: CacheArgs,
 }
 
-pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+pub(super) fn run(args: ListArgs, ssh: SshArgs) -> Result<()> {
+    let loading = scan::Options {
+        parallelism: args.loading.parallelism(),
+        cache: args.cache.selection(),
+    };
+    let display = args.display.with_cache(loading.cache.clone());
     let selection = args.selection.with_stdin()?.into_selection();
-    let (path, ssh) = crate::commands::server::target::resolve(args.path, ssh)?;
+    let Target { path, ssh, .. } = target::resolve(args.path, ssh)?;
     if ssh.is_requested() {
         return list::remote_selection::run_ssh(
             ssh,
             remote::List::ID,
-            remote::request(path, selection, args.loading.parallelism())?,
-            args.display,
+            remote::request(path, selection, loading)?,
+            display,
         );
     }
     let source = ServerMods::load(path)?;
@@ -56,7 +71,7 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         selection,
         source.scope(),
         source.loaders(),
-        args.loading.parallelism(),
-        args.display,
+        loading,
+        display,
     )
 }

@@ -47,7 +47,13 @@ Console 和 Raw 搜索全部声明（包括隐藏子项），再输出匹配行�
 
 使用 `--ssh 'ssh -i key -p 2222 user@host'` 从另一台机器加载 Mod，在本地显示。`--ssh-mcpm <PATH>` 指定远端 mcpm 可执行文件，未指定时直接使用远端 PATH 中的 `mcpm`。这两个参数在最外层全局有效，可放在子命令前后；目前 `list` 的 TUI、Console、Raw 以及 [`mod source identify`](source-identify.md) 支持，其他命令明确报不支持。
 
-连接字符串只包含 SSH 可执行文件、选项和目标地址，不包含远端命令；其中的参数使用 shell 风格引号。mcpm 只建立一个非 PTY 的 SSH 连接，并启动一个持续运行的 `mcpm remote` 进程。支持 POSIX shell 和 Windows cmd/PowerShell。指定 Windows 可执行文件时，使用 Windows 路径或以 `.exe` 结尾的名称，例如 `C:\mcpm.exe`。只有可执行文件的启动经过远端 shell，请求使用 command ID 和不透明 `contents`，通过 stdin 上的 JSON 传输，可保留空格、引号和 shell 特殊字符。路径与 Loader 选择被序列化传输，显示参数留在本地；stdin 路径在本地追加后作为远端路径传递。所有输入路径及默认的 `.` 都指远端机器。
+连接字符串只包含 SSH 可执行文件、选项和目标地址，不包含远端命令；其中的参数使用 shell 风格引号。mcpm 只建立一个非 PTY 的 SSH 连接，由 SSH 默认 shell 直接启动一个持续运行的 `mcpm remote` 进程。支持 POSIX shell 和 Windows cmd。Windows 连接要求：
+
+- SSH 默认 shell 必须为 cmd。
+- 指定自定义可执行文件时，使用 Windows 路径或以 `.exe` 结尾的名称，例如 `C:\Program Files\mcpm\mcpm.exe`；mcpm 自动添加双引号。
+- 可执行文件路径不能包含双引号、换行、NUL、`%` 或 `!`，不支持在其中展开环境变量。
+
+只有可执行文件的启动经过远端 shell，请求使用 command ID 和不透明 `contents`，通过 stdin 上的 JSON 传输，可保留空格、引号和 shell 特殊字符。路径与 Loader 选择被序列化传输，显示参数留在本地；stdin 路径在本地追加后作为远端路径传递。所有输入路径及默认的 `.` 都指远端机器。
 
 每项加载完成后立即传送结果，并推进本地进度条。结果交给相同的本地 TUI、Console 和 Raw 渲染器，保留筛选、列选择、Loader 选择和嵌套声明展示。接收端校验协议版本、请求 GUID、结果数量、索引范围与唯一性、JSON 换行、完成状态和进程退出状态。部分文件失败时仍展示成功结果，最终返回失败状态。SSH 数据的 TUI 在同一 Session 上提交 `mod.source.identify` 请求，由远端一次读取文件并返回 SHA-1、大小和所需的 MurmurHash2 指纹，本地通过共享 identify 流程查询两个平台，使用本地代理和 API key；`--identify-parallelism` 控制整体网络并发度。本地复用原有状态展示和匹配文件浏览；退出面板时取消剩余识别。
 
@@ -161,5 +167,21 @@ mcpm mod list mods/ --expanded --index-type tree
 输入路径无效或不可读时报告错误，并继续处理其他路径。目录扫描失败时，不使用该目录的任何条目。只要发生输入路径错误或 Loader 识别错误，即使已经显示其他结果，命令仍返回失败状态。
 
 通用选项见 [Loader 选择](README.md#loader-选择)，忽略文件提示及 `--raw` 行为见[终端输出](../README.md#终端输出)。
+
+## 识别缓存
+
+- 默认查询 `~/.mcpm/cache/mods`。`--cache-dir PATH` 改用指定的已初始化目录；`--no-cache` 关闭缓存查询并直接识别文件；两者互斥。
+- 默认目录不存在或为空时自动初始化；指定目录必须合法，可先运行 `mcpm cache mods init --directory PATH`。非空无标记目录、manifest 损坏或不支持的目录版本均失败。
+- 先使用 imohash 候选索引和当前原生文件身份匹配硬链接；没有身份匹配时计算完整 BLAKE3，因此内容相同的独立副本也能复用。
+- 已缓存的“未识别”也会复用。缺失、过期或无效结果正常识别。检查只读取已有缓存，不导入文件、不建立硬链接、不写回 metadata；存储结果可显式调用 [mod cache](cache.md)，或分别使用 cache import 和 refresh。
+- Console 空一行后展示 `A fully cached · B partially cached · C total items`。全部命中指所有请求 Loader 结果均来自缓存，包括“未识别”；部分命中指只有部分结果来自缓存。总数按规范化路径统计实际检查的独立文件，含未识别和失败项，筛选前计算；重复查询、嵌套声明不增加总数。关闭缓存时命中数均为 0，Raw 文本输出不添加统计行。
+- TUI 在 skipped 状态行下分别展示 `Metadata cache` 和 `Identification cache`。Metadata 使用上述 Loader 统计；Identification 随每个外层文件的缓存检查实时更新，Modrinth 和 CurseForge 均有校验通过的缓存匹配为全部命中，仅一个有匹配为部分命中。`checked` 为目前已处理的独立文件数，重复物理路径和嵌套声明不增加计数；本次网络查询得到的匹配不计为缓存命中。`--no-cache` 时 Identification 显示 `disabled`。
+- SSH 模式下，缓存选择与路径在远端解释；普通缓存管理命令仍在本地执行。
+
+```sh
+mcpm mod list example.jar
+mcpm mod list example.jar --no-cache
+mcpm mod list example.jar --cache-dir /path/to/cache
+```
 
 [命令参考](../README.md) · [mod 概览](README.md) · [English](../../docs/mod/list.md)

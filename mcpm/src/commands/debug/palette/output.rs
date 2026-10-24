@@ -4,7 +4,7 @@ use std::io::{self, Write};
 
 use owo_colors::Style;
 
-use crate::commands::output_style::OutputStyle;
+use crate::display::style::OutputStyle;
 
 pub(super) fn write(output: &mut impl Write) -> io::Result<()> {
     let policy = OutputStyle::new();

@@ -10,13 +10,15 @@ use clap::Args;
 
 use super::{
     metadata::{self, ServerInfo},
-    output, target, workspace,
+    output,
+    target::{self, Target},
+    workspace,
 };
 use crate::ssh::SshArgs;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Modes: Console (default in a terminal), Raw (--raw or redirected stdout). Remote: supported through mcpm remote (command ID: server.info) and --ssh.\n\nWith --ssh, PATH is resolved on the remote machine; output is formatted locally. Startup commands retain the source server’s Windows or Unix argument quoting."
+    after_help = "Modes: Console (default in a terminal), Raw (--raw or redirected stdout). Remote: supported through mcpm remote (command ID: server.info) and --ssh.\n\nRemote workspaces also show their saved remote path, masked SSH command and remote mcpm executable. SSH commands remain masked with --full-command. With --ssh, PATH is resolved on the remote machine; output is formatted locally. Startup commands retain the source server’s Windows or Unix argument quoting."
 )]
 pub(super) struct InfoArgs {
     /// Server directory on the data-source machine; defaults to its current directory.
@@ -29,7 +31,7 @@ pub(super) struct InfoArgs {
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(args: InfoArgs, ssh: SshArgs) -> Result<()> {
-    let (path, ssh) = target::resolve(args.path, ssh)?;
+    let Target { path, ssh, remote } = target::resolve(args.path, ssh)?;
     let info = if ssh.is_requested() {
         metadata::load_ssh(ssh, path)?
     } else {
@@ -38,7 +40,7 @@ pub(super) fn run(args: InfoArgs, ssh: SshArgs) -> Result<()> {
         ServerInfo::from_server(&server)
     };
     let mut stdout = io::stdout().lock();
-    output::write_snapshot(&mut stdout, &info, args.full_command)
+    output::write_snapshot(&mut stdout, &info, args.full_command, remote.as_ref())
         .context("failed to write server information")?;
     stdout.flush().context("failed to flush server information")
 }

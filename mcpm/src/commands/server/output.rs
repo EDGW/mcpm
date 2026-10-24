@@ -2,10 +2,14 @@
 
 use std::io::{self, Write};
 
-use super::metadata::{ServerInfo, StartCommand};
+use super::{
+    metadata::{ServerInfo, StartCommand},
+    workspace::Remote,
+};
 
 use crate::{
-    commands::output_style::{OutputStyle, text},
+    display::style::{OutputStyle, text},
+    ssh::Connection,
     terminal,
 };
 
@@ -13,6 +17,7 @@ pub(super) fn write_snapshot(
     output: &mut impl Write,
     server: &ServerInfo,
     show_full_command: bool,
+    remote: Option<&Remote>,
 ) -> io::Result<()> {
     let loader = &server.loader;
     let style = OutputStyle::new();
@@ -29,10 +34,35 @@ pub(super) fn write_snapshot(
         None => ("vanilla or unrecognized".into(), String::new()),
     };
     if !terminal::stdout_is_tty() {
+        if let Some(remote) = remote {
+            let connection = remote.connection();
+            write!(
+                output,
+                "{}\t{}\t{}\t",
+                text(&remote.path),
+                text(&remote_ssh(&connection)),
+                text(connection.ssh_mcpm.as_deref().unwrap_or("mcpm")),
+            )?;
+        }
         return writeln!(
             output,
             "{name}\t{path}\t{version}\t{loader_name}\t{loader_version}\t{command}"
         );
+    }
+    if let Some(remote) = remote {
+        let connection = remote.connection();
+        for (label, value) in [
+            ("Remote path: ", text(&remote.path)),
+            ("Remote SSH: ", text(&remote_ssh(&connection))),
+            (
+                "Remote mcpm: ",
+                text(connection.ssh_mcpm.as_deref().unwrap_or("mcpm")),
+            ),
+        ] {
+            writeln!(output, "{}{}", style.muted(label), style.muted(value))?;
+        }
+        let separator = "─".repeat(32.min(textwrap::termwidth().saturating_sub(1)));
+        writeln!(output, "\n{}\n", style.muted(separator))?;
     }
     let command = if show_full_command {
         command
@@ -74,6 +104,25 @@ pub(super) fn write_snapshot(
         "{}{}",
         style.muted("Full command: "),
         style.muted(command)
+    )
+}
+
+fn remote_ssh(connection: &Connection) -> String {
+    let command = mask_ssh_command(&connection.ssh);
+    match connection.destination() {
+        Some(destination) => format!("{destination} (full command: {command})"),
+        None => command,
+    }
+}
+
+/// Reveal at most three characters at either end, always hiding the middle.
+fn mask_ssh_command(command: &str) -> String {
+    let chars: Vec<_> = command.chars().collect();
+    let visible = 3.min(chars.len().saturating_sub(1) / 2);
+    format!(
+        "{}***{}",
+        chars[..visible].iter().collect::<String>(),
+        chars[chars.len() - visible..].iter().collect::<String>(),
     )
 }
 

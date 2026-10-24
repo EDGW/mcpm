@@ -2,9 +2,18 @@
 
 use anyhow::Result;
 
-use super::{super::mod_source::ServerMods, input::FileArgs};
+use super::{
+    super::{
+        mod_source::ServerMods,
+        target::{self, Target},
+    },
+    input::FileArgs,
+};
 use crate::{
-    commands::mod_support::inspect::{self, Display},
+    commands::supports::mods::{
+        inspect::{self, Display},
+        scan,
+    },
     ssh::SshArgs,
 };
 
@@ -12,17 +21,17 @@ mod remote;
 
 pub(super) fn run(
     files: FileArgs,
-    parallelism: usize,
+    loading: scan::Options,
     display: Display<'_>,
     ssh: SshArgs,
 ) -> Result<()> {
-    let (path, selection) = files.with_stdin()?.into_parts();
+    let (path, selection) = files.read()?;
     if selection.is_empty() {
         return inspect::prompt_for_input();
     }
-    let (path, ssh) = crate::commands::server::target::resolve(path, ssh)?;
+    let Target { path, ssh, .. } = target::resolve(path, ssh)?;
     if ssh.is_requested() {
-        remote::run(ssh, path, selection, parallelism, display)
+        remote::run(ssh, path, selection, loading, display)
     } else {
         tracing::info!(path = %path.display(), "Reading server mod scope for inspection");
         let source = ServerMods::load(path)?;
@@ -31,7 +40,7 @@ pub(super) fn run(
             source.scope(),
             source.loaders(),
             true,
-            parallelism,
+            loading,
             display,
         )
     }

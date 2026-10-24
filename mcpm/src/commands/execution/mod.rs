@@ -1,5 +1,7 @@
 //! Shared command execution policy, independent of individual command implementations.
 
+pub(super) mod blocking;
+
 mod runtime;
 pub(super) use runtime::Runtime;
 

@@ -1,9 +1,16 @@
 //! File-summary acquisition shared by local identification and the remote command handler.
 
 use anyhow::{Context, Result};
-use kako_mods_lib::source::{FileSummary, SummaryRequirements};
+use kako_mods_lib::local::cache::mods::ModsCacheSelection;
+use kako_mods_lib::source::FileMatch;
+use kako_mods_lib::source::FileSummary;
+use kako_mods_lib::source::SummaryRequirements;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+    time::Duration,
+};
 use tracing::Instrument;
 
 use crate::diagnostics::ErrorReport;
@@ -25,8 +32,14 @@ pub(super) enum Event {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Outcome {
-    Summary { summary: FileSummary },
-    Failed { error: ErrorReport },
+    Summary {
+        summary: FileSummary,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        cached: BTreeMap<String, FileMatch>,
+    },
+    Failed {
+        error: ErrorReport,
+    },
 }
 
 /// Files are read on their owning host, deduplicated there, and never uploaded.
@@ -41,9 +54,14 @@ pub(super) async fn run<F: std::future::Future<Output = Result<()>>>(
     paths: Vec<PathBuf>,
     requirements: SummaryRequirements,
     parallelism: usize,
+    cache: Option<ModsCacheSelection>,
     checkpoint: impl Fn() -> Result<()>,
     mut emit: impl FnMut(Event) -> F,
 ) -> Result<()> {
+    let lookup = cache
+        .map(ModsCacheSelection::open)
+        .transpose()?
+        .map(std::sync::Arc::new);
     let started = std::time::Instant::now();
     let count = paths.len();
     let mut positions = HashMap::new();
@@ -78,13 +96,21 @@ pub(super) async fn run<F: std::future::Future<Output = Result<()>>>(
                 indices: indices.clone(),
             })
             .await?;
+            let lookup = lookup.clone();
             let span = tracing::debug_span!("file_summary", path = %path.display());
             active.spawn(async move {
                 let started = std::time::Instant::now();
                 tracing::debug!(?requirements, "Reading file bytes for summary");
-                let result = tokio::task::spawn_blocking(move || FileSummary::read(&path, requirements).with_context(|| format!("failed to summarize file {path:?}"))).await.context("file summary worker failed").and_then(|result| result);
+                let result = tokio::task::spawn_blocking(move || -> Result<_> {
+                    let summary = FileSummary::read(&path, requirements).with_context(|| format!("failed to summarize file {path:?}"))?;
+                    let cached = match lookup {
+                        Some(lookup) => lookup.find_ident_info(&path)?.map(|info| info.verified_matches(&summary)).unwrap_or_default(),
+                        None => BTreeMap::new(),
+                    };
+                    Ok((summary, cached))
+                }).await.context("file summary worker failed").and_then(|result| result);
                 let outcome = match result {
-                    Ok(summary) => { tracing::debug!(size = summary.size, elapsed_ms = started.elapsed().as_millis(), "Computed file summary"); Outcome::Summary { summary } },
+                    Ok((summary, cached)) => { tracing::debug!(size = summary.size, elapsed_ms = started.elapsed().as_millis(), "Computed file summary"); Outcome::Summary { summary, cached } },
                     Err(error) => { tracing::debug!(error = %format_args!("{error:#}"), "File summary failed"); Outcome::Failed { error: ErrorReport::capture(&error) } },
                 };
                 Event::Item { indices, outcome }

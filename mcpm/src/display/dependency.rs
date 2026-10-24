@@ -1,0 +1,107 @@
+//! Shared dependency text and formatting for mod records and graph views.
+
+use kako_mods_lib::local::mcmod::{
+    VersionConstraint, VersionOperator,
+    dependency::{Dependency, DependencyKind, DependencyOrdering, DependencySide},
+};
+
+use super::style::OutputStyle;
+pub(crate) use super::style::text;
+
+pub(crate) fn format_kind(kind: DependencyKind, style: &OutputStyle) -> String {
+    let label = match kind {
+        DependencyKind::Required => "required",
+        DependencyKind::Optional => "optional",
+        DependencyKind::Recommended => "recommended",
+        DependencyKind::Suggested => "suggested",
+        DependencyKind::Breaks => "breaks",
+        DependencyKind::Conflicts => "conflicts",
+    };
+    match kind {
+        DependencyKind::Required => style.important(label),
+        DependencyKind::Recommended => style.secondary(label),
+        DependencyKind::Suggested => style.normal(label),
+        DependencyKind::Breaks => style.danger(label),
+        DependencyKind::Conflicts => style.warning(label),
+        _ => style.muted(label),
+    }
+}
+
+pub(crate) fn format_dependency(dependency: &Dependency, style: &OutputStyle) -> String {
+    format!(
+        "{}: {}: {}",
+        format_kind(dependency.kind, style),
+        style.important(text(&dependency.id)),
+        format_details(dependency, style)
+    )
+}
+
+pub(crate) fn format_details(dependency: &Dependency, style: &OutputStyle) -> String {
+    let mut value = style.important(format_version(&dependency.version_requirement));
+    let mut rules = Vec::new();
+    if let Some(side) = dependency.side {
+        rules.push(format!(
+            "side={}",
+            match side {
+                DependencySide::Client => "client",
+                DependencySide::Server => "server",
+                DependencySide::Both => "both",
+            }
+        ));
+    }
+    if let Some(ordering) = dependency.ordering {
+        rules.push(format!(
+            "ordering={}",
+            match ordering {
+                DependencyOrdering::None => "none",
+                DependencyOrdering::BeforeTarget => "before target",
+                DependencyOrdering::AfterTarget => "after target",
+            }
+        ));
+    }
+    if let Some(reason) = &dependency.reason {
+        rules.push(format!("reason={}", text(reason)));
+    }
+    if !rules.is_empty() {
+        value.push_str(&style.muted(format!(" [{}]", rules.join("; "))));
+    }
+    value
+}
+
+pub(crate) fn format_version(constraint: &VersionConstraint) -> String {
+    match constraint {
+        VersionConstraint::Any => "*".into(),
+        VersionConstraint::Compare { operator, version } => {
+            let operator = match operator {
+                VersionOperator::Equal => "=",
+                VersionOperator::NotEqual => "!=",
+                VersionOperator::Greater => ">",
+                VersionOperator::GreaterOrEqual => ">=",
+                VersionOperator::Less => "<",
+                VersionOperator::LessOrEqual => "<=",
+            };
+            format!("{operator}{}", text(version))
+        }
+        VersionConstraint::Wildcard(pattern) => text(pattern),
+        VersionConstraint::Caret(version) => format!("^{}", text(version)),
+        VersionConstraint::Tilde(version) => format!("~{}", text(version)),
+        VersionConstraint::Recommended(version) => format!("recommended({})", text(version)),
+        VersionConstraint::All(conditions) => {
+            group(conditions.iter().map(format_version), " && ", "*")
+        }
+        VersionConstraint::AnyOf(conditions) => group(
+            conditions.iter().map(format_version),
+            " || ",
+            "<no version>",
+        ),
+    }
+}
+
+fn group(parts: impl Iterator<Item = String>, separator: &str, empty: &str) -> String {
+    let parts: Vec<_> = parts.collect();
+    match parts.len() {
+        0 => empty.into(),
+        1 => parts.into_iter().next().unwrap(),
+        _ => format!("({})", parts.join(separator)),
+    }
+}

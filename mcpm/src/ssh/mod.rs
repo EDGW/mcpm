@@ -23,7 +23,7 @@ pub(crate) struct SshArgs {
         help_heading = "Global options"
     )]
     ssh: Option<String>,
-    /// Remote mcpm executable path (default: mcpm); requires --ssh.
+    /// Remote mcpm executable path (default: mcpm); requires --ssh. Windows SSH must use cmd as its default shell.
     #[arg(
         long,
         global = true,
@@ -72,10 +72,11 @@ impl SshArgs {
         if let Some(directory) = &self.directory {
             command.current_dir(directory);
         }
-        let _progress = Progress::new(
-            &format!("Connecting {}...", destination.escape_debug()),
-            "Connecting",
-        );
+        let message = match destination {
+            Some(destination) => format!("Connecting {}...", destination.escape_debug()),
+            None => "Connecting...".into(),
+        };
+        let _progress = Progress::new(&message, "Connecting");
         Session::start(&mut command).context("failed to open SSH mcpm session")
     }
 }

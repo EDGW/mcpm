@@ -133,7 +133,6 @@ fn ssh_owns_relative_paths_preserves_startup_platform_and_propagates_load_failur
         let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm"));
         command.args([
             "--raw",
-            "--remote-logs",
             "--log-level",
             "off",
             "server",

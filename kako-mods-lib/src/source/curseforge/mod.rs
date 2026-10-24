@@ -144,6 +144,10 @@ impl CurseForgeSource {
 
 #[async_trait]
 impl Source for CurseForgeSource {
+    fn identification_cache_id(&self) -> SourceId {
+        SourceId("curseforge".to_owned())
+    }
+
     fn id(&self) -> &SourceId {
         &self.id
     }

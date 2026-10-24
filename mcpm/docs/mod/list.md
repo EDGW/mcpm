@@ -121,10 +121,16 @@ They are supported by `list` TUI, Console and Raw, and by
 The connection command contains the SSH executable, options and destination,
 without a remote command. Quote its arguments using shell-style quoting.
 mcpm opens one non-PTY SSH connection and starts one persistent `mcpm remote`
-process. POSIX shells and Windows cmd/PowerShell are supported. For a custom
-Windows executable, use a Windows path or a name ending in `.exe` (for example
-`C:\mcpm.exe`). The executable is bootstrapped through the remote shell; command
-requests use a command ID and opaque `contents` on stdin, preserving
+process. The SSH server's default shell starts the executable directly; POSIX
+shells and Windows cmd are supported. For Windows connections:
+
+- The SSH default shell must be cmd.
+- Use a Windows path or a name ending in `.exe` for a custom executable, such as
+  `C:\Program Files\mcpm\mcpm.exe`. mcpm adds the required double quotes.
+- The executable path must not contain double quotes, line breaks, NUL, `%` or
+  `!`; environment-variable expansion in executable paths is not supported.
+
+Command requests use a command ID and opaque `contents` on stdin, preserving
 spaces, quotes and shell characters. Paths and loader selection are serialized;
 display options stay local. Stdin paths are appended locally as remote paths. All input paths
 and the default `.` refer to the remote machine.
@@ -298,5 +304,21 @@ directory. The command returns a failure status if an input path or loader
 identification failed, even when other results were displayed.
 
 For shared options, see [Loader selection](README.md#loader-selection). For colors, ignored-file hints, and `--raw`, see [Terminal output](../README.md#terminal-output).
+
+## Identification cache
+
+- Caching is enabled by default using `~/.mcpm/cache/mods`. `--cache-dir PATH` selects an explicitly initialized directory; `--no-cache` disables cache lookup and identifies files directly. The two options are mutually exclusive.
+- Default roots initialize when absent or empty. Explicit roots must already be valid; run `mcpm cache mods init --directory PATH` first. Nonempty unmarked directories, malformed manifests and unsupported directory versions fail.
+- Lookup uses an imohash candidate index and current native file identity for hard links. If no identity matches, full BLAKE3 lookup also permits independent copies with identical contents to reuse metadata.
+- Cached non-recognition is reused too. Missing, stale or invalid results are identified normally. Inspection only reads existing cache objects: it never imports files, establishes hard links or writes metadata. Use [mod cache](cache.md), or explicit cache import and refresh commands, to store results.
+- Console shows `A fully cached · B partially cached · C total items` after a blank line. Full means every requested loader result came from cache, including non-recognition; partial means some did. Totals count unique normalized file inspections, including unrecognized/failed files, before filtering; duplicate queries and nested declarations do not increase them. With caching disabled, both hit counts are zero. Raw text output has no summary line.
+- TUI shows separate `Metadata cache` and `Identification cache` lines below the skipped-files status. Metadata uses the Loader totals above. Identification updates as each outer file's cache check completes: full means verified cached matches for both Modrinth and CurseForge, partial means one. `checked` counts unique files processed so far; duplicate physical paths and nested declarations do not increase it. Fresh provider matches do not count as cache hits. With `--no-cache`, Identification displays `disabled`.
+- With SSH, cache selection and paths are interpreted on the remote host. Ordinary local cache-management commands remain local.
+
+```sh
+mcpm mod list example.jar
+mcpm mod list example.jar --no-cache
+mcpm mod list example.jar --cache-dir /path/to/cache
+```
 
 [Command reference](../README.md) · [mod overview](README.md) · [简体中文](../../docs-zh/mod/list.md)

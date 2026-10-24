@@ -3,20 +3,24 @@
 use anyhow::{Result, ensure};
 use clap::Args;
 
-use crate::commands::{
-    mod_support::{scan_output::ScanOutput, selection},
-    source_support::identify,
-};
-
-use super::super::super::mod_source::ServerMods;
 use super::super::input::FileArgs;
-use crate::ssh::SshArgs;
+use crate::{
+    commands::{
+        server::{
+            mod_source::ServerMods,
+            target::{self, Target},
+        },
+        source_support::identify,
+        supports::mods::{inspect, scan_output::ScanOutput, selection},
+    },
+    ssh::SshArgs,
+};
 
 mod remote;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Modes: Console and Raw (--raw or redirected stdout); Remote supported through --ssh.\n\nWith --ssh, server paths and file reads are remote; source requests and credentials remain local.\nInputs match filename, then exact modid, then exact mod name in the server's mods directory.\nPaths are relative to that directory; mods/ prefixes are accepted. Use --all to select every mod.\nRedirected stdin appends one selection per line; --input sets its interpretation.\nMatching uses file contents and is independent of Minecraft version or loader compatibility.\n\nExamples:\n  mcpm server mods source identify --server ./my-server --source modrinth --all\n  mcpm server mods source identify create.jar --source curseforge\n  mcpm server mods source identify --modid create --source modrinth --columns path,project,id,status\n  printf '%s\\n' create | mcpm server mods source identify --source modrinth --input modid"
+    after_help = "Modes: Console (field groups) and Raw (TSV; --raw or redirected stdout); Remote supported through --ssh.\n\nWith --ssh, server paths and file reads are remote; source requests and credentials remain local.\nInputs match filename, then exact modid, then exact mod name in the server's mods directory.\nPaths are relative to that directory; mods/ prefixes are accepted. Use --all to select every mod.\nRedirected stdin appends one selection per line; --input sets its interpretation.\nMatching uses file contents and is independent of Minecraft version or loader compatibility.\n--columns, --column and -C select fields; --headers adds a Raw header.\n\nExamples:\n  mcpm server mods source identify --server ./my-server --source modrinth --all\n  mcpm server mods source identify create.jar --source curseforge\n  mcpm server mods source identify --modid create --source modrinth --columns path,project,id,status\n  printf '%s\\n' create | mcpm server mods source identify --source modrinth --input modid"
 )]
 pub(super) struct IdentifyArgs {
     #[command(flatten)]
@@ -26,12 +30,14 @@ pub(super) struct IdentifyArgs {
 }
 
 pub(super) fn run(args: IdentifyArgs, ssh: SshArgs) -> Result<()> {
-    let (server, selection) = args.files.with_stdin()?.into_parts();
+    let (server, selection) = args.files.read()?;
     if selection.is_empty() {
-        crate::commands::mod_support::inspect::prompt_for_input()?;
+        inspect::prompt_for_input()?;
         return Ok(());
     }
-    let (server, ssh) = crate::commands::server::target::resolve(server, ssh)?;
+    let Target {
+        path: server, ssh, ..
+    } = target::resolve(server, ssh)?;
     let parallelism = args.options.parallelism();
     let (paths, failed, mut session) = if ssh.is_requested() {
         tracing::info!("Opening SSH data source for server source identification");

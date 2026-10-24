@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::mod_support::selection::{Selection, SelectionArgs, StdinArgs};
+use crate::commands::supports::mods::selection::{ItemArgs, Selection};
 
 /// Input selection for server mod information and dependency inspection.
 #[derive(Args, Debug)]
@@ -14,19 +14,12 @@ pub(super) struct FileArgs {
     #[arg(long = "server", value_name = "PATH", default_value = ".")]
     path: PathBuf,
     #[command(flatten)]
-    files: SelectionArgs,
-    #[command(flatten)]
-    stdin: StdinArgs,
+    items: ItemArgs,
 }
 
 impl FileArgs {
     /// Appends stdin queries using the requested interpretation.
-    pub(super) fn with_stdin(mut self) -> Result<Self> {
-        self.files = self.stdin.read(self.files)?;
-        Ok(self)
-    }
-
-    pub(super) fn into_parts(self) -> (PathBuf, Selection) {
-        (self.path, self.files.into_selection())
+    pub(super) fn read(self) -> Result<(PathBuf, Selection)> {
+        Ok((self.path, self.items.read()?))
     }
 }

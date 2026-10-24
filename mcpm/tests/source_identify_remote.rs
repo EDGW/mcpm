@@ -184,7 +184,14 @@ mod transport {
             ],
         );
         let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
-            .args(["--raw", "--remote-logs", "--ssh", &connection, "--ssh-mcpm"])
+            .args([
+                "--raw",
+                "--log-level",
+                "off",
+                "--ssh",
+                &connection,
+                "--ssh-mcpm",
+            ])
             .arg(root.path().join("remote"))
             .args([
                 "mod",
@@ -238,7 +245,7 @@ mod transport {
         assert_eq!(request["command"], "mod.source.identify");
         assert_eq!(
             request["contents"],
-            json!({"paths":[r"D:\slow.jar","bad.jar","fast.jar",r"D:\slow.jar"],"requirements":{"murmur2":true},"parallelism":2})
+            json!({"paths":[r"D:\slow.jar","bad.jar","fast.jar",r"D:\slow.jar"],"requirements":{"murmur2":true},"parallelism":2,"cache":{"kind":"default"}})
         );
         assert_eq!(
             fs::read_to_string(root.path().join("connections"))

@@ -27,6 +27,11 @@ impl Outcome {
 /// Indices refer to the original inputs; duplicate physical files share one lookup.
 #[derive(Debug, Clone)]
 pub(in crate::commands) enum Event {
+    /// Verified source-cache reuse for one physical file, before provider requests complete.
+    Cache {
+        indices: Vec<usize>,
+        sources: Vec<usize>,
+    },
     Loading {
         indices: Vec<usize>,
         source: usize,

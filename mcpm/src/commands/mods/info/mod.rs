@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::mod_support::{inspect, loaders::LoaderArgs};
+use crate::commands::supports::mods::{inspect, loaders::LoaderArgs};
 
 #[derive(Args, Debug)]
 #[command(
@@ -13,9 +13,7 @@ use crate::commands::mod_support::{inspect, loaders::LoaderArgs};
 )]
 pub(super) struct InfoArgs {
     #[command(flatten)]
-    files: crate::commands::mod_support::selection::SelectionArgs,
-    #[command(flatten)]
-    stdin: crate::commands::mod_support::selection::StdinArgs,
+    items: crate::commands::supports::mods::selection::ItemArgs,
     /// Directory searched by modid/name and --all; relative filenames use this directory.
     #[arg(long, value_name = "PATH", default_value = ".")]
     directory: PathBuf,
@@ -23,15 +21,20 @@ pub(super) struct InfoArgs {
     loaders: LoaderArgs,
     #[command(flatten)]
     loading: inspect::LoadingArgs,
+    #[command(flatten)]
+    cache: crate::commands::supports::mods::reuse::CacheArgs,
 }
 
 pub(super) fn run(args: InfoArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    let selection = args.stdin.read(args.files)?.into_selection();
+    let selection = args.items.read()?;
     super::inspection::run(
         selection,
         args.directory,
         args.loaders,
-        args.loading.parallelism(),
+        crate::commands::supports::mods::scan::Options {
+            parallelism: args.loading.parallelism(),
+            cache: args.cache.selection(),
+        },
         inspect::Display::Info,
         ssh,
     )

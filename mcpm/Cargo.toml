@@ -5,10 +5,10 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
-base64 = "0.22"
 arboard = { version = "3", default-features = false }
 clap = { version = "4", features = ["derive", "env"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+console = "0.16"
 crossterm = { version = "0.29", default-features = false, features = ["events", "windows"] }
 indicatif = "0.18"
 inventory = "0.3"
@@ -32,3 +32,6 @@ unicode-width = "0.2"
 unicode-segmentation = "1"
 tempfile = "3"
 textwrap = { version = "0.16", features = ["terminal_size"] }
+
+[build-dependencies]
+anyhow = "1"

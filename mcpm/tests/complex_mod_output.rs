@@ -15,9 +15,11 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
     let file = mcmod::open(
         ModEntry::new(fixtures.join("complex-mod.jar")).unwrap(),
         BUILTIN_LOADERS.clone(),
+        &mcmod::ModOpenContext::default(),
         |_, _, _, _| IdentificationErrorAction::Abort,
     )
-    .expect("failed to identify composite archive");
+    .expect("failed to identify composite archive")
+    .file;
     assert_eq!(file.metadata.len(), 3);
     for metadata in &file.metadata {
         let fml = matches!(metadata.loader.id().as_str(), "forge" | "neoforge");
@@ -83,7 +85,7 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
         process.current_dir(&fixtures);
         process.arg("--raw");
         let output = process
-            .args(["mod", command, "complex-mod.jar"])
+            .args(["mod", command, "complex-mod.jar", "--no-cache"])
             .args(options)
             .output()
             .expect("failed to run mcpm");

@@ -34,8 +34,9 @@ inspect the directory. `--directory` defaults to `.`. Stdin lines append in
 order; `--input file|modid|name|unspecified` controls their interpretation.
 `--all` cannot be combined with queries. With SSH, selection, filesystem access,
 and loader parsing happen on the remote host; stdin is consumed locally before
-the request. Colors and dependency path styles stay local. Remote diagnostics
-follow `--remote-logs`; failures still produce a nonzero exit status.
+the request. Colors and dependency path styles stay local. Remote errors are
+always displayed; remote logs require `--remote-logs` and follow `--log-level`.
+Failures produce a nonzero exit status.
 `--parallelism <COUNT>` defaults to 10 and bounds file reads for `--all` and
 lazy directory indexes used by name/ID queries, locally or over SSH. Multiple
 independent file inputs are processed sequentially and are unaffected by this
@@ -46,5 +47,20 @@ Both endpoints require protocol version 3. See [Remote](../remote.md) for
 structured `mod.info` requests.
 
 For shared options, see [Loader selection](README.md#loader-selection). For colors, ignored-file hints, and `--raw`, see [Terminal output](../README.md#terminal-output).
+
+## Identification cache
+
+- Caching is enabled by default using `~/.mcpm/cache/mods`. `--cache-dir PATH` selects an explicitly initialized directory; `--no-cache` disables cache lookup and identifies files directly. The two options are mutually exclusive.
+- Default roots initialize when absent or empty. Explicit roots must already be valid; run `mcpm cache mods init --directory PATH` first. Nonempty unmarked directories, malformed manifests and unsupported directory versions fail.
+- Lookup uses an imohash candidate index and current native file identity for hard links. If no identity matches, full BLAKE3 lookup also permits independent copies with identical contents to reuse metadata.
+- Cached non-recognition is reused too. Missing, stale or invalid results are identified normally. Inspection only reads existing cache objects: it never imports files, establishes hard links or writes metadata. Use [mod cache](cache.md), or explicit cache import and refresh commands, to store results.
+- Console shows `A fully cached · B partially cached · C total items` after a blank line; list TUI shows the same totals below its skipped-files status line. Full means every requested loader result came from cache, including non-recognition; partial means some did. Totals count unique normalized file inspections, including unrecognized/failed files, before filtering; duplicate queries and nested declarations do not increase them. With caching disabled, both hit counts are zero. Raw text output has no summary line.
+- With SSH, cache selection and paths are interpreted on the remote host. Ordinary local cache-management commands remain local.
+
+```sh
+mcpm mod info example.jar
+mcpm mod info example.jar --no-cache
+mcpm mod info example.jar --cache-dir /path/to/cache
+```
 
 [Command reference](../README.md) · [mod overview](README.md) · [简体中文](../../docs-zh/mod/info.md)

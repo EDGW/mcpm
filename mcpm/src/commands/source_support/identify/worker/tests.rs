@@ -63,7 +63,13 @@ fn lookups_are_sequential_share_duplicate_files_and_continue_after_failure() {
         identify(vec![first.clone(), second, first], &sources, &sender, 1).await;
     });
     let updates: Vec<_> = receiver.try_iter().collect();
-    assert_eq!(updates.len(), 9);
+    assert_eq!(
+        updates
+            .iter()
+            .filter(|event| matches!(event, Event::Cache { .. }))
+            .count(),
+        2
+    );
     assert!(matches!(updates.last(), Some(Event::Done { failed: 2 })));
     let items: Vec<_> = updates
         .iter()
@@ -155,7 +161,13 @@ fn configured_parallelism_bounds_active_requests_and_fills_available_slots() {
     server.join().unwrap();
     assert_eq!(peak.load(Ordering::SeqCst), 3);
     let updates: Vec<_> = receiver.try_iter().collect();
-    assert_eq!(updates.len(), 17);
+    assert_eq!(
+        updates
+            .iter()
+            .filter(|event| matches!(event, Event::Cache { .. }))
+            .count(),
+        4
+    );
     assert_eq!(
         updates
             .iter()
@@ -480,4 +492,163 @@ printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"closed"
         request["contents"],
         json!({"paths":[r"D:\remote-only.jar",r"D:\remote-only.jar"],"requirements":{"murmur2":true},"parallelism":2})
     );
+}
+
+#[test]
+fn cache_events_preserve_hit_provenance_and_group_duplicate_physical_files() {
+    use kako_mods_lib::{
+        local::cache::{CacheLinkPreference, mods::ModsCacheDir},
+        source::{FileHash, FileId, FileMatch, FileRef, MatchedFileRole, ProjectId, ProjectRef},
+    };
+    use serde_json::json;
+
+    let root = tempfile::tempdir().unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let paths: Vec<_> = (0..3)
+        .map(|index| {
+            let path = root.path().join(format!("{index}.jar"));
+            std::fs::write(&path, format!("archive {index}")).unwrap();
+            path
+        })
+        .collect();
+    let summaries: Vec<_> = paths
+        .iter()
+        .map(|path| FileSummary::read(path, SummaryRequirements { murmur2: true }).unwrap())
+        .collect();
+    for index in 0..2 {
+        let id = cache
+            .import(&paths[index], CacheLinkPreference::Copy)
+            .unwrap();
+        for source in if index == 0 {
+            vec!["modrinth", "curseforge"]
+        } else {
+            vec!["modrinth"]
+        } {
+            cache
+                .write_ident_info(
+                    id,
+                    &FileMatch {
+                        reference: FileRef {
+                            project: ProjectRef {
+                                source: SourceId(source.into()),
+                                id: ProjectId("7".into()),
+                            },
+                            id: FileId("10".into()),
+                        },
+                        filename: "cached.jar".into(),
+                        size: summaries[index].size,
+                        hashes: vec![FileHash::Sha1(summaries[index].sha1.clone())],
+                        role: MatchedFileRole::Primary,
+                    },
+                )
+                .unwrap();
+        }
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let modrinth = json!({
+        "id": "version", "project_id": "project", "name": "Version", "version_number": "1",
+        "version_type": "release", "date_published": "2026-01-01T00:00:00Z",
+        "game_versions": [], "loaders": [], "dependencies": [],
+        "files": [{"filename":"network.jar", "size":summaries[2].size, "primary":true,
+            "url":"https://example.com/network.jar", "hashes":{"sha1":summaries[2].sha1}}]
+    })
+    .to_string();
+    let curseforge =
+        json!({"data":{"exactMatches": summaries[1..].iter().enumerate().map(|(index, summary)| {
+        json!({"id":7,"file":{"id":index + 11,"modId":7,"fileName":"network.jar",
+            "fileLength":summary.size,"fileFingerprint":summary.murmur2.unwrap(),
+            "hashes":[{"algo":1,"value":summary.sha1}]}})
+    }).collect::<Vec<_>>()}})
+        .to_string();
+    let server = thread::spawn(move || {
+        for _ in 0..3 {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "provider request timed out");
+                        thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(error) => panic!("{error}"),
+                }
+            };
+            let request = read_request(&mut stream);
+            let body = if request.starts_with("GET ") {
+                &modrinth
+            } else {
+                &curseforge
+            };
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        }
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let mut events = Vec::new();
+    runtime.block_on(async {
+        let sources = sources_for(address)
+            .into_iter()
+            .map(|source| {
+                source.map_err(|message| ErrorReport {
+                    message,
+                    causes: Vec::new(),
+                })
+            })
+            .collect();
+        let mut inputs = paths;
+        inputs.push(inputs[0].clone());
+        Identification::with_sources_cached(
+            inputs,
+            sources,
+            2,
+            Location::Local,
+            Some(ModsCacheSelection::Directory {
+                path: cache.path().to_owned(),
+            }),
+        )
+        .unwrap()
+        .run(|event| {
+            events.push(event);
+            Ok(())
+        })
+        .await
+        .unwrap();
+    });
+    server.join().unwrap();
+    let cache_events: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Cache { indices, sources } => Some((indices.clone(), sources.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(cache_events.len(), 3);
+    for (indices, sources) in cache_events {
+        assert_eq!(
+            sources,
+            match indices[0] {
+                0 => vec![0, 1],
+                1 => vec![0],
+                _ => vec![],
+            }
+        );
+        if indices[0] == 0 {
+            assert_eq!(indices, [0, 3]);
+        }
+    }
+    for (position, event) in events.iter().enumerate() {
+        if let Event::Item {
+            indices, outcome, ..
+        } = event
+        {
+            assert!(matches!(outcome, Outcome::Matched { .. }));
+            assert!(events[..position].iter().any(
+                |event| matches!(event, Event::Cache { indices: checked, .. } if checked == indices)
+            ));
+        }
+    }
 }

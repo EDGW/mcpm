@@ -1,5 +1,6 @@
 //! Installable remote files, dependency targets, and filtered file pagination.
 
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::ProjectRef;
@@ -24,11 +25,12 @@ pub struct ProjectFile {
 
 /// Source-native publication ID: Modrinth Version ID or CurseForge File ID.
 /// This is not necessarily an identifier of a physical file on the provider.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FileId(pub String);
 
 /// A file publication qualified by its owning project and configured source.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FileRef {
     pub project: ProjectRef,
     pub id: FileId,
@@ -42,7 +44,8 @@ pub enum ReleaseType {
 }
 
 /// Hex-encoded checksums of the downloadable file, not provider fingerprints.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "algorithm", content = "value", rename_all = "snake_case")]
 pub enum FileHash {
     Sha1(String),
     Sha512(String),
@@ -109,7 +112,8 @@ pub struct FilePage {
 
 /// A verified local-file match. The reference identifies its publication;
 /// for Additional files, get_file(reference) returns a different primary file.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FileMatch {
     pub reference: FileRef,
     pub filename: String,
@@ -118,7 +122,69 @@ pub struct FileMatch {
     pub role: MatchedFileRole,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+impl FileMatch {
+    /// Rebinds a cached platform reference to a configured source for subsequent API calls.
+    pub fn for_source(&self, source: &dyn super::Source) -> Option<Self> {
+        if self.reference.project.source != source.identification_cache_id() {
+            return None;
+        }
+        let mut file = self.clone();
+        file.reference.project.source = source.id().clone();
+        Some(file)
+    }
+
+    /// Converts a trusted configured-source result to its shared persistent namespace.
+    pub fn for_cache(&self, source: &dyn super::Source) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            self.reference.project.source == *source.id(),
+            "source match belongs to another configured source"
+        );
+        let mut file = self.clone();
+        file.reference.project.source = source.identification_cache_id();
+        Ok(file)
+    }
+
+    /// Checks a provider match against the exact file summary used for the lookup.
+    /// A SHA-1 match and size are required; all supplied digest syntax is checked.
+    pub fn validate(&self, summary: &super::FileSummary) -> anyhow::Result<()> {
+        use anyhow::ensure;
+        summary.validate()?;
+        ensure!(
+            !self.reference.project.source.0.is_empty()
+                && !self.reference.project.id.0.is_empty()
+                && !self.reference.id.0.is_empty()
+                && !self.filename.is_empty(),
+            "incomplete source file match"
+        );
+        ensure!(self.size == summary.size, "source file match size mismatch");
+        let mut sha1 = false;
+        let mut seen = std::collections::HashSet::new();
+        for hash in &self.hashes {
+            let (algorithm, value, length) = match hash {
+                FileHash::Sha1(value) => ("sha1", value, 40),
+                FileHash::Sha512(value) => ("sha512", value, 128),
+                FileHash::Md5(value) => ("md5", value, 32),
+            };
+            ensure!(seen.insert(algorithm), "duplicate source file match hash");
+            ensure!(
+                value.len() == length && value.bytes().all(|b| b.is_ascii_hexdigit()),
+                "invalid source file match hash"
+            );
+            if algorithm == "sha1" {
+                ensure!(
+                    value.eq_ignore_ascii_case(&summary.sha1),
+                    "source file match SHA-1 mismatch"
+                );
+                sha1 = true;
+            }
+        }
+        ensure!(sha1, "source file match omitted SHA-1");
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MatchedFileRole {
     Primary,
     Additional,

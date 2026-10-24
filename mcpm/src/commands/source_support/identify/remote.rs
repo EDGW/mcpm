@@ -39,6 +39,7 @@ impl Command for Identify {
                 args.paths,
                 args.requirements,
                 args.parallelism.get(),
+                args.cache,
                 || output.checkpoint(),
                 |event| std::future::ready(output.send(event)),
             )
@@ -60,6 +61,8 @@ pub(super) struct Request {
     pub requirements: SummaryRequirements,
     #[serde(default = "default_parallelism")]
     pub parallelism: NonZeroUsize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<kako_mods_lib::local::cache::mods::ModsCacheSelection>,
 }
 impl Request {
     fn validate(&self) -> Result<()> {
@@ -127,7 +130,16 @@ impl Lookup {
                 if let Event::Item { outcome, .. } = &event {
                     match outcome {
                         Outcome::Failed { .. } => self.failed += indices.len(),
-                        Outcome::Summary { summary } => {
+                        Outcome::Summary { summary, cached } => {
+                            for (key, file) in cached {
+                                ensure!(
+                                    !key.is_empty()
+                                        && !key.contains('@')
+                                        && file.reference.project.source.0 == *key,
+                                    "invalid cached source identity"
+                                );
+                                file.validate(summary)?;
+                            }
                             summary.validate()?;
                             ensure!(
                                 !self.requirements.murmur2 || summary.murmur2.is_some(),

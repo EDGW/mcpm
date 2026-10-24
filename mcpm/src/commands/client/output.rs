@@ -15,7 +15,7 @@ pub(super) fn write_inferred_root(
     if !terminal::stdout_is_tty() {
         return Ok(());
     }
-    let style = crate::commands::output_style::OutputStyle::new();
+    let style = crate::display::style::OutputStyle::new();
     writeln!(
         output,
         "{}",
@@ -26,7 +26,7 @@ pub(super) fn write_inferred_root(
     writeln!(output)
 }
 
-pub(super) use crate::commands::output_style::text;
+pub(super) use crate::display::style::text;
 
 pub(super) fn error_chain(error: &dyn StdError) -> String {
     let mut message = error.to_string();

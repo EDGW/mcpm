@@ -1,7 +1,7 @@
 //! Interactive server launch selection with shared TUI colors and loader styles.
 
 use super::model::Candidate;
-use crate::{commands::output_style::text, terminal as policy};
+use crate::{display::style::text, terminal as policy};
 use anyhow::{Context, Result, ensure};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},

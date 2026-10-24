@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 use kako_mods_lib::local::mcmod::ModDirectory;
 
-use crate::commands::mod_support::{
+use crate::commands::supports::mods::{
     dep_graph::{self, BuildOptions},
     loaders::LoaderArgs,
 };

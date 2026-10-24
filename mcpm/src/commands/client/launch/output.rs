@@ -6,7 +6,7 @@ use std::{
 };
 
 use super::super::output::text;
-use crate::{commands::output_style::OutputStyle, terminal};
+use crate::{display::style::OutputStyle, terminal};
 
 pub(super) enum Event {
     Preparing,

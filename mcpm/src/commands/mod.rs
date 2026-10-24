@@ -1,15 +1,16 @@
 //! CLI command dispatch and shared presentation support.
 
+pub(crate) mod cache;
+mod cache_support;
 pub(crate) mod client;
 pub(crate) mod customize;
 pub(crate) mod debug;
 mod execution;
-mod mod_support;
 pub(crate) mod mods;
-mod output_style;
 pub(crate) mod server;
 mod source_support;
 mod stdin;
+mod supports;
 
 use anyhow::Result;
 
@@ -30,6 +31,7 @@ pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<()> {
         Command::Debug(args) => debug::run(args),
         Command::Mod(args) => mods::run(args, ssh),
         Command::Client(args) => client::run(args),
+        Command::Cache(args) => cache::run(args),
         Command::Server(args) => server::run(args, ssh),
     }
 }

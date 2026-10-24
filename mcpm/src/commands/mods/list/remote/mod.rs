@@ -2,7 +2,7 @@
 
 use std::{num::NonZeroUsize, path::PathBuf};
 
-use crate::commands::{execution::DEFAULT_PARALLELISM, mod_support::scan::ScanSession};
+use crate::commands::{execution::DEFAULT_PARALLELISM, supports::mods::scan::ScanSession};
 
 use anyhow::{Context, Result};
 use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::remote::command::{Command, Output};
 
-use crate::commands::mod_support::list::protocol;
+use crate::commands::supports::mods::list::protocol;
 
 use protocol::{Contents, Record, Status};
 
@@ -33,7 +33,10 @@ impl Command for List {
                         &anyhow::Error::from(error).context("invalid list arguments"),
                     ),
                 })?;
-                return output.send(Contents::Done { success: false });
+                return output.send(Contents::Done {
+                    success: false,
+                    cache: None,
+                });
             }
         };
         tracing::debug!(?args, "Decoded remote mod list arguments");
@@ -90,15 +93,23 @@ impl Command for List {
                 }
             }
         }
-        let mut scan = ScanSession::new(selected).with_parallelism(args.parallelism.get());
+        let mut scan = ScanSession::new(selected).with_options(
+            crate::commands::supports::mods::scan::Options {
+                parallelism: args.parallelism.get(),
+                cache: args.cache,
+            },
+        )?;
         scan.batch(&paths, || output.checkpoint(), |position, result, _| {
             let index = indices[position];
-            let record = Record::from_scan(&paths[position], result);
+            let record = Record::from_scan(&paths[position], result)?;
             tracing::debug!(index, count, path = %record.path, status = ?record.status, errors = record.errors.len(), "Loaded remote mod record");
             success &= record.status != Status::Failed;
             output.send(Contents::Item { index, record })
         })?;
-        output.send(Contents::Done { success })?;
+        output.send(Contents::Done {
+            success,
+            cache: Some(scan.cache_summary()),
+        })?;
         tracing::debug!(
             count,
             success,
@@ -118,6 +129,8 @@ pub(super) struct Args {
     pub loaders: Vec<Loader>,
     #[serde(default = "default_parallelism")]
     pub parallelism: NonZeroUsize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<kako_mods_lib::local::mcmod::ModOpenCache>,
 }
 
 /// Remote values are independent of Clap option names and CLI argument layout.
@@ -152,8 +165,8 @@ fn default_parallelism() -> NonZeroUsize {
 /// Adapt CLI selection to the independent remote argument schema at the frontend boundary.
 pub(super) fn request(
     paths: Vec<PathBuf>,
-    loaders: &crate::commands::mod_support::loaders::LoaderArgs,
-    parallelism: usize,
+    loaders: &crate::commands::supports::mods::loaders::LoaderArgs,
+    loading: crate::commands::supports::mods::scan::Options,
 ) -> Result<Args> {
     let mut ids = if loaders.is_filtered() {
         loaders
@@ -177,6 +190,7 @@ pub(super) fn request(
     Ok(Args {
         paths,
         loaders,
-        parallelism: std::num::NonZeroUsize::new(parallelism).unwrap(),
+        parallelism: std::num::NonZeroUsize::new(loading.parallelism).unwrap(),
+        cache: loading.cache,
     })
 }

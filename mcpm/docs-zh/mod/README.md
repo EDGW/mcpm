@@ -1,6 +1,6 @@
 # `mcpm mod`
 
-检查本地 Minecraft Mod 归档，只读取文件。
+检查本地 Minecraft Mod 归档、显式缓存文件，并查询 Mod 来源。
 
 ```text
 mcpm mod [OPTIONS] <COMMAND>
@@ -9,6 +9,7 @@ mcpm mod [OPTIONS] <COMMAND>
 | 命令 | 说明 |
 | --- | --- |
 | [`list`](list.md) | 列出文件和目录中的 Mod 声明。 |
+| [`cache`](cache.md) | 显式缓存选中文件及其识别摘要。 |
 | [`info`](info.md) | 检查一个或多个文件的元数据和依赖。 |
 | [`deps`](deps.md) | 显示直接依赖声明及其来源归档。 |
 | [`dep-graph`](dep-graph.md) | 构建目录依赖图、校验快照，或查看单个 Mod 的依赖树。 |
@@ -28,7 +29,7 @@ mcpm mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw
 
 ## Loader 选择
 
-`list`、`info`、`deps` 和 `dep-graph build` 都支持以下选项：
+`list`、`info`、`deps`、`cache` 和 `dep-graph build` 都支持以下选项：
 
 | 选项 | 说明 |
 | --- | --- |

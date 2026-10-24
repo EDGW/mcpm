@@ -8,6 +8,11 @@ use crate::commands::{client::ClientArgs, debug::DebugArgs, mods::ModArgs, serve
 #[command(
     name = "mcpm",
     version,
+    long_version = concat!(
+        env!("CARGO_PKG_VERSION"),
+        "\n\nContributors:\n",
+        include_str!(concat!(env!("OUT_DIR"), "/contributors.txt"))
+    ),
     about = "Inspect and manage Minecraft clients, servers and mods"
 )]
 pub(crate) struct Cli {
@@ -23,7 +28,7 @@ pub(crate) struct Cli {
         help_heading = "Global options"
     )]
     pub(crate) log_level: crate::logging::LogLevel,
-    /// Show remote logs and remote error diagnostics on stderr; logs follow --log-level.
+    /// Show remote logs on stderr, filtered by --log-level; remote errors are always shown.
     #[arg(long, global = true, help_heading = "Global options")]
     pub(crate) remote_logs: bool,
     #[command(flatten)]
@@ -34,6 +39,8 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
+    /// Manage explicitly stored cache objects (Console, Raw).
+    Cache(crate::commands::cache::CacheArgs),
     /// Serve concurrent commands over one persistent stdin/stdout JSON session (Raw).
     Remote(RemoteArgs),
     /// Customize terminal themes and loader colors (TUI, Console, Raw).

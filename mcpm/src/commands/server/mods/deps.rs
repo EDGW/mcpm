@@ -3,7 +3,7 @@
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::mod_support::{inspect, source_path::PathArgs};
+use crate::commands::supports::mods::{inspect, source_path::PathArgs};
 
 use super::input::FileArgs;
 
@@ -23,7 +23,7 @@ pub(super) struct DepsArgs {
 pub(super) fn run(args: DepsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     super::inspection::run(
         args.files,
-        args.loading.parallelism(),
+        args.loading.parallelism().into(),
         inspect::Display::Dependencies(&args.paths_output),
         ssh,
     )

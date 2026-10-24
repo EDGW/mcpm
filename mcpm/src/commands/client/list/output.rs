@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use crate::{commands::output_style::OutputStyle, terminal};
+use crate::{display::style::OutputStyle, terminal};
 
 use super::{Row, State};
 

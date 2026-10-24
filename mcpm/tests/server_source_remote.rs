@@ -34,6 +34,8 @@ fn remote(root: &Path, command: &str, contents: Value, cancel: bool) -> Vec<Valu
     let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
         .arg("remote")
         .current_dir(root)
+        .env("HOME", root.join("home"))
+        .env("USERPROFILE", root.join("home"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -198,6 +200,8 @@ fn ssh_reads_remote_bytes_but_keeps_provider_options_and_failures_local() {
     let connection = shlex::try_join([ssh.to_str().unwrap(), "test@host"]).unwrap();
     let output: Output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
         .current_dir(client.path())
+        .env("HOME", root.path().join("home"))
+        .env("USERPROFILE", root.path().join("home"))
         .args([
             "--raw",
             "--log-level",

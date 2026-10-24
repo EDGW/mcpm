@@ -17,7 +17,8 @@ use super::super::expression::{Expression, ParseError, SyntaxKind, SyntaxSpan};
 use super::super::versions;
 use super::{Browser, Focus};
 use crate::{
-    commands::{mod_support::loaders::Loader, output_style::text},
+    commands::supports::mods::loaders::Loader,
+    display::style::text,
     theme::{
         Role,
         widgets::{self, style},

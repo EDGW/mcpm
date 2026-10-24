@@ -10,7 +10,7 @@ use kako_mods_lib::local::mc::client::{
 };
 
 use super::super::output::{error_chain, text};
-use crate::{commands::output_style::OutputStyle, terminal};
+use crate::{display::style::OutputStyle, terminal};
 
 pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io::Result<()> {
     let formatted = terminal::stdout_is_tty();

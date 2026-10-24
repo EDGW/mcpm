@@ -7,8 +7,9 @@ use std::{num::NonZeroUsize, path::PathBuf};
 
 use super::super::super::mod_source::ServerMods;
 use crate::{
-    commands::mod_support::{
+    commands::supports::mods::{
         inspect::{self, Display, Event},
+        scan,
         selection::{Selection, SelectionInput},
     },
     remote::command::{Command, Output},
@@ -39,6 +40,8 @@ struct Request {
     selection: SelectionInput,
     #[serde(default = "crate::commands::execution::default_parallelism")]
     parallelism: NonZeroUsize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cache: Option<kako_mods_lib::local::mcmod::ModOpenCache>,
 }
 fn default_server() -> PathBuf {
     PathBuf::from(".")
@@ -56,7 +59,10 @@ fn serve(contents: Value, output: &Output) -> Result<()> {
         source.scope(),
         source.loaders(),
         true,
-        args.parallelism.get(),
+        scan::Options {
+            parallelism: args.parallelism.get(),
+            cache: args.cache,
+        },
         || output.checkpoint(),
         |event| {
             if let Event::Error { error } = &event {
@@ -71,7 +77,7 @@ pub(super) fn run(
     ssh: SshArgs,
     server: PathBuf,
     selection: Selection,
-    parallelism: usize,
+    loading: scan::Options,
     display: Display<'_>,
 ) -> Result<()> {
     let command = match display {
@@ -84,8 +90,9 @@ pub(super) fn run(
         serde_json::to_value(Request {
             server,
             selection: SelectionInput::from_selection(selection)?,
-            parallelism: NonZeroUsize::new(parallelism)
+            parallelism: NonZeroUsize::new(loading.parallelism)
                 .context("inspection parallelism must be positive")?,
+            cache: loading.cache,
         })?,
         display,
     )

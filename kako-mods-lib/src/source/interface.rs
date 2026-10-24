@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use super::{
     FileMatch, FilePage, FileQuery, FileRef, FileSummary, Project, ProjectFile, ProjectRef,
@@ -21,6 +22,12 @@ use super::{
 pub trait Source: Send + Sync {
     /// Returns the stable identity of this configured source.
     fn id(&self) -> &SourceId;
+
+    /// Namespace for verified content matches. Credentials and transport endpoints
+    /// must not be included. Providers may share this across configurations.
+    fn identification_cache_id(&self) -> SourceId {
+        self.id().clone()
+    }
 
     /// Searches for projects and returns one page of summaries.
     ///
@@ -55,8 +62,9 @@ pub trait Source: Send + Sync {
     async fn get_file(&self, file: &FileRef) -> Result<ProjectFile>;
 
     /// Identifies the bytes of a local file without modifying it. Returns None
-    /// for no verified match; I/O, transport, malformed responses, and ambiguous
-    /// matches are errors. The caller must keep the file unchanged during lookup.
+    /// when no unique verified match exists, including ambiguous matches.
+    /// I/O, transport, and malformed responses are errors.
+    /// The caller must keep the file unchanged during lookup.
     /// Additional Modrinth files retain their actual metadata, not the primary's.
     async fn identify_file(&self, path: &Path) -> Result<Option<FileMatch>> {
         let path = path.to_owned();
@@ -73,6 +81,7 @@ pub trait Source: Send + Sync {
 
     /// Query the provider using already-computed digests, without accessing local files.
     /// Implementations must verify returned size and hashes before accepting a match.
+    /// Returns None if there is no unique verified match, including ambiguous results.
     async fn identify_summary(&self, summary: &FileSummary) -> Result<Option<FileMatch>>;
 }
 
@@ -80,5 +89,5 @@ pub trait Source: Send + Sync {
 ///
 /// Callers assign distinct identifiers to source configurations that must be
 /// addressed separately. No built-in provider registry is assumed.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SourceId(pub String);

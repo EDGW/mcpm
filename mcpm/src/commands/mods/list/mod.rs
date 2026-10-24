@@ -9,7 +9,7 @@ use tracing::debug;
 
 use crate::commands::stdin;
 
-use crate::commands::mod_support::{
+use crate::commands::supports::mods::{
     list::{self, ListDisplayArgs, ListLoadingArgs},
     loaders::LoaderArgs,
 };
@@ -36,6 +36,8 @@ pub(super) struct ListArgs {
     display: ListDisplayArgs,
     #[command(flatten)]
     loading: ListLoadingArgs,
+    #[command(flatten)]
+    cache: crate::commands::supports::mods::reuse::CacheArgs,
     #[command(flatten, next_help_heading = "Filter")]
     loaders: LoaderArgs,
 }
@@ -56,18 +58,19 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         paths.push(PathBuf::from("."));
     }
     debug!(?paths, "Resolved mod list input paths");
+    let loading = crate::commands::supports::mods::scan::Options {
+        parallelism: args.loading.parallelism(),
+        cache: args.cache.selection(),
+    };
+    let display = args.display.with_cache(loading.cache.clone());
     let result = if ssh.is_requested() {
         debug!("Dispatching remote mod.list request over SSH");
         list::ssh::run(
             ssh,
             remote::List::ID,
-            serde_json::to_value(remote::request(
-                paths,
-                &args.loaders,
-                args.loading.parallelism(),
-            )?)?,
+            serde_json::to_value(remote::request(paths, &args.loaders, loading)?)?,
             args.loaders,
-            args.display,
+            display,
         )
     } else {
         debug!("Dispatching local mod.list request locally");
@@ -79,8 +82,8 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
             inputs,
             args.loaders.select(),
             args.loaders.is_filtered(),
-            args.loading.parallelism(),
-            args.display,
+            loading,
+            display,
         )
     };
     tracing::debug!(

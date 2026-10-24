@@ -7,8 +7,8 @@ use std::{num::NonZeroUsize, path::PathBuf};
 
 use super::ServerMods;
 use crate::{
-    commands::mod_support::{
-        list,
+    commands::supports::mods::{
+        list, scan,
         selection::{Selection, SelectionInput},
     },
     remote::command::{Command, Output},
@@ -28,7 +28,10 @@ impl Command for List {
             args.selection.into_selection()?,
             source.scope(),
             source.loaders(),
-            args.parallelism.get(),
+            scan::Options {
+                parallelism: args.parallelism.get(),
+                cache: args.cache,
+            },
             output,
         )
     }
@@ -43,16 +46,24 @@ struct Request {
     selection: SelectionInput,
     #[serde(default = "crate::commands::execution::default_parallelism")]
     parallelism: NonZeroUsize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cache: Option<kako_mods_lib::local::mcmod::ModOpenCache>,
 }
 fn default_server() -> PathBuf {
     PathBuf::from(".")
 }
 
-pub(super) fn request(server: PathBuf, selection: Selection, parallelism: usize) -> Result<Value> {
+pub(super) fn request(
+    server: PathBuf,
+    selection: Selection,
+    loading: scan::Options,
+) -> Result<Value> {
     Ok(serde_json::to_value(Request {
         server,
         selection: SelectionInput::from_selection(selection)?,
-        parallelism: NonZeroUsize::new(parallelism).context("list parallelism must be positive")?,
+        parallelism: NonZeroUsize::new(loading.parallelism)
+            .context("list parallelism must be positive")?,
+        cache: loading.cache,
     })?)
 }
 fn init() -> Result<()> {

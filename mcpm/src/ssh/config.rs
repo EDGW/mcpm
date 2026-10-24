@@ -18,7 +18,11 @@ impl Connection {
         Ok(self.prepare()?.0)
     }
 
-    pub(super) fn prepare(&self) -> Result<(Command, String)> {
+    pub(crate) fn destination(&self) -> Option<String> {
+        connection::destination(&self.ssh)
+    }
+
+    pub(super) fn prepare(&self) -> Result<(Command, Option<String>)> {
         let executable = self.ssh_mcpm.as_deref().unwrap_or("mcpm");
         ensure!(
             !executable.trim().is_empty(),
@@ -31,7 +35,7 @@ impl Connection {
             || executable.ends_with(".exe");
         tracing::debug!(executable, windows, "Preparing remote mcpm invocation");
         let remote = if windows {
-            windows::command(&[executable, "remote"])?
+            windows::command(executable)?
         } else {
             shlex::try_join([executable, "remote"])
                 .context("remote executable cannot contain NUL bytes")?
