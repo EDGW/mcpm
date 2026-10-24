@@ -1,4 +1,4 @@
-//! Bounded cache batches with ordered results and no new work past a known failed entry.
+//! Bounded cache batches with ordered results and caller-selected handling of worker failures.
 
 use std::{
     num::NonZeroUsize,
@@ -27,6 +27,7 @@ impl Parallelism {
 pub(super) fn run<T: Send>(
     ids: &[Blake3Hash],
     parallelism: usize,
+    failure_policy: FailurePolicy,
     work: impl Fn(Blake3Hash) -> Result<T> + Sync,
     mut completed: impl FnMut(Blake3Hash, Result<T>) -> Result<()>,
 ) -> Result<()> {
@@ -47,7 +48,7 @@ pub(super) fn run<T: Send>(
                 return None;
             }
             let result = work(ids[index]);
-            if result.is_err() {
+            if result.is_err() && matches!(failure_policy, FailurePolicy::Stop) {
                 failed_at.fetch_min(index, Ordering::AcqRel);
             }
             Some(result)
@@ -65,6 +66,13 @@ pub(super) fn run<T: Send>(
             Ok(())
         },
     )
+}
+
+/// Completion errors always stop the batch; this policy controls worker failures only.
+#[derive(Clone, Copy)]
+pub(super) enum FailurePolicy {
+    Stop,
+    Continue,
 }
 
 #[cfg(test)]
