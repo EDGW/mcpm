@@ -47,7 +47,8 @@ mcpm [OPTIONS] <COMMAND>
 | `--log-level LEVEL` | Diagnostic logging on stderr: off, error, warn (default), info, debug, trace. Available before or after subcommands. |
 | `--remote-logs` | Show remote logs on stderr, filtered by `--log-level`; hidden by default. Remote errors are always shown. |
 | `-h`, `--help` | Show help for the current command. |
-| `-V`, `--version` | Show the executable version at the top level. |
+| `-V` | Show the executable version at the top level. |
+| `--version` | Show the version and build-time contributors (commit counts, names, and email addresses); mark contributors as unavailable if Git history could not be read. |
 
 `--raw` is global and can appear before or after subcommands:
 

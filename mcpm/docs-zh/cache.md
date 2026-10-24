@@ -1,86 +1,155 @@
-# Mod 缓存
+# Mod 缓存管理
 
-`mcpm cache mods` 将文件显式保存到 `~/.mcpm/cache/mods`。
-`mod info/list` 默认查询已有缓存，`--cache-dir` 指定其他目录，`--no-cache` 关闭查询；不导入文件、不保存识别结果。
-下载和来源搜索不自动使用缓存。所有命令支持 Console 和 Raw；stdout 重定向或使用
-`--raw` 时每行输出一个 JSON 对象，空缓存的 `list` 不输出记录。缓存管理命令仅在本地执行，不支持 SSH。
+`mcpm cache mods` 显式管理 `~/.mcpm/cache/mods` 中的内容和具名 metadata。
 
-使用 [`mcpm mod cache`](mod/cache.md) 可按文件名、ID、名称或 stdin 选择文件，并一次存储文件及其识别摘要。 已登记服务器可用 [`server mods cache`](server/mods.md#缓存) 继承服务器范围及 loader，并支持 SSH、Remote 工作区；server mods list/info 同样默认查询文件主机的缓存。
+- 一个条目由完整的 64 位小写十六进制 BLAKE3 标识；相同内容只保存一次。
+- `meta`、`ident` 是两个 metadata 名字，分别保存 Loader 声明和来源匹配。
+- `import` 只存内容，不计算、刷新或读取这两个 metadata。
+- `mod info/list` 和 `mod source identify` 默认只读查询缓存；显式写入也可使用
+  [`mod cache`](mod/cache.md) 或 [`server mods cache`](server/mods.md#缓存)。
+- 缓存管理在本地执行。所有命令支持 Console、Raw；`--raw` 或非 TTY stdout 使用 Raw。
+- Raw 的 `list`、`info` 和简单操作结果采用 TSV；refresh 成功时无输出，退出码为 0。
 
-## 用法
+## 命令
 
 ```sh
 mcpm cache mods init --directory /path/to/cache
 mcpm cache mods import example.jar another.jar
 mcpm cache mods import example.jar --mode hard-link
 mcpm cache mods list
-mcpm cache mods info <BLAKE3>
-mcpm cache mods refresh <BLAKE3> --loader fabric
-mcpm cache mods refresh <BLAKE3> --force
-mcpm cache mods verify <BLAKE3>
-mcpm cache mods export <BLAKE3> restored.jar another-copy.jar
-mcpm cache mods export <BLAKE3> linked.jar --mode hard-link
-mcpm cache mods remove <BLAKE3>
+mcpm cache mods list --columns blake3,size,metadatas
+mcpm cache mods list --details
+mcpm cache mods info HASH1 HASH2 --columns blake3,status,metadatas
+mcpm cache mods info --all
+printf '%s\n' HASH1 HASH2 | mcpm cache mods info
+mcpm cache mods refresh HASH1 HASH2 meta --loaders fabric,forge
+mcpm cache mods refresh HASH1 ident --source modrinth --source curseforge
+mcpm cache mods refresh --all meta
+mcpm cache mods refresh --all meta --parallelism 4
+mcpm cache mods refresh --all ident --details
+mcpm cache mods refresh HASH1 meta --short
+printf '%s\n' HASH1 HASH2 | mcpm cache mods refresh ident
+mcpm cache mods verify HASH1 HASH2
+mcpm cache mods verify --all
+mcpm cache mods verify --all --parallelism 4
+mcpm cache mods export HASH1 restored.jar another-copy.jar
+mcpm cache mods remove HASH1
+mcpm cache mods remove --all
 mcpm cache mods rebuild-index
 ```
 
-在 mods 子命令前后使用 `--directory PATH` 选择其他缓存根目录。
-默认目录不存在或为空时自动初始化；指定目录必须已初始化。非空无标记目录、manifest
-损坏或不支持的版本均拒绝打开。目录格式为 version 2，不自动接管或迁移 version 1 GUID
-缓存；可选择新目录以保留旧缓存。
-
-对象 ID 是完整的 64 位小写十六进制 BLAKE3。相同 BLAKE3 视为相同内容，只保存一个对象。
-默认导入复制文件，不识别 Mod。新对象初始为 `missing_digest`，文件已经可以导出。
-
-import 接受多个文件；export 接受一个 BLAKE3，后跟一个或多个目标路径。
-两者按输入顺序处理，每成功一项输出一条记录，首个失败时停止；此前成功项保留，批次不回滚。
-
 | 命令 | 行为 |
 | --- | --- |
-| `init` | 初始化不存在或空目录；已有合法缓存也可成功 |
-| `list` | 列出完整和不可用对象，不解析 JAR |
-| `info BLAKE3` | Console 展示 File、Size、SHA-256，再按 `mod info` 格式展示已识别 Loader 声明；Raw 保留完整缓存记录 |
-| `refresh BLAKE3` | 识别缺失或过期结果，默认使用所有内置 Loader |
-| `refresh BLAKE3 --force` | 强制重新解析选中的 Loader |
-| `verify BLAKE3` | 检查对象内容及摘要；`--structure-only` 跳过完整哈希 |
-| `export BLAKE3 PATH...` | 导出到缓存外的不存在目标，父目录必须已存在 |
-| `remove BLAKE3` | 只删除缓存名字，报告是否实际删除 |
-| `rebuild-index` | 从已有对象重建可选的 imohash 候选索引 |
+| `init` | 初始化不存在或空目录，也接受合法的已有缓存 |
+| `import PATH...` | 按内容导入或复用文件，不计算 metadata |
+| `list` | 枚举条目，包括异常内容类型和孤立 metadata；默认只有 BLAKE3 |
+| `info [HASH]...` | 查询内容信息及选中的 metadata，不执行识别或刷新 |
+| `refresh [HASH]... meta` | 刷新选中的 Loader 结果 |
+| `refresh [HASH]... ident` | 刷新选中的来源结果 |
+| `verify [HASH]...` | 检查内容的 BLAKE3，不读取或验证 metadata |
+| `export HASH PATH...` | 导出到不存在的目标，父目录必须已存在 |
+| `remove [HASH]...` | 删除选中内容及其受管理的 metadata；`--all` 选择整个库存 |
+| `rebuild-index` | 从验证通过的内容重建可选 imohash 索引 |
 
-`refresh` 复用 Mod 检查的 `--loader` 和逗号分隔的 `--loaders`。
-Loader 失败时保留原描述。Raw 的 `digest.loaders` 区分未检查（缺少键）、已检查但
-未识别（`null`）、已识别（ModMeta 快照对象）。未识别结果可以复用，`--force` 可重新检查。
+`--directory PATH` 可放在 mods 子命令前后。指定目录必须已初始化；默认目录不存在或为空时初始化。
+目录格式为 version 3；拒绝非空无标记目录、损坏 manifest 和不兼容版本，不自动迁移旧目录。
 
-## 导入与硬链接
+## 输入与列选择
 
-- 导入先按内容查找。合法对象已存在时直接复用，不替换已有文件、不准备 staging、不尝试硬链接、不改源权限。
-  重复导入独立副本不会替换源文件，也不会将其连接到已有缓存对象。
-- mode 仅在需要新增对象时生效：`--mode copy` 为默认；`hard-link` 要求硬链接；
-  `prefer-hard-link` 仅在文件系统能力不支持时回退复制。即使源文件跨文件系统，`hard-link` 也能复用已有对象。
-- Raw 导入记录的 `published` 表示是否由本次新发布；复用为 false。
-  新发布时 `method` 为 `copy` 或 `hard_link`，复用时为 `null`。
-  Console 展示 added/reused，以及实际发布方式。
-- 硬链接导入、导出共享内容及写保护；硬链接导入也保护源文件。
-  更新时写入新文件再替换自己的文件名，不原地覆写、追加或截断。
-- 导出不覆盖目标、不创建父目录。删除缓存对象不影响已导出副本或硬链接。
-  没有自动清理或备份引用管理。
+- `info`、`verify`、`refresh`、`remove` 合并参数与重定向 stdin；每个非空行是一个完整 HASH。
+- 参数在前，stdin 在后；按首次出现的顺序去重，不使用 `--all` 时合并后至少需要一个 HASH。
+- `info`、`verify`、`refresh`、`remove` 支持 `--all`，按 BLAKE3 顺序选择完整缓存清单，
+  包括孤立 metadata 和异常内容类型；与 HASH 参数及非空 stdin 输入互斥。
+  空缓存成功结束，不处理任何条目。选取条目不解释 metadata 内容。
+  info 可以展示孤立 metadata 和异常类型；refresh、verify 遇到无法处理的条目时停止。
+- refresh、verify 使用 `--all` 时，可用 `--parallelism COUNT` 控制同时处理的条目数量，默认 `10`。
+  COUNT 必须为正整数，设为 `1` 即顺序处理；显式 HASH 输入仍顺序处理。
+  输出始终按 BLAKE3 顺序排列，不受任务完成先后影响。info 不接受该参数。
+  refresh 单个条目内的来源仍按顺序执行，避免同一条目的来源并发写入。
+- `refresh` 的 HASH 放在 `meta` 或 `ident` 前面。
+- 列可通过 `--columns A,B`、重复 `--column A` 和 `-C BFSHTM` 合并选择；显式选择覆盖默认列。
+- `list` 默认只有 `blake3`。只有选择 `metadatas` 列时，才展示条目的 metadata。
+  `--details` 在没有显式列选择时启用所有列。
+- Console 单字段时每项一行，显式选择的字段标签只在顶部显示一次；默认 BLAKE3 没有标签。
+  多字段时按字段组逐行显示标签和值，条目之间留一个空行。超过 80 个条目时先用 Y/n 确认，回车默认继续。
+  Metadatas 列通过共享 Display 展示 metadata 状态及完整详情。
+  Loader 声明沿用 `mod info` 的展示格式：明确未识别的 Loader 也会显示，未检查的 Loader 不显示。
+- Raw 的 `list`、`info` 共用列定义与 TSV 渲染，每个条目一行；Metadatas 单元格只列排序后的名字，
+  不解释快照。字段使用反斜杠转义控制字符及字面反斜杠。
+  默认无表头，`--headers` 输出一次表头；该参数不影响 Console 和 refresh。
+- `info` 默认全部列；Console 展示每个选中 metadata 的状态和完整详情，来源匹配按字段组展示。
+  Raw 只列 metadata 名字。
 
-## 可用状态与并发
+| 列 | `-C` | 含义 |
+| --- | --- | --- |
+| `blake3` | B | 条目内容 ID |
+| `file` | F | 缓存内容路径，不是原始导入文件名 |
+| `size` | S | 实际内容文件的字节大小 |
+| `sha256` | H | 有效 meta 已保存的 SHA-256；缺失时为空，不临时计算 |
+| `status` | T | 内容结构状态；Console 在不可用时同时显示原因 |
+| `metadatas` | M | Raw 列排序后的名字；Console 展示已知名字的状态和完整详情，其他名字只显示存在 |
 
-- `available`：识别摘要有效，包括明确未识别；至少检查过一个 Loader。
-- `not_found`：数据和描述均不存在。
-- `unavailable`：描述缺失、数据无效或不兼容、读取异常。
-- `info` 将这些状态作为正常查询结果，Console 解释原因，Raw 保留结构化状态。
-  `verify` 对不可用或不存在对象返回失败。
-- `refresh` 可以创建缺失摘要；无效内容描述会拒绝，解析版本过期则可刷新。
-- 完整校验和导出按 BLAKE3 ID 检查内容，包括没有识别摘要的对象；结构检查不能发现
-  同大小的内容变化。没有摘要的状态仍为 `missing_digest`。
-- 缓存允许缺失：并发写入可以丢失，已写入数据也可能消失；接受复用的结果必须正确。
-  数据发布后不可变，metadata 使用完整快照原子发布。
-- 没有全局读写锁。并发删除可能导致未命中，并发发布可以在删除后重新产生对象。
-  导入成功描述本次操作，不承诺之后持续存在。
-- imohash 索引可重建，缺项或陈旧候选不能证明内容相同；查询验证候选并回退完整 BLAKE3。
-  索引恢复有单独的非阻塞协调锁；SQLite 事务与初始化也可以内部同步。
-  索引忙时可跳过写入，不阻塞对象或 metadata 操作。
+内容结构的 `available` 仅表示普通内容文件存在；`not_found` 表示没有内容文件。
+完整内容身份由 `verify` 检查。meta、ident 各自的状态独立，缺失或损坏不会使完整内容验证失败。
+`--structure-only` 只检查普通内容文件的存在，不能发现同尺寸内容损坏。
+
+## 刷新行为
+
+- Console 选中超过 3 个条目时默认 short；数量以参数与 stdin 合并去重后的 HASH 数量，
+  或 `--all` 选中的缓存条目数量为准。
+- short 每条一行，只展示完整 BLAKE3 和 `success` / `failed`。
+  复用已有结果、查询成功但未匹配均算成功；错误详情仍输出到 stderr。
+- 不超过 3 个条目时，Console 默认详细展示，先用与 info 相同的字段组展示 BLAKE3、Status、File，
+  再展示 Loader 或来源详情。Status 表示缓存内容状态，与某个来源是否匹配独立。
+- `--details` 强制详细展示，`--short` 强制 short，两者互斥。
+  这两个参数和 `--all` 可放在 meta/ident 前后；HASH 参数须放在子命令前。
+- Raw（包括 stdout 重定向）成功时无输出，退出码为 0；`--headers` 不生效。
+  `--details`、`--short` 在 Raw 中也不影响输出。刷新后的缓存可用 info 或 list 查询。
+- 错误统一经共享错误渲染器输出到 stderr，保留每层 `caused by:` 上下文，退出码非 0。
+- meta 默认选中 forge、fabric、neoforge；`--loaders A,B` 与重复的 `--loader A` 可以组合，
+  两种形式都接受逗号分隔。显式选中后只使用所选 Loader。
+- 当前版本的识别和成功未识别结果会复用；`--force` 强制重新识别所选 Loader。
+  收齐选中结果后一起发布，保留未选中的当前结果；失败保留原快照。
+- ident 默认依次选中 modrinth、curseforge；使用 `--sources A,B` 或重复 `--source A` 指定。
+  `curseforge@KEY` 使用官方 API；同一来源只能选择一次。
+- 来源只保存验证通过的成功匹配；未匹配不形成负缓存。`--force` 跳过已有匹配的复用，
+  查询错误或没有匹配时仍保留此前成功记录。
+  多个候选均通过校验、无法唯一确定匹配时，按未匹配处理。
+- Console ident 详细模式逐来源报告本次结果：`reused` 表示复用已有匹配、没有请求来源；`matched` 表示
+  查询得到匹配且验证后存储；`unmatched` 表示查询成功但没有匹配，不存储该结果。
+- Console ident 详细模式按来源分组列出字段，展示本次结果与已保存的匹配详情。
+  所有来源均未匹配且没有此前成功记录时，不创建 ident 快照；Console 显示 `Stored matches: none`。
+- Console 中未匹配的来源仍可能显示保留下来的旧匹配；本次未匹配不会删除已保存的匹配。
+- 一个 HASH 的来源按选择顺序写入；后续来源失败时，前面完成的写入保留。
+- 条目失败后停止启动它之后的新任务；已在执行的任务会收尾，期间仍可能完成写入。
+  输出到选择顺序中的首个失败条目为止；成功写入保留，不回滚批次。
+
+## 导入、导出及 Raw 回执
+
+- 导入、导出按输入顺序逐项执行；每成功一项输出一条记录，首个失败后停止。
+- `--mode copy` 默认复制；`hard-link` 要求硬链接；`prefer-hard-link` 只在文件系统不支持时回退复制。
+- 导入已有合法对象时直接复用，不替换内容，不关联或保护另一份独立源文件。
+- 硬链接共享内容与写保护。更新时写新文件再替换自己的文件名，避免原地修改。
+- 导出不覆盖，不创建父目录；删除缓存不影响已导出的副本或硬链接。
+- TSV 字段使用反斜杠转义控制字符及字面反斜杠。空 method 表示复用、没有发生传输。
+
+| 操作 | TSV 字段（依次） |
+| --- | --- |
+| `init` | directory, version |
+| `import` | blake3, file, published, method |
+| `export` | blake3, destination, method |
+| `verify` | blake3, status, reason |
+| `remove` | blake3, removed |
+| `rebuild-index` | indexed |
+
+verify 回执只展示状态；错误详情统一经 stderr 的错误链渲染器输出。
+TSV 中保留 `reason` 字段，值为空。
+
+## 并发
+
+- 内容发布后不可变，metadata 按完整快照原子发布。
+- 并发更新可以丢失部分结果，删除后也可能被另一个发布者重新创建；不提供批次事务。
+- 可复用 metadata 必须关联有效内容；孤立 metadata 可观察、删除，但不能复用。
+- imohash 索引只提供候选；查询验证内容身份并在需要时回退完整 BLAKE3。索引可显式重建。
 
 [命令参考](README.md) · [English](../docs/cache.md)

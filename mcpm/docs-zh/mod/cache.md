@@ -41,8 +41,9 @@ printf '%s\n' example.jar another.jar | mcpm mod cache --input file
 | `--mode hard-link` | 新增对象要求硬链接，源文件内容也会被写保护 |
 | `--mode prefer-hard-link` | 优先硬链接，仅文件系统能力不支持时回退复制 |
 | `--loader` / `--loaders` | 选择 Loader，默认全部内置 Loader |
-| `--contents metadata,ident` | 默认两类：Loader metadata 和来源识别结果；可只选一类 |
-| `--sources modrinth,curseforge` | 默认全部来源；可逗号分隔选择子集，支持 `curseforge@KEY` |
+| `--metas meta,ident` / `--meta META` | 默认两类；显式的逗号分隔或重复指定覆盖默认集合 |
+| `--no-metas` / `--metas ,` | 只导入文件，不计算任何元数据 |
+| `--sources modrinth,curseforge` / `--source SOURCE` | 默认两个来源；显式指定覆盖默认集合，支持 `curseforge@KEY` |
 | `--force` | 强制重新查询所选 Loader／source 的已有结果 |
 | `--parallelism COUNT` | 名称／ID 扫描和导入／识别阶段的最大并发文件数，默认 10 |
 
@@ -67,24 +68,25 @@ mcpm mod cache example.jar --force
 [cache mods import](../cache.md) 保留按路径导入、不识别的底层语义。
 `mod info/list` 默认只读取已有缓存，`--no-cache` 可关闭；不保存文件或识别结果。
 
-两类结果均依赖同一 `.dat`：Loader 使用 `.data.json`，来源匹配使用 `.identification.json`，
+两类结果均依赖同一 缓存内容文件：Loader 使用 `meta`，来源匹配使用 `ident`，
 各自可以独立缺失或损坏。所有 CurseForge 配置共用缓存命名空间，key／endpoint 不进入缓存。
-`--contents ident` 仍导入文件，但不会创建 Loader metadata。整批平台请求共用持续存活的客户端 runtime。
+`--metas ident` 仍导入文件，但不会创建 Loader metadata。整批平台请求共用持续存活的客户端 runtime。
 
 ```sh
-mcpm mod cache --directory ./mods --all --contents metadata
-mcpm mod cache example.jar --contents ident --sources modrinth
+mcpm mod cache --directory ./mods --all --metas meta
+mcpm mod cache example.jar --meta ident --source modrinth
+mcpm mod cache example.jar --no-metas
 ```
 
 ## 结果与失败
 
 - 按选择顺序输出结果，实际任务可以并发完成。
 - 单文件失败继续后续文件，已完成的写入保留。
-- 导入失败没有成功导入结果。metadata 失败可能留下已导入的 `.dat`，记录仍包含
+- 导入失败没有成功导入结果。metadata 失败可能留下已导入的 缓存内容文件，记录仍包含
   BLAKE3、是否本次发布及观察到的可用状态。
 - 识别错误不会被写成“未识别”。
 - 查询和选择阶段的目录扫描错误写入 stderr，计入失败；任一文件或选择失败导致非零退出。
-- Console 默认显示进度条和最终汇总；`--expanded`（`-E`）才展示逐文件源路径、
+- Console 分别显示导入、meta、ident 阶段的进度条，未选择的阶段跳过。每段结束时进度条消失，成功时输出一句完整提示；`--details` 才展示逐文件源路径、
   BLAKE3、新增／复用、实际传输方式及摘要状态。错误始终显示。
   汇总前空行，汇总全部小写，区分文件数量和唯一缓存对象数。
   本次新增过的对象只计新增；文件失败和选择／发现阶段失败分别计数，同一文件可能在两个阶段失败。

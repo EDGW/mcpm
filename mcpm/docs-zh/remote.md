@@ -275,8 +275,8 @@ CLI 的 `mod info/list` 默认发送使用用户缓存的选择；`--no-cache` �
 ## 来源识别缓存传输
 
 - `mod.source.identify` 可选 `cache`：null／省略关闭，`{"kind":"default"}` 或 `{"kind":"directory","path":"..."}` 选择文件主机目录；CLI 默认开启。
-- 成功 summary 可含来源 map `cached`（FileMatch）；空 map 省略以兼容旧端。复用要求 `.dat` 且与 summary 一致；客户端检查 key 所有权、hash 格式、大小和 SHA-1 后跳过平台请求。
-- `server.mods.cache.writing.contents` 选择 metadata／ident，默认两类。远端 handler 导入 `.dat`、按需刷新 Loader metadata；客户端存储完成后用本地 provider／凭据补全来源，source 配置不跨 SSH。
-- 显式 `cache.mods.identification.write` 接受 `{cache,id,file}`；id 为 BLAKE3，file 为可信的规范来源 FileMatch，cache 使用上述选择。主机验证 `.dat` 的 BLAKE3／size／SHA-1，通过库 codec 合并后返回一条 null data 确认。缺失／无效数据使用通用命令错误。Identify 不调用写操作。
+- 成功 summary 可含来源 map `cached`（FileMatch）；空 map 省略以兼容旧端。复用要求 缓存内容文件 且与 summary 一致；客户端检查 key 所有权、hash 格式、大小和 SHA-1 后跳过平台请求。
+- `server.mods.cache.writing.contents` 选择 metadata／ident，默认两类。远端 handler 导入 缓存内容文件、按需刷新 Loader metadata；客户端存储完成后用本地 provider／凭据补全来源，source 配置不跨 SSH。
+- 显式 `cache.mods.identification.write` 接受 `{cache,id,file}`；id 为 BLAKE3，file 为可信的规范来源 FileMatch，cache 使用上述选择。主机验证 缓存内容文件 的 BLAKE3／size／SHA-1，通过库 codec 合并后返回一条 null data 确认。缺失／无效数据使用通用命令错误。Identify 不调用写操作。
 - FileMatch 含 `reference {project:{source,id},id}`、`filename`、`size`、`hashes`（`{algorithm,value}`）、`role`（primary／additional）。所有 CurseForge 配置持久化为 `source:"curseforge"`。
 - 缓存 record 新增 `metadata_requested`、各来源 `identification`（matched／unmatched／failed，失败含 error 和 remote）、主错误的 `error_remote`。多个 source 失败仍按一个文件计失败，Console 分别按真实来源展示错误。

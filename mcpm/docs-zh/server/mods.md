@@ -50,7 +50,7 @@ mcpm --ssh 'ssh user@host' server mods cache --server /srv/minecraft --file exam
 printf '%s\n' create jei | mcpm server mods cache --server /srv/minecraft --input modid
 ```
 
-- Console 默认仅显示进度条和最终汇总，`--expanded`（`-E`）显示逐文件详情；错误始终显示。Raw 仍逐文件输出结构化记录，两者复用 [`mod cache`](../mod/cache.md) 的逐文件结果。空输入提示选择项目；完整缓存需显式传 `--all`。
+- Console 默认仅显示进度条和最终汇总，`--details` 显示逐文件详情；错误始终显示。Raw 仍逐文件输出结构化记录，两者复用 [`mod cache`](../mod/cache.md) 的逐文件结果。空输入提示选择项目；完整缓存需显式传 `--all`。
 - 默认复制完整外层归档，仅为服务器声明的 loader 缓存完整嵌套元数据，不提供 loader 覆盖参数。
 - `--cache-dir PATH` 指定已初始化的目标缓存，默认使用文件主机的 `~/.mcpm/cache/mods`。
 - `--mode copy|hard-link|prefer-hard-link` 决定新对象的发布方式。硬链接与源文件共享内容保护；已存在的 BLAKE3 对象直接复用，不关联源文件或替换缓存 inode。
@@ -67,13 +67,13 @@ printf '%s\n' create jei | mcpm server mods cache --server /srv/minecraft --inpu
 - `server.mods.list` 接受相同字段，事件为 `scope {loaders}`、`scan {completed,total}`、`error {error}`、有序 `item {index,record}`、`done {files,input_errors,failed,cache}`。记录复用 mod-list 表示，可附带 `records` 选择键，每个键包含 `metadata` 和 `record` 索引。
 - 查询请求省略 `cache` 或传 null 时禁用缓存，以兼容既有协议调用。CLI list/info 默认发送 `{"kind":"default"}`，指定目录时发送 `{"kind":"directory","path":"..."}`。完成事件的 `cache` 包含 `fully_cached`、`partially_cached`、`total`；新客户端允许旧远端省略该字段。
 - List 的失败数覆盖唯一失败扫描文件，包括未选中的索引项；重复展示不增加计数。
-- `server.mods.cache` 请求为 `{server,selection,writing}`。`server`、`selection` 必填，选择不能为空，或使用 `all:true`。`writing` 接受 `cache_dir`（默认 null）、`mode`（`copy`、`hard_link`、`prefer_hard_link`，默认 `copy`）、`force`（默认 false）及正整数 `parallelism`（默认 10）。
-- 缓存事件使用 `{event,contents}`：`selection` 包含共享扫描 `progress`/`diagnostic` 事件；`progress` 包含 `{completed,total}`；`file` 与 Raw 的 JSON 记录一致；`done` 包含 `{files,failed_files,selection_failures,objects_added,objects_reused}`。并行完成不改变文件输出顺序。导入失败时 ID 为 null，元数据失败可能已发布对象。
+- `server.mods.cache` 请求为 `{server,selection,writing}`。`server`、`selection` 必填，选择不能为空，或使用 `all:true`。`writing` 接受 `cache_dir`（默认 null）、`mode`（`copy`、`hard_link`、`prefer_hard_link`，默认 `copy`）、可选 `metas`（`meta`/`ident` 列表，默认两类）、追加列表 `meta`、`no_metas`（默认 false）、`force`（默认 false）及正整数 `parallelism`（默认 10）。显式 meta 列表覆盖默认集合；`no_metas` 与两个列表冲突。
+- 缓存事件使用 `{event,contents}`：`selection` 包含共享扫描 `progress`/`diagnostic` 事件；`progress` 包含导入、metadata 或 ident 阶段的 `{stage,completed,total}`；`stage_done` 包含 `{stage,success}`；`file` 与 Raw 的 JSON 记录一致；`done` 包含 `{files,failed_files,selection_failures,objects_added,objects_reused}`。并行完成不改变文件输出顺序。导入失败时 ID 为 null，元数据失败可能已发布对象。
 - 操作失败体现在缓存记录及完成计数中；包含失败的完整请求仍可正常结束，由 CLI 决定非零退出。处理器失败、取消仍使用传输层错误，此时不要求完成事件。
 
 ## 缓存结果类别
 
-`server mods cache` 与 `mod cache` 共用 `--contents metadata,ident`（默认两类）和
-`--sources modrinth,curseforge`（默认全部）。metadata 仅用服务器声明的 Loader，ident 查询所选来源，
-两类均导入 `.dat`。SSH／Remote 时平台 HTTP 和 API key 留在客户端，验证后的结果通过
+`server mods cache` 与 `mod cache` 共用 `--metas meta,ident`（默认两类）和
+`--sources modrinth,curseforge`（默认全部）。meta 仅用服务器声明的 Loader，ident 查询所选来源，
+两类均导入 缓存内容文件。SSH／Remote 时平台 HTTP 和 API key 留在客户端，验证后的结果通过
 `cache.mods.identification.write` 发布到文件主机。Identify 保持只读。

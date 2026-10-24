@@ -1,106 +1,161 @@
-# Mod cache
+# Mod cache management
 
-`mcpm cache mods` explicitly stores files under `~/.mcpm/cache/mods`.
-Mod info/list query this cache by default. `--cache-dir` selects another cache;
-`--no-cache` disables cache lookup. Inspections do not import files or save identification results. Downloads and source searches do
-not automatically use it. All commands support Console and Raw. Redirected stdout
-or `--raw` produces one JSON object per line; an empty `list` produces no rows.
-Cache management commands are local and do not support SSH.
+`mcpm cache mods` explicitly manages content and named metadata in `~/.mcpm/cache/mods`.
 
-Use [`mcpm mod cache`](mod/cache.md) to select files by filename/ID/name or stdin and store both files and identification metadata. For registered servers, [`server mods cache`](server/mods.md#cache) inherits the server scope and loader and supports SSH/Remote workspaces; server mods list/info also default to cache lookup on the file host.
+- Each entry is identified by a complete 64-character lowercase hexadecimal BLAKE3. Identical content is stored once.
+- `meta` and `ident` are metadata names, containing Loader declarations and source matches respectively.
+- `import` stores content only. It never calculates, refreshes or reads these metadata snapshots.
+- `mod info/list` and `mod source identify` query existing caches without writing. Use
+  [`mod cache`](mod/cache.md) or [`server mods cache`](server/mods.md) for selected-file caching.
+- Management commands run locally and support Console and Raw. `--raw` or non-TTY stdout selects Raw.
+- Raw list, info and simple operation receipts use TSV. Refresh succeeds silently with exit code 0.
 
-## Usage
+## Commands
 
 ```sh
 mcpm cache mods init --directory /path/to/cache
 mcpm cache mods import example.jar another.jar
 mcpm cache mods import example.jar --mode hard-link
 mcpm cache mods list
-mcpm cache mods info <BLAKE3>
-mcpm cache mods refresh <BLAKE3> --loader fabric
-mcpm cache mods refresh <BLAKE3> --force
-mcpm cache mods verify <BLAKE3>
-mcpm cache mods export <BLAKE3> restored.jar another-copy.jar
-mcpm cache mods export <BLAKE3> linked.jar --mode hard-link
-mcpm cache mods remove <BLAKE3>
+mcpm cache mods list --columns blake3,size,metadatas
+mcpm cache mods list --details
+mcpm cache mods info HASH1 HASH2 --columns blake3,status,metadatas
+mcpm cache mods info --all
+printf '%s\n' HASH1 HASH2 | mcpm cache mods info
+mcpm cache mods refresh HASH1 HASH2 meta --loaders fabric,forge
+mcpm cache mods refresh HASH1 ident --source modrinth --source curseforge
+mcpm cache mods refresh --all meta
+mcpm cache mods refresh --all meta --parallelism 4
+mcpm cache mods refresh --all ident --details
+mcpm cache mods refresh HASH1 meta --short
+printf '%s\n' HASH1 HASH2 | mcpm cache mods refresh ident
+mcpm cache mods verify HASH1 HASH2
+mcpm cache mods verify --all
+mcpm cache mods verify --all --parallelism 4
+mcpm cache mods export HASH1 restored.jar another-copy.jar
+mcpm cache mods remove HASH1
+mcpm cache mods remove --all
 mcpm cache mods rebuild-index
 ```
 
-Use `--directory PATH` before or after a mods subcommand to select another cache.
-The default root initializes when absent or empty. Explicit roots must already be
-initialized. Nonempty unmarked roots, malformed manifests and unsupported versions
-are rejected. Directory format version is 2; version 1 GUID caches are not migrated
-or adopted automatically. Select a new directory to retain an old cache.
-
-Objects use their complete 64-character lowercase BLAKE3 as their ID. Equal BLAKE3
-means the same content and one object. Import defaults to copying; it does not
-identify mods. New objects initially have `missing_digest`, and can be exported.
-
-Import accepts multiple files. Export accepts one BLAKE3 followed by one or more
-destination paths. Both process inputs in order, emit a record per successful item,
-and stop at the first failure. Earlier successful items remain; batches do not roll back.
-
 | Command | Behavior |
 | --- | --- |
-| `init` | Initialize an absent or empty directory; accept an already valid cache |
-| `list` | Show complete and unavailable objects without parsing JARs |
-| `info BLAKE3` | Console: File, Size, SHA-256, then recognized loaders’ declarations in `mod info` format; Raw: complete cache record |
-| `refresh BLAKE3` | Identify missing/outdated results; all built-in loaders by default |
-| `refresh BLAKE3 --force` | Reparse selected loaders even when current results exist |
-| `verify BLAKE3` | Check object contents and metadata; `--structure-only` skips full hashing |
-| `export BLAKE3 PATH...` | Export to absent destinations outside the cache; parents must exist |
-| `remove BLAKE3` | Delete cache names only; report whether anything was removed |
-| `rebuild-index` | Rebuild the optional imohash candidate index from stored objects |
+| `init` | Initialize a missing/empty directory, or accept an existing valid cache |
+| `import PATH...` | Import/reuse content without calculating metadata |
+| `list` | Inventory entries, including invalid content types and orphan metadata; BLAKE3 only by default |
+| `info [HASH]...` | Inspect content and selected metadata without identification or refresh |
+| `refresh [HASH]... meta` | Refresh selected Loader results |
+| `refresh [HASH]... ident` | Refresh selected source results |
+| `verify [HASH]...` | Verify content BLAKE3 without reading or validating metadata |
+| `export HASH PATH...` | Export to absent destinations with existing parents |
+| `remove [HASH]...` | Remove selected content and all owned metadata names; `--all` selects the complete inventory |
+| `rebuild-index` | Rebuild the optional imohash index from verified content |
 
-`refresh` accepts the same `--loader` / comma-separated `--loaders` selection as
-mod inspection. Loader failures leave the previous descriptor intact. Raw
-`digest.loaders` distinguishes unchecked loaders (absent key), checked but
-unrecognized files (`null`), and recognized ModMeta snapshots (objects).
-Non-recognition is reusable; `--force` rechecks it.
+`--directory PATH` can appear before or after a mods subcommand. Explicit roots must already be initialized;
+the default root initializes when absent/empty. Directory format is version 3. Nonempty unmarked roots,
+malformed manifests and incompatible versions are rejected. No automatic migration.
 
-## Import and hard links
+## Inputs and columns
 
-- Import checks content before choosing a transfer strategy. An existing valid
-  object is reused without replacing it, staging files, attempting hard links or
-  changing source permissions. Reimporting an independent copy does not replace
-  the source or link it to the existing object.
-- Mode applies only when an object must be added: `--mode copy` is the default;
-  `hard-link` requires a hard link; `prefer-hard-link` falls back to copying only
-  for filesystem capability failures. Even `hard-link` can reuse an existing
-  object when the source is on another filesystem.
-- Raw import records contain `published`: true for a newly published object,
-  false for reuse. `method` is `copy` or `hard_link` for publication, and `null`
-  for reuse. Console displays added/reused and the method when applicable.
-- Hard-link imports and exports share content and write protection. Update a linked
-  file by writing a new file and replacing your filename, rather than overwriting,
-  appending or truncating it. Protection also applies to a hard-link import source.
-- Exports never overwrite a destination or create its parents. Removing an object
-  leaves exported copies and hard links intact. There is no automatic eviction or
-  backup-reference tracking.
+- info, verify, refresh and remove append redirected stdin after arguments, one complete HASH per nonblank line.
+- Duplicates are processed once in first-seen order. At least one combined HASH is required unless `--all` is used.
+- info, verify, refresh and remove accept `--all` to select the complete inventory in BLAKE3 order,
+  including orphan metadata and invalid content types. It conflicts with HASH arguments and nonblank stdin.
+  Empty inventory succeeds without processing entries. Selection does not decode metadata.
+  Orphans and invalid types can be shown by info; refresh and verify stop at the first entry they cannot process.
+- With `--all`, refresh and verify process up to `--parallelism COUNT` entries concurrently (default `10`).
+  COUNT must be positive; `1` processes entries sequentially. Explicit HASH inputs remain sequential.
+  Results retain BLAKE3 order regardless of completion order. info does not accept this option.
+  Sources within one refresh entry still run sequentially, so concurrent source writes never target the same entry.
+- Place refresh HASH arguments before meta or ident.
+- Combine `--columns A,B`, repeated `--column A`, and `-C BFSHTM`. Explicit selections replace defaults.
+- list defaults to blake3 only. Metadata is displayed only when metadatas is selected.
+  `--details` selects all columns unless columns are explicit.
+- Console prints single-field entries as a list; an explicit field label appears once at the top, while default BLAKE3 has no label.
+  Multiple fields form a group with inline labels, separated from the next entry by a blank line. More than 80 entries require Y/n confirmation (Enter means Yes). Metadatas shows
+  snapshot states and complete details through the shared data renderer. Loader declarations use the same format as `mod info`;
+  explicitly unrecognized Loaders are shown, while unchecked Loaders are omitted.
+- Raw list and info share the same columns and TSV rendering, one row per entry. Metadatas contains
+  sorted names only and does not decode snapshots. Fields escape controls and literal backslashes.
+  No header by default; `--headers` prints one header and does not affect Console or refresh.
+- info defaults to all columns. Console shows each selected metadata's state and complete details,
+  including source matches as labeled field groups. Raw shows metadata names only.
 
-## Availability and concurrency
+| Column | Letter | Meaning |
+| --- | --- | --- |
+| blake3 | B | Content ID |
+| file | F | Cached content path, not the original import filename |
+| size | S | Actual content size in bytes |
+| sha256 | H | SHA-256 from valid meta, empty when absent; never calculated on demand |
+| status | T | Content structure state; Console also shows the reason when unavailable |
+| metadatas | M | Raw: sorted names; Console: states and full details for known names, presence for other names |
 
-- `available`: valid identification digest, including explicit non-recognition;
-  at least one loader has been checked.
-- `not_found`: neither data nor descriptor exists.
-- `unavailable`: missing descriptor, invalid/incompatible data, or a read failure.
-- `info` presents these as normal query results, with a Console explanation or
-  structured Raw status. `verify` fails for unavailable or missing objects.
-- `refresh` creates a missing digest. Invalid content descriptors are rejected;
-  outdated parser results can be refreshed.
-- Full verification and export check content against the BLAKE3 ID, including
-  objects without an identification digest. Structural checks cannot detect
-  same-size content changes. A missing digest still has `missing_digest` status.
-- Cache completeness is best effort: concurrent writes may be lost or disappear.
-  Every result accepted for reuse must still be correct. Data is immutable after
-  publication; metadata is published as a complete atomic snapshot.
-- There is no global reader/writer lock. Concurrent deletion may cause a miss;
-  concurrent publication can recreate an object after deletion. Successful import
-  describes the operation, not a guarantee of future persistence.
-- The imohash index is a rebuildable acceleration structure. Missing/stale entries
-  do not prove a content match; lookup validates candidates and falls back to full
-  BLAKE3. Index recovery uses a separate nonblocking coordination lock; SQLite
-  transactions and initialization may synchronize internally. Busy index writes
-  can be skipped without blocking object or metadata operations.
+Content `available` means a regular content file exists; `not_found` means no content file exists.
+Use verify to establish its full content identity. meta and ident report independent states, and missing/corrupt
+metadata does not make content verification fail. `--structure-only` checks regular-file presence only and
+cannot detect same-size content corruption.
 
-[Command reference](README.md) · [简体中文](../docs-zh/cache.md)
+## Refresh
+
+- Console uses short output when more than three entries are selected, counting unique HASH inputs
+  after merging arguments and stdin, or the inventory selected by `--all`.
+- Short output contains only full BLAKE3 and `success` / `failed`, one line per entry.
+  Reused matches and successful queries without a match both count as success. Errors still go to stderr.
+- With up to three entries, Console defaults to detailed output, starting with the same labeled
+  BLAKE3, Status and File fields as info, followed by Loader or source details.
+  Status describes cached content, independently of whether a source matched.
+- `--details` forces detailed output; `--short` forces short output. They conflict.
+  These flags and `--all` work before or after meta/ident; HASH arguments must precede the subcommand.
+- Raw, including redirected stdout, emits nothing on success and returns exit code 0.
+  `--headers`, `--details` and `--short` have no effect in Raw. Use info or list to query the resulting cache.
+- Errors go to stderr through the shared error renderer, including each `caused by:` context,
+  and return a nonzero exit code.
+- meta defaults to forge,fabric,neoforge. Combine `--loaders A,B` and repeated `--loader A`;
+  both accept commas. Explicit selection replaces defaults.
+- Current recognition and successful non-recognition are reused; `--force` reidentifies selected Loaders.
+  Selected results commit together, preserving unselected current results; failures preserve the old snapshot.
+- ident defaults to modrinth,curseforge in that order. Select with `--sources A,B` or repeated `--source A`.
+  `curseforge@KEY` uses the official API. Each source may be selected once.
+- Only verified successful matches persist. Misses are not negatively cached. `--force` bypasses cached matches;
+  errors and unmatched requests preserve previous positive records.
+  Ambiguous verified candidates count as unmatched.
+- Detailed Console ident output reports each selected source as `reused`, `matched` or `unmatched`.
+  `reused` skips a provider request; `matched` verifies and stores a provider match;
+  `unmatched` is a successful query without a match and is never stored.
+- Detailed Console ident output groups fields by source, showing the current result and saved match details.
+  When every source is unmatched and no earlier matches exist, no ident snapshot is created;
+  Console shows `Stored matches: none`.
+- An unmatched source may still show a retained earlier match in Console; a miss does not remove saved matches.
+- Sources for one HASH commit in selection order; a later source failure retains earlier writes.
+- A failed entry stops new work beyond it. In-flight operations finish and may complete writes;
+  output stops at the first failed entry in selection order. Completed writes remain; there is no batch rollback.
+
+## Transfers and Raw receipts
+
+- Import/export process inputs in order and emit one record per successful item. The first failure stops processing.
+- `--mode copy` is the default; hard-link requires links; prefer-hard-link falls back only for filesystem capability failures.
+- Valid existing content is reused without replacement or linking/protecting another independent source copy.
+- Hard links share content and write protection. Update files by replacing names with new files.
+- Export never overwrites or creates parents. Removing cache names leaves exported copies and hard links intact.
+- TSV escapes controls and literal backslashes. An empty method means reuse without a transfer.
+
+| Operation | TSV fields in order |
+| --- | --- |
+| init | directory, version |
+| import | blake3, file, published, method |
+| export | blake3, destination, method |
+| verify | blake3, status, reason |
+| remove | blake3, removed |
+| rebuild-index | indexed |
+
+Verification receipts contain only status; error details use the shared stderr cause-chain renderer.
+The `reason` TSV field is reserved and empty.
+
+## Concurrency
+
+- Published content is immutable; metadata publishes complete snapshots atomically.
+- Concurrent updates may lose some results, and a publisher may recreate deleted names. No batch transaction.
+- Reusable metadata requires valid associated content; orphan metadata can be inventoried/removed but not reused.
+- imohash only selects candidates. Lookup validates identity and falls back to full BLAKE3 when needed. The index is rebuildable.
+
+[Command reference](README.md) · [中文](../docs-zh/cache.md)

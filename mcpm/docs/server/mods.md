@@ -50,7 +50,7 @@ mcpm --ssh 'ssh user@host' server mods cache --server /srv/minecraft --file exam
 printf '%s\n' create jei | mcpm server mods cache --server /srv/minecraft --input modid
 ```
 
-- Console shows progress and a final summary by default; `--expanded` (`-E`) adds per-file details. Errors always appear. Raw retains one structured record per selected file. Both reuse [`mod cache`](../mod/cache.md). Empty input prompts for a selection; use `--all` for the complete mods directory.
+- Console shows progress and a final summary by default; `--details` adds per-file details. Errors always appear. Raw retains one structured record per selected file. Both reuse [`mod cache`](../mod/cache.md). Empty input prompts for a selection; use `--all` for the complete mods directory.
 - Copies whole outer archives by default and stores metadata for the server's declared loader, including its complete nested tree. There are no loader override flags.
 - `--cache-dir PATH` selects an initialized target cache; default: the file host's `~/.mcpm/cache/mods`.
 - `--mode copy|hard-link|prefer-hard-link` controls publishing new objects. Hard links share content protection with the original file. Existing BLAKE3 objects are reused without linking the source or replacing the cached inode.
@@ -67,14 +67,14 @@ Clients and remote binaries should be upgraded together; older strict list clien
 - `server.mods.list` accepts the same fields. Events are `scope {loaders}`, `scan {completed,total}`, `error {error}`, ordered `item {index,record}`, and `done {files,input_errors,failed,cache}`. Records reuse mod-list records, with optional selected declaration keys (`records`, each containing `metadata` and `record` indices).
 - For both queries, omitted/null `cache` disables lookup for protocol compatibility. CLI list/info send `{"kind":"default"}` by default, or `{"kind":"directory","path":"..."}` for an explicit root. Completion `cache` contains `fully_cached`, `partially_cached`, and `total`; consumers accept its omission from older remotes.
 - List failure counts cover unique failed scanned files, including unselected index entries. Repeated selected rows do not increase those counts.
-- `server.mods.cache` accepts `{server,selection,writing}`. `server` and `selection` are required; selection must be nonempty or `all:true`. `writing` accepts `cache_dir` (default null), `mode` (`copy`, `hard_link`, `prefer_hard_link`; default `copy`), `force` (default false), `contents` (`metadata`, `ident`; default both), and positive `parallelism` (default 10).
-- Cache events use `{event,contents}`: `selection` wraps shared scan `progress`/`diagnostic` events; `progress` contains `{completed,total}`; `file` contains the same JSON record as Raw output; `done` contains `{files,failed_files,selection_failures,objects_added,objects_reused}`. File events retain selection order despite parallel completion. Import failure has null ID; metadata failure can retain a published object.
+- `server.mods.cache` accepts `{server,selection,writing}`. `server` and `selection` are required; selection must be nonempty or `all:true`. `writing` accepts `cache_dir` (default null), `mode` (`copy`, `hard_link`, `prefer_hard_link`; default `copy`), `metas` (optional `meta`/`ident` list; default both), `meta` (additional list), `no_metas` (default false), `force` (default false), and positive `parallelism` (default 10). Explicit meta selections replace the default pair; `no_metas` conflicts with both lists.
+- Cache events use `{event,contents}`: `selection` wraps shared scan `progress`/`diagnostic` events; `progress` contains `{stage,completed,total}` for import, metadata, or ident; `stage_done` contains `{stage,success}`; `file` contains the same JSON record as Raw output; `done` contains `{files,failed_files,selection_failures,objects_added,objects_reused}`. File events retain selection order despite parallel completion. Import failure has null ID; metadata failure can retain a published object.
 - Operation failures are represented in cache records and completion counts. A completed request may finish normally with nonzero failure counts; the CLI applies its nonzero exit policy. Handler/cancellation failures remain transport errors, and no completion is required after such errors.
 
 ## Cache result categories
 
-`server mods cache` shares `--contents metadata,ident` (default both) and
-`--sources modrinth,curseforge` (default all) with `mod cache`. `metadata` uses the
+`server mods cache` shares `--metas meta,ident` (default both) and
+`--sources modrinth,curseforge` (default all) with `mod cache`. `meta` uses the
 server's declared loader; `ident` queries the selected providers. Data is always
 imported. With SSH/Remote, provider HTTP and API keys remain on the client;
 verified source results are published on the file host through

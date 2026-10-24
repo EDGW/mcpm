@@ -47,8 +47,9 @@ A positional directory is not a file input; use `--directory PATH --all`.
 | `--mode hard-link` | New objects require a hard link; source content becomes write-protected too |
 | `--mode prefer-hard-link` | Attempt a hard link; copy only on filesystem capability failures |
 | `--loader` / `--loaders` | Select loaders; all built-ins by default |
-| `--contents metadata,ident` | Default both: Loader metadata and source matches; choose either category |
-| `--sources modrinth,curseforge` | Default all sources; comma-separated subset, with `curseforge@KEY` supported |
+| `--metas meta,ident` / `--meta META` | Default both; explicit comma-separated or repeated selections replace defaults |
+| `--no-metas` / `--metas ,` | Import content without calculating either metadata kind |
+| `--sources modrinth,curseforge` / `--source SOURCE` | Default both; explicit selections replace defaults; `curseforge@KEY` is supported |
 | `--force` | Refresh every requested loader/source result even when cached |
 | `--parallelism COUNT` | Maximum files in parallel during name/ID scanning and import/identification; default 10 |
 
@@ -79,15 +80,16 @@ mcpm mod cache example.jar --force
 identification. `mod info/list` reuse existing metadata by default (`--no-cache` disables this); they do not
 store files or identification results.
 
-Both categories require the same `.dat`. Loader results use `.data.json`; source
-matches use `.identification.json`. Either may be absent or unusable independently.
+Both categories require the same cached content file. Loader results use `meta`; source
+matches use `ident`. Either may be absent or unusable independently.
 All CurseForge configurations share one cache namespace, without keys/endpoints.
-`--contents ident` imports the data but does not create Loader metadata. Provider
+`--metas ident` imports the data but does not create Loader metadata. Provider
 requests use one client runtime for the complete batch.
 
 ```sh
-mcpm mod cache --directory ./mods --all --contents metadata
-mcpm mod cache example.jar --contents ident --sources modrinth
+mcpm mod cache --directory ./mods --all --metas meta
+mcpm mod cache example.jar --meta ident --source modrinth
+mcpm mod cache example.jar --no-metas
 ```
 
 ## Results and failures
@@ -95,12 +97,12 @@ mcpm mod cache example.jar --contents ident --sources modrinth
 - Results are emitted in selection order; worker completion order may differ.
 - One file failure does not stop later files. Completed writes are retained.
 - An import failure has no successful import result. A metadata failure may leave
-  an imported `.dat` without usable metadata; its record retains the BLAKE3,
+  an imported cached content file without usable metadata; its record retains the BLAKE3,
   publication result and observed availability.
 - Recognition failures are not cached as unrecognized results.
 - Query and discovery-scan errors are reported on stderr and contribute to failure.
   Any file or selection failure makes the command exit nonzero.
-- Console shows progress and a final summary by default. `--expanded` (`-E`) adds
+- Console shows separate import, meta, and ident progress bars for selected stages. Each bar disappears when its stage ends; a successful stage then prints a complete sentence. `--details` adds
   per-file source path, BLAKE3, added/reused, transfer method and metadata status.
   Errors always appear. After a blank line, a lowercase summary separates file
   totals from unique added/reused objects. An object added during this command is
