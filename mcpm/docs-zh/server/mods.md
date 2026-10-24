@@ -70,3 +70,10 @@ printf '%s\n' create jei | mcpm server mods cache --server /srv/minecraft --inpu
 - `server.mods.cache` 请求为 `{server,selection,writing}`。`server`、`selection` 必填，选择不能为空，或使用 `all:true`。`writing` 接受 `cache_dir`（默认 null）、`mode`（`copy`、`hard_link`、`prefer_hard_link`，默认 `copy`）、`force`（默认 false）及正整数 `parallelism`（默认 10）。
 - 缓存事件使用 `{event,contents}`：`selection` 包含共享扫描 `progress`/`diagnostic` 事件；`progress` 包含 `{completed,total}`；`file` 与 Raw 的 JSON 记录一致；`done` 包含 `{files,failed_files,selection_failures,objects_added,objects_reused}`。并行完成不改变文件输出顺序。导入失败时 ID 为 null，元数据失败可能已发布对象。
 - 操作失败体现在缓存记录及完成计数中；包含失败的完整请求仍可正常结束，由 CLI 决定非零退出。处理器失败、取消仍使用传输层错误，此时不要求完成事件。
+
+## 缓存结果类别
+
+`server mods cache` 与 `mod cache` 共用 `--contents metadata,ident`（默认两类）和
+`--sources modrinth,curseforge`（默认全部）。metadata 仅用服务器声明的 Loader，ident 查询所选来源，
+两类均导入 `.dat`。SSH／Remote 时平台 HTTP 和 API key 留在客户端，验证后的结果通过
+`cache.mods.identification.write` 发布到文件主机。Identify 保持只读。

@@ -36,6 +36,14 @@ impl CacheLookup {
         self.cache.root()
     }
 
+    /// Reads source information for the same content, independently of loader metadata.
+    pub fn ident_info(&self, path: &Path) -> Result<Option<super::CacheIdentInfo>, CacheError> {
+        let Some(entry) = self.find(path)? else {
+            return Ok(None);
+        };
+        Ok(Some(self.cache.reader()?.ident_info(entry.id())))
+    }
+
     pub fn find(&self, path: &Path) -> Result<Option<CacheEntry>, CacheError> {
         let reader = self.cache.reader()?;
         let mut source = ContentFile::open(path)?;

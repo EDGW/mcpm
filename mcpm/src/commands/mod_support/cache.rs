@@ -7,7 +7,7 @@ use kako_mods_lib::local::mcmod::ModOpenCache;
 
 #[derive(Debug, Args)]
 pub(in crate::commands) struct CacheArgs {
-    /// Disable the default read-only metadata cache and identify files directly.
+    /// Disable the default read-only cache and identify files directly.
     #[arg(long, conflicts_with = "cache_dir", help_heading = "Loading options")]
     no_cache: bool,
     /// Use this initialized cache instead of ~/.mcpm/cache/mods on the file host.

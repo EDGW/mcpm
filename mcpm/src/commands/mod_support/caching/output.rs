@@ -32,6 +32,7 @@ pub(in crate::commands) struct Presentation {
     failed: usize,
     expanded: bool,
     remote: bool,
+    remote_failure: bool,
     validator: super::validation::Validator,
 }
 
@@ -43,6 +44,7 @@ impl Presentation {
             failed: 0,
             expanded: args.expanded,
             remote: false,
+            remote_failure: false,
             validator: Default::default(),
         }
     }
@@ -58,7 +60,17 @@ impl Presentation {
     pub fn event(&mut self, event: Event) -> Result<()> {
         self.validator.accept(&event)?;
         match event {
-            Event::Selection(event) => self.scan.event(event)?,
+            Event::Selection(event) => {
+                if self.remote
+                    && matches!(
+                        event,
+                        crate::commands::mod_support::scan::Event::Diagnostic { .. }
+                    )
+                {
+                    self.remote_failure = true;
+                }
+                self.scan.event(event)?;
+            }
             Event::Progress { completed, total } => {
                 if completed == 0 && total > 0 {
                     let progress =
@@ -74,17 +86,27 @@ impl Presentation {
                 }
             }
             Event::File(file) => {
-                if let Some(error) = &file.error {
-                    let error = error.clone().into_error();
-                    let error = if self.remote {
-                        diagnostics::RemoteError::wrap(error)
-                    } else {
-                        error
-                    };
-                    match &self.progress {
-                        Some(progress) => progress.report(&error),
-                        None => diagnostics::error(&error),
-                    }
+                let source_errors: Vec<_> = file
+                    .identification
+                    .values()
+                    .filter_map(|result| match result {
+                        super::record::IdentResult::Failed { error, remote } => {
+                            Some((error, *remote))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                // The primary error duplicates the first source failure only for the ident stage.
+                if (!matches!(file.failed_stage, Some(super::Stage::Ident))
+                    || source_errors.is_empty())
+                    && let Some(error) = &file.error
+                {
+                    let remote = file.error_remote
+                        || (self.remote && !matches!(file.failed_stage, Some(super::Stage::Ident)));
+                    self.report(error, remote);
+                }
+                for (error, remote) in source_errors {
+                    self.report(error, remote);
                 }
                 if self.expanded || !terminal::stdout_is_tty() {
                     write_file(&mut io::stdout().lock(), &file)?;
@@ -98,6 +120,20 @@ impl Presentation {
         Ok(())
     }
 
+    fn report(&mut self, error: &crate::diagnostics::ErrorReport, remote: bool) {
+        self.remote_failure |= remote;
+        let error = error.clone().into_error();
+        let error = if remote {
+            diagnostics::RemoteError::wrap(error)
+        } else {
+            error
+        };
+        match &self.progress {
+            Some(progress) => progress.report(&error),
+            None => diagnostics::error(&error),
+        }
+    }
+
     pub fn finish(self) -> Result<()> {
         self.validator.finish()?;
         if self.failed != 0 {
@@ -105,7 +141,7 @@ impl Presentation {
                 "mod caching completed with {} file or selection failure(s)",
                 self.failed
             );
-            return Err(if self.remote {
+            return Err(if self.remote_failure {
                 diagnostics::RemoteError::wrap(error)
             } else {
                 error
@@ -124,6 +160,7 @@ fn write_file(out: &mut impl Write, file: &Record) -> Result<()> {
     let stage = file.failed_stage.map(|stage| match stage {
         super::Stage::Import => "import",
         super::Stage::Metadata => "metadata",
+        super::Stage::Ident => "ident",
     });
     if terminal::stdout_is_tty() {
         let style = OutputStyle::new();
@@ -148,11 +185,19 @@ fn write_file(out: &mut impl Write, file: &Record) -> Result<()> {
         if let Some(stage) = stage {
             writeln!(out, "  Result: {}", style.danger(format!("{stage} failed")))?;
         }
-        if let Some(status) = status {
+        if let Some(status) = status.filter(|_| file.metadata_requested) {
             writeln!(out, "  Metadata: {status}")?;
             if let Some(reason) = reason {
                 writeln!(out, "  Reason: {}", text(reason))?;
             }
+        }
+        for (source, result) in &file.identification {
+            let result = match result {
+                super::record::IdentResult::Matched => "matched",
+                super::record::IdentResult::Unmatched => "unmatched",
+                super::record::IdentResult::Failed { .. } => "failed",
+            };
+            writeln!(out, "  Identification ({source}): {result}")?;
         }
     } else {
         writeln!(out, "{}", serde_json::to_string(file)?)?;

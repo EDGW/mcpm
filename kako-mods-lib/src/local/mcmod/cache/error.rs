@@ -39,6 +39,20 @@ pub enum CacheError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("cannot parse source identification {path:?}: {source}")]
+    IdentificationData {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("invalid source match: {0}")]
+    InvalidSourceMatch(#[source] anyhow::Error),
+    #[error("source {source_id:?} failed to identify cached file: {source}")]
+    SourceIdentify {
+        source_id: String,
+        #[source]
+        source: anyhow::Error,
+    },
     #[error("loader {loader:?} failed to identify cached mod: {source}")]
     Identify {
         loader: String,

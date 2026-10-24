@@ -34,9 +34,15 @@ fn server(root: &Path, loader: &str) {
 }
 
 fn run(root: &Path, args: &[&str], input: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
-        .args(["--raw", "--log-level", "off"])
-        .args(args)
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+    command.args(["--raw", "--log-level", "off"]).args(args);
+    if args
+        .windows(3)
+        .any(|part| part == ["server", "mods", "cache"])
+    {
+        command.args(["--contents", "metadata"]);
+    }
+    let mut child = command
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -144,7 +150,7 @@ fn remote_cache_reuses_objects_completes_loader_metadata_and_queries_remain_read
     server(&root.path().join("forge"), "forge");
     let cache = ModsCache::new(root.path().join("cache"));
     cache.initialize().unwrap();
-    let request = |server: &str| json!({"server":server, "selection":{"all":true}, "writing":{"cache_dir":"cache", "parallelism":3}});
+    let request = |server: &str| json!({"server":server, "selection":{"all":true}, "writing":{"cache_dir":"cache", "parallelism":3,"contents":["metadata"]}});
     let first = remote(root.path(), "server.mods.cache", request("fabric"));
     let file = &first.iter().find(|event| event["event"] == "file").unwrap()["contents"];
     assert_eq!(file["published"], true);

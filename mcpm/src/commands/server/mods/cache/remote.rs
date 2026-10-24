@@ -5,7 +5,8 @@ use crate::{
     commands::mod_support::{
         caching::{
             self,
-            args::WriteArgs,
+            args::{SourcesArgs, WriteArgs},
+            identification::Completion,
             output::{DisplayArgs, Presentation},
         },
         selection::{Selection, SelectionInput},
@@ -68,8 +69,10 @@ pub(super) fn run(
     server: PathBuf,
     selection: Selection,
     writing: WriteArgs,
+    sources: SourcesArgs,
     display: DisplayArgs,
 ) -> Result<()> {
+    let mut completion = Completion::new(&writing, &sources.sources)?;
     let mut session = ssh.connect()?;
     let mut output = Presentation::remote(display);
     session
@@ -82,12 +85,17 @@ pub(super) fn run(
             })?,
         )?
         .collect(|reply| {
-            output.event(
+            completion.accept(
                 reply
                     .decode()
                     .context("invalid remote server mod cache contents")?,
+                &mut |event| output.event(event),
             )
         })?;
+    completion.finish(
+        crate::commands::source_support::identify::Location::Remote(&session),
+        |event| output.event(event),
+    )?;
     session.close()?;
     output.finish()
 }

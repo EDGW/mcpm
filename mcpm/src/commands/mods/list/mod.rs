@@ -62,6 +62,7 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         parallelism: args.loading.parallelism(),
         cache: args.cache.selection(),
     };
+    let display = args.display.with_cache(loading.cache.clone());
     let result = if ssh.is_requested() {
         debug!("Dispatching remote mod.list request over SSH");
         list::ssh::run(
@@ -69,7 +70,7 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
             remote::List::ID,
             serde_json::to_value(remote::request(paths, &args.loaders, loading)?)?,
             args.loaders,
-            args.display,
+            display,
         )
     } else {
         debug!("Dispatching local mod.list request locally");
@@ -82,7 +83,7 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
             args.loaders.select(),
             args.loaders.is_filtered(),
             loading,
-            args.display,
+            display,
         )
     };
     tracing::debug!(

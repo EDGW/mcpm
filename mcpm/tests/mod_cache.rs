@@ -25,6 +25,7 @@ fn run(root: &Path, cache: &Path, arguments: &[&str], input: Option<&str>) -> Ou
     command
         .args(["--raw", "--log-level", "off", "mod", "cache", "--cache-dir"])
         .arg(cache)
+        .args(["--contents", "metadata"])
         .args(arguments)
         .current_dir(root)
         .stdin(if input.is_some() {

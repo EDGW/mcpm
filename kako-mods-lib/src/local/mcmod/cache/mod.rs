@@ -14,6 +14,9 @@ pub use directory::CACHE_DIRECTORY_VERSION;
 mod lookup;
 pub use lookup::{CacheLookup, CachedIdentification};
 
+mod ident_info;
+pub use ident_info::CacheIdentInfo;
+
 mod content;
 mod import;
 mod index;
@@ -22,6 +25,22 @@ mod storage;
 
 #[cfg(test)]
 mod tests;
+
+/// File-host cache selection shared by loader and source identification.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CacheSelection {
+    Default,
+    Directory { path: PathBuf },
+}
+impl CacheSelection {
+    pub fn open(self) -> Result<ModsCache, CacheError> {
+        match self {
+            Self::Default => ModsCache::user_default(),
+            Self::Directory { path } => Ok(ModsCache::new(path)),
+        }
+    }
+}
 
 /// A user-wide disk location, not a process-global mutable singleton.
 ///

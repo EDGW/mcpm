@@ -36,6 +36,8 @@ mod tui;
 
 #[derive(Args, Debug)]
 pub(in crate::commands) struct ListDisplayArgs {
+    #[arg(skip)]
+    identification_cache: Option<kako_mods_lib::local::mcmod::cache::CacheSelection>,
     /// Filter matching rows with the same expression used by the TUI Filter card.
     #[arg(short = 'F', long, value_name = "FILTER", help_heading = "Filter", long_help = filter::HELP)]
     filter: Option<Filter>,
@@ -70,6 +72,17 @@ pub(in crate::commands) struct ListDisplayArgs {
     columns: ColumnArgs,
     #[command(flatten, next_help_heading = "Style options")]
     paths_output: PathArgs,
+}
+
+impl ListDisplayArgs {
+    /// Share the command's file-host cache policy with TUI source acquisition.
+    pub fn with_cache(
+        mut self,
+        cache: Option<kako_mods_lib::local::mcmod::cache::CacheSelection>,
+    ) -> Self {
+        self.identification_cache = cache;
+        self
+    }
 }
 
 /// File-host execution options are separate from local presentation options.
@@ -280,6 +293,7 @@ pub(in crate::commands) fn present(
             args.filter.unwrap_or_default(),
             tui::Summary {
                 location,
+                source_cache: args.identification_cache,
                 ignored,
                 ignored_files: &ignored_files,
                 input_errors,

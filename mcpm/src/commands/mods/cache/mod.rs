@@ -8,7 +8,8 @@ use clap::Args;
 use crate::commands::mod_support::{
     caching::{
         self,
-        args::WriteArgs,
+        args::{SourcesArgs, WriteArgs},
+        identification::Completion,
         output::{DisplayArgs, Presentation},
     },
     loaders::LoaderArgs,
@@ -17,7 +18,7 @@ use crate::commands::mod_support::{
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Modes: Console (default in a terminal), Raw (--raw or redirected stdout; one JSON object per selected file). Console shows progress and a summary by default; --expanded adds per-file details. Local only.\n\nITEM matches a filename, then exact modid, then exact name. Redirected stdin appends one item per line; --input controls stdin interpretation. --all cannot be combined with queries.\n\nStores the whole outer JAR even when a nested mod matches. Imports deduplicate by BLAKE3. The default mode copies; hard-link modes share content protection with the source. Existing objects are reused without replacing or linking the source.\n\nMissing/outdated metadata is identified on the cached bytes. --force reparses selected loaders. Successful non-recognition is cached. File failures are reported and later files continue; a failure returns a nonzero exit status. Completed writes are retained."
+    after_help = "Modes: Console (default in a terminal), Raw (--raw or redirected stdout; one JSON object per selected file). Console shows progress and a summary by default; --expanded adds per-file details. Local only.\n\nITEM matches a filename, then exact modid, then exact name. Redirected stdin appends one item per line; --input controls stdin interpretation. --all cannot be combined with queries.\n\nStores the whole outer JAR even when a nested mod matches. Imports deduplicate by BLAKE3. The default mode copies; hard-link modes share content protection with the source. Existing objects are reused without replacing or linking the source.\n\nMissing/outdated metadata is identified on the cached bytes. --contents selects metadata and/or ident (default both). --sources selects providers (default all). --force refreshes requested results. Source matches are stored only on success; unmatched requests are not persisted. Successful non-recognition is cached. File failures are reported and later files continue; a failure returns a nonzero exit status. Completed writes are retained."
 )]
 pub(super) struct CacheArgs {
     #[command(flatten)]
@@ -28,6 +29,8 @@ pub(super) struct CacheArgs {
     #[command(flatten)]
     writing: WriteArgs,
     #[command(flatten)]
+    sources: SourcesArgs,
+    #[command(flatten)]
     display: DisplayArgs,
     #[command(flatten)]
     loaders: LoaderArgs,
@@ -35,12 +38,17 @@ pub(super) struct CacheArgs {
 
 pub(super) fn run(args: CacheArgs) -> Result<()> {
     let selection = args.items.read()?;
+    let mut completion = Completion::new(&args.writing, &args.sources.sources)?;
     let mut output = Presentation::new(args.display);
     caching::run(
         selection,
         Scope::directory(args.directory),
         args.writing.options(args.loaders.select())?,
         || Ok(()),
+        |event| completion.accept(event, &mut |event| output.event(event)),
+    )?;
+    completion.finish(
+        crate::commands::source_support::identify::Location::Local,
         |event| output.event(event),
     )?;
     output.finish()

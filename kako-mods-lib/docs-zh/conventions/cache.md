@@ -30,7 +30,8 @@ BLAKE3 相同即视为同一内容，不做碰撞区分；一个内容 ID 只有
 │   └── index.lock             # 仅协调索引恢复
 └── <BLAKE3前两位十六进制字符>/
     ├── <完整BLAKE3>.dat
-    └── <完整BLAKE3>.data.json
+    ├── <完整BLAKE3>.data.json
+    └── <完整BLAKE3>.identification.json
 ```
 
 - `.dat` 是文件内容的唯一真相，发布后不得原地修改。
@@ -205,3 +206,15 @@ Loader 的三个状态必须区分：
   Cache 负责命名、内容校验和导入/导出策略，`open` 负责复用/回退，前端负责选择与展示。
 
 [English](../../docs/conventions/cache.md)
+
+## 独立来源识别摘要
+
+- `<id>.data.json` 只保存 Loader metadata；`<id>.identification.json` 只保存来源 `FileMatch`。`metadata(id)`、`ident_info(id)` 分别返回独立的 `CacheStatus`。**任何可用结果都必须有普通文件 `.dat`**；孤立 JSON 无效。
+- `cache::ident_info::codec` 是来源摘要唯一编解码者。格式 version 1 包含 `version`、`blake3`、`size`、`sha1`、非空 `sources` map。每个 key 必须与 FileMatch source 一致，验证 ID／文件名／大小／hash 格式；BLAKE3 与规范对象名一致。
+- 仅持久化验证通过的成功匹配。缺来源表示未检查；错误／未匹配不形成负缓存。`Additional` 保留实际附加文件信息，不可将其 publication 引用的主文件当作匹配文件。
+- `Source::identification_cache_id()` 决定持久命名空间。全部 CurseForge 配置返回 `curseforge`，凭据／endpoint 不入缓存。`FileMatch::for_source` 转为配置来源引用用于后续 API；`for_cache` 验证配置所有权并转为共享命名空间。
+- `refresh_ident_info` 固定 `.dat`，验证 BLAKE3，计算来源要求的 summary 后查询 source。Missing/outdated 复用有效结果，Force 重新查询。校验后发布，尽可能保留其他来源；失败／未匹配不替换已有成功结果。
+- `write_ident_info` 接受显式远程／客户端编排产生的**可信 provider 结果**。调用方保证来源，不允许猜测 publication；库独立验证 `.dat` 的 BLAKE3／size／SHA-1。Loader raw metadata writer 仍为 crate 私有。
+- 来源摘要沿用临时文件和完整原子替换；允许并发漏写，但所有表示为可用的部分必须正确。两类 JSON 的有效性互不依赖，remove 删除三个规范名称。
+- CacheLookup 来源查询只读，复用／传输前与查询文件 summary 核对；默认目录初始化遵守既有策略，不导入、不硬链接、不发布结果、不修复索引。
+- 异步 refresh 内含同步 hash 和存储操作，批量调用放到适当 blocking worker；共享 HTTP client 的 runtime 必须存活到整批请求完成。

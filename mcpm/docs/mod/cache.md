@@ -47,7 +47,9 @@ A positional directory is not a file input; use `--directory PATH --all`.
 | `--mode hard-link` | New objects require a hard link; source content becomes write-protected too |
 | `--mode prefer-hard-link` | Attempt a hard link; copy only on filesystem capability failures |
 | `--loader` / `--loaders` | Select loaders; all built-ins by default |
-| `--force` | Reidentify selected loaders even when current results exist |
+| `--contents metadata,ident` | Default both: Loader metadata and source matches; choose either category |
+| `--sources modrinth,curseforge` | Default all sources; comma-separated subset, with `curseforge@KEY` supported |
+| `--force` | Refresh every requested loader/source result even when cached |
 | `--parallelism COUNT` | Maximum files in parallel during name/ID scanning and import/identification; default 10 |
 
 The default target is `~/.mcpm/cache/mods`, initialized when absent or empty.
@@ -62,7 +64,7 @@ leave source content protection applied.
 
 After importing, identify the cached bytes and fill missing or outdated results.
 Already checked current results are retained unless `--force` requests a refresh.
-A successful unrecognized result is cached explicitly and counts as success.
+A successful unrecognized Loader result is cached explicitly and counts as success. Source identification persists only verified matches; unmatched/error results are not saved.
 Selecting by ID/name can require a discovery scan before cached-byte
 identification; scan metadata is not directly persisted.
 
@@ -76,6 +78,17 @@ mcpm mod cache example.jar --force
 [cache mods import](../cache.md) remains a lower-level path-based import without
 identification. `mod info/list` reuse existing metadata by default (`--no-cache` disables this); they do not
 store files or identification results.
+
+Both categories require the same `.dat`. Loader results use `.data.json`; source
+matches use `.identification.json`. Either may be absent or unusable independently.
+All CurseForge configurations share one cache namespace, without keys/endpoints.
+`--contents ident` imports the data but does not create Loader metadata. Provider
+requests use one client runtime for the complete batch.
+
+```sh
+mcpm mod cache --directory ./mods --all --contents metadata
+mcpm mod cache example.jar --contents ident --sources modrinth
+```
 
 ## Results and failures
 
@@ -94,7 +107,7 @@ store files or identification results.
   counted only as added. File failures and selection/discovery failures are separate
   stage counts; the same file can fail during both discovery and storage.
 - Raw emits JSON fields `path`, `id`, `published`, `method`, `status`, `reason`,
-  `data_path`, `digest_path`, `success`, `failed_stage`, and `error`. A reused
+  `data_path`, `digest_path`, `metadata_requested`, `identification`, `success`, `failed_stage`, `error`, and `error_remote`. `identification` maps each requested source to matched/unmatched/failed, with individual errors and origins. A reused
   object's method is null. Import failures have no ID. Raw has no summary row.
 
 The cache allows missing writes and lost concurrent metadata updates, while every

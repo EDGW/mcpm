@@ -5,8 +5,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::{Deserialize, Serialize};
-
 use crate::local::{
     mcmod::{
         ModFile,
@@ -15,13 +13,7 @@ use crate::local::{
     modloader::LoaderId,
 };
 
-/// Cache policy can be transported to a file host without resolving local paths.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ModOpenCache {
-    Default,
-    Directory { path: PathBuf },
-}
+pub use crate::local::mcmod::cache::CacheSelection as ModOpenCache;
 
 /// Read-only cache lookup context, safe to share across parallel opens.
 /// Disabled contexts perform no cache filesystem access. Enabled contexts validate

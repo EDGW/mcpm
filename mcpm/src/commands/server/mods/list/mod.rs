@@ -55,6 +55,7 @@ pub(super) fn run(args: ListArgs, ssh: SshArgs) -> Result<()> {
         parallelism: args.loading.parallelism(),
         cache: args.cache.selection(),
     };
+    let display = args.display.with_cache(loading.cache.clone());
     let selection = args.selection.with_stdin()?.into_selection();
     let Target { path, ssh, .. } = target::resolve(args.path, ssh)?;
     if ssh.is_requested() {
@@ -62,7 +63,7 @@ pub(super) fn run(args: ListArgs, ssh: SshArgs) -> Result<()> {
             ssh,
             remote::List::ID,
             remote::request(path, selection, loading)?,
-            args.display,
+            display,
         );
     }
     let source = ServerMods::load(path)?;
@@ -71,6 +72,6 @@ pub(super) fn run(args: ListArgs, ssh: SshArgs) -> Result<()> {
         source.scope(),
         source.loaders(),
         loading,
-        args.display,
+        display,
     )
 }

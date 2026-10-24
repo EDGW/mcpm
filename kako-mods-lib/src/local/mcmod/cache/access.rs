@@ -20,9 +20,19 @@ pub struct CacheReader<'a> {
 }
 
 impl CacheReader<'_> {
+    /// Loader metadata observation; independent of source identification.
+    pub fn metadata(&self, id: CacheId) -> CacheEntry {
+        self.store.get(id)
+    }
+
+    /// Source-match observation; requires .dat, independently of loader metadata.
+    pub fn ident_info(&self, id: CacheId) -> super::CacheIdentInfo {
+        self.store.ident_info(id)
+    }
+
     /// Checks file presence, descriptor structure and size without hashing bytes.
     pub fn get(&self, id: CacheId) -> CacheEntry {
-        self.store.get(id)
+        self.metadata(id)
     }
 
     /// Includes orphaned halves and unavailable objects; ignores temporary files.
@@ -96,6 +106,32 @@ impl CacheWriter<'_> {
         // Publication rechecks the content fingerprint from which these results were identified.
         self.write_metadata(id, &sha256, &metadata)
             .map(|(entry, _)| entry)
+    }
+
+    /// Publishes a source-verified match after checking BLAKE3, size and SHA-1 against .dat.
+    /// The source reference must use its identification_cache_id (all CurseForge uses "curseforge").
+    /// The caller must obtain the match from a trusted Source result, not construct a
+    /// guessed publication. Hash checks establish content correspondence, not provider provenance.
+    /// Intended for client-side provider requests whose bytes are stored on another host.
+    /// No caller-supplied loader metadata or missing data object is accepted.
+    pub fn write_ident_info(
+        &mut self,
+        id: CacheId,
+        matched: &crate::source::FileMatch,
+    ) -> Result<super::CacheIdentInfo, CacheError> {
+        self.reader.store.write_ident_info(id, matched)
+    }
+
+    /// Explicitly queries a source using verified cached bytes and publishes only a successful match.
+    /// Never imports files. None/errors do not become persistent negative results.
+    /// Source configurations sharing identification_cache_id reuse the same result.
+    pub async fn refresh_ident_info(
+        &mut self,
+        id: CacheId,
+        source: &dyn crate::source::Source,
+        mode: MetadataRefresh,
+    ) -> Result<super::CacheIdentInfo, CacheError> {
+        self.reader.store.refresh_ident_info(id, source, mode).await
     }
 
     /// Atomically merges already identified loader results without running loaders.

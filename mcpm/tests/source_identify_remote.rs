@@ -245,7 +245,7 @@ mod transport {
         assert_eq!(request["command"], "mod.source.identify");
         assert_eq!(
             request["contents"],
-            json!({"paths":[r"D:\slow.jar","bad.jar","fast.jar",r"D:\slow.jar"],"requirements":{"murmur2":true},"parallelism":2})
+            json!({"paths":[r"D:\slow.jar","bad.jar","fast.jar",r"D:\slow.jar"],"requirements":{"murmur2":true},"parallelism":2,"cache":{"kind":"default"}})
         );
         assert_eq!(
             fs::read_to_string(root.path().join("connections"))

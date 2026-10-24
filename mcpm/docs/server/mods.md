@@ -67,6 +67,15 @@ Clients and remote binaries should be upgraded together; older strict list clien
 - `server.mods.list` accepts the same fields. Events are `scope {loaders}`, `scan {completed,total}`, `error {error}`, ordered `item {index,record}`, and `done {files,input_errors,failed,cache}`. Records reuse mod-list records, with optional selected declaration keys (`records`, each containing `metadata` and `record` indices).
 - For both queries, omitted/null `cache` disables lookup for protocol compatibility. CLI list/info send `{"kind":"default"}` by default, or `{"kind":"directory","path":"..."}` for an explicit root. Completion `cache` contains `fully_cached`, `partially_cached`, and `total`; consumers accept its omission from older remotes.
 - List failure counts cover unique failed scanned files, including unselected index entries. Repeated selected rows do not increase those counts.
-- `server.mods.cache` accepts `{server,selection,writing}`. `server` and `selection` are required; selection must be nonempty or `all:true`. `writing` accepts `cache_dir` (default null), `mode` (`copy`, `hard_link`, `prefer_hard_link`; default `copy`), `force` (default false), and positive `parallelism` (default 10).
+- `server.mods.cache` accepts `{server,selection,writing}`. `server` and `selection` are required; selection must be nonempty or `all:true`. `writing` accepts `cache_dir` (default null), `mode` (`copy`, `hard_link`, `prefer_hard_link`; default `copy`), `force` (default false), `contents` (`metadata`, `ident`; default both), and positive `parallelism` (default 10).
 - Cache events use `{event,contents}`: `selection` wraps shared scan `progress`/`diagnostic` events; `progress` contains `{completed,total}`; `file` contains the same JSON record as Raw output; `done` contains `{files,failed_files,selection_failures,objects_added,objects_reused}`. File events retain selection order despite parallel completion. Import failure has null ID; metadata failure can retain a published object.
 - Operation failures are represented in cache records and completion counts. A completed request may finish normally with nonzero failure counts; the CLI applies its nonzero exit policy. Handler/cancellation failures remain transport errors, and no completion is required after such errors.
+
+## Cache result categories
+
+`server mods cache` shares `--contents metadata,ident` (default both) and
+`--sources modrinth,curseforge` (default all) with `mod cache`. `metadata` uses the
+server's declared loader; `ident` queries the selected providers. Data is always
+imported. With SSH/Remote, provider HTTP and API keys remain on the client;
+verified source results are published on the file host through
+`cache.mods.identification.write`. Identify remains read-only.

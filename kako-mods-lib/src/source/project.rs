@@ -1,5 +1,6 @@
 //! Shared remote project identity, metadata, and search models.
 
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::SourceId;
@@ -52,7 +53,8 @@ pub struct ProjectLinks {
 }
 
 /// A project identity qualified by the configured source that can resolve it.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectRef {
     pub source: SourceId,
     pub id: ProjectId,
@@ -62,7 +64,7 @@ pub struct ProjectRef {
 ///
 /// Sources normalize their native identifiers into strings. This is a platform
 /// project identifier, not a mod loader's mod ID, a slug, or a release ID.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProjectId(pub String);
 
 /// Common search criteria for remote mod projects.

@@ -92,6 +92,21 @@ impl Validator {
                         "missing cache import without import failure"
                     );
                 }
+                ensure!(
+                    !matches!(file.failed_stage, Some(Stage::Metadata)) || file.metadata_requested,
+                    "metadata failure without requesting metadata"
+                );
+                for (source, result) in &file.identification {
+                    ensure!(
+                        !source.is_empty() && !source.contains('@'),
+                        "invalid identification source key"
+                    );
+                    ensure!(
+                        !matches!(result, super::record::IdentResult::Failed { .. })
+                            || !file.success,
+                        "failed identification source in successful cache result"
+                    );
+                }
                 self.failed += usize::from(!file.success);
             }
             Event::Done(summary) => {
@@ -150,9 +165,12 @@ mod tests {
             reason: None,
             data_path: Some("cache/aa/object.dat".into()),
             digest_path: Some("cache/aa/object.data.json".into()),
+            metadata_requested: true,
+            identification: Default::default(),
             success: true,
             failed_stage: None,
             error: None,
+            error_remote: false,
         }))
     }
     fn done() -> Event {

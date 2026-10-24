@@ -227,16 +227,17 @@ impl Store {
         Ok(ExportMethod::Copy)
     }
 
-    /// Removes only the cache's two names. Other hard links remain valid.
-    /// Returns false when neither existed; errors can leave a partially removed object.
+    /// Removes data and both independent snapshots. Other hard links remain valid.
+    /// Returns false when none existed; errors can leave a partially removed object.
     pub(super) fn remove(&self, id: CacheId) -> Result<bool, CacheError> {
         let (data, digest) = self.paths(id);
         let removed_data = storage::remove_if_exists(&data)?;
         let removed_digest = storage::remove_if_exists(&digest)?;
+        let removed_ident = storage::remove_if_exists(&self.ident_path(id))?;
         if let Err(error) = index::remove(&self.root, id) {
             tracing::debug!(%id, %error, "Skipping optional quick-index removal");
         }
-        Ok(removed_data || removed_digest)
+        Ok(removed_data || removed_digest || removed_ident)
     }
 
     /// Parses only exact canonical object names at their matching shard location.
@@ -249,7 +250,8 @@ impl Store {
             return None;
         }
         let stem = filename
-            .strip_suffix(".data.json")
+            .strip_suffix(".identification.json")
+            .or_else(|| filename.strip_suffix(".data.json"))
             .or_else(|| filename.strip_suffix(".dat"))?;
         let id: CacheId = stem.parse().ok()?;
         let canonical = id.to_string();

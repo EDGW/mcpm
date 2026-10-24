@@ -4,9 +4,9 @@ use super::{FileResult, Stage};
 use crate::diagnostics::ErrorReport;
 use kako_mods_lib::local::mcmod::cache::{CacheStatus, CacheUnavailableReason, ImportMethod};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::commands) struct Record {
     pub path: PathBuf,
@@ -17,9 +17,15 @@ pub(in crate::commands) struct Record {
     pub reason: Option<String>,
     pub data_path: Option<PathBuf>,
     pub digest_path: Option<PathBuf>,
+    #[serde(default = "default_metadata_requested")]
+    pub metadata_requested: bool,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub identification: BTreeMap<String, IdentResult>,
     pub success: bool,
     pub failed_stage: Option<Stage>,
     pub error: Option<ErrorReport>,
+    #[serde(default)]
+    pub error_remote: bool,
 }
 impl From<FileResult> for Record {
     fn from(file: FileResult) -> Self {
@@ -57,9 +63,12 @@ impl From<FileResult> for Record {
                 .entry
                 .as_ref()
                 .map(|entry| entry.digest_path().to_owned()),
+            metadata_requested: file.metadata_requested,
+            identification: BTreeMap::new(),
             success: file.failure.is_none(),
             failed_stage: file.failure.as_ref().map(|failure| failure.stage),
             error: file.failure.map(|failure| failure.error),
+            error_remote: false,
         }
     }
 }
@@ -93,4 +102,21 @@ impl Status {
             Self::Unavailable => "unavailable",
         }
     }
+}
+
+fn default_metadata_requested() -> bool {
+    true
+}
+
+/// Each requested source has its own outcome; a miss is not a persistent negative cache entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub(in crate::commands) enum IdentResult {
+    Matched,
+    Unmatched,
+    Failed {
+        error: ErrorReport,
+        #[serde(default)]
+        remote: bool,
+    },
 }

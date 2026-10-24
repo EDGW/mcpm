@@ -199,7 +199,7 @@ Protocol version 3 requires updating both endpoints.
 
 ## mod.source.identify contents
 
-Source identify registers `mod.source.identify`, which **only computes file summaries**. Its CLI and mod-list TUI share one local provider scheduler. Generic Remote/SSH code never decodes these contents.
+Source identify registers `mod.source.identify`, which **only reads file summaries and optional cached matches**. Its CLI and mod-list TUI share one local provider scheduler. Generic Remote/SSH code never decodes these contents.
 
 ```json
 {"paths":["/srv/mods/a.jar","/srv/mods/b.jar"],"requirements":{"murmur2":true},"parallelism":10}
@@ -303,3 +303,12 @@ Inspection and list `done` events include optional `cache` totals:
 - Local Raw text remains unchanged. Console and list TUI consume the structured totals to render a summary.
 
 Legacy `added` and `updated` fields from older endpoints are ignored. Inspection no longer writes cache data.
+
+## Source-identification cache transport
+
+- `mod.source.identify` accepts optional `cache`: null/omitted disables lookup; `{"kind":"default"}` or `{"kind":"directory","path":"..."}` selects the file-host cache. The CLI enables it by default.
+- Successful summary outcomes may include `cached`, a source-keyed map of FileMatch values. Empty maps are omitted for compatibility. Cached matches require `.dat` and validate against the summary. Clients validate key ownership, digest syntax, size and SHA-1 before skipping provider requests.
+- `server.mods.cache.writing.contents` selects `metadata`/`ident` (both by default). The remote handler imports `.dat` and optionally refreshes Loader metadata. The client enriches source results with its own providers and credentials after storage completes; source specifications never cross SSH.
+- Explicit `cache.mods.identification.write` accepts `{cache,id,file}`, where `id` is BLAKE3, `file` is a trusted canonical-source FileMatch, and cache uses the selection above. The host checks `.dat` BLAKE3, size and SHA-1, merges through the library codec, and acknowledges with one null data value. Invalid/missing data produces the common command error. Identify never calls this write operation.
+- FileMatch contains `reference {project:{source,id},id}`, `filename`, `size`, `hashes` (`{algorithm,value}`), and `role` (`primary`/`additional`). All CurseForge configurations persist `source:"curseforge"`.
+- Cache records add `metadata_requested`, source-keyed `identification` outcomes (`matched`, `unmatched`, or `failed` with `error` and `remote`), and `error_remote` for the primary error. File failures are counted once even if several sources fail. Console reports each source error with its actual origin.

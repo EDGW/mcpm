@@ -24,6 +24,7 @@ use crate::{commands::execution::blocking, diagnostics::ErrorReport};
 mod record;
 pub(in crate::commands) use record::{Record, Status};
 pub(in crate::commands) mod args;
+pub(in crate::commands) mod identification;
 pub(in crate::commands) mod output;
 mod validation;
 
@@ -34,6 +35,7 @@ pub(in crate::commands) struct Options {
     pub mode: ImportMode,
     pub refresh: MetadataRefresh,
     pub parallelism: usize,
+    pub metadata: bool,
 }
 
 /// Each selected outer file is processed once, regardless of matching declarations.
@@ -42,6 +44,7 @@ struct FileResult {
     pub import: Option<ImportOutcome>,
     pub entry: Option<CacheEntry>,
     pub failure: Option<Failure>,
+    pub metadata_requested: bool,
 }
 
 struct Failure {
@@ -54,6 +57,7 @@ struct Failure {
 pub(in crate::commands) enum Stage {
     Import,
     Metadata,
+    Ident,
 }
 
 /// Object totals count distinct BLAKE3s; an object added here is not also reused here.
@@ -178,6 +182,7 @@ fn process(path: PathBuf, options: &Options) -> FileResult {
         import: None,
         entry: None,
         failure: None,
+        metadata_requested: options.metadata,
     };
     let operation = (|| {
         ModEntry::new(result.path.clone()).map_err(|error| (Stage::Import, error))?;
@@ -190,6 +195,9 @@ fn process(path: PathBuf, options: &Options) -> FileResult {
             .map_err(|error| (Stage::Import, anyhow::Error::new(error)))?;
         result.import = Some(imported);
         result.entry = Some(writer.get(imported.id));
+        if !options.metadata {
+            return Ok(());
+        }
         match writer.refresh_metadata(imported.id, &options.loaders, options.refresh) {
             Ok(entry) => result.entry = Some(entry),
             Err(error) => {

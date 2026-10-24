@@ -43,7 +43,8 @@ collision disambiguation. One content ID has one canonical data name.
 │   └── index.lock             # index recovery coordination only
 └── <first-two-hex-characters>/
     ├── <complete-blake3>.dat
-    └── <complete-blake3>.data.json
+    ├── <complete-blake3>.data.json
+    └── <complete-blake3>.identification.json
 ```
 
 - `.dat` is the content source of truth. Published contents must not change in place.
@@ -106,8 +107,8 @@ The three loader states are distinct:
 | Handle | Operations | Receiver |
 | --- | --- | --- |
 | `ModsCache` | Select root, initialize, open reader/writer | Constructor or `&self` |
-| `CacheReader` | `get`, `list`, `verify`, `export` | `&self` |
-| `CacheWriter` | `import`, `import_with_mode`, `refresh_metadata`, `remove`, `rebuild_index` | `&mut self` |
+| `CacheReader` | `metadata`, `ident_info`, `get` (compatibility), `list`, `verify`, `export` | `&self` |
+| `CacheWriter` | `import`, `import_with_mode`, `refresh_metadata`, `refresh_ident_info`, `write_ident_info`, `remove`, `rebuild_index` | `&mut self` |
 | `CacheWriter` | All Reader operations | Read-only `Deref` |
 
 - Reader/Writer distinguish capabilities. Neither retains a global or object
@@ -206,7 +207,7 @@ never repairs data or changes saved fingerprints to accept modified bytes.
   Hard-link export verifies content, creates the link and verifies the result.
 - `HardLink` requires linking; `PreferHardLink` falls back only on filesystem
   capability failures. Return the method actually used.
-- `remove` deletes the two cache names and best-effort index entries. Other hard
+- `remove` deletes the data and both snapshot names and best-effort index entries. Other hard
   links remain valid. Missing names return false; partial removal errors are reported.
 - No eviction, reference counting or backup-reference tracking is implied.
   Callers own batch ordering and partial-success handling.
@@ -288,3 +289,15 @@ never repairs data or changes saved fingerprints to accept modified bytes.
   policy; `open` owns reuse/fallback; frontends own selection and presentation.
 
 [简体中文](../../docs-zh/conventions/cache.md)
+
+## Independent source-identification snapshots
+
+- `<id>.data.json` is exclusively Loader metadata. `<id>.identification.json` is exclusively source `FileMatch` data. `metadata(id)` and `ident_info(id)` report independent `CacheStatus` observations. **Every usable result requires a regular `.dat`**; orphan JSON is invalid.
+- `cache::ident_info::codec` is the sole identification snapshot codec. Format version 1 stores `version`, `blake3`, `size`, `sha1`, and a nonempty `sources` map. Each map key must agree with the FileMatch source; IDs, filenames, size and digest syntax are validated. BLAKE3 binds the snapshot to its canonical content name.
+- Only verified successful matches are persisted. Missing source means unchecked; errors and unmatched results do not create negative entries. `MatchedFileRole::Additional` retains the actual additional file; its publication reference must not substitute the primary download.
+- `Source::identification_cache_id()` owns persistent namespace selection. Every CurseForge configuration returns `curseforge`; credentials and endpoints are excluded. `FileMatch::for_source` rebinds a shared result for configured-source API calls; `for_cache` validates configured ownership and canonicalizes a successful result.
+- `refresh_ident_info` pins `.dat`, verifies BLAKE3, computes the source-required summary, and queries the caller's source. Missing/outdated mode reuses an existing valid match; Force queries again. Publish only after validation, preserving other valid sources where possible. A failed/unmatched refresh leaves prior successful results unchanged.
+- `write_ident_info` accepts a **trusted provider result** for explicit remote/client orchestration. The caller owns provider provenance; guessed publications are forbidden. The library independently verifies `.dat` BLAKE3, size and SHA-1. This does not expose the crate-private raw Loader metadata writer.
+- Source snapshots use private staging and complete atomic replacement, with the same weak consistency as Loader snapshots: concurrent updates may be lost, but every reusable represented result must be correct. Neither category depends on the other's JSON validity. Removal deletes all three canonical names.
+- CacheLookup source reads are read-only. Consumers validate matches against their queried file summary before reuse or transport. Default root initialization follows existing policy; querying never imports, links, publishes results, or repairs the index.
+- Async refresh contains synchronous hashing/storage work. Batch callers must place it on an appropriate blocking worker and keep any HTTP runtime alive until all shared client requests complete.

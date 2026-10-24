@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use super::{
     FileMatch, FilePage, FileQuery, FileRef, FileSummary, Project, ProjectFile, ProjectRef,
@@ -21,6 +22,12 @@ use super::{
 pub trait Source: Send + Sync {
     /// Returns the stable identity of this configured source.
     fn id(&self) -> &SourceId;
+
+    /// Namespace for verified content matches. Credentials and transport endpoints
+    /// must not be included. Providers may share this across configurations.
+    fn identification_cache_id(&self) -> SourceId {
+        self.id().clone()
+    }
 
     /// Searches for projects and returns one page of summaries.
     ///
@@ -80,5 +87,5 @@ pub trait Source: Send + Sync {
 ///
 /// Callers assign distinct identifiers to source configurations that must be
 /// addressed separately. No built-in provider registry is assumed.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SourceId(pub String);

@@ -49,6 +49,7 @@ fn fixture(expanded: bool) -> Browser {
 }
 fn summary() -> Summary<'static> {
     Summary {
+        source_cache: None,
         location: Location::Local,
         ignored: 0,
         ignored_files: &[],
