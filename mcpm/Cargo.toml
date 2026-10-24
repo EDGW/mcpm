@@ -31,3 +31,6 @@ unicode-width = "0.2"
 unicode-segmentation = "1"
 tempfile = "3"
 textwrap = { version = "0.16", features = ["terminal_size"] }
+
+[build-dependencies]
+anyhow = "1"

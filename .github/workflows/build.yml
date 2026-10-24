@@ -48,6 +48,8 @@ jobs:
             asset: mcpm-windows-x86_64.exe
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

@@ -8,6 +8,11 @@ use crate::commands::{client::ClientArgs, debug::DebugArgs, mods::ModArgs, serve
 #[command(
     name = "mcpm",
     version,
+    long_version = concat!(
+        env!("CARGO_PKG_VERSION"),
+        "\n\nContributors:\n",
+        include_str!(concat!(env!("OUT_DIR"), "/contributors.txt"))
+    ),
     about = "Inspect and manage Minecraft clients, servers and mods"
 )]
 pub(crate) struct Cli {
