@@ -1,6 +1,6 @@
 //! SHA-1 local file identification preserving the actual matched Modrinth asset.
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use reqwest::StatusCode;
 
 use super::{ModrinthSource, api};
@@ -47,10 +47,9 @@ impl ModrinthSource {
         let Some(file) = matches.next() else {
             anyhow::bail!("Modrinth hash response contains no matching file");
         };
-        ensure!(
-            matches.next().is_none(),
-            "Modrinth hash identifies multiple files ambiguously"
-        );
+        if matches.next().is_some() {
+            return Ok(None);
+        }
         let mut hashes = vec![FileHash::Sha1(hash.clone())];
         if let Some(hash) = file.hashes.sha512 {
             hashes.push(FileHash::Sha512(hash));

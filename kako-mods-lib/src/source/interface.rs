@@ -62,8 +62,9 @@ pub trait Source: Send + Sync {
     async fn get_file(&self, file: &FileRef) -> Result<ProjectFile>;
 
     /// Identifies the bytes of a local file without modifying it. Returns None
-    /// for no verified match; I/O, transport, malformed responses, and ambiguous
-    /// matches are errors. The caller must keep the file unchanged during lookup.
+    /// when no unique verified match exists, including ambiguous matches.
+    /// I/O, transport, and malformed responses are errors.
+    /// The caller must keep the file unchanged during lookup.
     /// Additional Modrinth files retain their actual metadata, not the primary's.
     async fn identify_file(&self, path: &Path) -> Result<Option<FileMatch>> {
         let path = path.to_owned();
@@ -80,6 +81,7 @@ pub trait Source: Send + Sync {
 
     /// Query the provider using already-computed digests, without accessing local files.
     /// Implementations must verify returned size and hashes before accepting a match.
+    /// Returns None if there is no unique verified match, including ambiguous results.
     async fn identify_summary(&self, summary: &FileSummary) -> Result<Option<FileMatch>>;
 }
 

@@ -68,10 +68,9 @@ impl CurseForgeSource {
             if matched.as_ref() == Some(&result) {
                 continue;
             }
-            ensure!(
-                matched.is_none(),
-                "CurseForge fingerprint identifies multiple files ambiguously"
-            );
+            if matched.is_some() {
+                return Ok(None);
+            }
             matched = Some(result);
         }
         Ok(matched)
