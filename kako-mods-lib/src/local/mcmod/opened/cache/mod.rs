@@ -1,51 +1,39 @@
-//! Cache selection, reusable open context and per-loader cache usage reports.
+//! Cache selection, reusable read-only Mod context and per-loader usage reports.
 
+pub use crate::local::cache::mods::ModsCacheSelection as ModOpenCache;
+use crate::local::{
+    cache::{
+        hash::Blake3Hash,
+        mods::{CacheStatus, ModsCacheDir, meta::CacheEntry},
+    },
+    mcmod::ModFile,
+    modloader::LoaderId,
+};
+use anyhow::Result;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
 
-use crate::local::{
-    mcmod::{
-        ModFile,
-        cache::{CacheEntry, CacheError, CacheId, CacheLookup, CacheStatus, ModsCache},
-    },
-    modloader::LoaderId,
-};
-
-pub use crate::local::mcmod::cache::CacheSelection as ModOpenCache;
-
-/// Read-only cache lookup context, safe to share across parallel opens.
-/// Disabled contexts perform no cache filesystem access. Enabled contexts validate
-/// the selected root without scanning every cached object.
 #[derive(Debug, Default)]
 pub struct ModOpenContext {
-    lookup: Option<CacheLookup>,
+    cache: Option<ModsCacheDir>,
 }
-
 impl ModOpenContext {
-    pub fn new(selection: Option<ModOpenCache>) -> Result<Self, CacheError> {
-        let cache = match selection {
-            None => return Ok(Self::default()),
-            Some(ModOpenCache::Default) => ModsCache::user_default()?,
-            Some(ModOpenCache::Directory { path }) => ModsCache::new(path),
-        };
+    pub fn new(selection: Option<ModOpenCache>) -> Result<Self> {
         Ok(Self {
-            lookup: Some(CacheLookup::new(cache)?),
+            cache: selection.map(ModOpenCache::open).transpose()?,
         })
     }
-
-    pub(super) fn find(&self, path: &Path) -> Result<Option<CacheEntry>, CacheError> {
-        match &self.lookup {
-            None => Ok(None),
-            Some(lookup) => lookup.find(path),
-        }
+    pub(super) fn find(&self, path: &Path) -> Result<Option<CacheEntry>> {
+        let Some(cache) = &self.cache else {
+            return Ok(None);
+        };
+        cache.find_metadata(path)
     }
-
     pub(super) fn root(&self) -> Option<&Path> {
-        self.lookup.as_ref().map(CacheLookup::root)
+        self.cache.as_ref().map(ModsCacheDir::path)
     }
-
     pub(super) fn report(&self) -> ModOpenCacheReport {
         match self.root() {
             None => ModOpenCacheReport::Disabled,
@@ -71,7 +59,7 @@ pub enum ModOpenCacheReport {
     },
     Matched {
         root: PathBuf,
-        id: CacheId,
+        id: Blake3Hash,
         status: CacheStatus,
         loaders: HashMap<LoaderId, LoaderCacheUsage>,
     },

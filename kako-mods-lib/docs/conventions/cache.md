@@ -1,303 +1,91 @@
-# Mod cache conventions
+# Mod and source cache conventions
 
-The cache stores immutable mod-file content and reusable identification results.
-It is owned by `local::mcmod::cache`; loaders identify files independently of cache
-policy, and frontends select the cache and present typed results.
+All content, directory management, atomic publication, transfers and imohash lookup
+are owned by `local::cache`. See [Generic local cache](local-cache.md) for the version
+3 directory protocol and public storage API.
 
-## Consistency contract: partial but correct
+## Responsibilities and selection
 
-**Cache completeness is best effort. Every represented result accepted for reuse
-must be correct.**
+- `local::cache::mods::ModsCacheDir` is the Mod cache entry point, privately wrapping the generic `CacheDir`.
+- Generic caching owns content and named metadata; `meta` and `ident` are Mod-specific metadata names.
+- Import stores content only. `ModsCacheDir::verify` checks content structure/BLAKE3 without interpreting metadata.
 
-- Writes may be skipped, disappear, or lose concurrent updates. There is no
-  requirement to retain every write or eventually merge every loader result.
-- A represented result must refer to the correct content and a supported
-  identification version. Successful non-recognition is a positive assertion;
-  missing data or failed identification must never be converted to non-recognition.
-- Concurrent writers may publish valid snapshots based on the same older snapshot.
-  For example, a Forge update may overwrite a Fabric update and lose Fabric's
-  result. Publishing a partial JSON document or unrelated metadata is forbidden.
-- Readers reject malformed, incompatible or incorrectly associated records.
-  Missing or unusable cache data falls back to identification; existence alone
-  does not establish availability.
-- A successful publication describes that operation. It does not promise future
-  existence, backup durability, or exclusion of concurrent deletion.
-- Concurrent deletion and publication can leave orphaned halves or recreate an
-  object after removal. Removal does not prohibit concurrent resurrection.
-- Explicit operation failures remain errors. The best-effort contract does not
-  authorize reporting a failed object publication as successful.
+- `local::cache::mods::meta` owns Loader snapshots and Mod refresh policy.
+- `local::cache::mods::ident` owns source `FileMatch` snapshots and source refresh policy.
+- Both use `CacheDir` and typed `Codec` operations. Neither implements file storage,
+  directory naming, permissions, hard-link policy or an independent quick index.
+- Every persisted metadata type implements `Codec`: `CacheDirMetadata`, `CacheDigest`
+  and the source snapshot. JSON interpretation occurs only in the corresponding codec.
+- `ModsCacheSelection::Default.open()` initializes an absent/empty `~/.mcpm/cache/mods`.
+  `Directory { path }.open()` requires an already initialized valid root. The default
+  location is retained, but version 1/2 roots are never silently adopted or migrated.
 
-## Content identity and directory protocol
+## Loader metadata
 
-`CacheId` is the complete BLAKE3-256 of the file: exactly 64 lowercase hexadecimal
-characters. Equal BLAKE3 values mean the same content; the cache does not implement
-collision disambiguation. One content ID has one canonical data name.
+`<key>.meta.json` contains format version 2, the BLAKE3 key, size, SHA-256,
+identification-rules `metadata_version` (currently 1), and a Loader map.
 
-```text
-<cache-dir>/
-├── .mcpm/
-│   ├── mcpm.json              # {"version":2}
-│   ├── index.sqlite3          # optional derived index
-│   ├── index.sqlite3-wal      # SQLite may create these runtime files
-│   ├── index.sqlite3-shm
-│   └── index.lock             # index recovery coordination only
-└── <first-two-hex-characters>/
-    ├── <complete-blake3>.dat
-    ├── <complete-blake3>.data.json
-    └── <complete-blake3>.identification.json
-```
-
-- `.dat` is the content source of truth. Published contents must not change in place.
-- `.data.json` stores identification results and verification information. It may
-  be absent; data without metadata remains exportable after content verification.
-- The directory manifest has `CACHE_DIRECTORY_VERSION = 2`. Version 1 GUID caches
-  are rejected; initialization never migrates, deletes or adopts their contents.
-- `ModsCache::user_default()` selects `~/.mcpm/cache/mods`. Access initializes an
-  absent or empty root; a nonempty root without its manifest is broken.
-- `ModsCache::new(path)` selects an explicit root. Access requires an existing
-  valid manifest, even for an empty directory. `initialize()` explicitly creates
-  an absent/empty root or accepts an already valid root.
-- Malformed manifests and unsupported versions are directory errors, separate
-  from per-object `CacheStatus`. Construction alone performs no I/O.
-- First initialization uses a persistent `.mcpm-cache-init.lock` in the root's
-  parent. Acquiring this bootstrap lock blocks and requires parent write access.
-  Valid-root access does not acquire it. Do not delete coordination files while
-  operations are active.
-- Managed cache paths do not use symbolic links. Staging files and directories
-  are temporary implementation details, not stored objects.
-
-## Metadata protocol and interpretation ownership
-
-A digest contains these fields:
-
-| Field | Meaning |
-| --- | --- |
-| `version` | Digest format version; currently `CACHE_FORMAT_VERSION = 2` |
-| `blake3` | Content ID; must agree with the canonical object name |
-| `size` | File size in bytes |
-| `sha256` | SHA-256 for display and content/provenance verification; not another object ID |
-| `metadata_version` | Identification rules version; currently `MOD_METADATA_VERSION = 1` |
-| `loaders` | Per-loader identification results |
-
-The three loader states are distinct:
-
-| Persisted state | Typed result | Meaning |
+| Stored Loader state | Typed state | Meaning |
 | --- | --- | --- |
-| Missing loader key | `CachedIdentification::Missing` | Not checked |
-| `null` | `CachedIdentification::Unrecognized` | Successfully checked, not recognized |
-| Metadata object | `CachedIdentification::Recognized` | Recognized `CachedModMeta` |
+| Missing key | `CachedIdentification::Missing` | Not checked |
+| `null` | `Unrecognized` | Successfully checked without recognition |
+| Object | `Recognized` | A validated `CachedModMeta` |
 
-- A nonempty all-null `loaders` map is valid. Identification errors never become
-  null. An empty map does not provide an available identification digest.
-- `ModMeta` holds runtime loader instances; `CachedModMeta` holds persisted loader
-  IDs, direct declarations, dependencies and recursive relative archive paths.
-  Capture and restoration are typed conversions without JSON or filesystem work.
-- Restoring runtime metadata uses the caller's loader registry. Cache abstractions
-  do not import concrete loader implementations.
-- `cache::directory` is the sole manifest codec; `cache::storage` is the sole
-  object-digest codec; `cache::index` owns SQL schema, index versions and sampling.
-- Every interpretation of persisted data goes through its owner. Extend the
-  owner's interface when needed; never add a second decoder or inspect raw JSON
-  in `open()`, loaders or the CLI.
-- `CacheDigest::identification()` and `identifications()` expose loader states
-  without requiring consumers to interpret null/missing serialization details.
+- Runtime `ModMeta` and persisted `CachedModMeta` convert through their typed owner;
+  no runtime Loader implementations enter the generic cache.
+- Use `mod_metadata`, `list_metadata`, `verify_metadata` and `refresh_metadata` on `ModsCacheDir`.
+  These explicit Loader metadata operations are not generic CacheDir methods.
+- `mod_metadata` checks snapshot structure and content association without hashing
+  the complete file. `verify_metadata(Content)` also verifies complete BLAKE3 and
+  the saved SHA-256. Structure-only verification cannot detect same-size corruption.
+- Refresh runs on pinned cache bytes, collects every selected Loader result before
+  publication, and rechecks exact-byte provenance before committing. A failure
+  preserves the previous snapshot or its absence.
+- `MissingOrOutdated` reuses current checked results, including non-recognition;
+  `Force` reruns selected Loaders. Unselected current results are preserved. A rules
+  version change discards old results. Malformed current snapshots are rejected.
+- The raw Loader commit remains crate-private. Callers must establish that all
+  supplied results came from the exact content under current rules; hashes alone
+  cannot establish semantic provenance. Frontends never submit raw Loader results.
 
-## Access handles and availability
+## Source identification
 
-| Handle | Operations | Receiver |
-| --- | --- | --- |
-| `ModsCache` | Select root, initialize, open reader/writer | Constructor or `&self` |
-| `CacheReader` | `metadata`, `ident_info`, `get` (compatibility), `list`, `verify`, `export` | `&self` |
-| `CacheWriter` | `import`, `import_with_mode`, `refresh_metadata`, `refresh_ident_info`, `write_ident_info`, `remove`, `rebuild_index` | `&mut self` |
-| `CacheWriter` | All Reader operations | Read-only `Deref` |
+`<key>.ident.json` is an independent format-1 snapshot containing BLAKE3,
+size, SHA-1 and a nonempty source map. Its validity does not depend on Loader metadata.
 
-- Reader/Writer distinguish capabilities. Neither retains a global or object
-  lock; a Writer's lifetime is not an exclusive transaction.
-- Independent handles can interleave every operation. `&mut self` does not exclude
-  other instances, threads or processes. There is no snapshot across calls or
-  batch rollback guarantee.
-- `CacheEntry` is an observation; its paths and state can change immediately.
-- There is no shared-to-exclusive object-lock upgrade or reentrancy protocol.
-  SQLite, index recovery and initialization have their separate synchronization.
+- Use `ident_info`, `write_ident_info` and `refresh_ident_info` on the same `ModsCacheDir`.
+- The codec validates source keys, references, filenames, size and SHA-1. Every map
+  key agrees with its result's source; only successful validated matches are stored.
+- Missing means unchecked. Errors and unmatched results never become negative entries.
+- `Source::identification_cache_id` owns persistent namespaces. CurseForge
+  configurations share `curseforge`; credentials and endpoints are never persisted.
+- A refresh reads the actual pinned cache content, validates its BLAKE3, computes
+  the source-required summary, queries the source and publishes only a verified match.
+  Failure or no match preserves earlier successful records.
+- `refresh_ident_info_with_outcome` also returns the transient `RefreshStatus`
+  (`Reused`, `Matched` or `Unmatched`) alongside the resulting `CacheIdentInfo`.
+  An unmatched refresh may still have an available snapshot from an earlier match;
+  without earlier matches it creates no snapshot. Refresh status is never persisted.
+- `write_ident_info` accepts a trusted provider result for client/remote orchestration.
+  The caller owns provider provenance; the library checks actual BLAKE3, size and SHA-1.
+- Consumers validate cached matches against the queried file summary before reuse
+  or transport. An additional-file result retains the actual additional download.
 
-| Status | Meaning |
-| --- | --- |
-| `Available` | Data and digest structure, size and metadata version are valid, with at least one checked loader |
-| `NotFound` | Neither data nor digest exists |
-| `Unavailable(MissingDigest)` | Data exists; digest is absent |
-| `Unavailable(InvalidData)` | Missing data, wrong file type, malformed/incompatible metadata or failed integrity check |
-| `Unavailable(UnexpectedError(String))` | Unexpected filesystem/OS access failure |
+## Availability, lookup and concurrency
 
-`get` checks structure and size without full hashing; it cannot detect same-size
-content corruption. `list` includes orphaned halves and per-object unavailable
-states while ignoring temporary names. Enumeration errors return `CacheError`.
-`verify(Structure)` checks structure and size; `verify(Content)` hashes available
-or missing-digest data and verifies its BLAKE3 name and any saved fingerprint.
-Correct bytes without metadata still have `MissingDigest` status. Verification
-never repairs data or changes saved fingerprints to accept modified bytes.
-
-## Explicit mutations and export
-
-### Import and duplicate publication
-
-- `import()` defaults to `Copy` and returns the content ID. `import_with_mode()`
-  supports `Copy`, `HardLink`, `PreferHardLink` and returns `ImportOutcome`.
-- Import does not identify mods or create a digest. Pin the source and compute
-  its BLAKE3 and imohash before choosing a transfer strategy. If the canonical
-  data name already exists, verify its content ID and reuse it without staging,
-  attempting a hard link or changing source permissions. Never replace its
-  identity. An invalid existing target is an error.
-- Transfer mode applies only to new objects. Thus an existing object can be reused
-  even when `HardLink` could not link the source across filesystems. After a miss,
-  stage bytes on the cache filesystem using the selected mode, verify their hash
-  equals the initial source ID, protect contents, and publish `.dat` atomically
-  without overwriting. Validate source and staging against their retained
-  observations across hashing, protection and publication.
-- Copy import flushes newly written bytes before staging publication. Hard-link
-  import publishes existing bytes without writing or additionally flushing a
-  read-only source handle; it does not guarantee source durability after power loss.
-- Competing publishers use the same no-overwrite rule; a losing publisher validates
-  and reuses the winner's data. Temporary names are normally cleaned up.
-- `published = true` means this call published `.dat`, with `method = Some(Copy)`
-  or `Some(HardLink)`. Reuse returns `published = false`, `method = None`.
-- Reusing content does not mean the source became a hard link. Independent copies
-  remain independent; import never replaces a source filename to associate it.
-- Hard-link staging verifies native identity. Protection affects all existing
-  links, including the source; it may remain even if publication later fails or
-  loses a race. The initial existing-object path avoids these side effects.
-- `PreferHardLink` copies only for cross-filesystem/unsupported-operation failures,
-  not permission failures or arbitrary I/O errors. The filesystem helper retains
-  native errors; import owns fallback policy.
-- Concurrent external source edits cannot be made into an instantaneous backup
-  snapshot by ordinary copying. Callers requiring that guarantee stabilize inputs.
-
-### Refresh and internal metadata writes
-
-- `refresh_metadata` identifies cached bytes with the caller's selected loaders;
-  it does not read the original import source. An empty selection changes nothing.
-- `MissingOrOutdated` skips checked current results, including non-recognition;
-  `Force` reparses selected loaders. All selected attempts must succeed before
-  publication. Failures preserve the previous digest or its absence.
-- Preserve unselected current results. A metadata-version change discards old
-  results; only results checked with current rules are added back. Reject malformed
-  current records instead of silently blessing them.
-- Fingerprint before identification, retain/validate the source observation, then
-  recheck BLAKE3, SHA-256 and size through the shared commit path before publication.
-- `CacheWriter::write_metadata` is **`pub(crate)` only and must never be exposed or
-  used outside this crate under any circumstances**. Incorrect metadata associations
-  destroy data consistency. Every call site must state this restriction and
-  establish that supplied results came from the exact content under current rules.
-- This trusted interface takes a content ID, the expected SHA-256 and typed loader
-  results. Hash/structure checks do not prove semantic provenance; callers must.
-  `None` asserts successful non-recognition; omitted loaders preserve current
-  results. An empty update does not create a missing digest.
-- `cache::storage` encodes one complete snapshot into a private temporary file,
-  flushes it and atomically replaces the digest. Identical encoded bytes avoid
-  publication. Concurrent merges may lose updates; they do not require a merge lock.
-- `.dat` is never modified. A concurrent removal may leave a digest-only object;
-  readers reject the incomplete pair.
-
-### Export and removal
-
-- Export is a Reader operation independent of recognition. Missing digests are
-  accepted; malformed content descriptors are rejected. Check BLAKE3 and, when
-  present, the saved fingerprint even if metadata is stale.
-- Every destination must be absent, outside the cache, with an existing parent.
-  Copy export stages and verifies independent bytes before no-overwrite publication.
-  Hard-link export verifies content, creates the link and verifies the result.
-- `HardLink` requires linking; `PreferHardLink` falls back only on filesystem
-  capability failures. Return the method actually used.
-- `remove` deletes the data and both snapshot names and best-effort index entries. Other hard
-  links remain valid. Missing names return false; partial removal errors are reported.
-- No eviction, reference counting or backup-reference tracking is implied.
-  Callers own batch ordering and partial-success handling.
-
-## Read-only cache-aware identification
-
-- `ModOpenContext::default()` disables cache I/O. Selecting default/explicit cache
-  validates the directory without scanning all objects; one context can be shared
-  across parallel opens. Default-root initialization remains possible at selection.
-- `CacheLookup::find` pins the input file, obtains native identity and computes
-  imohash. A resolved canonical `.dat` path can supply a direct candidate alongside
-  candidates from the quick index. Compare current pinned input/candidate
-  identities and validate observations before accepting the fast path.
-- Unix identity is device plus inode; Windows uses volume plus File ID. A pinned
-  handle prevents identity reuse while comparing. Paths alone and sampled hashes
-  do not establish equality.
-- Without an identity match, compute full BLAKE3 and look up the canonical object.
-  Independent copies of identical content can therefore reuse metadata too.
-- Cache identity matching depends on immutable contents. Sampling cannot detect
-  every in-place edit; native identity alone is not an integrity checksum.
-- `open()` reuses valid recognized and unrecognized results. Missing, unavailable
-  or unusable loader results run normal identification with the existing error
-  callback. Loaders do not implement cache policy.
-- Opening never imports files, creates hard links, changes content permissions,
-  writes metadata, updates the index, or repairs it. Explicit operations store data
-  and refresh results. SQLite may manage its own WAL runtime files internally.
-- `ModOpenReport` contains `ModFile` and disabled/miss/matched cache usage, including
-  object status and per-loader usage. It has no writeback result. Input paths and
-  enabled state remain on the returned file; nested paths remain relative.
-- Full/partial/none reuse counts the requested loader results, including cached
-  non-recognition. Empty loader selection is not a hit. Frontends aggregate file
-  inspections before filtering/expanding declarations; opening has no added/updated
-  cache statistics.
-
-## Optional imohash index and recovery
-
-- `cache::index` owns imohash-1.0: MurmurHash3 x64-128, 16 KiB samples at beginning,
-  midpoint and end for files at least 128 KiB; smaller files are fully sampled.
-  The index version fixes both schema and algorithm parameters; currently it is 1.
-- SQLite stores only `(imohash BLOB(16), blake3 BLOB(32))` associations, unique as
-  pairs, with a reverse BLAKE3 index. It stores no ModMeta, absolute paths or durable
-  native identities. Content and digests remain the source of truth.
-- Colliding imohashes yield more candidates, never proof of equal content. Entries
-  can be absent or stale; candidates are validated and misses fall back to BLAKE3.
-- Import best-effort inserts associations; remove best-effort deletes them.
-  Metadata-only writes do not change the index. SQLite WAL transactions have zero
-  busy timeout; busy optional updates can be dropped without failing data operations.
-- Lookup opens the index read-only. Missing, corrupt, incompatible or busy indexes
-  cause a logged performance miss; lookup does not create, rebuild or repair them.
-  Import can initialize a missing index; a damaged one requires explicit recovery.
-- `CacheWriter::rebuild_index()` scans canonical data names, verifies BLAKE3, samples
-  valid data and rebuilds the derived database. Invalid/missing data is skipped.
-  Concurrent data changes may still leave missed or stale entries. The returned
-  count is the number registered by this rebuild, not a durable object count.
-- `.mcpm/index.lock` provides nonblocking shared leases for database connections and
-  exclusive recovery access for rebuild publication. It prevents unlinking a live
-  WAL database. If unavailable, lookup falls back, optional updates skip, and
-  explicit rebuild returns an error. This is not a global object/metadata lock.
-- Data publication and index transactions are independent; no cross-file transaction
-  or lossless recovery journal is required. Private-file flush and atomic publication
-  do not promise power-loss-safe multi-file persistence. Do not automatically delete
-  unknown orphaned content.
-
-## Permissions and filesystem boundaries
-
-- Protect contents before publishing new data; keep directories writable so names
-  can be deleted or replaced. Unix removes write bits without widening read access.
-- Windows denies `FILE_WRITE_DATA` and `FILE_APPEND_DATA` while retaining other ACL
-  permissions and delete behavior; do not use the read-only attribute. A null DACL
-  is explicitly unsupported. Unsupported protection returns an error.
-- Hard links share content, permissions and identity. Consumers update by writing
-  a new file and replacing their own filename, never by overwriting, appending or
-  truncating linked bytes. Exported copies are independently writable.
-- Owners, administrators and existing writable handles can bypass permission changes.
-  This is not an adversarial immutability boundary; Windows replacement also depends
-  on file sharing and open handles.
-- Filesystem identity, protection and hard-link helpers are independent of cache
-  models and loaders. Cache code owns naming, content validation and import/export
-  policy; `open` owns reuse/fallback; frontends own selection and presentation.
+- Loader and source observations use independent `CacheStatus` values. Missing
+  metadata, invalid data and unexpected I/O remain distinguishable.
+- A regular content object is required for every reusable snapshot. Orphan JSON
+  never establishes availability; generic `scan` and `remove` still observe it.
+- Mod opening and source lookup use `ModsCacheDir::find_metadata` and `find_ident_info`,
+  internally calling generic `CacheDir::find_content` before the typed reader. Pinned handles avoid repeating a complete hash after a hit.
+- These queries never import, link, protect files, publish results or repair indexes.
+  Unusable business records fall back to normal identification. Missing/invalid optional
+  indexes fall back to full BLAKE3; imohash alone is never equality evidence.
+- Metadata is published as complete atomic snapshots. A reader may accept an already
+  opened complete old snapshot after replacement. Concurrent writers can lose updates,
+  but may never publish partial JSON or unrelated results. There is no batch transaction.
+- Async source refresh contains synchronous hashing and storage. Batch callers use
+  blocking workers and keep the provider HTTP runtime alive for all requests.
 
 [简体中文](../../docs-zh/conventions/cache.md)
-
-## Independent source-identification snapshots
-
-- `<id>.data.json` is exclusively Loader metadata. `<id>.identification.json` is exclusively source `FileMatch` data. `metadata(id)` and `ident_info(id)` report independent `CacheStatus` observations. **Every usable result requires a regular `.dat`**; orphan JSON is invalid.
-- `cache::ident_info::codec` is the sole identification snapshot codec. Format version 1 stores `version`, `blake3`, `size`, `sha1`, and a nonempty `sources` map. Each map key must agree with the FileMatch source; IDs, filenames, size and digest syntax are validated. BLAKE3 binds the snapshot to its canonical content name.
-- Only verified successful matches are persisted. Missing source means unchecked; errors and unmatched results do not create negative entries. `MatchedFileRole::Additional` retains the actual additional file; its publication reference must not substitute the primary download.
-- `Source::identification_cache_id()` owns persistent namespace selection. Every CurseForge configuration returns `curseforge`; credentials and endpoints are excluded. `FileMatch::for_source` rebinds a shared result for configured-source API calls; `for_cache` validates configured ownership and canonicalizes a successful result.
-- `refresh_ident_info` pins `.dat`, verifies BLAKE3, computes the source-required summary, and queries the caller's source. Missing/outdated mode reuses an existing valid match; Force queries again. Publish only after validation, preserving other valid sources where possible. A failed/unmatched refresh leaves prior successful results unchanged.
-- `write_ident_info` accepts a **trusted provider result** for explicit remote/client orchestration. The caller owns provider provenance; guessed publications are forbidden. The library independently verifies `.dat` BLAKE3, size and SHA-1. This does not expose the crate-private raw Loader metadata writer.
-- Source snapshots use private staging and complete atomic replacement, with the same weak consistency as Loader snapshots: concurrent updates may be lost, but every reusable represented result must be correct. Neither category depends on the other's JSON validity. Removal deletes all three canonical names.
-- CacheLookup source reads are read-only. Consumers validate matches against their queried file summary before reuse or transport. Default root initialization follows existing policy; querying never imports, links, publishes results, or repairs the index.
-- Async refresh contains synchronous hashing/storage work. Batch callers must place it on an appropriate blocking worker and keep any HTTP runtime alive until all shared client requests complete.

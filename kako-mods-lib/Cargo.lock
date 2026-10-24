@@ -587,6 +587,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "imohash"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d8633583228dc22d6163981c851d8dfd56f87d98e99b9c27a5f979454965f5a"
+dependencies = [
+ "murmur3",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -628,6 +637,7 @@ dependencies = [
  "blake3",
  "chrono",
  "dirs",
+ "imohash",
  "lazy_static",
  "md-5",
  "murmur3",

@@ -4,10 +4,14 @@ use std::{collections::HashMap, fs, io::Cursor, io::Write};
 
 use sha2::{Digest, Sha256};
 
-use super::{
-    CacheEntry, CacheError, CacheId, CacheStatus, CacheWriter, CachedIdentification, ModsCache,
-    storage,
+use super::{CacheDigest, CacheEntry, CachedIdentification};
+use crate::local::cache::{
+    CacheLinkPreference,
+    hash::Blake3Hash,
+    mods::{CacheStatus, CacheUnavailableReason, ModsCacheDir},
 };
+use anyhow::Result;
+
 use crate::local::{
     mcmod::{ModEntry, ModMeta},
     modloader::{BUILTIN_LOADERS, LoaderId},
@@ -19,11 +23,10 @@ fn explicit_metadata_preserves_nested_recognition_and_unselected_loader_results(
     let bytes = fabric_archive();
     let source = root.path().join("mod.jar");
     fs::write(&source, &bytes).unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut writer = cache.writer().unwrap();
-    let id = writer.import(&source).unwrap();
-    let empty = write_identified(&mut writer, id, &bytes, HashMap::new()).unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let writer = &cache;
+    let id = writer.import(&source, CacheLinkPreference::Copy).unwrap();
+    let empty = write_identified(writer, id, &bytes, HashMap::new()).unwrap();
     assert!(!empty.digest_path().exists());
 
     let fabric = BUILTIN_LOADERS.get("fabric").unwrap();
@@ -32,14 +35,14 @@ fn explicit_metadata_preserves_nested_recognition_and_unselected_loader_results(
         .try_identify(&ModEntry::new(source).unwrap())
         .unwrap();
     write_identified(
-        &mut writer,
+        writer,
         id,
         &bytes,
         [(fabric.id().clone(), metadata)].into_iter().collect(),
     )
     .unwrap();
     let entry = write_identified(
-        &mut writer,
+        writer,
         id,
         &bytes,
         [("forge".into(), None)].into_iter().collect(),
@@ -63,12 +66,20 @@ fn explicit_metadata_preserves_nested_recognition_and_unselected_loader_results(
     assert_eq!(restored.nested[0].meta.mods[0].modid, "child");
     assert_eq!(restored.nested[0].path, "META-INF/jars/child.jar");
 
-    // Use the codec owner to simulate an older parser version, not a second JSON parser.
-    let mut outdated = storage::read_digest(entry.digest_path()).unwrap();
+    // Read through the cache and its codec owner before simulating an older parser version.
+    let mut outdated = writer
+        .cache
+        .try_read_metadata::<CacheDigest>(&id, super::codec::METANAME)
+        .unwrap()
+        .unwrap();
     outdated.metadata_version = 0;
-    storage::write_digest(entry.digest_path(), &outdated, true).unwrap();
+    writer
+        .cache
+        .write_metadata(&id, super::codec::METANAME, &outdated)
+        .unwrap()
+        .unwrap();
     let entry = write_identified(
-        &mut writer,
+        writer,
         id,
         &bytes,
         [("forge".into(), None)].into_iter().collect(),
@@ -87,15 +98,14 @@ fn explicit_metadata_rejects_wrong_provenance_and_invalid_batches_atomically() {
     let bytes = fabric_archive();
     let source = root.path().join("mod.jar");
     fs::write(&source, &bytes).unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut writer = cache.writer().unwrap();
-    let id = writer.import(&source).unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let writer = &cache;
+    let id = writer.import(&source, CacheLinkPreference::Copy).unwrap();
     let unrecognized = || [("forge".into(), None)].into_iter().collect();
 
-    assert!(write_identified(&mut writer, id, b"wrong bytes", unrecognized()).is_err());
-    assert!(!writer.get(id).digest_path().exists());
-    let entry = write_identified(&mut writer, id, &bytes, unrecognized()).unwrap();
+    assert!(write_identified(writer, id, b"wrong bytes", unrecognized()).is_err());
+    assert!(!writer.mod_metadata(id).digest_path().exists());
+    let entry = write_identified(writer, id, &bytes, unrecognized()).unwrap();
     let original = fs::read(entry.digest_path()).unwrap();
     let fabric = BUILTIN_LOADERS.get("fabric").unwrap();
     let identify = || {
@@ -108,7 +118,7 @@ fn explicit_metadata_rejects_wrong_provenance_and_invalid_batches_atomically() {
     // This deliberately violates the internal contract to exercise rejection.
     assert!(
         write_identified(
-            &mut writer,
+            writer,
             id,
             &bytes,
             [("forge".into(), Some(identify()))].into_iter().collect(),
@@ -121,7 +131,7 @@ fn explicit_metadata_rejects_wrong_provenance_and_invalid_batches_atomically() {
     invalid.nested[0].path = "../outside.jar".to_owned();
     assert!(
         write_identified(
-            &mut writer,
+            writer,
             id,
             &bytes,
             [("fabric".into(), Some(invalid)), ("neoforge".into(), None)]
@@ -134,28 +144,29 @@ fn explicit_metadata_rejects_wrong_provenance_and_invalid_batches_atomically() {
 
     fs::remove_file(entry.data_path()).unwrap();
     fs::write(entry.data_path(), vec![b'x'; bytes.len()]).unwrap();
-    assert!(write_identified(&mut writer, id, &bytes, unrecognized()).is_err());
+    assert!(write_identified(writer, id, &bytes, unrecognized()).is_err());
     assert_eq!(fs::read(entry.digest_path()).unwrap(), original);
-    writer.remove(id).unwrap();
-    assert!(matches!(
-        write_identified(&mut writer, id, &bytes, unrecognized()),
-        Err(CacheError::NotFound(_))
-    ));
+    writer.remove(&id).unwrap();
+    assert!(write_identified(writer, id, &bytes, unrecognized()).is_err());
     assert!(!entry.digest_path().exists());
 }
 
 fn write_identified(
-    writer: &mut CacheWriter<'_>,
-    id: CacheId,
+    writer: &ModsCacheDir,
+    id: Blake3Hash,
     bytes: &[u8],
     metadata: HashMap<LoaderId, Option<ModMeta>>,
-) -> Result<CacheEntry, CacheError> {
+) -> Result<CacheEntry> {
     // Never expose or use write_metadata outside this crate under any circumstances:
     // incorrect associations destroy data consistency. Tests supply the identified
     // bytes explicitly; negative cases deliberately violate this contract.
-    writer
-        .write_metadata(id, &format!("{:x}", Sha256::digest(bytes)), &metadata)
-        .map(|(entry, _)| entry)
+    super::write_metadata(
+        &writer.cache,
+        id,
+        &format!("{:x}", Sha256::digest(bytes)),
+        &metadata,
+    )
+    .map(|(entry, _)| entry)
 }
 
 fn fabric_archive() -> Vec<u8> {
@@ -183,61 +194,6 @@ fn archive(files: &[(&str, Vec<u8>)]) -> Vec<u8> {
 }
 
 #[test]
-fn quick_hash_collisions_stale_candidates_and_corrupt_index_fall_back_safely() {
-    use super::{CacheLookup, ExportMode, content::ContentFile, index};
-
-    let root = tempfile::tempdir().unwrap();
-    let first = root.path().join("first.jar");
-    let second = root.path().join("second.jar");
-    let a = vec![b'a'; 256 * 1024];
-    let mut b = a.clone();
-    b[32 * 1024] = b'b'; // Outside all imohash sampling regions.
-    fs::write(&first, &a).unwrap();
-    fs::write(&second, &b).unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut writer = cache.writer().unwrap();
-    let a_id = writer.import(&first).unwrap();
-    let b_id = writer.import(&second).unwrap();
-    assert_ne!(a_id, b_id);
-    let quick = ContentFile::open(&first).unwrap().quick_hash().unwrap();
-    assert_eq!(
-        quick,
-        ContentFile::open(&second).unwrap().quick_hash().unwrap()
-    );
-    let candidates = index::candidates(cache.root(), &quick);
-    assert!(candidates.contains(&a_id) && candidates.contains(&b_id));
-
-    // Independent copies share the quick bucket but must use full-content identity.
-    let lookup = CacheLookup::new(ModsCache::new(cache.root())).unwrap();
-    assert_eq!(lookup.find(&first).unwrap().unwrap().id(), a_id);
-    assert_eq!(lookup.find(&second).unwrap().unwrap().id(), b_id);
-    let linked = root.path().join("linked.jar");
-    writer.export(a_id, &linked, ExportMode::HardLink).unwrap();
-    assert_eq!(lookup.find(&linked).unwrap().unwrap().id(), a_id);
-
-    writer.remove(a_id).unwrap();
-    index::insert(cache.root(), &quick, a_id).unwrap(); // Deliberately stale.
-    assert!(lookup.find(&first).unwrap().is_none());
-    assert_eq!(lookup.find(&second).unwrap().unwrap().id(), b_id);
-
-    // Index corruption cannot turn an index miss into a content miss or cause writes
-    // from a query. Only the explicit rebuild repairs the derived database.
-    let database = cache.root().join(".mcpm/index.sqlite3");
-    fs::write(&database, b"broken SQLite").unwrap();
-    let broken = fs::read(&database).unwrap();
-    assert_eq!(lookup.find(&second).unwrap().unwrap().id(), b_id);
-    assert_eq!(fs::read(&database).unwrap(), broken);
-    assert_eq!(writer.rebuild_index().unwrap(), 1);
-    assert_eq!(index::candidates(cache.root(), &quick), vec![b_id]);
-
-    fs::remove_file(&database).unwrap();
-    assert_eq!(lookup.find(&second).unwrap().unwrap().id(), b_id);
-    assert!(!database.exists());
-    assert_eq!(writer.rebuild_index().unwrap(), 1);
-}
-
-#[test]
 fn concurrent_metadata_publications_are_complete_valid_snapshots() {
     use super::{MOD_METADATA_VERSION, MetadataRefresh};
     use std::sync::{Arc, Barrier};
@@ -245,18 +201,17 @@ fn concurrent_metadata_publications_are_complete_valid_snapshots() {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("empty.jar");
     fs::write(&source, archive(&[])).unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let id = cache.writer().unwrap().import(&source).unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let id = cache.import(&source, CacheLinkPreference::Copy).unwrap();
     let barrier = Arc::new(Barrier::new(4));
-    let path = cache.root().to_owned();
+    let path = cache.path().to_owned();
     std::thread::scope(|scope| {
         for loader in ["fabric", "forge", "neoforge"] {
             let barrier = barrier.clone();
             let path = path.clone();
             scope.spawn(move || {
-                let cache = ModsCache::new(path);
-                let mut writer = cache.writer().unwrap();
+                let cache = ModsCacheDir::new(path).unwrap();
+                let writer = &cache;
                 let selected = [(loader.into(), BUILTIN_LOADERS.get(loader).unwrap().clone())]
                     .into_iter()
                     .collect();
@@ -269,16 +224,16 @@ fn concurrent_metadata_publications_are_complete_valid_snapshots() {
             });
         }
         barrier.wait();
-        let reader = cache.reader().unwrap();
+        let reader = &cache;
         for _ in 0..100 {
-            let entry = reader.get(id);
+            let entry = reader.mod_metadata(id);
             match entry.status() {
-                CacheStatus::Unavailable(super::CacheUnavailableReason::MissingDigest) => {}
+                CacheStatus::Unavailable(CacheUnavailableReason::MissingDigest) => {}
                 CacheStatus::Available => {
                     let digest = entry.digest().unwrap();
                     assert_eq!(digest.metadata_version(), MOD_METADATA_VERSION);
                     assert!(digest.valid_metadata());
-                    assert_eq!(digest.blake3, id.to_string());
+                    assert_eq!(digest.blake3, id);
                     assert!(
                         digest.identifications().all(|(_, result)| matches!(
                             result,
@@ -290,23 +245,7 @@ fn concurrent_metadata_publications_are_complete_valid_snapshots() {
             }
         }
     });
-    let entry = cache.reader().unwrap().get(id);
+    let entry = cache.mod_metadata(id);
     assert_eq!(entry.status(), &CacheStatus::Available);
     // We deliberately do not require the union of all three writers' results.
-}
-
-#[test]
-fn legacy_guid_directory_is_rejected_without_modification() {
-    let root = tempfile::tempdir().unwrap();
-    fs::create_dir(root.path().join(".mcpm")).unwrap();
-    let manifest = root.path().join(".mcpm/mcpm.json");
-    let old = b"{\"version\":1}\n";
-    fs::write(&manifest, old).unwrap();
-    let cache = ModsCache::new(root.path());
-    assert!(matches!(
-        cache.reader(),
-        Err(CacheError::UnsupportedDirectoryVersion { version: 1, .. })
-    ));
-    assert!(cache.initialize().is_err());
-    assert_eq!(fs::read(manifest).unwrap(), old);
 }

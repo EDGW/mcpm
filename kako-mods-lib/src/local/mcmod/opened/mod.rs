@@ -16,7 +16,8 @@ pub use cache::{
     ModOpenContext, ModOpenReport,
 };
 
-use super::cache::{CacheStatus, CachedIdentification};
+use crate::local::cache::mods::CacheStatus;
+use crate::local::cache::mods::meta::CachedIdentification;
 
 /// A mod file with independent metadata records from its loaders.
 #[derive(Debug)]

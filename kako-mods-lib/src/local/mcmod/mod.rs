@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use thiserror::Error;
 
-pub mod cache;
 mod cached_meta;
 mod directory;
 pub use cached_meta::{CachedModMeta, CachedNestedModMeta, MetadataConversionError};

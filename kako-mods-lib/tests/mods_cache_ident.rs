@@ -2,10 +2,12 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use kako_mods_lib::{
-    local::mcmod::cache::{CacheStatus, CacheUnavailableReason, MetadataRefresh, ModsCache},
-    source::*,
-};
+use kako_mods_lib::local::cache::mods::CacheStatus;
+use kako_mods_lib::local::cache::mods::CacheUnavailableReason;
+use kako_mods_lib::local::cache::mods::MetadataRefresh;
+use kako_mods_lib::local::cache::mods::ModsCacheDir;
+use kako_mods_lib::local::cache::mods::ident::RefreshStatus;
+use kako_mods_lib::source::*;
 use std::{
     fs,
     sync::atomic::{AtomicUsize, Ordering},
@@ -83,22 +85,48 @@ fn source_namespaces_reuse_successes_preserve_additional_files_and_never_cache_n
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("input.jar");
     fs::write(&source, b"abc").unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut writer = cache.writer().unwrap();
-    let id = writer.import(&source).unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let writer = &cache;
+    let id = writer
+        .import(
+            &source,
+            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+        )
+        .unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();
+    let no_match = TestSource::new("none", "curseforge", 1);
+    for _ in 0..2 {
+        let outcome = runtime
+            .block_on(writer.refresh_ident_info_with_outcome(
+                id,
+                &no_match,
+                MetadataRefresh::MissingOrOutdated,
+            ))
+            .unwrap();
+        assert_eq!(outcome.status, RefreshStatus::Unmatched);
+        assert_eq!(
+            outcome.info.status(),
+            &CacheStatus::Unavailable(CacheUnavailableReason::MissingDigest)
+        );
+        assert!(writer.inspect(&id).unwrap().metadata.is_empty());
+    }
+    assert_eq!(no_match.calls.load(Ordering::SeqCst), 2);
     let official = TestSource::new("official", "curseforge", 0);
     let proxy = TestSource::new("proxy", "curseforge", 2);
-    runtime
-        .block_on(writer.refresh_ident_info(id, &official, MetadataRefresh::MissingOrOutdated))
+    let outcome = runtime
+        .block_on(writer.refresh_ident_info_with_outcome(
+            id,
+            &official,
+            MetadataRefresh::MissingOrOutdated,
+        ))
         .unwrap();
-    let first = writer.ident_info(id);
+    assert_eq!(outcome.status, RefreshStatus::Matched);
+    let first = outcome.info;
     let bytes = fs::read(first.path()).unwrap();
     assert_eq!(
-        writer.metadata(id).status(),
+        writer.mod_metadata(id).status(),
         &CacheStatus::Unavailable(CacheUnavailableReason::MissingDigest)
     );
     assert_eq!(first.status(), &CacheStatus::Available);
@@ -114,18 +142,24 @@ fn source_namespaces_reuse_successes_preserve_additional_files_and_never_cache_n
             .for_source(&TestSource::new("other", "other", 0))
             .is_none()
     );
-    runtime
-        .block_on(writer.refresh_ident_info(id, &proxy, MetadataRefresh::MissingOrOutdated))
-        .unwrap();
-    assert_eq!(proxy.calls.load(Ordering::SeqCst), 0);
-    assert_eq!(official.calls.load(Ordering::SeqCst), 1);
-    runtime
-        .block_on(writer.refresh_ident_info(
+    let outcome = runtime
+        .block_on(writer.refresh_ident_info_with_outcome(
             id,
-            &TestSource::new("none", "none", 1),
-            MetadataRefresh::Force,
+            &proxy,
+            MetadataRefresh::MissingOrOutdated,
         ))
         .unwrap();
+    assert_eq!(outcome.status, RefreshStatus::Reused);
+    assert_eq!(proxy.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(official.calls.load(Ordering::SeqCst), 1);
+    let outcome = runtime
+        .block_on(writer.refresh_ident_info_with_outcome(id, &no_match, MetadataRefresh::Force))
+        .unwrap();
+    assert_eq!(outcome.status, RefreshStatus::Unmatched);
+    assert_eq!(outcome.info.status(), &CacheStatus::Available);
+    assert_eq!(outcome.info.matches().count(), 1);
+    assert_eq!(outcome.info.get("curseforge"), first.get("curseforge"));
+    assert_eq!(no_match.calls.load(Ordering::SeqCst), 3);
     assert!(
         runtime
             .block_on(writer.refresh_ident_info(id, &proxy, MetadataRefresh::Force))
@@ -133,13 +167,13 @@ fn source_namespaces_reuse_successes_preserve_additional_files_and_never_cache_n
     );
     assert_eq!(fs::read(first.path()).unwrap(), bytes);
     // Loader corruption is independent of the source snapshot.
-    fs::write(writer.metadata(id).digest_path(), b"broken JSON").unwrap();
+    fs::write(writer.mod_metadata(id).digest_path(), b"broken JSON").unwrap();
     assert_eq!(
-        writer.metadata(id).status(),
+        writer.mod_metadata(id).status(),
         &CacheStatus::Unavailable(CacheUnavailableReason::InvalidData)
     );
     assert_eq!(writer.ident_info(id).status(), &CacheStatus::Available);
-    fs::remove_file(writer.metadata(id).data_path()).unwrap();
+    fs::remove_file(writer.mod_metadata(id).data_path()).unwrap();
     assert_eq!(
         writer.ident_info(id).status(),
         &CacheStatus::Unavailable(CacheUnavailableReason::InvalidData)
@@ -149,7 +183,7 @@ fn source_namespaces_reuse_successes_preserve_additional_files_and_never_cache_n
             .block_on(writer.refresh_ident_info(id, &official, MetadataRefresh::Force))
             .is_err()
     );
-    assert!(writer.remove(id).unwrap());
+    assert!(writer.remove(&(id)).unwrap());
     assert!(!first.path().exists());
 }
 
@@ -159,10 +193,14 @@ fn publications_verify_content_and_merge_only_current_valid_snapshots() {
     let path = root.path().join("input.jar");
     fs::write(&path, b"abc").unwrap();
     let summary = FileSummary::read(&path, Default::default()).unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut writer = cache.writer().unwrap();
-    let id = writer.import(&path).unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let writer = &cache;
+    let id = writer
+        .import(
+            &path,
+            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+        )
+        .unwrap();
     let a = matched(SourceId("a".into()), &summary);
     writer.write_ident_info(id, &a).unwrap();
     let b = matched(SourceId("b".into()), &summary);
@@ -211,9 +249,9 @@ fn publications_verify_content_and_merge_only_current_valid_snapshots() {
         writer.write_ident_info(id, &a).unwrap();
         assert_eq!(writer.ident_info(id).matches().count(), 1);
     }
-    fs::remove_file(writer.metadata(id).data_path()).unwrap();
-    fs::write(writer.metadata(id).data_path(), b"xyz").unwrap();
+    fs::remove_file(writer.mod_metadata(id).data_path()).unwrap();
+    fs::write(writer.mod_metadata(id).data_path(), b"xyz").unwrap();
     assert!(writer.write_ident_info(id, &a).is_err());
-    fs::remove_file(writer.metadata(id).data_path()).unwrap();
+    fs::remove_file(writer.mod_metadata(id).data_path()).unwrap();
     assert!(writer.write_ident_info(id, &a).is_err());
 }

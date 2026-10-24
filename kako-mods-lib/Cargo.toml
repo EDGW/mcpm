@@ -13,6 +13,7 @@ serde_json = "1.0.154"
 sha1 = "0.10"
 sha2 = "0.10"
 blake3 = "1"
+imohash = "0.1.2"
 murmur3 = "0.5"
 rusqlite = { version = "0.38", features = ["bundled"] }
 dirs = "6"

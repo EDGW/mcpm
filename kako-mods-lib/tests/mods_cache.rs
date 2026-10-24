@@ -11,16 +11,21 @@ use std::{
     },
 };
 
-use kako_mods_lib::local::{
-    mcmod::{
-        ModEntry, ModMeta,
-        cache::{
-            CacheId, CacheStatus, CacheUnavailableReason, CachedIdentification, ExportMethod,
-            ExportMode, ImportMethod, ImportMode, MetadataRefresh, ModsCache, VerificationMode,
-        },
-    },
-    modloader::{BUILTIN_LOADERS, LoaderId, ModLoader, ModLoaderMeta},
-};
+use kako_mods_lib::local::cache::CacheLinkPreference;
+use kako_mods_lib::local::cache::TransferMethod;
+use kako_mods_lib::local::cache::VerificationMode;
+use kako_mods_lib::local::cache::hash::Blake3Hash;
+use kako_mods_lib::local::cache::mods::CacheStatus;
+use kako_mods_lib::local::cache::mods::CacheUnavailableReason;
+use kako_mods_lib::local::cache::mods::MetadataRefresh;
+use kako_mods_lib::local::cache::mods::ModsCacheDir;
+use kako_mods_lib::local::cache::mods::meta::CachedIdentification;
+use kako_mods_lib::local::mcmod::ModEntry;
+use kako_mods_lib::local::mcmod::ModMeta;
+use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
+use kako_mods_lib::local::modloader::LoaderId;
+use kako_mods_lib::local::modloader::ModLoader;
+use kako_mods_lib::local::modloader::ModLoaderMeta;
 use serde_json::{Value, json};
 
 #[test]
@@ -28,11 +33,20 @@ fn imports_deduplicate_content_and_copy_snapshots_remain_independent() {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("source.jar.disabled");
     fs::write(&source, b"original bytes").unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut access = cache.writer().unwrap();
-    let first = access.import(&source).unwrap();
-    let second = access.import(&source).unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let access = &cache;
+    let first = access
+        .import(
+            &source,
+            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+        )
+        .unwrap();
+    let second = access
+        .import(
+            &source,
+            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+        )
+        .unwrap();
     assert_eq!(first, second);
     assert_eq!(first.to_string().len(), 64);
     assert_eq!(
@@ -40,10 +54,10 @@ fn imports_deduplicate_content_and_copy_snapshots_remain_independent() {
         blake3::hash(b"original bytes").to_hex().as_str()
     );
     fs::write(&source, b"changed bytes").unwrap();
-    let entry = access.get(first);
+    let entry = access.mod_metadata(first);
     assert_eq!(fs::read(entry.data_path()).unwrap(), b"original bytes");
     assert_eq!(
-        fs::read(access.get(second).data_path()).unwrap(),
+        fs::read(access.mod_metadata(second).data_path()).unwrap(),
         b"original bytes"
     );
     assert_eq!(
@@ -53,10 +67,10 @@ fn imports_deduplicate_content_and_copy_snapshots_remain_independent() {
     assert!(entry.digest().is_none());
     assert!(!entry.digest_path().exists());
     assert_eq!(
-        access.verify(first, VerificationMode::Content),
+        access.verify_metadata(first, VerificationMode::Content),
         CacheStatus::Unavailable(CacheUnavailableReason::MissingDigest)
     );
-    assert_eq!(access.list().unwrap().len(), 1);
+    assert_eq!(access.list_metadata().unwrap().len(), 1);
 }
 
 #[test]
@@ -65,20 +79,24 @@ fn status_distinguishes_orphaned_halves_invalid_versions_and_same_size_corruptio
     let source = root.path().join("input");
     let bytes = archive(&[]);
     fs::write(&source, &bytes).unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut access = cache.writer().unwrap();
-    let id = access.import(&source).unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let access = &cache;
+    let id = access
+        .import(
+            &source,
+            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+        )
+        .unwrap();
     let entry = access
         .refresh_metadata(id, &selected(&["forge"]), MetadataRefresh::Force)
         .unwrap();
     let descriptor = fs::read(entry.digest_path()).unwrap();
     fs::remove_file(entry.digest_path()).unwrap();
     assert_eq!(
-        access.get(id).status(),
+        access.mod_metadata(id).status(),
         &CacheStatus::Unavailable(CacheUnavailableReason::MissingDigest)
     );
-    assert_eq!(access.list().unwrap()[0].id(), id);
+    assert_eq!(access.list_metadata().unwrap()[0].id(), id);
     for invalid in [
         b"bad json".to_vec(),
         {
@@ -99,7 +117,7 @@ fn status_distinguishes_orphaned_halves_invalid_versions_and_same_size_corruptio
     ] {
         fs::write(entry.digest_path(), invalid).unwrap();
         assert_eq!(
-            access.get(id).status(),
+            access.mod_metadata(id).status(),
             &CacheStatus::Unavailable(CacheUnavailableReason::InvalidData)
         );
     }
@@ -107,24 +125,28 @@ fn status_distinguishes_orphaned_halves_invalid_versions_and_same_size_corruptio
     // Replace the name rather than writing through a protected file handle.
     fs::remove_file(entry.data_path()).unwrap();
     assert_eq!(
-        access.get(id).status(),
+        access.mod_metadata(id).status(),
         &CacheStatus::Unavailable(CacheUnavailableReason::InvalidData)
     );
     fs::write(entry.data_path(), vec![b'b'; bytes.len()]).unwrap();
     assert_eq!(
-        access.verify(id, VerificationMode::Structure),
+        access.verify_metadata(id, VerificationMode::Structure),
         CacheStatus::Available
     );
     assert_eq!(
-        access.verify(id, VerificationMode::Content),
+        access.verify_metadata(id, VerificationMode::Content),
         CacheStatus::Unavailable(CacheUnavailableReason::InvalidData)
     );
     let destination = root.path().join("output.jar");
-    assert!(access.export(id, &destination, ExportMode::Copy).is_err());
+    assert!(
+        access
+            .export_file(&(id), &destination, CacheLinkPreference::Copy)
+            .is_err()
+    );
     assert!(!destination.exists());
-    assert!(access.remove(id).unwrap());
-    assert_eq!(access.get(id).status(), &CacheStatus::NotFound);
-    assert!(!access.remove(id).unwrap());
+    assert!(access.remove(&(id)).unwrap());
+    assert_eq!(access.mod_metadata(id).status(), &CacheStatus::NotFound);
+    assert!(!access.remove(&(id)).unwrap());
 }
 
 #[test]
@@ -140,10 +162,14 @@ fn nested_metadata_roundtrips_and_loader_updates_publish_all_or_nothing() {
     let outer = archive(&[("fabric.mod.json", json!({"schemaVersion":1,"id":"outer","version":"1","jars":[{"file":"META-INF/jars/child.jar"}],"depends":{"minecraft":">=1.20"}}).to_string().into_bytes()),
         ("META-INF/jars/child.jar", child)]);
     fs::write(&source, outer).unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut access = cache.writer().unwrap();
-    let id = access.import(&source).unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let access = &cache;
+    let id = access
+        .import(
+            &source,
+            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+        )
+        .unwrap();
     let fabric = selected(&["fabric"]);
     let entry = access
         .refresh_metadata(id, &fabric, MetadataRefresh::Force)
@@ -185,7 +211,7 @@ fn nested_metadata_roundtrips_and_loader_updates_publish_all_or_nothing() {
     outdated["metadata_version"] = 0.into();
     fs::write(entry.digest_path(), serde_json::to_vec(&outdated).unwrap()).unwrap();
     assert_eq!(
-        access.get(id).status(),
+        access.mod_metadata(id).status(),
         &CacheStatus::Unavailable(CacheUnavailableReason::InvalidData)
     );
     let fresh = access
@@ -200,11 +226,15 @@ fn unrecognized_is_a_cached_result_not_a_missing_digest() {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("input.jar");
     fs::write(&source, archive(&[])).unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut writer = cache.writer().unwrap();
-    let id = writer.import(&source).unwrap();
-    let missing = writer.get(id);
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let writer = &cache;
+    let id = writer
+        .import(
+            &source,
+            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+        )
+        .unwrap();
+    let missing = writer.mod_metadata(id);
     assert_eq!(
         missing.status(),
         &CacheStatus::Unavailable(CacheUnavailableReason::MissingDigest)
@@ -215,10 +245,10 @@ fn unrecognized_is_a_cached_result_not_a_missing_digest() {
         .unwrap();
     assert!(!missing.digest_path().exists());
     writer
-        .export(
-            id,
+        .export_file(
+            &(id),
             &root.path().join("without-digest.jar"),
-            ExportMode::Copy,
+            CacheLinkPreference::Copy,
         )
         .unwrap();
     let failing = [(FAILURE.id().clone(), FAILURE.clone())]
@@ -258,12 +288,12 @@ fn unrecognized_is_a_cached_result_not_a_missing_digest() {
     );
     assert_eq!(fs::read(recognized.digest_path()).unwrap(), saved);
     assert_eq!(
-        writer.verify(id, VerificationMode::Content),
+        writer.verify_metadata(id, VerificationMode::Content),
         CacheStatus::Available
     );
     fs::remove_file(recognized.digest_path()).unwrap();
     assert_eq!(
-        writer.get(id).status(),
+        writer.mod_metadata(id).status(),
         &CacheStatus::Unavailable(CacheUnavailableReason::MissingDigest)
     );
     writer
@@ -277,36 +307,41 @@ fn protected_hard_links_survive_cache_deletion_and_can_be_replaced() {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("input.jar");
     fs::write(&source, b"unchanged").unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut access = cache.writer().unwrap();
-    let id = access.import(&source).unwrap();
-    let entry = access.get(id);
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let access = &cache;
+    let id = access
+        .import(
+            &source,
+            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+        )
+        .unwrap();
+    let entry = access.mod_metadata(id);
     let linked = root.path().join("linked.jar");
     let copied = root.path().join("copied.jar");
     assert_eq!(
-        access.export(id, &linked, ExportMode::HardLink).unwrap(),
-        ExportMethod::HardLink
+        access
+            .export_file(&(id), &linked, CacheLinkPreference::HardLink)
+            .unwrap(),
+        TransferMethod::HardLink
     );
     assert_eq!(
-        access.export(id, &copied, ExportMode::Copy).unwrap(),
-        ExportMethod::Copy
+        access
+            .export_file(&(id), &copied, CacheLinkPreference::Copy)
+            .unwrap(),
+        TransferMethod::Copy
     );
     assert!(
         access
-            .export(id, &linked, ExportMode::PreferHardLink)
+            .export_file(&(id), &linked, CacheLinkPreference::PreferHardLink)
             .is_err()
     );
     for mode in [
-        ExportMode::Copy,
-        ExportMode::HardLink,
-        ExportMode::PreferHardLink,
+        CacheLinkPreference::Copy,
+        CacheLinkPreference::HardLink,
+        CacheLinkPreference::PreferHardLink,
     ] {
         let internal = entry.data_path().parent().unwrap().join("unexpected.dat");
-        assert!(matches!(
-            access.export(id, &internal, mode),
-            Err(kako_mods_lib::local::mcmod::cache::CacheError::ExportIntoCache(_))
-        ));
+        assert!(access.export_file(&(id), &internal, mode).is_err());
         assert!(!internal.exists());
     }
     #[cfg(unix)]
@@ -329,7 +364,7 @@ fn protected_hard_links_survive_cache_deletion_and_can_be_replaced() {
     }
     fs::write(&copied, b"independent").unwrap();
     assert_eq!(fs::read(entry.data_path()).unwrap(), b"unchanged");
-    assert!(access.remove(id).unwrap());
+    assert!(access.remove(&(id)).unwrap());
     assert_eq!(fs::read(&linked).unwrap(), b"unchanged");
     let mut replacement = tempfile::NamedTempFile::new_in(root.path()).unwrap();
     replacement.write_all(b"replacement").unwrap();
@@ -343,34 +378,33 @@ fn hard_link_import_protects_source_and_copy_import_remains_independent() {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("input.jar");
     fs::write(&source, b"shared content").unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut writer = cache.writer().unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let writer = &cache;
     for mode in [
-        ImportMode::Copy,
-        ImportMode::HardLink,
-        ImportMode::PreferHardLink,
+        CacheLinkPreference::Copy,
+        CacheLinkPreference::HardLink,
+        CacheLinkPreference::PreferHardLink,
     ] {
-        let outcome = writer.import_with_mode(&source, mode).unwrap();
-        let entry = writer.get(outcome.id);
+        let outcome = writer.import_with_outcome(&source, mode).unwrap();
+        let entry = writer.mod_metadata(outcome.key);
         assert!(outcome.published);
         assert_eq!(
             outcome.method,
-            Some(if mode == ImportMode::Copy {
-                ImportMethod::Copy
+            Some(if mode == CacheLinkPreference::Copy {
+                TransferMethod::Copy
             } else {
-                ImportMethod::HardLink
+                TransferMethod::HardLink
             })
         );
         assert_eq!(
             FileIdentity::read(&source).unwrap() == FileIdentity::read(entry.data_path()).unwrap(),
-            mode != ImportMode::Copy
+            mode != CacheLinkPreference::Copy
         );
         assert_eq!(
             entry.status(),
             &CacheStatus::Unavailable(CacheUnavailableReason::MissingDigest)
         );
-        assert!(writer.remove(outcome.id).unwrap());
+        assert!(writer.remove(&(outcome.key)).unwrap());
         assert_eq!(fs::read(&source).unwrap(), b"shared content");
     }
     #[cfg(unix)]
@@ -397,11 +431,12 @@ fn duplicate_hard_link_import_reuses_copy_without_connecting_or_protecting_sourc
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("source.jar");
     fs::write(&source, b"duplicate content").unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let mut writer = cache.writer().unwrap();
-    let original = writer.import_with_mode(&source, ImportMode::Copy).unwrap();
-    let data = writer.get(original.id).data_path().to_owned();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let writer = &cache;
+    let original = writer
+        .import_with_outcome(&source, CacheLinkPreference::Copy)
+        .unwrap();
+    let data = writer.mod_metadata(original.key).data_path().to_owned();
     let cached_identity = FileIdentity::read(&data).unwrap();
     let source_identity = FileIdentity::read(&source).unwrap();
     assert_ne!(source_identity, cached_identity);
@@ -411,12 +446,12 @@ fn duplicate_hard_link_import_reuses_copy_without_connecting_or_protecting_sourc
         fs::metadata(&source).unwrap().permissions().mode()
     };
     for mode in [
-        ImportMode::Copy,
-        ImportMode::HardLink,
-        ImportMode::PreferHardLink,
+        CacheLinkPreference::Copy,
+        CacheLinkPreference::HardLink,
+        CacheLinkPreference::PreferHardLink,
     ] {
-        let duplicate = writer.import_with_mode(&source, mode).unwrap();
-        assert_eq!(duplicate.id, original.id);
+        let duplicate = writer.import_with_outcome(&source, mode).unwrap();
+        assert_eq!(duplicate.key, original.key);
         assert!(!duplicate.published);
         assert_eq!(duplicate.method, None);
         assert_eq!(FileIdentity::read(&source).unwrap(), source_identity);
@@ -436,30 +471,6 @@ fn duplicate_hard_link_import_reuses_copy_without_connecting_or_protecting_sourc
 }
 
 #[test]
-fn readers_and_writers_can_coexist_without_transaction_locks() {
-    let root = tempfile::tempdir().unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let source = root.path().join("source");
-    fs::write(&source, b"snapshot").unwrap();
-    let reader = cache.reader().unwrap();
-    let mut first = cache.writer().unwrap();
-    let mut second = cache.writer().unwrap();
-    let imported = first.import_with_mode(&source, ImportMode::Copy).unwrap();
-    assert!(imported.published);
-    let duplicate = second
-        .import_with_mode(&source, ImportMode::HardLink)
-        .unwrap();
-    assert_eq!(duplicate.id, imported.id);
-    assert!(!duplicate.published);
-    assert_eq!(reader.list().unwrap().len(), 1);
-    assert!(second.remove(imported.id).unwrap());
-    assert_eq!(first.get(imported.id).status(), &CacheStatus::NotFound);
-    assert!(reader.list().unwrap().is_empty());
-    assert!(!cache.root().join(".lock").exists());
-}
-
-#[test]
 fn cache_process_worker() {
     use kako_mods_lib::local::files::FileIdentity;
     use std::time::{Duration, Instant};
@@ -468,8 +479,8 @@ fn cache_process_worker() {
     };
     let marker = std::env::var_os("KAKO_CACHE_WORKER_MARKER").unwrap();
     let start = std::env::var_os("KAKO_CACHE_WORKER_START").unwrap();
-    let cache = ModsCache::new(root);
-    let mut writer = cache.writer().unwrap();
+    let cache = ModsCacheDir::new(root).unwrap();
+    let writer = &cache;
     fs::write(Path::new(&marker).with_extension("ready"), b"ready").unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     while !Path::new(&start).exists() {
@@ -477,16 +488,16 @@ fn cache_process_worker() {
         std::thread::sleep(Duration::from_millis(5));
     }
     let outcome = writer
-        .import_with_mode(
+        .import_with_outcome(
             Path::new(&std::env::var_os("KAKO_CACHE_WORKER_SOURCE").unwrap()),
-            ImportMode::Copy,
+            CacheLinkPreference::Copy,
         )
         .unwrap();
-    let entry = writer.get(outcome.id);
+    let entry = writer.mod_metadata(outcome.key);
     let identity = FileIdentity::read(entry.data_path()).unwrap();
     fs::write(
         marker,
-        format!("{}\n{}\n{identity:?}\n", outcome.id, outcome.published),
+        format!("{}\n{}\n{identity:?}\n", outcome.key, outcome.published),
     )
     .unwrap();
 }
@@ -499,20 +510,17 @@ fn simultaneous_process_imports_publish_one_object_without_replacing_its_identit
         time::{Duration, Instant},
     };
     let root = tempfile::tempdir().unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
     let source = root.path().join("source");
     fs::write(&source, vec![42; 1024 * 1024]).unwrap();
     let start = root.path().join("start");
-    // Holding both capabilities must not prevent another process from publishing.
-    let _reader = cache.reader().unwrap();
-    let _writer = cache.writer().unwrap();
+    // Independent processes publish without holding a cache-wide transaction lock.
     let mut children = Vec::new();
     for index in 0..4 {
         let marker = root.path().join(format!("child-{index}"));
         let child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "cache_process_worker"])
-            .env("KAKO_CACHE_WORKER_ROOT", cache.root())
+            .env("KAKO_CACHE_WORKER_ROOT", cache.path())
             .env("KAKO_CACHE_WORKER_SOURCE", &source)
             .env("KAKO_CACHE_WORKER_MARKER", &marker)
             .env("KAKO_CACHE_WORKER_START", &start)
@@ -537,8 +545,8 @@ fn simultaneous_process_imports_publish_one_object_without_replacing_its_identit
         let fields: Vec<_> = result.lines().map(str::to_owned).collect();
         results.push(fields);
     }
-    let id: CacheId = results[0][0].parse().unwrap();
-    let entry = cache.reader().unwrap().get(id);
+    let id: Blake3Hash = results[0][0].parse().unwrap();
+    let entry = cache.mod_metadata(id);
     let identity = format!("{:?}", FileIdentity::read(entry.data_path()).unwrap());
     assert_eq!(
         results.iter().filter(|fields| fields[1] == "true").count(),
@@ -549,7 +557,7 @@ fn simultaneous_process_imports_publish_one_object_without_replacing_its_identit
             .iter()
             .all(|fields| fields[0] == id.to_string() && fields[2] == identity)
     );
-    assert_eq!(cache.reader().unwrap().list().unwrap().len(), 1);
+    assert_eq!(cache.list_metadata().unwrap().len(), 1);
     assert_eq!(
         fs::read(entry.data_path()).unwrap(),
         fs::read(source).unwrap()
