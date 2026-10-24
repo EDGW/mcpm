@@ -9,7 +9,7 @@ use tracing::debug;
 
 use crate::commands::stdin;
 
-use crate::commands::mod_support::{
+use crate::commands::supports::mods::{
     list::{self, ListDisplayArgs, ListLoadingArgs},
     loaders::LoaderArgs,
 };
@@ -37,7 +37,7 @@ pub(super) struct ListArgs {
     #[command(flatten)]
     loading: ListLoadingArgs,
     #[command(flatten)]
-    cache: crate::commands::mod_support::cache::CacheArgs,
+    cache: crate::commands::supports::mods::reuse::CacheArgs,
     #[command(flatten, next_help_heading = "Filter")]
     loaders: LoaderArgs,
 }
@@ -58,7 +58,7 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         paths.push(PathBuf::from("."));
     }
     debug!(?paths, "Resolved mod list input paths");
-    let loading = crate::commands::mod_support::scan::Options {
+    let loading = crate::commands::supports::mods::scan::Options {
         parallelism: args.loading.parallelism(),
         cache: args.cache.selection(),
     };

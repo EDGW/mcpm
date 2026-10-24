@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::columns::Column;
 use crate::{
-    commands::output_style::{OutputStyle, text},
+    display::style::{OutputStyle, text},
     terminal,
 };
 

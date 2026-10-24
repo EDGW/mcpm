@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 
 use crate::{
-    commands::mod_support::{
+    commands::supports::mods::{
         inspect::{self, Display},
         loaders::LoaderArgs,
         selection::{Scope, Selection},
@@ -20,7 +20,7 @@ pub(super) fn run(
     selection: Selection,
     directory: PathBuf,
     loaders: LoaderArgs,
-    loading: impl Into<crate::commands::mod_support::scan::Options>,
+    loading: impl Into<crate::commands::supports::mods::scan::Options>,
     display: Display<'_>,
     ssh: SshArgs,
 ) -> Result<()> {

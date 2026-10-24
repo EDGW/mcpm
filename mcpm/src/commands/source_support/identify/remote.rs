@@ -62,7 +62,7 @@ pub(super) struct Request {
     #[serde(default = "default_parallelism")]
     pub parallelism: NonZeroUsize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cache: Option<kako_mods_lib::local::mcmod::cache::CacheSelection>,
+    pub cache: Option<kako_mods_lib::local::cache::mods::ModsCacheSelection>,
 }
 impl Request {
     fn validate(&self) -> Result<()> {

@@ -7,11 +7,12 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use kako_mods_lib::local::{
-    files::FileIdentity,
-    mcmod::cache::{CacheStatus, CacheUnavailableReason, CachedIdentification, ModsCache},
-    modloader::BUILTIN_LOADERS,
-};
+use kako_mods_lib::local::cache::mods::CacheStatus;
+use kako_mods_lib::local::cache::mods::CacheUnavailableReason;
+use kako_mods_lib::local::cache::mods::ModsCacheDir;
+use kako_mods_lib::local::cache::mods::meta::CachedIdentification;
+use kako_mods_lib::local::files::FileIdentity;
+use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
 use serde_json::Value;
 
 fn fixture(relative: &str) -> PathBuf {
@@ -25,7 +26,7 @@ fn run(root: &Path, cache: &Path, arguments: &[&str], input: Option<&str>) -> Ou
     command
         .args(["--raw", "--log-level", "off", "mod", "cache", "--cache-dir"])
         .arg(cache)
-        .args(["--contents", "metadata"])
+        .args(["--metas", "meta"])
         .args(arguments)
         .current_dir(root)
         .stdin(if input.is_some() {
@@ -54,10 +55,9 @@ fn rows(output: &Output) -> Vec<Value> {
         .collect()
 }
 
-fn setup() -> (tempfile::TempDir, ModsCache) {
+fn setup() -> (tempfile::TempDir, ModsCacheDir) {
     let root = tempfile::tempdir().unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
     (root, cache)
 }
 
@@ -85,7 +85,7 @@ fn mixed_selectors_and_stdin_cache_whole_archives_once_without_linking_sources()
     // stdin ID. Overlapping selections must not truncate the stored ModMeta tree.
     let output = run(
         root.path(),
-        cache.root(),
+        cache.path(),
         &[
             "--directory",
             "mods",
@@ -130,7 +130,7 @@ fn mixed_selectors_and_stdin_cache_whole_archives_once_without_linking_sources()
     );
     assert!(records.iter().all(|record| record["status"] == "available"));
     let id = complex["id"].as_str().unwrap().parse().unwrap();
-    let entry = cache.reader().unwrap().get(id);
+    let entry = cache.mod_metadata(id);
     for loader in ["forge", "neoforge", "fabric"] {
         let CachedIdentification::Recognized(snapshot) =
             entry.digest().unwrap().identification(loader)
@@ -156,11 +156,11 @@ fn mixed_selectors_and_stdin_cache_whole_archives_once_without_linking_sources()
             .permissions(),
         original_permissions
     );
-    assert_eq!(cache.reader().unwrap().list().unwrap().len(), 2);
+    assert_eq!(cache.list_metadata().unwrap().len(), 2);
 
     let repeated = run(
         root.path(),
-        cache.root(),
+        cache.path(),
         &["--directory", "mods", "--all"],
         None,
     );
@@ -188,7 +188,7 @@ fn import_and_identification_failures_continue_and_unrecognized_remains_a_positi
     .unwrap();
     let output = run(
         root.path(),
-        cache.root(),
+        cache.path(),
         &[
             "--file",
             "missing.jar",
@@ -214,7 +214,7 @@ fn import_and_identification_failures_continue_and_unrecognized_remains_a_positi
     assert_eq!(records[1]["published"], true);
     let broken_id = records[1]["id"].as_str().unwrap().parse().unwrap();
     assert_eq!(
-        cache.reader().unwrap().get(broken_id).status(),
+        cache.mod_metadata(broken_id).status(),
         &CacheStatus::Unavailable(CacheUnavailableReason::MissingDigest)
     );
     assert_eq!(records[2]["failed_stage"], "import");
@@ -222,7 +222,7 @@ fn import_and_identification_failures_continue_and_unrecognized_remains_a_positi
     assert_eq!(records[3]["success"], true);
     assert_eq!(records[4]["success"], true);
     let empty_id = records[4]["id"].as_str().unwrap().parse().unwrap();
-    let empty = cache.reader().unwrap().get(empty_id);
+    let empty = cache.mod_metadata(empty_id);
     assert_eq!(empty.status(), &CacheStatus::Available);
     assert!(
         empty
@@ -231,7 +231,7 @@ fn import_and_identification_failures_continue_and_unrecognized_remains_a_positi
             .identifications()
             .all(|(_, result)| matches!(result, CachedIdentification::Unrecognized))
     );
-    assert_eq!(cache.reader().unwrap().list().unwrap().len(), 3);
+    assert_eq!(cache.list_metadata().unwrap().len(), 3);
 }
 
 #[test]
@@ -242,7 +242,7 @@ fn explicit_hard_link_and_metadata_completion_preserve_existing_identity_and_uns
     let identity = FileIdentity::read(&source).unwrap();
     let first = run(
         root.path(),
-        cache.root(),
+        cache.path(),
         &["source.jar", "--mode", "hard-link", "--loader", "fabric"],
         None,
     );
@@ -250,7 +250,7 @@ fn explicit_hard_link_and_metadata_completion_preserve_existing_identity_and_uns
     let first = rows(&first);
     assert_eq!(first[0]["method"], "hard_link");
     let id = first[0]["id"].as_str().unwrap().parse().unwrap();
-    let entry = cache.reader().unwrap().get(id);
+    let entry = cache.mod_metadata(id);
     assert_eq!(FileIdentity::read(entry.data_path()).unwrap(), identity);
     assert!(matches!(
         entry.digest().unwrap().identification("forge"),
@@ -259,7 +259,7 @@ fn explicit_hard_link_and_metadata_completion_preserve_existing_identity_and_uns
 
     let second = run(
         root.path(),
-        cache.root(),
+        cache.path(),
         &["source.jar", "--loaders", "forge,neoforge"],
         None,
     );
@@ -267,12 +267,12 @@ fn explicit_hard_link_and_metadata_completion_preserve_existing_identity_and_uns
     assert_eq!(rows(&second)[0]["published"], false);
     let force = run(
         root.path(),
-        cache.root(),
+        cache.path(),
         &["source.jar", "--loader", "fabric", "--force"],
         None,
     );
     assert!(force.status.success(), "{force:?}");
-    let entry = cache.reader().unwrap().get(id);
+    let entry = cache.mod_metadata(id);
     assert_eq!(FileIdentity::read(entry.data_path()).unwrap(), identity);
     for loader in ["forge", "neoforge", "fabric"] {
         assert!(matches!(
@@ -280,5 +280,5 @@ fn explicit_hard_link_and_metadata_completion_preserve_existing_identity_and_uns
             CachedIdentification::Recognized(_)
         ));
     }
-    assert_eq!(cache.reader().unwrap().list().unwrap().len(), 1);
+    assert_eq!(cache.list_metadata().unwrap().len(), 1);
 }

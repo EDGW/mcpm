@@ -4,7 +4,7 @@ use clap::ValueEnum;
 use ratatui::{layout::Rect, widgets::ListState};
 
 use super::super::expression::{CompletionContext, CompletionField, completion_context};
-use crate::commands::mod_support::loaders::Loader;
+use crate::commands::supports::mods::loaders::Loader;
 
 mod view;
 

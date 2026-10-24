@@ -8,7 +8,7 @@ use super::{
 };
 
 use crate::{
-    commands::output_style::{OutputStyle, text},
+    display::style::{OutputStyle, text},
     ssh::Connection,
     terminal,
 };

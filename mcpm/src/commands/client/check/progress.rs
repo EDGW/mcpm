@@ -9,7 +9,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use kako_mods_lib::local::mc::client::{CheckEvent, CheckProgress, CheckStep};
 
 use super::super::output::text;
-use crate::commands::output_style::OutputStyle;
+use crate::display::style::OutputStyle;
 use crate::terminal;
 
 #[derive(Debug)]

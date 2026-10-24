@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use kako_mods_lib::source::{FilePage, ProjectFile, ProjectRef, ReleaseType};
 
 use crate::{
-    commands::output_style::{OutputStyle, text},
+    display::style::{OutputStyle, text},
     terminal,
 };
 

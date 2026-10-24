@@ -2,7 +2,7 @@
 
 use super::{Browser, Focus};
 use crate::{
-    commands::output_style::text,
+    display::style::text,
     theme::{
         Role,
         widgets::{self, style},

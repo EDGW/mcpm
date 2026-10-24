@@ -1,12 +1,16 @@
 //! CLI cache-category selection and read-only Identify reuse independent of loader descriptors.
 
-use kako_mods_lib::{
-    local::mcmod::cache::{CacheId, ModsCache},
-    source::{
-        FileHash, FileId, FileMatch, FileRef, FileSummary, MatchedFileRole, ProjectId, ProjectRef,
-        SourceId,
-    },
-};
+use kako_mods_lib::local::cache::hash::Blake3Hash;
+use kako_mods_lib::local::cache::mods::ModsCacheDir;
+use kako_mods_lib::source::FileHash;
+use kako_mods_lib::source::FileId;
+use kako_mods_lib::source::FileMatch;
+use kako_mods_lib::source::FileRef;
+use kako_mods_lib::source::FileSummary;
+use kako_mods_lib::source::MatchedFileRole;
+use kako_mods_lib::source::ProjectId;
+use kako_mods_lib::source::ProjectRef;
+use kako_mods_lib::source::SourceId;
 use serde_json::Value;
 use std::{
     fs,
@@ -14,9 +18,14 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-fn seed(cache: &ModsCache, source: &Path) -> CacheId {
-    let mut writer = cache.writer().unwrap();
-    let id = writer.import(source).unwrap();
+fn seed(cache: &ModsCacheDir, source: &Path) -> Blake3Hash {
+    let writer = &cache;
+    let id = writer
+        .import(
+            source,
+            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+        )
+        .unwrap();
     let summary = FileSummary::read(source, Default::default()).unwrap();
     for key in ["modrinth", "curseforge"] {
         writer
@@ -70,22 +79,21 @@ fn category_and_source_selection_and_identify_leave_independent_snapshots_intact
         &source,
     )
     .unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
     let id = seed(&cache, &source);
-    let reader = cache.reader().unwrap();
-    let metadata = reader.metadata(id);
+    let reader = &cache;
+    let metadata = reader.mod_metadata(id);
     let info = reader.ident_info(id);
     let original = fs::read(info.path()).unwrap();
     let modified = fs::metadata(info.path()).unwrap().modified().unwrap();
     let record = first(&run(
         root.path(),
-        cache.root(),
+        cache.path(),
         &[
             "mod",
             "cache",
             "mod.jar",
-            "--contents",
+            "--metas",
             "ident",
             "--sources",
             "curseforge@PRIVATE-KEY",
@@ -97,7 +105,7 @@ fn category_and_source_selection_and_identify_leave_independent_snapshots_intact
     assert!(!metadata.digest_path().exists());
     let identified = run(
         root.path(),
-        cache.root(),
+        cache.path(),
         &[
             "mod",
             "source",
@@ -118,7 +126,7 @@ fn category_and_source_selection_and_identify_leave_independent_snapshots_intact
     // Defaults request both result categories and every built-in source.
     let record = first(&run(
         root.path(),
-        cache.root(),
+        cache.path(),
         &["mod", "cache", "mod.jar"],
     ));
     assert_eq!(record["status"], "available");
@@ -126,8 +134,8 @@ fn category_and_source_selection_and_identify_leave_independent_snapshots_intact
     fs::write(info.path(), b"broken source snapshot").unwrap();
     first(&run(
         root.path(),
-        cache.root(),
-        &["mod", "cache", "mod.jar", "--contents", "metadata"],
+        cache.path(),
+        &["mod", "cache", "mod.jar", "--metas", "meta"],
     ));
     assert_eq!(fs::read(info.path()).unwrap(), b"broken source snapshot");
 }
@@ -158,8 +166,7 @@ fn ssh_server_cache_enriches_on_the_client_and_uses_the_file_hosts_snapshots() {
         &source,
     )
     .unwrap();
-    let cache = ModsCache::new(host.join("cache"));
-    cache.initialize().unwrap();
+    let cache = ModsCacheDir::initialize(host.join("cache")).unwrap();
     let id = seed(&cache, &source);
     let ssh = root.path().join("ssh");
     fs::write(
@@ -191,7 +198,7 @@ fn ssh_server_cache_enriches_on_the_client_and_uses_the_file_hosts_snapshots() {
     let record = first(&output);
     assert_eq!(record["identification"].as_object().unwrap().len(), 2);
     assert_eq!(record["status"], "available");
-    assert!(cache.reader().unwrap().metadata(id).digest_path().exists());
+    assert!(cache.mod_metadata(id).digest_path().exists());
     assert!(!client.join("cache").exists());
     let output = run(
         &client,
@@ -222,9 +229,13 @@ fn remote_publication_acknowledges_verified_data_and_rejects_incorrect_content()
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("input.jar");
     fs::write(&path, b"abc").unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let id = cache.writer().unwrap().import(&path).unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let id = cache
+        .import(
+            &path,
+            kako_mods_lib::local::cache::CacheLinkPreference::Copy,
+        )
+        .unwrap();
     let summary = FileSummary::read(&path, Default::default()).unwrap();
     let file = FileMatch {
         reference: FileRef {
@@ -266,16 +277,13 @@ fn remote_publication_acknowledges_verified_data_and_rejects_incorrect_content()
             .any(|reply| reply["status"] == "data" && reply["contents"].is_null())
     );
     assert!(replies.iter().any(|reply| reply["status"] == "finished"));
-    let saved = fs::read(cache.reader().unwrap().ident_info(id).path()).unwrap();
+    let saved = fs::read(cache.ident_info(id).path()).unwrap();
     let mut wrong = file.clone();
     wrong.hashes = vec![FileHash::Sha1("0".repeat(40))];
     let replies = request(&wrong);
     assert!(replies.iter().any(|reply| reply["status"] == "error"));
-    assert_eq!(
-        fs::read(cache.reader().unwrap().ident_info(id).path()).unwrap(),
-        saved
-    );
-    fs::remove_file(cache.reader().unwrap().metadata(id).data_path()).unwrap();
+    assert_eq!(fs::read(cache.ident_info(id).path()).unwrap(), saved);
+    fs::remove_file(cache.mod_metadata(id).data_path()).unwrap();
     let replies = request(&file);
     assert!(replies.iter().any(|reply| reply["status"] == "error"));
 }

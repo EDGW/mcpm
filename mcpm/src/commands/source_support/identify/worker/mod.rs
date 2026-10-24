@@ -3,7 +3,7 @@
 use super::{Event, Location, Outcome, remote, summary};
 use crate::diagnostics::ErrorReport;
 use anyhow::{Result, ensure};
-use kako_mods_lib::local::mcmod::cache::CacheSelection;
+use kako_mods_lib::local::cache::mods::ModsCacheSelection;
 use kako_mods_lib::source::{FileSummary, Source, SummaryRequirements};
 use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
@@ -44,7 +44,7 @@ impl Identification {
         specifications: &[String],
         parallelism: usize,
         location: Location<'_>,
-        cache: Option<CacheSelection>,
+        cache: Option<ModsCacheSelection>,
     ) -> Result<Self> {
         Self::with_sources_cached(paths, sources(specifications), parallelism, location, cache)
     }
@@ -71,7 +71,7 @@ impl Identification {
         sources: Sources,
         parallelism: usize,
         location: Location<'_>,
-        cache: Option<CacheSelection>,
+        cache: Option<ModsCacheSelection>,
     ) -> Result<Self> {
         ensure!(
             !sources.is_empty(),
@@ -228,16 +228,23 @@ impl Identification {
                             tracing::debug!(?indices, file_host = if remote { "remote" } else { "local" }, success = matches!(outcome, summary::Outcome::Summary { .. }), "Received file summary result");
                             match outcome {
                             summary::Outcome::Summary { summary, cached } => {
-                                for (source_index, source) in self.sources.iter().enumerate() {
-                                    let hit = source.as_ref().ok().and_then(|source| {
+                                let hits: Vec<_> = self.sources.iter().map(|source| {
+                                    source.as_ref().ok().and_then(|source| {
                                         cached.get(&source.identification_cache_id().0).and_then(|file| file.for_source(source.as_ref()))
-                                    });
+                                    })
+                                }).collect();
+                                emit(Event::Cache {
+                                    indices: indices.clone(),
+                                    sources: hits.iter().enumerate().filter_map(|(index, hit)| hit.is_some().then_some(index)).collect(),
+                                })?;
+                                for (source_index, hit) in hits.into_iter().enumerate() {
                                     if let Some(file) = hit {
                                         emit(Event::Item { indices: indices.clone(), source: source_index, outcome: Outcome::Matched { file } })?;
                                     } else { queued.push_back((indices.clone(), source_index, summary.clone())); }
                                 }
                             }
                             summary::Outcome::Failed { error } => {
+                                emit(Event::Cache { indices: indices.clone(), sources: Vec::new() })?;
                                 failed += indices.len() * self.sources.len();
                                 for source in 0..self.sources.len() { emit(Event::Item { indices: indices.clone(), source, outcome: Outcome::Failed { error: error.clone(), remote } })?; }
                             }
@@ -269,7 +276,7 @@ impl Identification {
 enum Input {
     Local {
         requirements: SummaryRequirements,
-        cache: Option<CacheSelection>,
+        cache: Option<ModsCacheSelection>,
     },
     Remote(remote::Lookup),
     Receiving(mpsc::Receiver<Result<summary::Event>>),

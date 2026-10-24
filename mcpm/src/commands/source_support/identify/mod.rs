@@ -24,7 +24,7 @@ pub(in crate::commands) use worker::{Identification, Sources, sources as prepare
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Modes: Console and Raw (--raw or redirected stdout); Remote supported through --ssh.\n\nPaths are literal file paths, resolved on the remote host with --ssh. Redirected stdin is appended, one path per line.\nThe default cache is read-only: hits skip provider requests, misses never write. --no-cache disables lookup; --cache-dir selects an initialized cache on the file host.\nUnmatched files are reported as unmatched; read or request failures exit unsuccessfully.\n\nExamples:\n  mcpm mod source identify --source modrinth ./mods/create.jar\n  mcpm mod source identify --source curseforge ./mods/a.jar ./mods/b.jar\n  mcpm mod source identify --source 'curseforge@KEY' ./mods/create.jar\n  printf '%s\\n' ./mods/a.jar ./mods/b.jar | mcpm mod source identify --source modrinth\n  mcpm --raw mod source identify --source modrinth ./mods/create.jar --columns path,project,id,status"
+    after_help = "Modes: Console (field groups) and Raw (TSV; --raw or redirected stdout); Remote supported through --ssh.\n\nPaths are literal file paths, resolved on the remote host with --ssh. Redirected stdin is appended, one path per line. --columns, --column and -C select fields; --headers adds a Raw header.\nThe default cache is read-only: hits skip provider requests, misses never write. --no-cache disables lookup; --cache-dir selects an initialized cache on the file host.\nUnmatched files are reported as unmatched; read or request failures exit unsuccessfully.\n\nExamples:\n  mcpm mod source identify --source modrinth ./mods/create.jar\n  mcpm mod source identify --source curseforge ./mods/a.jar ./mods/b.jar\n  mcpm mod source identify --source 'curseforge@KEY' ./mods/create.jar\n  printf '%s\\n' ./mods/a.jar ./mods/b.jar | mcpm mod source identify --source modrinth\n  mcpm --raw mod source identify --source modrinth ./mods/create.jar --columns path,project,id,status"
 )]
 pub(in crate::commands) struct IdentifyArgs {
     /// Files to identify (remote paths with --ssh) by their contents, not their names.
@@ -45,8 +45,11 @@ pub(in crate::commands) struct IdentifyOptions {
     parallelism: NonZeroUsize,
     #[command(flatten)]
     columns: columns::ColumnArgs,
+    /// Include one header row in Raw TSV output; ignored by Console.
+    #[arg(long)]
+    headers: bool,
     #[command(flatten)]
-    cache: crate::commands::mod_support::cache::CacheArgs,
+    cache: crate::commands::supports::mods::reuse::CacheArgs,
 }
 
 impl IdentifyOptions {
@@ -139,6 +142,7 @@ fn present(
             .to_owned(),
     );
     let mut output = io::stdout().lock();
+    output::headers(&mut output, &columns, options.headers)?;
     let mut buffered = vec![None; paths.len()];
     let mut next = 0;
     let mut failed = 0;

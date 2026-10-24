@@ -2,7 +2,7 @@
 
 use super::super::request;
 use crate::{
-    commands::output_style::text,
+    display::style::text,
     theme::Role,
     widgets::browser::{self, Screen},
 };

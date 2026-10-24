@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::output_style::{OutputStyle, text};
+use crate::display::style::{OutputStyle, text};
 use crate::{
     terminal,
     theme::config::{self, Config},

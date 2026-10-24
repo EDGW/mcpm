@@ -9,7 +9,7 @@ use ratatui::{
 
 use super::{Completion, CompletionField, Versions};
 use crate::{
-    commands::output_style::text,
+    display::style::text,
     theme::{
         Role,
         widgets::{self, style},

@@ -2,7 +2,7 @@
 
 use std::{num::NonZeroUsize, path::PathBuf};
 
-use crate::commands::{execution::DEFAULT_PARALLELISM, mod_support::scan::ScanSession};
+use crate::commands::{execution::DEFAULT_PARALLELISM, supports::mods::scan::ScanSession};
 
 use anyhow::{Context, Result};
 use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::remote::command::{Command, Output};
 
-use crate::commands::mod_support::list::protocol;
+use crate::commands::supports::mods::list::protocol;
 
 use protocol::{Contents, Record, Status};
 
@@ -94,7 +94,7 @@ impl Command for List {
             }
         }
         let mut scan = ScanSession::new(selected).with_options(
-            crate::commands::mod_support::scan::Options {
+            crate::commands::supports::mods::scan::Options {
                 parallelism: args.parallelism.get(),
                 cache: args.cache,
             },
@@ -165,8 +165,8 @@ fn default_parallelism() -> NonZeroUsize {
 /// Adapt CLI selection to the independent remote argument schema at the frontend boundary.
 pub(super) fn request(
     paths: Vec<PathBuf>,
-    loaders: &crate::commands::mod_support::loaders::LoaderArgs,
-    loading: crate::commands::mod_support::scan::Options,
+    loaders: &crate::commands::supports::mods::loaders::LoaderArgs,
+    loading: crate::commands::supports::mods::scan::Options,
 ) -> Result<Args> {
     let mut ids = if loaders.is_filtered() {
         loaders

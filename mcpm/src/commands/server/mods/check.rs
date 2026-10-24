@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use anyhow::{Context, Result};
 use clap::Args;
 
-use crate::commands::{mod_support::dep_graph, output_style::OutputStyle};
+use crate::{commands::supports::mods::dep_graph, display::style::OutputStyle};
 
 use super::graph_input::ServerArgs;
 

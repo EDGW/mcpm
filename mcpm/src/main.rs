@@ -3,6 +3,7 @@
 mod cli;
 mod commands;
 mod diagnostics;
+mod display;
 mod help;
 mod initcall;
 mod logging;

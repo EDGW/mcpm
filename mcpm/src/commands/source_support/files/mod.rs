@@ -102,14 +102,14 @@ pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
     for value in args.projects {
         let progress = super::progress::Progress::new(format!(
             "Resolving project {}...",
-            crate::commands::output_style::text(&value)
+            crate::display::style::text(&value)
         ));
         let result = runtime.block_on(async {
             let reference = source.resolve_project(&value).await?;
             drop(progress);
             let _progress = super::progress::Progress::new(format!(
                 "Fetching files for {}...",
-                crate::commands::output_style::text(&value)
+                crate::display::style::text(&value)
             ));
             let selected = match &args.selected {
                 Some(id) => Some(

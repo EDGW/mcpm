@@ -2,10 +2,11 @@
 
 use super::ServerMods;
 use crate::{
-    commands::mod_support::{
-        caching::{
+    commands::source_support::SourcesArgs,
+    commands::supports::mods::{
+        cache::{
             self,
-            args::{SourcesArgs, WriteArgs},
+            args::WriteArgs,
             identification::Completion,
             output::{DisplayArgs, Presentation},
         },
@@ -33,17 +34,17 @@ impl Command for Cache {
         );
         output.checkpoint()?;
         let server = ServerMods::load(args.server)?;
-        caching::run(
+        cache::run(
             selection,
             server.scope(),
             args.writing.options(server.loaders())?,
             || output.checkpoint(),
             |event| {
                 match &event {
-                    caching::Event::Selection(
-                        crate::commands::mod_support::scan::Event::Diagnostic { error },
+                    cache::Event::Selection(
+                        crate::commands::supports::mods::scan::Event::Diagnostic { error },
                     ) => crate::logging::record_error(&error.clone().into_error()),
-                    caching::Event::File(file) => {
+                    cache::Event::File(file) => {
                         if let Some(error) = &file.error {
                             crate::logging::record_error(&error.clone().into_error());
                         }
@@ -72,7 +73,7 @@ pub(super) fn run(
     sources: SourcesArgs,
     display: DisplayArgs,
 ) -> Result<()> {
-    let mut completion = Completion::new(&writing, &sources.sources)?;
+    let mut completion = Completion::new(&writing, &sources.selected()?)?;
     let mut session = ssh.connect()?;
     let mut output = Presentation::remote(display);
     session

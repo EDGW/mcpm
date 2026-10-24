@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::mod_support::selection::{ItemArgs, Selection};
+use crate::commands::supports::mods::selection::{ItemArgs, Selection};
 
 /// Input selection for server mod information and dependency inspection.
 #[derive(Args, Debug)]

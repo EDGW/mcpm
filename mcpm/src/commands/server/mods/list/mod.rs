@@ -10,9 +10,9 @@ use super::super::{
     target::{self, Target},
 };
 use crate::{
-    commands::mod_support::{
-        cache::CacheArgs,
+    commands::supports::mods::{
         list::{self, ListDisplayArgs, ListLoadingArgs},
+        reuse::CacheArgs,
         scan,
         selection::SelectionArgs,
     },

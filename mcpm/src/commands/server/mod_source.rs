@@ -9,7 +9,7 @@ use kako_mods_lib::local::{
 };
 use thiserror::Error;
 
-use crate::commands::mod_support::selection::Scope;
+use crate::commands::supports::mods::selection::Scope;
 
 /// Registered server and loader scope shared by server mod commands.
 #[derive(Debug)]

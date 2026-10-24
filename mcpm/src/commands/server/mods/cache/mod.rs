@@ -8,9 +8,10 @@ use super::{
     input::FileArgs,
 };
 use crate::{
-    commands::mod_support::caching::{
+    commands::source_support::SourcesArgs,
+    commands::supports::mods::cache::{
         self,
-        args::{SourcesArgs, WriteArgs},
+        args::WriteArgs,
         identification::Completion,
         output::{DisplayArgs, Presentation},
     },
@@ -23,7 +24,7 @@ mod remote;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Modes: Console and Raw (--raw or redirected stdout; one JSON object per selected file). Console shows progress and a summary by default; --expanded adds per-file details. Remote supported through --ssh or a registered Remote workspace.\n\nITEM uses the same filename/modid/name and stdin selection as server mods info. Paths are relative to the server's mods directory; mods/ prefixes are accepted. --all selects every outer JAR. Only the server's declared loader is identified.\n\nStores whole outer JARs, including nested mods. Objects deduplicate by BLAKE3. The default mode copies; explicit hard-link modes share content protection with the source. Existing objects are reused. --contents selects metadata and/or ident (default both). --sources selects providers (default all); provider requests and API keys stay on the client. --force refreshes requested results. File failures are reported and later files continue; completed writes are retained."
+    after_help = "Modes: Console and Raw (--raw or redirected stdout; one JSON object per selected file). Console shows progress and a summary by default; --details adds per-file details. Remote supported through --ssh or a registered Remote workspace.\n\nITEM uses the same filename/modid/name and stdin selection as server mods info. Paths are relative to the server's mods directory; mods/ prefixes are accepted. --all selects every outer JAR. Only the server's declared loader is identified.\n\nStores whole outer JARs, including nested mods. Objects deduplicate by BLAKE3. The default mode copies; explicit hard-link modes share content protection with the source. Existing objects are reused. --metas/--meta select meta and/or ident (default both); --no-metas imports content only. Explicit selections replace defaults. --sources/--source select providers (default both); explicit selections replace defaults. Console shows separate import, meta and ident progress; provider requests and API keys stay on the client. --force refreshes requested results. File failures are reported and later files continue; completed writes are retained."
 )]
 pub(super) struct CacheArgs {
     #[command(flatten)]
@@ -39,7 +40,7 @@ pub(super) struct CacheArgs {
 pub(super) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
     let (path, selection) = args.files.read()?;
     if selection.is_empty() {
-        return crate::commands::mod_support::inspect::prompt_for_input();
+        return crate::commands::supports::mods::inspect::prompt_for_input();
     }
     let Target { path, ssh, .. } = target::resolve(path, ssh)?;
     if ssh.is_requested() {
@@ -53,9 +54,9 @@ pub(super) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
         );
     }
     let server = ServerMods::load(path)?;
-    let mut completion = Completion::new(&args.writing, &args.sources.sources)?;
+    let mut completion = Completion::new(&args.writing, &args.sources.selected()?)?;
     let mut output = Presentation::new(args.display);
-    caching::run(
+    cache::run(
         selection,
         server.scope(),
         args.writing.options(server.loaders())?,

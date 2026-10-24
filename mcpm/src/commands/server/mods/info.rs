@@ -3,7 +3,7 @@
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::mod_support::{cache::CacheArgs, inspect, scan};
+use crate::commands::supports::mods::{inspect, reuse::CacheArgs, scan};
 
 use super::input::FileArgs;
 

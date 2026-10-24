@@ -10,7 +10,7 @@ use super::{
     input::FileArgs,
 };
 use crate::{
-    commands::mod_support::{
+    commands::supports::mods::{
         inspect::{self, Display},
         scan,
     },

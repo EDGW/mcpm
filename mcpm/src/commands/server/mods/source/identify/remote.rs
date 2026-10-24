@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::ServerMods;
 use crate::{
-    commands::mod_support::{
+    commands::supports::mods::{
         scan,
         scan_output::ScanOutput,
         selection::{self, Selection, SelectionInput},

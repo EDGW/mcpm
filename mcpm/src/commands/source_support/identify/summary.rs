@@ -1,10 +1,10 @@
 //! File-summary acquisition shared by local identification and the remote command handler.
 
 use anyhow::{Context, Result};
-use kako_mods_lib::{
-    local::mcmod::cache::{CacheLookup, CacheSelection},
-    source::{FileMatch, FileSummary, SummaryRequirements},
-};
+use kako_mods_lib::local::cache::mods::ModsCacheSelection;
+use kako_mods_lib::source::FileMatch;
+use kako_mods_lib::source::FileSummary;
+use kako_mods_lib::source::SummaryRequirements;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -54,12 +54,12 @@ pub(super) async fn run<F: std::future::Future<Output = Result<()>>>(
     paths: Vec<PathBuf>,
     requirements: SummaryRequirements,
     parallelism: usize,
-    cache: Option<CacheSelection>,
+    cache: Option<ModsCacheSelection>,
     checkpoint: impl Fn() -> Result<()>,
     mut emit: impl FnMut(Event) -> F,
 ) -> Result<()> {
     let lookup = cache
-        .map(|selection| CacheLookup::new(selection.open()?))
+        .map(ModsCacheSelection::open)
         .transpose()?
         .map(std::sync::Arc::new);
     let started = std::time::Instant::now();
@@ -104,7 +104,7 @@ pub(super) async fn run<F: std::future::Future<Output = Result<()>>>(
                 let result = tokio::task::spawn_blocking(move || -> Result<_> {
                     let summary = FileSummary::read(&path, requirements).with_context(|| format!("failed to summarize file {path:?}"))?;
                     let cached = match lookup {
-                        Some(lookup) => lookup.ident_info(&path)?.map(|info| info.verified_matches(&summary)).unwrap_or_default(),
+                        Some(lookup) => lookup.find_ident_info(&path)?.map(|info| info.verified_matches(&summary)).unwrap_or_default(),
                         None => BTreeMap::new(),
                     };
                     Ok((summary, cached))

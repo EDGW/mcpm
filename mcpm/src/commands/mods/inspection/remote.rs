@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    commands::mod_support::{
+    commands::supports::mods::{
         inspect::{self, Display, Event},
         loaders::LoaderArgs,
         selection::{Scope, Selection, SelectionInput},
@@ -79,7 +79,7 @@ fn serve(contents: Value, output: &Output) -> Result<()> {
             args.directory,
             loaders,
             filtered,
-            crate::commands::mod_support::scan::Options {
+            crate::commands::supports::mods::scan::Options {
                 parallelism: args.parallelism.get(),
                 cache: args.cache,
             },
@@ -123,7 +123,7 @@ pub(super) fn run_ssh(
     selection: Selection,
     directory: PathBuf,
     loaders: LoaderArgs,
-    loading: crate::commands::mod_support::scan::Options,
+    loading: crate::commands::supports::mods::scan::Options,
     display: Display<'_>,
 ) -> Result<()> {
     let command = match display {

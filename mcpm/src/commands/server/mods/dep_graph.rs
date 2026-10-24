@@ -3,7 +3,7 @@
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::mod_support::dep_graph::{self, BuildOptions};
+use crate::commands::supports::mods::dep_graph::{self, BuildOptions};
 
 use super::graph_input::ServerArgs;
 

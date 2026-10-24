@@ -1,11 +1,10 @@
-//! User-facing error chains rendered with the shared stderr theme policy.
+//! Error reporting policy, serializable cause chains and remote error identity.
+
+use std::io;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    terminal,
-    theme::{self, Role},
-};
+use crate::display::{console::ConsoleWriter, error as display};
 
 pub(crate) fn error(error: &anyhow::Error) {
     crate::logging::record_error(error);
@@ -18,25 +17,12 @@ pub(crate) fn error(error: &anyhow::Error) {
 /// Render an already-recorded error while a caller suspends its progress display.
 pub(crate) fn display_error(error: &anyhow::Error) {
     let remote = error.chain().any(|cause| cause.is::<RemoteError>());
-    for (depth, cause) in visible_chain(error).enumerate() {
-        let indentation = if depth == 0 { "" } else { "  " };
-        let label = if depth > 0 {
-            "caused by:"
-        } else if remote {
-            "remote error:"
-        } else {
-            "error:"
-        };
-        if terminal::stderr_color_enabled() {
-            eprintln!(
-                "{indentation}{} {}",
-                theme::console(Role::Danger).style(label),
-                theme::console(Role::Normal).style(cause)
-            );
-        } else {
-            eprintln!("{indentation}{label} {cause}");
-        }
-    }
+    let mut stderr = io::stderr().lock();
+    let _ = display::write(
+        &mut ConsoleWriter::new(&mut stderr),
+        &ErrorReport::capture(error),
+        remote,
+    );
 }
 
 fn visible_chain(

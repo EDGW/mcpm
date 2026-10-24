@@ -1,6 +1,7 @@
 //! Server cache integration: scoped selection, declared loaders, read-only reuse and host routing.
 
-use kako_mods_lib::local::mcmod::cache::{CachedIdentification, ModsCache};
+use kako_mods_lib::local::cache::mods::ModsCacheDir;
+use kako_mods_lib::local::cache::mods::meta::CachedIdentification;
 use kako_mods_lib::local::modloader::BUILTIN_LOADERS;
 use serde_json::{Value, json};
 use std::{
@@ -40,7 +41,7 @@ fn run(root: &Path, args: &[&str], input: &str) -> Output {
         .windows(3)
         .any(|part| part == ["server", "mods", "cache"])
     {
-        command.args(["--contents", "metadata"]);
+        command.args(["--metas", "meta"]);
     }
     let mut child = command
         .current_dir(root)
@@ -89,8 +90,7 @@ fn remote(root: &Path, command: &str, contents: Value) -> Vec<Value> {
 #[test]
 fn selectors_stay_in_server_scope_and_persist_whole_metadata_for_only_the_declared_loader() {
     let root = tempfile::tempdir().unwrap();
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
     server(&root.path().join("server"), "fabric");
     fs::copy(
         root.path().join("server/mods/example.jar.disabled"),
@@ -126,7 +126,7 @@ fn selectors_stay_in_server_scope_and_persist_whole_metadata_for_only_the_declar
     assert_eq!(records[0]["success"], true);
     assert_eq!(records[0]["method"], "copy");
     let id = records[0]["id"].as_str().unwrap().parse().unwrap();
-    let entry = cache.reader().unwrap().get(id);
+    let entry = cache.mod_metadata(id);
     let digest = entry.digest().unwrap();
     assert!(matches!(
         digest.identification("forge"),
@@ -140,7 +140,7 @@ fn selectors_stay_in_server_scope_and_persist_whole_metadata_for_only_the_declar
     assert_eq!(meta.nested.len(), 3);
     assert!(!meta.nested[0].meta.nested.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("outside.jar"));
-    assert_eq!(cache.reader().unwrap().list().unwrap().len(), 1);
+    assert_eq!(cache.list_metadata().unwrap().len(), 1);
 }
 
 #[test]
@@ -148,16 +148,15 @@ fn remote_cache_reuses_objects_completes_loader_metadata_and_queries_remain_read
     let root = tempfile::tempdir().unwrap();
     server(&root.path().join("fabric"), "fabric");
     server(&root.path().join("forge"), "forge");
-    let cache = ModsCache::new(root.path().join("cache"));
-    cache.initialize().unwrap();
-    let request = |server: &str| json!({"server":server, "selection":{"all":true}, "writing":{"cache_dir":"cache", "parallelism":3,"contents":["metadata"]}});
+    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let request = |server: &str| json!({"server":server, "selection":{"all":true}, "writing":{"cache_dir":"cache", "parallelism":3,"metas":["meta"]}});
     let first = remote(root.path(), "server.mods.cache", request("fabric"));
     let file = &first.iter().find(|event| event["event"] == "file").unwrap()["contents"];
     assert_eq!(file["published"], true);
     let id = file["id"].as_str().unwrap().parse().unwrap();
     let second = remote(root.path(), "server.mods.cache", request("forge"));
     assert_eq!(second.last().unwrap()["contents"]["objects_reused"], 1);
-    let entry = cache.reader().unwrap().get(id);
+    let entry = cache.mod_metadata(id);
     for loader in ["fabric", "forge"] {
         assert!(matches!(
             entry.digest().unwrap().identification(loader),
@@ -256,8 +255,8 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
     );
     assert!(first.status.success(), "{first:?}");
     assert_eq!(rows(&first)[0]["published"], true);
-    let cache = ModsCache::new(home.join(".mcpm/cache/mods"));
-    assert_eq!(cache.reader().unwrap().list().unwrap().len(), 1);
+    let cache = ModsCacheDir::new(home.join(".mcpm/cache/mods")).unwrap();
+    assert_eq!(cache.list_metadata().unwrap().len(), 1);
     assert!(!client.join(".mcpm/cache").exists());
     let workspace = client.join("workspace");
     fs::create_dir_all(workspace.join(".mcpm")).unwrap();

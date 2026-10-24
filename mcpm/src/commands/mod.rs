@@ -6,12 +6,11 @@ pub(crate) mod client;
 pub(crate) mod customize;
 pub(crate) mod debug;
 mod execution;
-mod mod_support;
 pub(crate) mod mods;
-mod output_style;
 pub(crate) mod server;
 mod source_support;
 mod stdin;
+mod supports;
 
 use anyhow::Result;
 

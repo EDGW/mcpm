@@ -7,7 +7,7 @@ use std::{num::NonZeroUsize, path::PathBuf};
 
 use super::super::super::mod_source::ServerMods;
 use crate::{
-    commands::mod_support::{
+    commands::supports::mods::{
         inspect::{self, Display, Event},
         scan,
         selection::{Selection, SelectionInput},
