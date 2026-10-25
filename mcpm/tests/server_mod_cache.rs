@@ -35,8 +35,12 @@ fn server(root: &Path, loader: &str) {
 }
 
 fn run(root: &Path, args: &[&str], input: &str) -> Output {
+    fs::create_dir_all(root.join("home")).unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm"));
-    command.args(["--raw", "--log-level", "off"]).args(args);
+    command
+        .env("HOME", root.join("home"))
+        .args(["--raw", "--log-level", "off"])
+        .args(args);
     if args
         .windows(3)
         .any(|part| part == ["server", "mods", "cache"])
@@ -90,7 +94,7 @@ fn remote(root: &Path, command: &str, contents: Value) -> Vec<Value> {
 #[test]
 fn selectors_stay_in_server_scope_and_persist_whole_metadata_for_only_the_declared_loader() {
     let root = tempfile::tempdir().unwrap();
-    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let cache = ModsCacheDir::initialize(root.path().join("home/.mcpm/cache/mods")).unwrap();
     server(&root.path().join("server"), "fabric");
     fs::copy(
         root.path().join("server/mods/example.jar.disabled"),
@@ -105,8 +109,6 @@ fn selectors_stay_in_server_scope_and_persist_whole_metadata_for_only_the_declar
             "cache",
             "--server",
             "server",
-            "--cache-dir",
-            "cache",
             "--modid",
             "omnibus_nested",
             "--file",
@@ -148,8 +150,8 @@ fn remote_cache_reuses_objects_completes_loader_metadata_and_queries_remain_read
     let root = tempfile::tempdir().unwrap();
     server(&root.path().join("fabric"), "fabric");
     server(&root.path().join("forge"), "forge");
-    let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
-    let request = |server: &str| json!({"server":server, "selection":{"all":true}, "writing":{"cache_dir":"cache", "parallelism":3,"metas":["meta"]}});
+    let cache = ModsCacheDir::initialize(root.path().join("home/.mcpm/cache/mods")).unwrap();
+    let request = |server: &str| json!({"server":server, "selection":{"all":true}, "writing":{"parallelism":3,"metas":["meta"]}});
     let first = remote(root.path(), "server.mods.cache", request("fabric"));
     let file = &first.iter().find(|event| event["event"] == "file").unwrap()["contents"];
     assert_eq!(file["published"], true);
@@ -172,7 +174,7 @@ fn remote_cache_reuses_objects_completes_loader_metadata_and_queries_remain_read
         let events = remote(
             root.path(),
             command,
-            json!({"server":"fabric", "selection":{"all":true}, "cache":{"kind":"directory","path":"cache"}}),
+            json!({"server":"fabric", "selection":{"all":true}}),
         );
         assert_eq!(
             events.last().unwrap()["cache"],
@@ -180,22 +182,16 @@ fn remote_cache_reuses_objects_completes_loader_metadata_and_queries_remain_read
         );
         assert_eq!(fs::read(entry.digest_path()).unwrap(), before);
     }
-    // An explicit invalid root must fail; disabling caching bypasses root validation.
-    fs::create_dir_all(root.path().join("bad")).unwrap();
-    fs::write(root.path().join("bad/foreign"), b"not a cache").unwrap();
+    // A corrupt Server cache must fail; disabling caching bypasses root validation.
+    fs::write(
+        cache.path().join(".mcpm/metadata.json"),
+        b"invalid cache metadata",
+    )
+    .unwrap();
     for command in ["info", "list"] {
         let failed = run(
             root.path(),
-            &[
-                "server",
-                "mods",
-                command,
-                "--server",
-                "fabric",
-                "--all",
-                "--cache-dir",
-                "bad",
-            ],
+            &["server", "mods", command, "--server", "fabric", "--all"],
             "",
         );
         assert!(!failed.status.success(), "{failed:?}");
@@ -257,7 +253,7 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
     assert_eq!(rows(&first)[0]["published"], true);
     let cache = ModsCacheDir::new(home.join(".mcpm/cache/mods")).unwrap();
     assert_eq!(cache.list_metadata().unwrap().len(), 1);
-    assert!(!client.join(".mcpm/cache").exists());
+    assert!(!client.join("home/.mcpm/cache").exists());
     let workspace = client.join("workspace");
     fs::create_dir_all(workspace.join(".mcpm")).unwrap();
     fs::write(
@@ -320,7 +316,10 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
         assert!(String::from_utf8_lossy(&result.stdout).contains("omnibus"));
     }
     assert!(!workspace.join("mods").exists());
-    // A relative --cache-dir also resolves on the source host.
+    // Bypassing the host cache leaves its existing metadata intact.
+    let entry = cache.list_metadata().unwrap().remove(0);
+    let metadata = cache.mod_metadata(entry.id());
+    let before = fs::read(metadata.digest_path()).unwrap();
     let explicit = run(
         &client,
         &[
@@ -334,10 +333,10 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
             "--server",
             "server",
             "--all",
-            "--cache-dir",
-            "home/.mcpm/cache/mods",
+            "--no-cache",
         ],
         "",
     );
     assert!(explicit.status.success(), "{explicit:?}");
+    assert_eq!(fs::read(metadata.digest_path()).unwrap(), before);
 }

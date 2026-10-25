@@ -55,7 +55,11 @@ fn arguments_and_literal_stdin_paths_verify_all_backups_after_a_failure() {
     let created = backup::create(
         &source,
         &valid,
-        &cache,
+        &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_backup_cache(
+            mcpm_backend::local::cache::mods::ModsCacheSelection::Directory {
+                path: cache.path().to_owned(),
+            },
+        ),
         CreateOptions {
             mode: CacheLinkPreference::Copy,
             parallelism: NonZeroUsize::new(2).unwrap(),
@@ -110,7 +114,11 @@ fn deletion_combines_arguments_and_stdin_and_continues_after_a_refused_directory
         backup::create(
             &source,
             &root.path().join(name),
-            &cache,
+            &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_backup_cache(
+                mcpm_backend::local::cache::mods::ModsCacheSelection::Directory {
+                    path: cache.path().to_owned(),
+                },
+            ),
             options,
             |_| Ok(()),
         )
@@ -140,7 +148,11 @@ fn deletion_combines_arguments_and_stdin_and_continues_after_a_refused_directory
     backup::create(
         &source,
         &root.path().join("last backup"),
-        &cache,
+        &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_backup_cache(
+            mcpm_backend::local::cache::mods::ModsCacheSelection::Directory {
+                path: cache.path().to_owned(),
+            },
+        ),
         options,
         |_| Ok(()),
     )

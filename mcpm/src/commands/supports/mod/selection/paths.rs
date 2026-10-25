@@ -1,5 +1,6 @@
 //! Resolves whole local archive paths without requiring their metadata to be readable.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -24,6 +25,7 @@ pub(in crate::commands) fn resolve_paths(
     selection: Selection,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
+    environment: &RuntimeEnvironment,
     parallelism: usize,
     checkpoint: impl Fn() -> Result<()>,
     observe: impl Fn(Event) -> Result<()>,
@@ -41,7 +43,7 @@ pub(in crate::commands) fn resolve_paths(
         ));
     };
     let mut resolver = Resolver::new(
-        ScanSession::new(loaders)
+        ScanSession::new(loaders, environment)
             .with_parallelism(parallelism)
             .with_checkpoint(&checkpoint)
             .with_observer(&observe),
@@ -118,6 +120,7 @@ mod tests {
             modid_selection(),
             Scope::container(directory.path().to_owned()),
             HashMap::new(),
+            &RuntimeEnvironment::new().with_mods_cache(None),
             2,
             || {
                 anyhow::ensure!(!cancelled.get(), "selection cancelled");
@@ -144,6 +147,7 @@ mod tests {
             modid_selection(),
             Scope::container(directory.path().to_owned()),
             HashMap::new(),
+            &RuntimeEnvironment::new().with_mods_cache(None),
             2,
             || Ok(()),
             |_| {

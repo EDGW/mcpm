@@ -3,7 +3,7 @@
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::supports::mods::{inspect, reuse::CacheArgs, scan};
+use crate::commands::supports::mods::{inspect, reuse::QueryArgs, scan};
 
 use super::input::FileArgs;
 
@@ -17,15 +17,15 @@ pub(super) struct InfoArgs {
     #[command(flatten)]
     loading: inspect::LoadingArgs,
     #[command(flatten)]
-    cache: CacheArgs,
+    cache: QueryArgs,
 }
 
 pub(super) fn run(args: InfoArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     super::inspection::run(
         args.files,
+        args.cache,
         scan::Options {
             parallelism: args.loading.parallelism(),
-            cache: args.cache.selection(),
         },
         inspect::Display::Info,
         ssh,

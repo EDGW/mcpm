@@ -28,7 +28,9 @@ fn fixture(root: &Path) {
 }
 
 fn remote(root: &Path, selection: Value) -> Vec<Value> {
+    fs::create_dir_all(root.join("home")).unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+        .env("HOME", root.join("home"))
         .arg("remote")
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -69,7 +71,13 @@ fn selected_records_and_failure_counts_are_independent_of_output_multiplicity() 
             {"kind":"file","value":"../escape.jar"}
         ]}),
     );
-    assert_eq!(events[0], json!({"event":"scope","loaders":["fabric"]}));
+    assert_eq!(
+        events[0],
+        json!({
+            "event":"scope", "loaders":["fabric"],
+            "environment":{"cache":{"kind":"directory","path":fs::canonicalize(root.path().join("home/.mcpm/cache/mods")).unwrap()}}
+        })
+    );
     let scan: Vec<_> = events
         .iter()
         .filter(|event| event["event"] == "scan")

@@ -39,31 +39,40 @@ pub(super) fn run(args: IdentifyArgs, ssh: SshArgs) -> Result<()> {
         path: server, ssh, ..
     } = target::resolve(server, ssh)?;
     let parallelism = args.options.parallelism();
-    let (paths, failed, mut session) = if ssh.is_requested() {
+    let (paths, failed, environment, mut session) = if ssh.is_requested() {
         tracing::info!("Opening SSH data source for server source identification");
         let session = ssh.connect()?;
-        let (paths, failed) = remote::resolve(&session, server, selection, parallelism)?;
-        (paths, failed, Some(session))
+        let (paths, failed, environment) = remote::resolve(
+            &session,
+            server,
+            selection,
+            args.options.cache.no_cache,
+            parallelism,
+        )?;
+        (paths, failed, environment, Some(session))
     } else {
         let server = ServerMods::load(server)?;
+        let environment = args.options.cache.environment(server.runtime());
+        let selection_environment = environment.clone().with_mods_cache(None);
         let output = ScanOutput::default();
         let (paths, failed) = selection::resolve_paths(
             selection,
             server.scope(),
             server.loaders(),
+            &selection_environment,
             parallelism,
             || Ok(()),
             |event| output.event(event),
         )?;
-        (paths, failed, None)
+        (paths, failed, environment, None)
     };
     let result = if paths.is_empty() {
         Ok(())
     } else {
         let location = session
             .as_ref()
-            .map(identify::Location::Remote)
-            .unwrap_or(identify::Location::Local);
+            .map(|session| identify::Location::Remote(session, &environment))
+            .unwrap_or(identify::Location::Local(&environment));
         identify::run_paths_at(args.options, paths, location)
     };
     if let Some(session) = session.as_mut() {

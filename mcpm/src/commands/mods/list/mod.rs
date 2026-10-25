@@ -58,19 +58,25 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         paths.push(PathBuf::from("."));
     }
     debug!(?paths, "Resolved mod list input paths");
+    let environment = args.cache.environment();
     let loading = crate::commands::supports::mods::scan::Options {
         parallelism: args.loading.parallelism(),
-        cache: args.cache.selection(),
     };
-    let display = args.display.with_cache(loading.cache.clone());
+    let display = args.display;
     let result = if ssh.is_requested() {
         debug!("Dispatching remote mod.list request over SSH");
         list::ssh::run(
             ssh,
             remote::List::ID,
-            serde_json::to_value(remote::request(paths, &args.loaders, loading)?)?,
+            serde_json::to_value(remote::request(
+                paths,
+                &args.loaders,
+                &environment,
+                loading,
+            )?)?,
             args.loaders,
             display,
+            &environment,
         )
     } else {
         debug!("Dispatching local mod.list request locally");
@@ -82,6 +88,7 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
             inputs,
             args.loaders.select(),
             args.loaders.is_filtered(),
+            &environment,
             loading,
             display,
         )

@@ -29,7 +29,6 @@ mod tests;
 #[derive(Debug)]
 pub(super) struct Summary<'a> {
     pub location: Location<'a>,
-    pub source_cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
     pub ignored: usize,
     pub ignored_files: &'a [PathBuf],
     pub input_errors: usize,
@@ -65,7 +64,6 @@ pub(super) fn run(
             .collect(),
         identify_parallelism,
         summary.location,
-        summary.source_cache.clone(),
     )?;
     let mut screen = screen::Screen::new().context("failed to open mod list TUI")?;
     let mut redraw = true;

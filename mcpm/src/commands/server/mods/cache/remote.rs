@@ -1,6 +1,7 @@
 //! Server-cache request adapter; shared caching owns workflow, reports and validation.
 
 use super::ServerMods;
+use crate::commands::supports::mods::reuse::HostEnvironment;
 use crate::{
     commands::source_support::SourcesArgs,
     commands::supports::mods::{
@@ -34,9 +35,11 @@ impl Command for Cache {
         );
         output.checkpoint()?;
         let server = ServerMods::load(args.server)?;
+        output.send(HostEnvironment::capture(server.runtime())?)?;
         cache::run(
             selection,
             server.scope(),
+            server.runtime(),
             args.writing.options(server.loaders())?,
             || output.checkpoint(),
             |event| {
@@ -76,6 +79,7 @@ pub(super) fn run(
     let mut completion = Completion::new(&writing, &sources.selected()?)?;
     let mut session = ssh.connect()?;
     let mut output = Presentation::remote(display);
+    let mut environment = None;
     session
         .submit(
             Cache::ID,
@@ -86,6 +90,10 @@ pub(super) fn run(
             })?,
         )?
         .collect(|reply| {
+            if environment.is_none() {
+                environment = Some(reply.decode::<HostEnvironment>()?.into_runtime());
+                return Ok(());
+            }
             completion.accept(
                 reply
                     .decode()
@@ -93,8 +101,9 @@ pub(super) fn run(
                 &mut |event| output.event(event),
             )
         })?;
+    let environment = environment.context("missing remote cache environment")?;
     completion.finish(
-        crate::commands::source_support::identify::Location::Remote(&session),
+        crate::commands::source_support::identify::Location::Remote(&session, &environment),
         |event| output.event(event),
     )?;
     session.close()?;

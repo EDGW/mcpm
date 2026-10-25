@@ -8,8 +8,9 @@ use std::{
 
 use anyhow::Result;
 use mcpm_backend::local::{
-    mcmod::{ModDirectory, ModFile, ModOpenCache, ModOpenContext},
+    mcmod::{ModDirectory, ModFile},
     modloader::{LoaderId, ModLoaderMeta},
+    runtime::RuntimeEnvironment,
 };
 
 use crate::diagnostics::ErrorReport;
@@ -38,14 +39,10 @@ pub(in crate::commands) struct FailedIdentification {
 #[derive(Debug)]
 pub(in crate::commands) struct Options {
     pub parallelism: usize,
-    pub cache: Option<ModOpenCache>,
 }
 impl From<usize> for Options {
     fn from(parallelism: usize) -> Self {
-        Self {
-            parallelism,
-            cache: None,
-        }
+        Self { parallelism }
     }
 }
 
@@ -55,25 +52,29 @@ pub(in crate::commands) struct ScanSession<'a> {
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     cache: HashMap<PathBuf, Arc<ScanResult>>,
     parallelism: usize,
-    context: ModOpenContext,
+    environment: &'a RuntimeEnvironment,
     checkpoint: Checkpoint<'a>,
     observer: Option<Observer<'a>>,
 }
 impl<'a> ScanSession<'a> {
-    pub(in crate::commands) fn new(loaders: HashMap<LoaderId, ModLoaderMeta>) -> Self {
+    pub(in crate::commands) fn new(
+        loaders: HashMap<LoaderId, ModLoaderMeta>,
+        environment: &'a RuntimeEnvironment,
+    ) -> Self {
         Self {
             loaders,
             cache: HashMap::new(),
             parallelism: 1,
-            context: ModOpenContext::default(),
+            environment,
             checkpoint: Checkpoint(&|| Ok(())),
             observer: None,
         }
     }
 
     pub(in crate::commands) fn with_options(mut self, options: Options) -> Result<Self> {
+        // Invalid resource configuration is an operation error, even for an empty scan.
+        self.environment.mods_cache()?;
         self.parallelism = options.parallelism.max(1);
-        self.context = ModOpenContext::new(options.cache)?;
         Ok(self)
     }
 
@@ -121,7 +122,7 @@ impl<'a> ScanSession<'a> {
             total: 1,
         })?;
         (self.checkpoint.0)()?;
-        let result = Arc::new(file::read(path.clone(), &self.loaders, &self.context));
+        let result = Arc::new(file::read(path.clone(), &self.loaders, self.environment));
         (self.checkpoint.0)()?;
         for error in errors(&path, &result) {
             self.emit(Event::Diagnostic {
@@ -168,11 +169,11 @@ impl<'a> ScanSession<'a> {
             "Starting mod scan batch"
         );
         let loaders = &self.loaders;
-        let context = &self.context;
+        let environment = self.environment;
         let result = blocking::run(
             jobs.len(),
             self.parallelism,
-            |index| file::read(jobs[index].1.clone(), loaders, context),
+            |index| file::read(jobs[index].1.clone(), loaders, environment),
             checkpoint,
             |index, result| {
                 let (key, _, indices) = &jobs[index];

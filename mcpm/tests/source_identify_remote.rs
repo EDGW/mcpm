@@ -133,7 +133,7 @@ mod transport {
             ),
         );
         let mut body = print(
-            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":3,"commands":["mod.source.identify"],"max_concurrency":8}}),
+            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":4,"commands":["mod.source.identify"],"max_concurrency":8}}),
             "",
         );
         body.push_str("IFS= read -r logs\nlog_guid=$(printf '%s' \"$logs\" | cut -d '\"' -f6)\n");

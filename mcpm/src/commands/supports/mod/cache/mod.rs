@@ -10,11 +10,11 @@ use anyhow::Result;
 use mcpm_backend::local::cache::CacheLinkPreference;
 use mcpm_backend::local::cache::ImportOutcome;
 use mcpm_backend::local::cache::mods::MetadataRefresh;
-use mcpm_backend::local::cache::mods::ModsCacheDir;
 use mcpm_backend::local::cache::mods::meta::CacheEntry;
 use mcpm_backend::local::mcmod::ModEntry;
 use mcpm_backend::local::modloader::LoaderId;
 use mcpm_backend::local::modloader::ModLoaderMeta;
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 
 use super::{
     scan,
@@ -31,7 +31,6 @@ mod validation;
 
 /// Command policy over the library's explicit import/refresh operations.
 pub(in crate::commands) struct Options {
-    pub cache: ModsCacheDir,
     pub loaders: HashMap<LoaderId, ModLoaderMeta>,
     pub mode: CacheLinkPreference,
     pub refresh: MetadataRefresh,
@@ -121,6 +120,7 @@ pub(in crate::commands) enum Event {
 pub(in crate::commands) fn run(
     selection: Selection,
     scope: Scope,
+    environment: &RuntimeEnvironment,
     options: Options,
     checkpoint: impl Fn() -> Result<()>,
     emit: impl FnMut(Event) -> Result<()>,
@@ -132,12 +132,14 @@ pub(in crate::commands) fn run(
     }
     // Validate before any input scanning or storage. Default-root initialization is
     // owned by the library; explicit roots are never silently adopted.
-    // ModsCacheDir was opened before this workflow started.
+    let cache = environment.require_mods_cache()?;
+    let selection_environment = environment.clone().with_mods_cache(None);
     tracing::info!("Selecting files for explicit mod caching");
     let (paths, selection_failures) = selection::resolve_paths(
         selection,
         scope,
         options.loaders.clone(),
+        &selection_environment,
         options.parallelism,
         &checkpoint,
         |event| (emit.borrow_mut())(Event::Selection(event)),
@@ -164,7 +166,7 @@ pub(in crate::commands) fn run(
     blocking::run(
         paths.len(),
         options.parallelism,
-        |index| import(paths[index].clone(), &options),
+        |index| import(paths[index].clone(), environment, &options),
         &checkpoint,
         |index, result| {
             completed += 1;
@@ -197,11 +199,7 @@ pub(in crate::commands) fn run(
             |index| {
                 results[index].import.and_then(|imported| {
                     results[index].failure.is_none().then(|| {
-                        options.cache.refresh_metadata(
-                            imported.key,
-                            &options.loaders,
-                            options.refresh,
-                        )
+                        cache.refresh_metadata(imported.key, &options.loaders, options.refresh)
                     })
                 })
             },
@@ -221,9 +219,7 @@ pub(in crate::commands) fn run(
             match metadata.expect("metadata worker returned a result") {
                 Some(Ok(entry)) => result.entry = Some(entry),
                 Some(Err(error)) => {
-                    result.entry = result
-                        .import
-                        .map(|import| options.cache.mod_metadata(import.key));
+                    result.entry = result.import.map(|import| cache.mod_metadata(import.key));
                     result.failure = Some(Failure {
                         stage: Stage::Metadata,
                         error: ErrorReport::capture(
@@ -258,7 +254,7 @@ pub(in crate::commands) fn run(
 
 /// Never reuse selection metadata for persistence: identification must run on the
 /// actual imported object through the library's provenance-checked commit path.
-fn import(path: PathBuf, options: &Options) -> FileResult {
+fn import(path: PathBuf, environment: &RuntimeEnvironment, options: &Options) -> FileResult {
     let mut result = FileResult {
         path,
         import: None,
@@ -268,7 +264,9 @@ fn import(path: PathBuf, options: &Options) -> FileResult {
     };
     let operation = (|| {
         ModEntry::new(result.path.clone()).map_err(|error| (Stage::Import, error))?;
-        let writer = &options.cache;
+        let writer = environment
+            .require_mods_cache()
+            .map_err(|error| (Stage::Import, error))?;
         let imported = writer
             .import_with_outcome(&result.path, options.mode)
             .map_err(|error| (Stage::Import, error))?;

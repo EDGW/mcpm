@@ -1,5 +1,6 @@
 //! Shared inspection acquisition, data and local presentation for file and server commands.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::{
     collections::HashMap,
     io::{self, Write},
@@ -52,6 +53,7 @@ pub(in crate::commands) fn run(
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     hide_unrecognized: bool,
+    environment: &RuntimeEnvironment,
     loading: impl Into<super::scan::Options>,
     display: Display<'_>,
 ) -> Result<()> {
@@ -62,6 +64,7 @@ pub(in crate::commands) fn run(
         scope,
         loaders,
         hide_unrecognized,
+        environment,
         loading,
         || Ok(()),
         |event| {

@@ -21,6 +21,7 @@ mod remote;
 
 pub(super) fn run(
     files: FileArgs,
+    query: crate::commands::supports::mods::reuse::QueryArgs,
     loading: scan::Options,
     display: Display<'_>,
     ssh: SshArgs,
@@ -31,7 +32,7 @@ pub(super) fn run(
     }
     let Target { path, ssh, .. } = target::resolve(path, ssh)?;
     if ssh.is_requested() {
-        remote::run(ssh, path, selection, loading, display)
+        remote::run(ssh, path, selection, query, loading, display)
     } else {
         tracing::info!(path = %path.display(), "Reading server mod scope for inspection");
         let source = ServerMods::load(path)?;
@@ -40,6 +41,7 @@ pub(super) fn run(
             source.scope(),
             source.loaders(),
             true,
+            &query.environment(source.runtime()),
             loading,
             display,
         )

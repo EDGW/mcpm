@@ -1,5 +1,6 @@
 //! Resolves user-selected mod files for shared deps inspection.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -31,6 +32,7 @@ pub(super) fn run(args: DepsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         selection,
         args.directory,
         args.loaders,
+        &RuntimeEnvironment::new().with_mods_cache(None),
         args.loading.parallelism(),
         inspect::Display::Dependencies(&args.paths_output),
         ssh,

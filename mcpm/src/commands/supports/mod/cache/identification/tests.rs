@@ -5,6 +5,7 @@ use crate::commands::supports::mods::selection::{Scope, SelectionInput};
 use mcpm_backend::local::cache::mods::CacheStatus;
 use mcpm_backend::local::cache::mods::CacheUnavailableReason;
 use mcpm_backend::local::cache::mods::ModsCacheDir;
+use mcpm_backend::local::{cache::mods::ModsCacheSelection, runtime::RuntimeEnvironment};
 use mcpm_backend::source::FileSummary;
 use mcpm_backend::source::SourceId;
 use mcpm_backend::source::curseforge::CurseForgeSource;
@@ -25,6 +26,10 @@ fn consecutive_files_reuse_one_live_http_connection_until_the_batch_finishes() {
         fs::write(root.path().join(name), b"abc").unwrap();
     }
     let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let environment =
+        RuntimeEnvironment::new().with_mods_cache(Some(ModsCacheSelection::Directory {
+            path: cache.path().into(),
+        }));
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -82,8 +87,7 @@ fn consecutive_files_reuse_one_live_http_connection_until_the_batch_finishes() {
         .unwrap(),
     );
     let writing: WriteArgs =
-        serde_json::from_value(json!({"cache_dir":cache.path(),"metas":["ident"],"parallelism":1}))
-            .unwrap();
+        serde_json::from_value(json!({"metas":["ident"],"parallelism":1})).unwrap();
     let mut completion = Completion::new(&writing, &["modrinth".into()]).unwrap();
     completion.sources = vec![Ok(provider)];
     let selection: SelectionInput = serde_json::from_value(json!({"all":true})).unwrap();
@@ -95,12 +99,15 @@ fn consecutive_files_reuse_one_live_http_connection_until_the_batch_finishes() {
     super::super::run(
         selection.into_selection().unwrap(),
         Scope::directory(root.path().into()),
+        &environment,
         writing.options(Default::default()).unwrap(),
         || Ok(()),
         |event| completion.accept(event, &mut emit),
     )
     .unwrap();
-    completion.finish(Location::Local, &mut emit).unwrap();
+    completion
+        .finish(Location::Local(&environment), &mut emit)
+        .unwrap();
     server.join().unwrap();
     let Event::Done(summary) = events.last().unwrap() else {
         panic!("missing completion")
@@ -116,6 +123,10 @@ fn explicit_enrichment_publishes_successes_despite_other_sources_failing_and_ide
     let input = root.path().join("input.jar");
     fs::write(&input, b"abc").unwrap();
     let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
+    let environment =
+        RuntimeEnvironment::new().with_mods_cache(Some(ModsCacheSelection::Directory {
+            path: cache.path().into(),
+        }));
     let summary = FileSummary::read(&input, Default::default()).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -172,10 +183,8 @@ fn explicit_enrichment_publishes_successes_despite_other_sources_failing_and_ide
         )
         .unwrap(),
     );
-    let writing: WriteArgs = serde_json::from_value(
-        json!({"cache_dir":cache.path(), "metas":["ident"],"parallelism":2}),
-    )
-    .unwrap();
+    let writing: WriteArgs =
+        serde_json::from_value(json!({ "metas":["ident"],"parallelism":2})).unwrap();
     let mut completion =
         Completion::new(&writing, &["modrinth".into(), "curseforge".into()]).unwrap();
     completion.sources = vec![Ok(modrinth.clone()), Ok(curseforge)];
@@ -189,12 +198,15 @@ fn explicit_enrichment_publishes_successes_despite_other_sources_failing_and_ide
     super::super::run(
         selection.into_selection().unwrap(),
         Scope::directory(root.path().into()),
+        &environment,
         writing.options(Default::default()).unwrap(),
         || Ok(()),
         |event| completion.accept(event, &mut emit),
     )
     .unwrap();
-    completion.finish(Location::Local, &mut emit).unwrap();
+    completion
+        .finish(Location::Local(&environment), &mut emit)
+        .unwrap();
     server.join().unwrap();
     let mut validator = super::super::validation::Validator::default();
     for event in &output {
@@ -228,12 +240,11 @@ fn explicit_enrichment_publishes_successes_despite_other_sources_failing_and_ide
         let runtime = Runtime::new().unwrap();
         runtime
             .block_on(
-                Identification::with_sources_cached(
+                Identification::with_sources(
                     vec![input.clone()],
                     vec![Ok(modrinth.clone())],
                     1,
-                    Location::Local,
-                    selection.clone(),
+                    Location::Local(&RuntimeEnvironment::new().with_mods_cache(selection.clone())),
                 )
                 .unwrap()
                 .run(|event| {

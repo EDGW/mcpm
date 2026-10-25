@@ -1,5 +1,6 @@
 //! Shared mod listing, identification diagnostics and terminal output.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -36,8 +37,6 @@ mod tui;
 
 #[derive(Args, Debug)]
 pub(in crate::commands) struct ListDisplayArgs {
-    #[arg(skip)]
-    identification_cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
     /// Filter matching rows with the same expression used by the TUI Filter card.
     #[arg(short = 'F', long, value_name = "FILTER", help_heading = "Filter", long_help = filter::HELP)]
     filter: Option<Filter>,
@@ -74,17 +73,6 @@ pub(in crate::commands) struct ListDisplayArgs {
     paths_output: PathArgs,
 }
 
-impl ListDisplayArgs {
-    /// Share the command's file-host cache policy with TUI source acquisition.
-    pub fn with_cache(
-        mut self,
-        cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
-    ) -> Self {
-        self.identification_cache = cache;
-        self
-    }
-}
-
 /// File-host execution options are separate from local presentation options.
 #[derive(Args, Debug)]
 pub(in crate::commands) struct ListLoadingArgs {
@@ -113,6 +101,7 @@ pub(in crate::commands) fn run(
     inputs: impl IntoIterator<Item = Result<Vec<ModEntry>>>,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     hide_unrecognized: bool,
+    environment: &RuntimeEnvironment,
     loading: impl Into<super::scan::Options>,
     args: ListDisplayArgs,
 ) -> Result<()> {
@@ -141,7 +130,7 @@ pub(in crate::commands) fn run(
     drop(progress);
     let output = ScanOutput::default();
     let observe = |event| output.event(event);
-    let mut session = ScanSession::new(loaders)
+    let mut session = ScanSession::new(loaders, environment)
         .with_options(loading.into())?
         .with_observer(&observe);
     let paths: Vec<_> = entries
@@ -173,7 +162,7 @@ pub(in crate::commands) fn run(
             cache: Some(session.cache_summary()),
         },
         source_loaders,
-        Location::Local,
+        Location::Local(environment),
     )
 }
 
@@ -182,6 +171,7 @@ pub(in crate::commands) fn run_selection(
     selection: Selection,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
+    environment: &RuntimeEnvironment,
     loading: impl Into<super::scan::Options>,
     args: ListDisplayArgs,
 ) -> Result<()> {
@@ -192,6 +182,7 @@ pub(in crate::commands) fn run_selection(
         selection,
         scope,
         loaders,
+        environment,
         loading,
         || Ok(()),
         |event| output.event(event),
@@ -210,7 +201,7 @@ pub(in crate::commands) fn run_selection(
             cache: Some(counts.cache),
         },
         source_loaders,
-        Location::Local,
+        Location::Local(environment),
     )
 }
 
@@ -293,7 +284,6 @@ pub(in crate::commands) fn present(
             args.filter.unwrap_or_default(),
             tui::Summary {
                 location,
-                source_cache: args.identification_cache,
                 ignored,
                 ignored_files: &ignored_files,
                 input_errors,

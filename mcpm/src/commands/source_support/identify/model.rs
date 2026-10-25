@@ -1,5 +1,6 @@
 //! Shared source-identification request, indexed events and provider-neutral result models.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use mcpm_backend::source::FileMatch;
 
 /// Business result shared by CLI output, TUI state and remote messages.
@@ -49,11 +50,17 @@ pub(in crate::commands) enum Event {
 /// Where the input bytes live; remote acquisition reuses a caller-owned session.
 #[derive(Debug, Clone, Copy)]
 pub(in crate::commands) enum Location<'a> {
-    Local,
-    Remote(&'a crate::remote::client::Session),
+    Local(&'a RuntimeEnvironment),
+    Remote(&'a crate::remote::client::Session, &'a RuntimeEnvironment),
 }
-impl Location<'_> {
+impl<'a> Location<'a> {
+    pub(in crate::commands) fn environment(self) -> &'a RuntimeEnvironment {
+        match self {
+            Self::Local(environment) | Self::Remote(_, environment) => environment,
+        }
+    }
+
     pub(in crate::commands) fn is_local(self) -> bool {
-        matches!(self, Self::Local)
+        matches!(self, Self::Local(_))
     }
 }
