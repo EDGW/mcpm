@@ -13,6 +13,9 @@ use crate::local::{
 
 mod create;
 pub use create::CreateCleanupError;
+mod cache_location;
+pub use cache_location::cache_owner;
+pub(super) use cache_location::cache_path;
 mod index;
 pub use index::Stash;
 mod lock;

@@ -20,6 +20,8 @@
 - Switch fully verifies the target before workspace comparison, including force and no-op switches. HEAD advances only after successful application. There is no cross-file transaction or interruption recovery.
 - Generated workspace Git ignore rules do not ignore stash; data and cache follow the generation template.
 
+- Cache management preflights writes before dispatch, including verify --autoremove and export destinations. Stash owns path recognition; the generic cache layer has no server dependency. Server metadata entry presence conservatively reserves the stash cache location. --no-protect-stash bypasses the CLI guard; read-only default aliases open existing caches without initialization.
+
 ## Build identity
 
 - `build.rs` is the authority for compile-time build identity; `build_info.rs` exposes version metadata and `display/build_info.rs` renders the startup warning.

@@ -23,6 +23,8 @@ mcpm-server stash switch --name "稳定版" --force
 - 创建和切换期间保持 mods 稳定，停止其他修改文件的程序。
 - stash 目录不加入工作区生成的 `.gitignore`。
 
+- cache 管理命令默认拒绝修改服务器的 stash 缓存；`--no-protect-stash` 可绕过，详见[缓存保护](../cache.md#stash-缓存保护)。
+
 ## 命令
 
 | 命令 | 行为 |

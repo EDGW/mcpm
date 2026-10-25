@@ -20,6 +20,12 @@ pub(super) struct ExportArgs {
     mode: FileStrategy,
 }
 
+impl ExportArgs {
+    pub(super) fn destinations(&self) -> &[PathBuf] {
+        &self.destinations
+    }
+}
+
 pub(super) fn run(
     args: ExportArgs,
     selection: ModsCacheSelection,

@@ -37,6 +37,12 @@ pub(super) struct VerifyArgs {
     autoremove: bool,
 }
 
+impl VerifyArgs {
+    pub(super) fn autoremove(&self) -> bool {
+        self.autoremove
+    }
+}
+
 pub(super) fn run(
     args: VerifyArgs,
     selection: ModsCacheSelection,

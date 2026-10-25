@@ -15,6 +15,8 @@ use crate::terminal;
 
 mod model;
 pub(crate) use model::{Entry, Metadata};
+mod notice;
+pub(crate) use notice::stash_protection_notice;
 pub(crate) mod operations;
 pub(crate) mod refresh;
 pub(crate) mod write;

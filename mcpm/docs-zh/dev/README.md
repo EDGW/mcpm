@@ -30,6 +30,8 @@
 - switch 先完整 verify，再比较工作区；force 不能绕过验证或检查错误。只有 apply 成功后才更新 HEAD；文件发布与 HEAD 更新不是跨文件事务，不提供中断恢复。
 - 新工作区的 `.gitignore` 不忽略 stash；data 与 cache 仍按生成模板处理。
 
+- cache 管理命令在分发执行前检查写操作，包含 verify --autoremove 和 export 目标；stash 拥有路径识别，通用 cache 层不依赖 server。server metadata 条目存在即保守保留 stash 缓存位置；--no-protect-stash 绕过 CLI 保护，只读命令的默认路径别名只打开已有缓存，不初始化。
+
 ## Backup 缓存回退
 
 - backup 的 v1 manifest 是文件集合及摘要的唯一真相，cache-only 与完整备份共用格式；不持久化缓存路径或存在性副本。

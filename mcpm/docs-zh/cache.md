@@ -56,6 +56,19 @@ mcpm-tools cache mods rebuild-index
 `--directory PATH` 可放在 mods 子命令前后。指定目录必须已初始化；默认目录不存在或为空时初始化。
 目录格式为 version 3；拒绝非空无标记目录、损坏 manifest 和不兼容版本，不自动迁移旧目录。
 
+## Stash 缓存保护
+
+- 服务器 `.mcpm/stash/blob` 保存快照依赖的内容，不应手动管理；删除或修改内容可能导致 stash 无法使用。
+- `init`、`import`、`refresh meta/ident`、`remove`、`rebuild-index` 和 `verify --autoremove`
+  在识别到 stash 缓存后于执行前拒绝，即使选择为空或本次可能只会复用已有内容。
+- `list`、`info`、普通 `verify` 及导出到 stash 缓存之外仍可使用。
+  导出到另一服务器 stash 缓存也会在本次任何导出前被拒绝。
+- `--no-protect-stash` 显式绕过保护，可放在子命令前后；缓存自身校验和原有导出限制仍然生效。
+- 同时检查传入路径和解析后的路径，覆盖相对路径、符号链接别名和尚未创建的缓存目录。
+  缺失路径的大小写变体保守保留；大小写敏感文件系统上的不同已有目录通过原生文件身份区分。
+  服务器的 `server.json` 条目存在即保留其固定 stash 缓存位置，即使 metadata 损坏；子路径也受保护。
+  这是本地路径检查，不是文件系统访问控制，无法发现无关联的反向符号链接引用，也不阻止其他进程在检查后替换路径。
+
 ## 输入与列选择
 
 - `info`、`verify`、`refresh`、`remove` 合并参数与重定向 stdin；每个非空行是一个完整 HASH。

@@ -18,6 +18,7 @@ mod info;
 mod init;
 mod input;
 mod list;
+mod protection;
 mod rebuild_index;
 mod refresh;
 mod remove;
@@ -25,12 +26,15 @@ mod verify;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Modes: Console and Raw (--raw or redirected stdout). Raw list, info and simple operations use TSV; refresh succeeds silently.\n\nDefault directory: ~/.mcpm/cache/mods. Import stores content only; refresh populates the named meta or ident metadata. Verify checks content only. Exports never overwrite or create parent directories. No automatic eviction. All operations are local."
+    after_help = "Modes: Console and Raw (--raw or redirected stdout). Raw list, info and simple operations use TSV; refresh succeeds silently.\n\nDefault directory: ~/.mcpm/cache/mods. Import stores content only; refresh populates the named meta or ident metadata. Verify checks content only. Exports never overwrite or create parent directories. No automatic eviction. All operations are local.\n\nCommands that modify a server stash cache are refused, including verify --autoremove. Do not manage stash caches manually: snapshots depend on their contents. --no-protect-stash bypasses this protection. Read-only list, info, verify and exports outside stash caches remain available."
 )]
 pub(super) struct ModsArgs {
     /// Cache root; explicit directories must already be initialized.
     #[arg(long, global = true, value_name = "PATH")]
     directory: Option<PathBuf>,
+    /// Allow modifying a server's stash cache; this can make stashes unusable.
+    #[arg(long, global = true)]
+    no_protect_stash: bool,
     /// Include a header in Raw TSV output; ignored by Console and refresh.
     #[arg(long, global = true)]
     headers: bool,
@@ -60,11 +64,26 @@ enum Command {
     RebuildIndex,
 }
 
+impl Command {
+    fn writes_cache(&self) -> bool {
+        match self {
+            Self::Init
+            | Self::Import(_)
+            | Self::Refresh(_)
+            | Self::Remove(_)
+            | Self::RebuildIndex => true,
+            Self::Verify(args) => args.autoremove(),
+            Self::List(_) | Self::Info(_) | Self::Export(_) => false,
+        }
+    }
+}
+
 pub(super) fn run(args: ModsArgs) -> Result<()> {
     let selection = match args.directory {
         Some(path) => ModsCacheSelection::Directory { path },
         None => ModsCacheSelection::Default,
     };
+    let selection = protection::check(selection, &args.command, args.no_protect_stash)?;
     let mut out = io::stdout().lock();
     match args.command {
         Command::Init => init::run(selection, &mut out, args.headers)?,

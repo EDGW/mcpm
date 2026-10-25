@@ -57,6 +57,23 @@ mcpm-tools cache mods rebuild-index
 the default root initializes when absent/empty. Directory format is version 3. Nonempty unmarked roots,
 malformed manifests and incompatible versions are rejected. No automatic migration.
 
+## Stash cache protection
+
+- A server's `.mcpm/stash/blob` holds content required by its snapshots. Do not manage it manually;
+  deleting or changing content can make stashes unusable.
+- `init`, `import`, `refresh meta/ident`, `remove`, `rebuild-index` and `verify --autoremove` refuse
+  a recognized stash cache before execution, even for empty selections or otherwise harmless reuse.
+- `list`, `info`, ordinary `verify`, and exports to paths outside stash caches remain available.
+  Exporting into another server's stash cache is also refused before any export in that command.
+- `--no-protect-stash` explicitly bypasses this guard. It can appear before or after the subcommand.
+  Ordinary cache validation and export restrictions still apply.
+- Recognition checks supplied and resolved paths, including relative paths, symbolic-link aliases and
+  missing cache directories. Missing case variants are conservatively reserved; distinct existing
+  directories on case-sensitive filesystems are distinguished by native file identity. The server's `server.json` entry reserves the conventional stash cache
+  location even when its metadata is damaged. Descendants are protected too. This is a local path
+  guard, not a filesystem access restriction: it cannot discover unrelated reverse symlink references
+  or prevent another process from replacing paths after the check.
+
 ## Inputs and columns
 
 - info, verify, refresh and remove append redirected stdin after arguments, one complete HASH per nonblank line.

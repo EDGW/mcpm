@@ -22,6 +22,8 @@ mcpm-server stash switch --name stable --force
 - Worlds, configuration, launch scripts, Minecraft versions and loader declarations are not switched.
 - Keep mods stable during creation and switching. The generated workspace `.gitignore` does not ignore stash.
 
+- Cache management commands refuse writes to this server’s stash cache by default; `--no-protect-stash` bypasses the guard. See [cache protection](../cache.md#stash-cache-protection).
+
 ## Commands
 
 | Command | Behavior |

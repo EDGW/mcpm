@@ -201,7 +201,7 @@ impl MinecraftServer {
 fn server_runtime(path: &Path) -> RuntimeEnvironment {
     RuntimeEnvironment::new().with_stash_cache(
         crate::local::cache::mods::ModsCacheSelection::Directory {
-            path: path.join(".mcpm/stash/blob"),
+            path: stash::cache_path(path),
         },
     )
 }
