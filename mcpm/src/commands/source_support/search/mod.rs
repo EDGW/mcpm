@@ -132,16 +132,16 @@ Syntax errors show a column and keep previous results.
 Details: Up/Down selects a field, c copies its full value, Enter expands/collapses.
 
 Examples:
-  {tools} mod source search create --source modrinth
-  {tools} mod source search 'create @version 1.20.1 @loader fabric' --source modrinth
-  {tools} mod source search 'create @loader (forge | neoforge)' --source curseforge
-  {tools} mod source search '@version * @loader *' --source modrinth
-  {tools} mod source search create --source 'curseforge@KEY'
-  {tools} mod source search create --source modrinth --game-version 1.20.1 --loader fabric
-  {tools} mod source search --source modrinth --sort default
-  {tools} mod source search create --source modrinth -N -C INP
-  {tools} mod source search create --source curseforge --no-ui --columns name,slug,id,url
-  {tools} --raw mod source search create --source modrinth --limit 10"#,
+  {tools} mods source search create --source modrinth
+  {tools} mods source search 'create @version 1.20.1 @loader fabric' --source modrinth
+  {tools} mods source search 'create @loader (forge | neoforge)' --source curseforge
+  {tools} mods source search '@version * @loader *' --source modrinth
+  {tools} mods source search create --source 'curseforge@KEY'
+  {tools} mods source search create --source modrinth --game-version 1.20.1 --loader fabric
+  {tools} mods source search --source modrinth --sort default
+  {tools} mods source search create --source modrinth -N -C INP
+  {tools} mods source search create --source curseforge --no-ui --columns name,slug,id,url
+  {tools} --raw mods source search create --source modrinth --limit 10"#,
         tools = crate::program::roots().tools
     )
 }

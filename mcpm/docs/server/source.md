@@ -37,7 +37,7 @@ printf '%s\n' create ZzjhlDgM | mcpm mods source files --source modrinth
 Search and single-project files use the TUI when all streams are terminals.
 The search field stays at the top: press `/` to edit, Enter to submit a new
 search from the first page, or Esc to discard edits. Tab / Shift+Tab switches
-between Search, Results, and the bottom Details panel. Results reuses the mod list
+between Search, Results, and the bottom Details panel. Results reuses the mods list
 layout: each result shows Project Name (Primary Color) and loaders on the first
 line, then the reported Minecraft versions (dimmed, with muted commas) across the second line.
 Versions show up to three [catalog-backed abbreviations](../mod/source-search.md)
@@ -55,14 +55,14 @@ before exiting. Mouse clicks and scrolling are supported.
 Enter on a result opens its files with the same compatibility filters;
 Esc returns to search. Multiple projects, `-N/--no-ui`, explicit columns, or
 redirected streams use list output. Sorting, pagination, and file release filters
-work like `mcpm-tools mod source`.
+work like `mcpm-tools mods source`.
 
 Search also provides [field value suggestions](../mod/source-search.md): loader
 choices are Forge, NeoForge and Fabric; versions load from the current source API
 and are cached for the session. Up/Down selects, Enter/Tab inserts, and Esc closes
 the popup. Completion only edits the draft; Enter again submits the search.
 
-Files uses the shared mod list layout, with a compact list above a Details panel
+Files uses the shared mods list layout, with a compact list above a Details panel
 and no interactive Filter card. Headers and files occupy two lines: Index, Name,
 Minecraft, and Loaders on the first; Version and Release on the second. Values
 align with their headers without repeating field labels in each row. Filenames
@@ -82,11 +82,11 @@ names use secondary color. Without `--selected`, names use primary color.
 Console and Raw output continue to omit the duplicate pinned publication. Pagination and totals still describe the original
 filtered results; the pinned file does not consume the page limit. A missing file
 or a file belonging to another project is an error. This also works with standalone
-`mcpm-tools mod source files`.
+`mcpm-tools mods source files`.
 
 ```sh
-mcpm-tools mod source files sodium --source modrinth --selected yaoBL9D9
-mcpm-tools --raw mod source files sodium --source modrinth --selected yaoBL9D9 --columns selected,id,filename
+mcpm-tools mods source files sodium --source modrinth --selected yaoBL9D9
+mcpm-tools --raw mods source files sodium --source modrinth --selected yaoBL9D9 --columns selected,id,filename
 ```
 
 Raw output puts the selected file first and keeps the default TSV columns.
@@ -99,7 +99,7 @@ Inputs follow the existing server mod selection rules: filename, then exact
 mod ID, then exact display name. `--file`, `--modid`, and `--name` select an
 explicit interpretation. Paths are relative to the server's mods directory;
 `mods/` prefixes are accepted. Parent traversal and absolute paths are rejected.
-Use standalone `mcpm-tools mod source identify` for arbitrary local paths.
+Use standalone `mcpm-tools mods source identify` for arbitrary local paths.
 
 ```sh
 mcpm mods source identify create.jar --source curseforge
@@ -120,7 +120,7 @@ declarations select their containing outer archive.
 Unmatched files produce `unmatched` rows. Selection, read, or request errors are
 reported on stderr; remaining inputs are processed and the command exits nonzero.
 
-`--parallelism <COUNT>` defaults to 10, sharing the mod-list default. Lookups run concurrently while rows and per-file errors retain selection order; stderr progress uses the mod-list style. SSH options are supported by standalone `mod source identify`, `mod list`, `mod info` and `mod deps`.
+`--parallelism <COUNT>` defaults to 10, sharing the mod-list default. Lookups run concurrently while rows and per-file errors retain selection order; stderr progress uses the mod-list style. SSH options are supported by standalone `mods source identify`, `mods list`, `mods info` and `mods deps`.
 
 ## Output
 

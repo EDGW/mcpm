@@ -1,15 +1,15 @@
-# `mcpm-tools mod dep-graph`
+# `mcpm-tools mods dep-graph`
 
 ```text
-mcpm-tools mod dep-graph build [OPTIONS] <DIR>
+mcpm-tools mods dep-graph build [OPTIONS] <DIR>
 ```
 
 扫描指定目录中的 `.jar` 和 `.jar.disabled` 文件，并递归识别各 Loader 声明的内嵌 JAR。不会递归扫描文件系统子目录。未被所选 Loader 识别的有效归档被跳过。所有 Loader 识别失败（包括归档读取或元数据解析失败）统一使用 Skip：继续尝试其他 Loader 和后续文件，保留成功记录并导出图。目录扫描和输出错误仍会导致命令失败。
 
 ```sh
-mcpm-tools mod dep-graph build mods/
-mcpm-tools mod dep-graph build mods/ -o graph.json
-mcpm-tools mod dep-graph build mods/ --loader fabric --external fabric:minecraft --external fabric:java --output graph.json
+mcpm-tools mods dep-graph build mods/
+mcpm-tools mods dep-graph build mods/ -o graph.json
+mcpm-tools mods dep-graph build mods/ --loader fabric --external fabric:minecraft --external fabric:java --output graph.json
 ```
 
 默认向 stdout 输出格式化 JSON，不包含颜色或提示文字。使用 `-o <FILE>` 或 `--output <FILE>` 写入文件，已有文件会被覆盖。错误写入 stderr。支持 `--loader` 和 `--loaders`，选择方式见 [Loader 选择](README.md#loader-选择)。
@@ -41,7 +41,7 @@ Mod 候选包含 `modinfo`（名称、Mod ID 和版本）及 `outgoing`。每条
 ## 校验并恢复快照
 
 ```sh
-mcpm-tools mod dep-graph test graph.json
+mcpm-tools mods dep-graph test graph.json
 ```
 
 `test <FILE>` 使用内置 Loader 注册表调用库中的 JSON 读取函数，恢复全部候选、完整依赖、`ModInfo.dependencies` 及反向关系，成功后仅向 stdout 输出节点数、各类候选数、边数、空节点数及识别失败数，不输出图的 JSON。它不会读取 Mod 归档或判断版本兼容性。空节点和 External 候选无需 Loader 实例；Mod 候选必须在注册表中找到对应 Loader。数组位置不表示依赖或加载顺序。
@@ -53,9 +53,9 @@ mcpm-tools mod dep-graph test graph.json
 ## 查看一个 Mod 的依赖
 
 ```sh
-mcpm-tools mod dep-graph view -i graph.json fabric:examplemod
-mcpm-tools mod dep-graph build mods/ | mcpm-tools mod dep-graph view fabric:examplemod
-mcpm-tools --raw mod dep-graph view -i graph.json fabric:examplemod
+mcpm-tools mods dep-graph view -i graph.json fabric:examplemod
+mcpm-tools mods dep-graph build mods/ | mcpm-tools mods dep-graph view fabric:examplemod
+mcpm-tools --raw mods dep-graph view -i graph.json fabric:examplemod
 ```
 
 `view [-i FILE] <LOADER:MODID>` 从指定文件读取 Graph JSON；省略 `-i` 或指定 `-i -` 时从 stdin 读取。选择器按第一个冒号拆分。不认识的节点和无效输入统一通过现有错误原因链诊断输出。
@@ -67,10 +67,10 @@ mcpm-tools --raw mod dep-graph view -i graph.json fabric:examplemod
 ### 忽略目标和筛选关系类型
 
 ```sh
-mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --ignores java,fabric:helper
-mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --ignore java --ignore :helper
-mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --no-default-ignores
-mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --type required --types optional,recommended
+mcpm-tools mods dep-graph view -i graph.json fabric:examplemod --ignores java,fabric:helper
+mcpm-tools mods dep-graph view -i graph.json fabric:examplemod --ignore java --ignore :helper
+mcpm-tools mods dep-graph view -i graph.json fabric:examplemod --no-default-ignores
+mcpm-tools mods dep-graph view -i graph.json fabric:examplemod --type required --types optional,recommended
 ```
 
 | 参数 | 行为 |
@@ -86,7 +86,7 @@ mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --type required --
 未指定类型参数时，只展示 `required`、`breaks`、`conflicts`。提供任意 `--type` 或 `--types` 后，使用全部显式选择的并集替换默认类型。可选值为 `required`、`optional`、`recommended`、`suggested`、`breaks`、`conflicts`，也接受单数别名 `break` 和 `conflict`。显示全部关系并关闭默认忽略项：
 
 ```sh
-mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --no-default-ignores --types required,optional,recommended,suggested,breaks,conflicts
+mcpm-tools mods dep-graph view -i graph.json fabric:examplemod --no-default-ignores --types required,optional,recommended,suggested,breaks,conflicts
 ```
 
 过滤对全部依赖层级生效，不再沿隐藏的边继续遍历；同一节点仍可能通过其他可见路径出现。正向模式的最浅展开层级及 `[shared]` 标记依据过滤后的图计算，隐藏的关系不会影响折叠位置；反向模式逐路径展开，不折叠共享节点。过滤不修改存储的 Graph 或识别失败记录。
@@ -94,8 +94,8 @@ mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --no-default-ignor
 ### 被依赖树
 
 ```sh
-mcpm-tools mod dep-graph view -i graph.json fabric:library_b --reverse
-mcpm-tools mod dep-graph view -i graph.json fabric:library_b -R --types required,optional
+mcpm-tools mods dep-graph view -i graph.json fabric:library_b --reverse
+mcpm-tools mods dep-graph view -i graph.json fabric:library_b -R --types required,optional
 ```
 
 `--reverse`／`-R` 沿入边展示哪些 Mod 直接或间接引用当前节点。标注 `(required by)` 的子节点声明了对父节点的必需依赖；其他关系保留原始类别，包括冲突和不兼容关系。`parent:` 后保留原始的版本要求和限定字段，针对父节点，而不是对子节点自身版本的要求。

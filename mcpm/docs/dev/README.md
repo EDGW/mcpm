@@ -8,6 +8,20 @@
 - `app.rs` owns shared process initialization and dispatch. The binary passes its identity explicitly; renaming a file does not change its command family.
 - SSH starts `mcpm-tools remote` by default. Remote executable overrides belong to connection settings, independently of local command roots.
 
+## Server stash
+
+- `mcpm-backend::local::mc::server::stash` owns snapshot operations, indices, HEAD and locks. `commands/server/stash` owns CLI inputs and local routing; `display/stash` owns presentation.
+- `.mcpm/stash/index/<UUID>.json` stores version=1, id, name, created_at (UTC) and backup UUID. `.mcpm/stash/HEAD` stores version=1 and stash UUID. Their sole JSON codecs and validation live in stash/index.rs.
+- Each frontend leaf owns its Clap arguments, input validation and execution entry, explicitly selecting a shared or exclusive session. The family only routes commands and carries common settings. List and info declare separate column choices while sharing selection validation.
+- Backend `stash/create.rs` owns snapshot publication. If publication and cleanup both fail, its dedicated error retains the publication source chain, an independent cleanup chain and the retained backup path. The frontend reports both chains through the existing diagnostics entry.
+- Each stash independently owns a manifest at `.mcpm/data/<backup-UUID>`. New stashes use CacheOnly with contents in the server stash blob. File lists and checksums come from the existing backup manifest, never duplicate authoritative index fields. Corrupt stash data is not silently rebuilt as derived cache state.
+- The server RuntimeEnvironment stash role lazily selects `.mcpm/stash/blob`. Backup accepts an explicit cache through a shared creation implementation without depending on stash concepts.
+- Writers retain an exclusive OS lease; readers and verification retain shared leases on `.mcpm/stash/lock`. The lock file is never removed. Before first initialization, readers capture a fixed empty view instead of reading subsequently published state without a lease.
+- Switch fully verifies the target before workspace comparison, including force and no-op switches. HEAD advances only after successful application. There is no cross-file transaction or interruption recovery.
+- Generated workspace Git ignore rules do not ignore stash; data and cache follow the generation template.
+
+- Cache management preflights writes before dispatch, including verify --autoremove and export destinations. Stash owns path recognition; the generic cache layer has no server dependency. Server metadata entry presence conservatively reserves the stash cache location. --no-protect-stash bypasses the CLI guard; read-only default aliases open existing caches without initialization.
+
 ## Build identity
 
 - `build.rs` is the authority for compile-time build identity; `build_info.rs` exposes version metadata and `display/build_info.rs` renders the startup warning.
@@ -17,6 +31,17 @@
 - The release workflow injects the marker for tag builds. Branch, PR, local, and fork builds default to unofficial. Changes to the input environment variables make Cargo regenerate the identity.
 - `official` includes official prereleases; it does not mean stable. This marker is not a source signature.
 - All five executables share version details and the unofficial release startup warning. The warning goes only to stderr and is independent of log filtering.
+
+## Backup cache fallback
+
+- The v1 backup manifest is the sole authority for file mappings and checksums. Full and cache-only backups share it without persisted cache paths or availability fields.
+- `backup/create.rs` shares cache imports and source verification, with CreateStorage selecting full export or manifest-only publication. Stash explicitly selects CacheOnly.
+- `backup/sources.rs` owns source selection, full content verification and data inventory rechecks shared by verify/apply; verify_with_cache does not write or generate a target.
+- `backup/apply.rs` shares strict and cache-assisted staging/publication. Strict apply never accesses cache; apply_with_cache invokes a lazy opener only for actually missing manifest files. Corruption, invalid types, unreadable files and unexpected files never trigger fallback.
+- Cache owns full content hashing and directory protocols; backup checks manifest sizes, selects sources and publishes targets. Frontend code does not interpret cache layout or manifests.
+- Apply opens existing caches without initialization; complete backups and empty manifests do not open cache. All sources and staged results must verify before target replacement.
+- display/backup owns English notices, per-file provenance and statistics. Cache-only Raw output keeps existing columns; unfiltered risk/dependency notices go to stderr.
+- Stash uses CacheOnly creation and passes an existing server-local stash cache opener to verify_with_cache and apply_with_cache, never a global fallback. Switch fully verifies content under its exclusive lease before workspace checks. Deletion preserves blob contents without GC.
 
 ## 1. Commands
 
@@ -33,15 +58,15 @@ definition next to the command entry point.
 
 ### 1.2. Shared commands
 
-A shared command has multiple entry points. For example, `mcpm-tools mod list` can be
+A shared command has multiple entry points. For example, `mcpm-tools mods list` can be
 called directly or through `mcpm mods list`, with some differences in
-behavior. The `mod` command family corresponds to both `mcpm-tools mod` and
+behavior. The `mods` command family corresponds to both `mcpm-tools mods` and
 `mcpm mods`; its shared implementation belongs in
-`src/commands/supports/mod/`, with internal paths that reflect the command path.
+`src/commands/supports/mods/`, with internal paths that reflect the command path.
 Place its Remote entry point alongside the shared implementation.
 
 The Remote interface differs from the CLI interface. Remote generally exposes
-the underlying operation: both `mcpm-tools mod list` and `mcpm mods list` use
+the underlying operation: both `mcpm-tools mods list` and `mcpm mods list` use
 one `mod.list` Remote command, passing different arguments to it.
 
 Therefore, the Remote entry point belongs at the common `supports` entry point,
@@ -55,12 +80,12 @@ Arguments can be complex. Each command usually has a primary argument.
 ### 2.1. Primary arguments
 
 Query commands should generally accept multiple inputs and one input per line
-from `stdin`. For example, `mcpm-tools cache mods info <KEYS>` should accept multiple
+from `stdin`. For example, `mcpm-tools cache info <KEYS>` should accept multiple
 keys from both `<KEYS>` and `stdin`.
 
 #### 2.1.1. Primary argument types
 
-When a key can have several types, as with `mcpm-tools mod info` accepting a mod ID,
+When a key can have several types, as with `mcpm-tools mods info` accepting a mod ID,
 filename, or name:
 
 - Use `--input <type>` to interpret `stdin`.
@@ -77,7 +102,7 @@ filename, or name:
 **Example with automatic type inference:**
 
 ```plaintext
-> mcpm-tools mod info --help
+> mcpm-tools mods info --help
 ...
       --file <FILE>          Inspect a file without falling back to modid or name; repeat to select more
       --modid <MODID>        Match an exact modid; repeat to select more
@@ -97,8 +122,8 @@ Represent a list with both `--<plural> A,B,C` and repeated singular options,
 such as `--<singular> A --<singular> B`.
 
 Some arguments are a **single choice**, not a list, and do not follow this rule.
-For example, `--source` in `mcpm-tools mod source search` selects one source. In
-`cache mods refresh <KEYS> ident`, `--source` and `--sources` form a list and
+For example, `--source` in `mcpm-tools mods source search` selects one source. In
+`cache refresh <KEYS> ident`, `--source` and `--sources` form a list and
 follow this section.
 
 **Standard example:**
@@ -182,7 +207,7 @@ as a simple table. An AI must discuss that choice with the developer first.
 Raw omits headers by default. `--headers` enables them only in Raw. Raw should
 usually emit only the command's primary data.
 
-For example, the primary data of `mcpm-tools cache mods list` includes a cache BLAKE3
+For example, the primary data of `mcpm-tools cache list` includes a cache BLAKE3
 hash, filename, size, SHA-256, and metadata names. A row could look like:
 
 ```plaintext
@@ -194,7 +219,7 @@ hash, filename, size, SHA-256, and metadata names. A row could look like:
 Console uses the Primary and Secondary colors to make output easy to read.
 It does not need TSV and may show extra data so users need fewer commands.
 
-For example, `mcpm-tools cache mods list` can show metadata details even though its
+For example, `mcpm-tools cache list` can show metadata details even though its
 primary data consists of BLAKE3, filename, size, SHA-256, and metadata names:
 
 ```plaintext
@@ -265,7 +290,7 @@ Unlike `info`, a `list` command generally has no primary argument. It should
 usually support columns, with Raw output suitable for automation.
 
 A tree-shaped list, such as one containing Mods and Nested Mods, may indicate
-collapsed children (for example, `(+x mods)` in `mod list`). Leave children
+collapsed children (for example, `(+x mods)` in `mods list`). Leave children
 collapsed by default and offer `--expanded` to show them. Commands without
 collapsible data do not need `--expanded`; use `--details` for ordinary details.
 

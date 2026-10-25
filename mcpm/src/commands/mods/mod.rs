@@ -13,14 +13,14 @@ mod list;
 mod source;
 
 #[derive(Args, Debug)]
-pub(crate) struct ModArgs {
+pub(crate) struct ModsArgs {
     #[command(subcommand)]
-    command: ModCommand,
+    command: ModsCommand,
 }
 
 #[derive(Subcommand, Debug)]
-enum ModCommand {
-    /// Create, verify, apply and delete Mod file backups (Console, Raw).
+enum ModsCommand {
+    /// Create, verify, compare, checksum, apply and delete Mod file backups (Console, Raw).
     Backup(backup::BackupArgs),
     /// Store selected mod files and identification metadata (Console, Raw).
     Cache(cache::CacheArgs),
@@ -36,25 +36,25 @@ enum ModCommand {
     Source(source::SourceArgs),
 }
 
-pub(crate) fn run(args: ModArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+pub(crate) fn run(args: ModsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     if ssh.is_requested()
         && matches!(
             args.command,
-            ModCommand::DepGraph(_) | ModCommand::Cache(_) | ModCommand::Backup(_)
+            ModsCommand::DepGraph(_) | ModsCommand::Cache(_) | ModsCommand::Backup(_)
         )
     {
         anyhow::bail!(
-            "--ssh and --ssh-mcpm are currently supported only by {} mod list/info/deps/source identify",
+            "--ssh and --ssh-mcpm are currently supported only by {} mods list/info/deps/source identify",
             crate::program::roots().tools
         );
     }
     match args.command {
-        ModCommand::Cache(args) => cache::run(args),
-        ModCommand::Backup(args) => backup::run(args),
-        ModCommand::DepGraph(args) => dep_graph::run(args),
-        ModCommand::Deps(args) => deps::run(args, ssh),
-        ModCommand::Info(args) => info::run(args, ssh),
-        ModCommand::List(list) => list::run(list, ssh),
-        ModCommand::Source(args) => source::run(args, ssh),
+        ModsCommand::Cache(args) => cache::run(args),
+        ModsCommand::Backup(args) => backup::run(args),
+        ModsCommand::DepGraph(args) => dep_graph::run(args),
+        ModsCommand::Deps(args) => deps::run(args, ssh),
+        ModsCommand::Info(args) => info::run(args, ssh),
+        ModsCommand::List(list) => list::run(list, ssh),
+        ModsCommand::Source(args) => source::run(args, ssh),
     }
 }

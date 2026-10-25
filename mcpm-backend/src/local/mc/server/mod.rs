@@ -16,9 +16,13 @@ use crate::local::{
 
 pub mod identify;
 mod launch;
+pub mod stash;
 
 pub use launch::{ServerLaunch, ServerOptionError};
 mod metadata;
+mod script_path;
+
+pub use script_path::ServerScriptError;
 
 pub use metadata::{
     MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader, ServerStartCommand,
@@ -66,13 +70,15 @@ impl MinecraftServer {
         if metadata.version == 1 {
             tracing::warn!(path = %manifest.display(), "Loading legacy server.json version 1; reinitialize explicitly to write version 2");
         }
+        validate_start_script(&path, &metadata)?;
         let mods = mod_container(&path, &metadata, create_mods)?;
+        let runtime = server_runtime(&path);
         Ok(Self {
             path,
             name,
             metadata,
             mods,
-            runtime: RuntimeEnvironment::new(),
+            runtime,
         })
     }
 
@@ -112,6 +118,7 @@ impl MinecraftServer {
                 }
             })?;
         metadata.version = SERVER_METADATA_VERSION;
+        validate_start_script(&path, &metadata)?;
         bytes = serde_json::to_vec_pretty(&metadata)
             .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
         // Validate the optional mod directory before changing registration metadata.
@@ -135,16 +142,17 @@ impl MinecraftServer {
             path: manifest,
             source,
         })?;
+        let runtime = server_runtime(&path);
         Ok(Self {
             path,
             name,
             metadata,
             mods,
-            runtime: RuntimeEnvironment::new(),
+            runtime,
         })
     }
 
-    /// Default global resources until Server-specific settings are implemented.
+    /// Global resources except for the server-local stash content cache.
     /// Accessing the environment does not open any cache.
     pub fn runtime(&self) -> &RuntimeEnvironment {
         &self.runtime
@@ -188,6 +196,25 @@ impl MinecraftServer {
     pub fn mods(&self) -> Option<&ModContainer> {
         self.mods.as_ref()
     }
+}
+
+fn server_runtime(path: &Path) -> RuntimeEnvironment {
+    RuntimeEnvironment::new().with_stash_cache(
+        crate::local::cache::mods::ModsCacheSelection::Directory {
+            path: stash::cache_path(path),
+        },
+    )
+}
+
+fn validate_start_script(
+    root: &Path,
+    metadata: &MinecraftServerMetadata,
+) -> Result<(), MinecraftServerError> {
+    if let Some(start) = &metadata.start {
+        script_path::validate(root, &start.script)
+            .map_err(|source| MinecraftServerError::InvalidStartScript { source })?;
+    }
+    Ok(())
 }
 
 fn mod_container(
@@ -261,6 +288,11 @@ fn directory_name(path: &Path) -> Result<String, MinecraftServerError> {
 
 #[derive(Debug, Error)]
 pub enum MinecraftServerError {
+    #[error("invalid Minecraft server start script")]
+    InvalidStartScript {
+        #[source]
+        source: ServerScriptError,
+    },
     #[error("failed to create Minecraft server mod directory {path:?}")]
     CreateModDirectory {
         path: PathBuf,

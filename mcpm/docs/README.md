@@ -4,17 +4,19 @@ The executables share one implementation and configuration:
 
 | Executable | Commands |
 | --- | --- |
-| `mcpm`, `mcpm-server` | `init`, `info`, `mods` |
+| `mcpm`, `mcpm-server` | `init`, `info`, `mods`, `stash` |
 | `mcpmc`, `mcpm-client` | `list`, `check`, `launch` |
-| `mcpm-tools` | `cache`, `remote`, `customize`, `debug`, `mod`, `server`, `client` |
+| `mcpm-tools` | `cache`, `remote`, `customize`, `debug`, `mods`, `server`, `client` |
 
 Each long name has the same behavior as its short name; help and command hints use the selected name. Tools also exposes `mcpm-tools server info` and `mcpm-tools client list`. The server and client executables accept only their own command families; remote sessions use `mcpm-tools remote`.
 
-Inspection commands read mod archives without modifying them. `mcpm-tools mod cache` explicitly stores files and metadata, with optional hard-link protection. Graph snapshots can be written to a separate file.
+Inspection commands read mod archives without modifying them. `mcpm-tools mods cache` explicitly stores files and metadata, with optional hard-link protection. Graph snapshots can be written to a separate file.
 
 [Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
 
 [Server init](server/init.md) · [server info](server/info.md) · [server mods](server/mods.md) · [server mod sources](server/source.md)
+
+[Server Mod snapshots and switching](server/stash.md)
 
 [Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [cache](mod/cache.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
@@ -31,11 +33,11 @@ Inspection commands read mod archives without modifying them. `mcpm-tools mod ca
 ```sh
 mcpmc list "$HOME/Downloads/.minecraft"
 mcpmc launch 1.18.1 --directory "$HOME/Downloads/.minecraft" --java /path/to/java
-mcpm-tools mod list
-mcpm-tools mod list mods/ example.jar other-mods/
-mcpm-tools mod info example.jar another.jar.disabled
-mcpm-tools mod deps example.jar --loader fabric
-mcpm-tools --raw mod list mods/ -C MF > mods.tsv
+mcpm-tools mods list
+mcpm-tools mods list mods/ example.jar other-mods/
+mcpm-tools mods info example.jar another.jar.disabled
+mcpm-tools mods deps example.jar --loader fabric
+mcpm-tools --raw mods list mods/ -C MF > mods.tsv
 ```
 
 Build all five executables with `cargo build --manifest-path mcpm/Cargo.toml --release --bins`.
@@ -44,12 +46,12 @@ Select another executable with `--bin`, for example:
 
 ```sh
 cargo run --manifest-path mcpm/Cargo.toml --bin mcpmc -- list
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod list
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods list
 ```
 
 ## Global options
 
-`--ssh`, `--ssh-mcpm`, and `--remote-logs` are available only in the server and tools executables. SSH defaults to the remote `mcpm-tools` executable; explicit `--ssh-mcpm` paths are used as provided. `--ssh` and `--ssh-mcpm` are global; supported by `mod list`, `mod info`, `mod deps`, `mod source identify`, `server init`, `server info`, and `server mods list/info/cache/deps/source search/files/identify`. See [Remote sessions](remote.md).
+`--ssh`, `--ssh-mcpm`, and `--remote-logs` are available only in the server and tools executables. SSH defaults to the remote `mcpm-tools` executable; explicit `--ssh-mcpm` paths are used as provided. `--ssh` and `--ssh-mcpm` are global; supported by `mods list`, `mods info`, `mods deps`, `mods source identify`, `server init`, `server info`, and `server mods list/info/cache/deps/source search/files/identify`. See [Remote sessions](remote.md).
 
 ```text
 mcpm-tools [OPTIONS] <COMMAND>
@@ -73,8 +75,8 @@ Unofficial release-profile builds print a startup warning on stderr when executi
 `--raw` is global and can appear before or after subcommands:
 
 ```sh
-mcpm-tools --raw mod info example.jar
-mcpm-tools mod list mods/ --raw
+mcpm-tools --raw mods info example.jar
+mcpm-tools mods list mods/ --raw
 ```
 
 Use command-specific help to see the accepted arguments:
@@ -84,13 +86,13 @@ mcpm --help
 mcpmc list --help
 mcpmc check --help
 mcpmc launch --help
-mcpm-tools mod list --help
-mcpm-tools mod info --help
-mcpm-tools mod cache --help
-mcpm-tools mod deps --help
-mcpm-tools mod dep-graph build --help
-mcpm-tools mod dep-graph test --help
-mcpm-tools mod dep-graph view --help
+mcpm-tools mods list --help
+mcpm-tools mods info --help
+mcpm-tools mods cache --help
+mcpm-tools mods deps --help
+mcpm-tools mods dep-graph build --help
+mcpm-tools mods dep-graph test --help
+mcpm-tools mods dep-graph view --help
 ```
 
 ## Terminal output
@@ -115,7 +117,7 @@ explicit version IDs (or `check --all`) when selection is disabled.
 Setting `NO_COLOR` disables colors while retaining terminal layout and hints:
 
 ```sh
-NO_COLOR=1 mcpm-tools mod list mods/
+NO_COLOR=1 mcpm-tools mods list mods/
 ```
 
 ## Exit status

@@ -144,8 +144,7 @@ fn initialization_preserves_foreign_windows_start_snapshot_without_opening_its_p
     let root = tempfile::tempdir().unwrap();
     let mut expected = metadata("1.21.1");
     expected["start"] = json!({
-        "script":"Z:\\不存在 ' 中文 $()\\run.bat",
-        "directory":"Z:\\不存在 ' 中文 $()\\",
+        "script":"run.bat",
         "executable":"Z:\\Program Files\\Java\\bin\\java.exe",
         "arguments":["", "-Dmessage=中文 \\\"quoted\\\" value", "Z:\\server files\\", "-jar", "server.jar", "$(touch escaped)"],
         "windows":true
@@ -166,7 +165,8 @@ fn initialization_preserves_foreign_windows_start_snapshot_without_opening_its_p
     let events = data(&replies);
     let info = events.last().unwrap();
     assert_eq!(info, &initialized);
-    for field in ["directory", "executable", "arguments", "windows"] {
+    assert_eq!(info["start"]["directory"], ".");
+    for field in ["executable", "arguments", "windows"] {
         assert_eq!(info["start"][field], expected["start"][field]);
     }
     assert!(!root.path().join("escaped").exists());
@@ -221,7 +221,8 @@ fn recognition_ignores_existing_configuration_and_selected_snapshot_is_independe
         "protocol v4 retains the legacy metadata envelope"
     );
     assert_eq!(selected["loader"]["type"], "forge");
-    assert!(selected["start"]["directory"].as_str().is_some());
+    assert_eq!(selected["start"]["script"], "run.sh");
+    assert!(selected["start"].get("directory").is_none());
     // Recognition produces a snapshot. Commit neither opens scripts nor requires a token.
     fs::remove_file(root.path().join("run.sh")).unwrap();
     fs::remove_dir_all(root.path().join("libraries")).unwrap();
@@ -248,7 +249,7 @@ fn failed_validation_and_no_clobber_preserve_existing_configuration() {
     fs::write(&path, old).unwrap();
     let mut invalid = metadata("1.21.1");
     invalid["start"] = json!({
-        "script":"run.sh","directory":root.path(),"executable":"java",
+        "script":"run.sh","executable":"java",
         "arguments":["embedded\u{0000}nul"],"windows":false
     });
     let replies = remote(
@@ -440,10 +441,8 @@ fn ssh_recognizes_default_source_script_then_initializes_and_raw_ambiguity_never
     );
     assert_eq!(requests[1]["command"], "server.init");
     let start = &requests[1]["contents"]["metadata"]["start"];
-    assert_eq!(
-        start["directory"],
-        json!(ssh.source.path().join("server").canonicalize().unwrap())
-    );
+    assert_eq!(start["script"], "run.sh");
+    assert!(start.get("directory").is_none());
     assert_eq!(start["windows"], false);
 
     fixture("multiple", &ssh.source.path().join("multiple"));

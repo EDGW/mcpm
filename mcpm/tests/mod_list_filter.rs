@@ -33,7 +33,7 @@ fn stdout(output: Output) -> String {
 fn filters_find_hidden_declarations_before_compacting_and_realign_visible_tree_indices() {
     let expression = "@modid (=omnibus_nested | =omnibus_leaf) & @loaders =Fabric";
     for mode in [vec![], vec!["--raw"], vec!["--no-ui"]] {
-        let mut args = vec!["mod", "list", "complex-mod.jar"];
+        let mut args = vec!["mods", "list", "complex-mod.jar"];
         args.extend(mode);
         args.extend(["--filter", expression, "-C", "M"]);
         assert_eq!(stdout(run(&args)), "omnibus_nested\n");
@@ -42,7 +42,7 @@ fn filters_find_hidden_declarations_before_compacting_and_realign_visible_tree_i
     }
     let tree = stdout(run(&[
         "--raw",
-        "mod",
+        "mods",
         "list",
         "complex-mod.jar",
         "-F",
@@ -53,9 +53,9 @@ fn filters_find_hidden_declarations_before_compacting_and_realign_visible_tree_i
         "IM",
     ]));
     assert_eq!(tree, "[1][fabric]<1><1>\tomnibus_leaf\n");
-    let plain = stdout(run(&["mod", "list", "complex-mod.jar"]));
+    let plain = stdout(run(&["mods", "list", "complex-mod.jar"]));
     assert_eq!(
-        stdout(run(&["mod", "list", "complex-mod.jar", "-F", " "])),
+        stdout(run(&["mods", "list", "complex-mod.jar", "-F", " "])),
         plain
     );
 }

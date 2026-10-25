@@ -9,16 +9,14 @@ use std::{
 use anyhow::{Context, Result};
 use clap::Args;
 
-use super::{
-    metadata::ServerInfo,
-    output,
-    target::{self, Target},
-};
+use super::target::{self, Target};
 use crate::{progress::Progress, ssh::SshArgs};
-use model::{Initialize, Phase, Recognize};
+use model::{Initialize, Initialized, Phase, Recognize};
 
+mod git;
 mod model;
 mod operation;
+mod output;
 mod reference;
 mod remote;
 mod selector;
@@ -34,7 +32,7 @@ pub(super) struct InitArgs {
     /// Register PATH locally as a Remote workspace pointing to this existing remote Local Server.
     #[arg(long, value_name = "REMOTE_PATH", conflicts_with_all = ["start_script", "minecraft_version", "loader", "loader_version"])]
     remote: Option<String>,
-    /// Statically inspect this script; conflicts with manual version/loader options.
+    /// Statically inspect a script inside the server directory, using a relative path; conflicts with manual version/loader options.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["minecraft_version", "loader", "loader_version"])]
     start_script: Option<PathBuf>,
     /// Minecraft version. Omitted fields are inferred from the data-source host's default start script.
@@ -49,6 +47,12 @@ pub(super) struct InitArgs {
     /// Replace existing registration within the same Local/Remote workspace type.
     #[arg(long)]
     force: bool,
+    /// Skip Git repository detection and automatic initialization.
+    #[arg(long)]
+    no_git: bool,
+    /// Create a repository in the target itself even inside a parent repository; reuse an existing target repository.
+    #[arg(long, conflicts_with = "no_git")]
+    git: bool,
     /// Disable the local TUI; multiple candidates require more specific manual filters.
     #[arg(long)]
     no_ui: bool,
@@ -60,7 +64,14 @@ pub(super) struct InitArgs {
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
     if let Some(remote_path) = args.remote {
-        let info = reference::create(args.path, remote_path, ssh, args.force)?;
+        let info = reference::create(
+            args.path,
+            remote_path,
+            ssh,
+            args.force,
+            args.no_git,
+            args.git,
+        )?;
         return write_info(&info, args.full_command);
     }
     let Target { path, ssh, .. } = target::resolve(args.path, ssh)?;
@@ -124,10 +135,12 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
         path,
         metadata,
         force: args.force,
+        no_git: args.no_git,
+        git: args.git,
     };
     let info = match session.as_ref() {
         Some(session) => remote::initialize(session, initialization, phase)?,
-        None => ServerInfo::from_server(&operation::initialize(initialization, || Ok(()), phase)?),
+        None => operation::initialize(initialization, || Ok(()), phase)?,
     };
     progress.borrow_mut().take();
     if let Some(session) = session.as_mut() {
@@ -136,10 +149,13 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
     write_info(&info, args.full_command)
 }
 
-fn write_info(info: &ServerInfo, full_command: bool) -> Result<()> {
+fn write_info(info: &Initialized, full_command: bool) -> Result<()> {
     let mut stdout = io::stdout().lock();
-    output::write_snapshot(&mut stdout, info, full_command, None)
+    output::write_git(&mut stdout, info.git.as_ref())
+        .context("failed to write Git initialization result")?;
+    super::output::write_snapshot(&mut stdout, &info.server, full_command, None)
         .context("failed to write initialized server information")?;
+    output::write_success(&mut stdout).context("failed to write initialization success message")?;
     stdout
         .flush()
         .context("failed to flush initialized server information")

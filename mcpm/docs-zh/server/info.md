@@ -26,7 +26,8 @@ Console 模式先显示本地 Remote 配置，再用短分界线分隔下方的�
 Raw 模式按以上顺序先输出 Remote 配置的三列，再输出服务器信息的六列 TSV，共九列，不输出分界线。
 `--full-command` 不会解除 SSH 命令脱敏。显式指定 `--ssh` 时，PATH 直接指向远端，不读取本地 Remote 配置。
 
-完整命令和工作目录来自 [`mcpm init`](init.md) 保存的快照，不会重新读取脚本。
+完整命令来自 [`mcpm init`](init.md) 保存的快照，不会重新读取脚本；工作目录使用打开 Server 时传入的目录，不从 `server.json` 读取。
+保存的 `start.script` 必须是 Server 目录内的相对路径；绝对路径、`..` 越界或符号链接越界都会导致加载失败。
 旧配置或完整手动注册没有保存启动信息时显示 `unavailable`。
 非 raw 模式默认只显示一行命令，超出的部分用 `(+N)` 表示省略的字符数；
 传入 `--full-command` 可显示完整内容。raw 模式始终输出完整命令。

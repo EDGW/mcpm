@@ -50,7 +50,7 @@ mcpm --ssh 'ssh user@host' mods cache --server /srv/minecraft --file example.jar
 printf '%s\n' create jei | mcpm mods cache --server /srv/minecraft --input modid
 ```
 
-- Console 默认仅显示进度条和最终汇总，`--details` 显示逐文件详情；错误始终显示。Raw 仍逐文件输出结构化记录，两者复用 [`mod cache`](../mod/cache.md) 的逐文件结果。空输入提示选择项目；完整缓存需显式传 `--all`。
+- Console 默认仅显示进度条和最终汇总，`--details` 显示逐文件详情；错误始终显示。Raw 仍逐文件输出结构化记录，两者复用 [`mods cache`](../mod/cache.md) 的逐文件结果。空输入提示选择项目；完整缓存需显式传 `--all`。
 - 默认复制完整外层归档，仅为服务器声明的 loader 缓存完整嵌套元数据，不提供 loader 覆盖参数。
 - 内容导入和来源结果发布均使用 Server 运行环境的 Mod 缓存。
 - `--mode copy|hard-link|prefer-hard-link` 决定新对象的发布方式。硬链接与源文件共享内容保护；已存在的 BLAKE3 对象直接复用，不关联源文件或替换缓存 inode。
@@ -74,7 +74,7 @@ printf '%s\n' create jei | mcpm mods cache --server /srv/minecraft --input modid
 
 ## 缓存结果类别
 
-`server mods cache` 与 `mod cache` 共用 `--metas meta,ident`（默认两类）和
+`server mods cache` 与 `mods cache` 共用 `--metas meta,ident`（默认两类）和
 `--sources modrinth,curseforge`（默认全部）。meta 仅用服务器声明的 Loader，ident 查询所选来源，
 两类均导入 缓存内容文件。SSH／Remote 时平台 HTTP 和 API key 留在客户端，验证后的结果通过
 `cache.mods.identification.write` 发布到文件主机。Identify 保持只读。

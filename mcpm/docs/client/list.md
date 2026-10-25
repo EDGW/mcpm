@@ -23,7 +23,7 @@ or `unrecognized` according to the main-class heuristic. Neither label verifies
 that the profile is launchable or that its dependencies are downloaded.
 
 Terminal output uses bright white names, green normal badges, red broken badges,
-yellow reasons, and the same loader colors as `mod` commands. `NO_COLOR` disables
+yellow reasons, and the same loader colors as `mods` commands. `NO_COLOR` disables
 colors. Redirected stdout and `--raw` produce five tab-separated columns without
 a header: index, directory name, state, loaders, detail. Control characters in
 names and details are escaped.

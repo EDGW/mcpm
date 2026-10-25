@@ -2,7 +2,7 @@
 
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -162,6 +162,7 @@ impl Writer {
             .context("failed to open workspace registration lock")?;
         lock.try_lock()
             .context("workspace registration is already being changed or cannot be locked")?;
+        append_gitignore(root)?;
         Ok(Self {
             root: root.to_owned(),
             _lock: lock,
@@ -237,6 +238,44 @@ impl Writer {
         }
         Ok(())
     }
+}
+
+/// Appends the bundled ignore block unless the file already ends with it, ignoring blank lines.
+/// The caller holds the workspace registration lock.
+fn append_gitignore(root: &Path) -> Result<()> {
+    const BLOCK: &str = include_str!("../../../config/workspace.gitignore");
+    let path = root.join(".mcpm/.gitignore");
+    let mut file = OpenOptions::new()
+        .read(true)
+        .append(true)
+        .create(true)
+        .open(&path)
+        .with_context(|| format!("failed to open workspace Git ignore file {path:?}"))?;
+    let mut contents = Vec::new();
+    file.read_to_end(&mut contents)
+        .with_context(|| format!("failed to read workspace Git ignore file {path:?}"))?;
+    let mut trailing_lines = gitignore_lines(&contents).rev();
+    if gitignore_lines(BLOCK.as_bytes())
+        .rev()
+        .all(|line| trailing_lines.next() == Some(line))
+    {
+        return Ok(());
+    }
+    if !contents.is_empty() {
+        file.write_all(b"\n").with_context(|| {
+            format!("failed to append newline to workspace Git ignore file {path:?}")
+        })?;
+    }
+    file.write_all(BLOCK.as_bytes())
+        .with_context(|| format!("failed to append workspace Git ignore rules to {path:?}"))
+}
+
+/// Ignores blank lines and normalizes CRLF without changing nonblank line contents.
+fn gitignore_lines(contents: &[u8]) -> impl DoubleEndedIterator<Item = &[u8]> {
+    contents
+        .split(|byte| *byte == b'\n')
+        .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
+        .filter(|line| !line.trim_ascii().is_empty())
 }
 
 #[derive(Debug, Error)]

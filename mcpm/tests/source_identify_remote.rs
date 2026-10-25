@@ -194,7 +194,7 @@ mod transport {
             ])
             .arg(root.path().join("remote"))
             .args([
-                "mod",
+                "mods",
                 "source",
                 "identify",
                 "--source",
@@ -270,7 +270,7 @@ mod transport {
                 .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
                 .arg(root.path().join("remote"))
                 .args([
-                    "mod", "source", "identify", "--source", "modrinth", "one.jar",
+                    "mods", "source", "identify", "--source", "modrinth", "one.jar",
                 ])
                 .env("HOME", root.path())
                 .stdin(Stdio::null())

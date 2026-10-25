@@ -1,9 +1,9 @@
-# `mcpm-tools mod cache`
+# `mcpm-tools mods cache`
 
 显式缓存选中的 Mod 完整归档及其识别摘要。
 
 ```text
-mcpm-tools mod cache [OPTIONS] [INPUT]...
+mcpm-tools mods cache [OPTIONS] [INPUT]...
 ```
 
 支持 Console 和 Raw；重定向 stdout 或使用 `--raw` 时，每个选中的文件输出一行 JSON。
@@ -11,7 +11,7 @@ mcpm-tools mod cache [OPTIONS] [INPUT]...
 
 ## 选择文件
 
-输入规则与 [mod info](info.md) 共用：
+输入规则与 [mods info](info.md) 共用：
 
 - 位置参数依次匹配文件名、精确 Mod ID、精确 Mod 名称。
 - 可以重复、混合使用 `--file FILE`、`--modid ID`、`--name NAME`，按参数出现顺序查询。
@@ -23,11 +23,11 @@ mcpm-tools mod cache [OPTIONS] [INPUT]...
 - 同一规范路径重复选中只处理一次，保留首次选中位置。内容相同的不同文件复用同一个 BLAKE3 对象。
 
 ```sh
-mcpm-tools mod cache example.jar another.jar.disabled
-mcpm-tools mod cache --directory ./mods --modid zeta
-mcpm-tools mod cache --directory ./mods --name 'Example Mod'
-mcpm-tools mod cache --directory ./mods --all --parallelism 4
-printf '%s\n' example.jar another.jar | mcpm-tools mod cache --input file
+mcpm-tools mods cache example.jar another.jar.disabled
+mcpm-tools mods cache --directory ./mods --modid zeta
+mcpm-tools mods cache --directory ./mods --name 'Example Mod'
+mcpm-tools mods cache --directory ./mods --all --parallelism 4
+printf '%s\n' example.jar another.jar | mcpm-tools mods cache --input file
 ```
 
 位置参数不接受目录；批量处理目录使用 `--directory PATH --all`。
@@ -48,7 +48,7 @@ printf '%s\n' example.jar another.jar | mcpm-tools mod cache --input file
 | `--parallelism COUNT` | 名称／ID 扫描和导入／识别阶段的最大并发文件数，默认 10 |
 
 默认目标为 `~/.mcpm/cache/mods`，不存在或为空时初始化。
-指定目录必须已经合法，可先运行 `mcpm-tools cache mods init --directory PATH`。不自动迁移 version 1 缓存。
+指定目录必须已经合法，可先运行 `mcpm-tools cache init --directory PATH`。不自动迁移 version 1 缓存。
 
 内容已经存在时直接复用，不替换缓存 identity，也不把另一个源文件连接到它。
 导入模式只用于新增对象。硬链接共享内容和权限，修改时应替换文件名，不可原地覆盖、
@@ -59,23 +59,23 @@ printf '%s\n' example.jar another.jar | mcpm-tools mod cache --input file
 ID／名称选择可能先进行目录识别；选择扫描得到的 metadata 不直接写入缓存。
 
 ```sh
-mcpm-tools cache mods init --directory /path/to/cache
-mcpm-tools mod cache example.jar --cache-dir /path/to/cache --loader fabric
-mcpm-tools mod cache example.jar --mode hard-link
-mcpm-tools mod cache example.jar --force
+mcpm-tools cache init --directory /path/to/cache
+mcpm-tools mods cache example.jar --cache-dir /path/to/cache --loader fabric
+mcpm-tools mods cache example.jar --mode hard-link
+mcpm-tools mods cache example.jar --force
 ```
 
-[cache mods import](../cache.md) 保留按路径导入、不识别的底层语义。
-`mod info/list` 默认只读取已有缓存，`--no-cache` 可关闭；不保存文件或识别结果。
+[cache import](../cache.md) 保留按路径导入、不识别的底层语义。
+`mods info/list` 默认只读取已有缓存，`--no-cache` 可关闭；不保存文件或识别结果。
 
 两类结果均依赖同一 缓存内容文件：Loader 使用 `meta`，来源匹配使用 `ident`，
 各自可以独立缺失或损坏。所有 CurseForge 配置共用缓存命名空间，key／endpoint 不进入缓存。
 `--metas ident` 仍导入文件，但不会创建 Loader metadata。整批平台请求共用持续存活的客户端 runtime。
 
 ```sh
-mcpm-tools mod cache --directory ./mods --all --metas meta
-mcpm-tools mod cache example.jar --meta ident --source modrinth
-mcpm-tools mod cache example.jar --no-metas
+mcpm-tools mods cache --directory ./mods --all --metas meta
+mcpm-tools mods cache example.jar --meta ident --source modrinth
+mcpm-tools mods cache example.jar --no-metas
 ```
 
 ## 结果与失败

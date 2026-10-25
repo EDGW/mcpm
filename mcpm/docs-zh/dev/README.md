@@ -18,6 +18,31 @@
 - `official` 表示正式发布流程构建，也包含官方预发布版本，不表示稳定版。该标记不是来源签名。
 - 五个入口共享版本详情和非正式 release 启动提示；提示仅写 stderr，不受日志级别影响。
 
+## 服务端 stash
+
+- `mcpm-backend::local::mc::server::stash` 负责快照业务、索引、HEAD 和锁；前端 `commands/server/stash` 只负责参数、路由和展示协调，`display/stash` 统一呈现。
+- 前端每个子命令独立拥有 Clap 参数、输入校验与执行入口，并显式选择共享或独占会话；命令族仅负责路由和公共设置。list/info 分别声明可选列，列合并与校验逻辑共用。
+- 后端 `stash/create.rs` 负责快照发布；发布失败且清理失败时，专用错误保留发布错误主链、独立清理错误链和残留备份路径。前端通过既有诊断入口分别报告两条错误链。
+- 每个 `.mcpm/stash/index/<UUID>.json` 保存 version=1、id、name、created_at（UTC）和 backup UUID；`.mcpm/stash/HEAD` 保存 version=1 与 stash UUID。两者的 JSON 编解码与验证只在 stash/index.rs 实现。
+- backup 引用解析为 `.mcpm/data/<backup-UUID>`，每条记录独立拥有 backup 清单；新建 stash 使用 CacheOnly，文件内容位于服务器 stash blob；文件清单和摘要仅由现有 backup manifest 提供。数据损坏不按缓存派生索引的规则静默重建。
+- 服务器 RuntimeEnvironment 的 stash 角色延迟指向 `.mcpm/stash/blob`。backup 的显式缓存创建入口共享原有创建实现，不知道 stash 概念。
+- 独占锁覆盖所有修改操作；共享锁保护数据读取和校验。锁位于 `.mcpm/stash/lock`，文件永久保留。首次只读访问缺失目录或尚无锁的空目录时，固定返回空视图，不在无锁状态下继续读取后来发布的数据。
+- switch 先完整 verify，再比较工作区；force 不能绕过验证或检查错误。只有 apply 成功后才更新 HEAD；文件发布与 HEAD 更新不是跨文件事务，不提供中断恢复。
+- 新工作区的 `.gitignore` 不忽略 stash；data 与 cache 仍按生成模板处理。
+
+- cache 管理命令在分发执行前检查写操作，包含 verify --autoremove 和 export 目标；stash 拥有路径识别，通用 cache 层不依赖 server。server metadata 条目存在即保守保留 stash 缓存位置；--no-protect-stash 绕过 CLI 保护，只读命令的默认路径别名只打开已有缓存，不初始化。
+
+## Backup 缓存回退
+
+- backup 的 v1 manifest 是文件集合及摘要的唯一真相，cache-only 与完整备份共用格式；不持久化缓存路径或存在性副本。
+- `backup/create.rs` 共用内容导入与源验证，通过 CreateStorage 明确选择完整导出或仅清单发布；stash 显式选择 CacheOnly。
+- `backup/sources.rs` 是 verify/apply 共用的来源选择、完整内容验证和数据集合复查入口；verify_with_cache 不写入或生成目标。
+- `backup/apply.rs` 共用严格与可回退应用流程。严格 apply 不访问缓存；apply_with_cache 仅在清单文件实际缺失时调用延迟缓存入口。损坏、非法类型、不可读和额外文件不得触发回退。
+- cache 模块负责完整内容哈希和目录协议，backup 负责对照 manifest 的大小验证、来源选择和目标发布；前端不解释缓存布局或清单。
+- apply 使用已有缓存，不初始化；完整备份和空清单不打开缓存。全部来源和暂存结果验证通过后才能替换目标。
+- display/backup 统一英文风险提示、逐文件来源及统计；cache-only 的 Raw 格式保持原列，警告及缓存依赖提示写 stderr，不受普通日志级别过滤。
+- stash 使用 CacheOnly 创建，verify_with_cache 与 apply_with_cache 明确传入服务器 stash 缓存的只读打开入口，绝不回退 global；switch 在独占锁下先完整验证再检查工作区。删除 stash 保留 blob，不做 GC。
+
 ## 1. 命令
 
 命令主要按照可复用性分为 **单一命令** 和 **通用命令**。
@@ -30,11 +55,11 @@
 
 ### 1.2. 通用命令
 
-通用命令有多个入口，比如说 `mcpm-tools mod list`，这个命令可以直接调用，也可以在 `mcpm mods list` 里使用，两者同时还有一些行为区别。
+通用命令有多个入口，比如说 `mcpm-tools mods list`，这个命令可以直接调用，也可以在 `mcpm mods list` 里使用，两者同时还有一些行为区别。
 
-这种命令一般成套出现，比如说 `mod` 命令族对应 `mcpm mods` 和 `mcpm-tools mod`，则这个命令族应该放在 `src/commands/supports/mod/` 下，内部路径也要直接体现命令路径，`Remote` 的入口同上。
+这种命令一般成套出现，比如说 `mods` 命令族对应 `mcpm mods` 和 `mcpm-tools mods`，则这个命令族应该放在 `src/commands/supports/mods/` 下，内部路径也要直接体现命令路径，`Remote` 的入口同上。
 
-值得注意的是，`Remote` 的调用口和命令行的调用口不同。`Remote` 一般直接针对底层做接口，比如说 `mcpm-tools mod list` 和 `mcpm mods list` 都对应一个 `mod.list` 的 `Remote` 命令，`Remote` 模式下两个调用分别对这一个 `Remote` 命令传参数。
+值得注意的是，`Remote` 的调用口和命令行的调用口不同。`Remote` 一般直接针对底层做接口，比如说 `mcpm-tools mods list` 和 `mcpm mods list` 都对应一个 `mod.list` 的 `Remote` 命令，`Remote` 模式下两个调用分别对这一个 `Remote` 命令传参数。
 
 所以此时 `Remote` 不该放在命令行的入口上，而是在 `support` 层的统一调用入口上。这类命令的所有调用都要走一个统一的 `support` 入口，不能有各自的实现。
 
@@ -46,11 +71,11 @@
 
 查询类命令语义上应该支持多个输入，并且应该支持从 `stdin` 按行输入项目。
 
-比如说 `mcpm-tools cache mods info <KEYS>`，应该支持从 `<KEYS>` 和 `stdin` 接收多个参数。
+比如说 `mcpm-tools cache info <KEYS>`，应该支持从 `<KEYS>` 和 `stdin` 接收多个参数。
 
 #### 2.1.1. 主参数类型
 
-当 `KEY` 可以是多个类型的时候，比如说 `mcpm-tools mod info` 支持 `modid`、`filename` 等多种类型作为 `key` 时：
+当 `KEY` 可以是多个类型的时候，比如说 `mcpm-tools mods info` 支持 `modid`、`filename` 等多种类型作为 `key` 时：
 
 - 此时应该用 `--input <type>` 来解释 `stdin` 的输入。
 - 此时应该用 `--<specific-type> <value>` 来指明输入。
@@ -63,7 +88,7 @@
 **示例：支持自动推断类型**
 
 ```plaintext
-> mcpm-tools mod info --help
+> mcpm-tools mods info --help
 ...
       --file <FILE>          Inspect a file without falling back to modid or name; repeat to select more
       --modid <MODID>        Match an exact modid; repeat to select more
@@ -82,7 +107,7 @@
 
 注意，有时候参数是一个**选择**而非列表，此时就不适用于这些规定。
 
-比如说在 `mcpm-tools mod source search --source` 里，`--source` 是一个选择，只能有一个值；但是在 `cache mods refresh <KEYS> ident --source --sources` 里，`source` 就是一个列表，适用于本节规定。
+比如说在 `mcpm-tools mods source search --source` 里，`--source` 是一个选择，只能有一个值；但是在 `cache refresh <KEYS> ident --source --sources` 里，`source` 就是一个列表，适用于本节规定。
 
 **标准示例：**
 
@@ -165,7 +190,7 @@
 
 `Raw` 模式一般仅仅输出本职数据。
 
-比如说 `mcpm-tools cache mods list`，这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，可以输出为这种形式：
+比如说 `mcpm-tools cache list`，这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，可以输出为这种形式：
 
 ```plaintext
 <blake3>\t<filename>\t<sha256>\tident,meta
@@ -179,7 +204,7 @@
 
 `Console` 模式可以列出附加数据，来避免用户执行更多命令。
 
-还是比如说 `mcpm-tools cache mods list`，虽然这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，但是建议这么输出：
+还是比如说 `mcpm-tools cache list`，虽然这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，但是建议这么输出：
 
 ```plaintext
 <BLAKE3>  available
@@ -245,11 +270,11 @@ writeln!(console, "Next entry")?;
 
 `list` 命令一般要支持 `columns`，且 `Raw` 模式下要对自动化处理友好。
 
-如果 `list` 是树形数据，比如说 `Mod` 和 `Nested Mods`，一般而言可以以某种方式展示这些子数据的存在（如 `mod list` 的 `(+x mods)`），但是默认不列出，用 `--expanded` 等参数控制列出。没有折叠数据的命令不提供 `--expanded`；普通详情使用 `--details`。
+如果 `list` 是树形数据，比如说 `Mod` 和 `Nested Mods`，一般而言可以以某种方式展示这些子数据的存在（如 `mods list` 的 `(+x mods)`），但是默认不列出，用 `--expanded` 等参数控制列出。没有折叠数据的命令不提供 `--expanded`；普通详情使用 `--details`。
 
 **Console 模式下，List 的语义一般如下：**
 
-- **默认**：只列出最重要的几个 `Column`，比如说 `cache` 的 `BLAKE3`、`mod` 的 `ModName + ModId`。当列出的 `column` 数量很少、且 `expanded` 未打开时，可以在一行输出多个（此时不显示 `Header`），参考 Linux `ls` 的行为。
+- **默认**：只列出最重要的几个 `Column`，比如说 `cache` 的 `BLAKE3`、`mods` 的 `ModName + ModId`。当列出的 `column` 数量很少、且 `expanded` 未打开时，可以在一行输出多个（此时不显示 `Header`），参考 Linux `ls` 的行为。
 - **`--details`**：默认等于列出所有 `column`，但是不默认启用 `expanded`。
 - **`--columns`**：只要 `--columns` 被明确指定，就不能一行输出多个，并且必须显示 `Header`。
 - Console 模式下不一定要显示成表，Columns 可以指广义的字段名，也可以显示成 `XX: XX` 的格式，只要有助于阅读。如果不列成表而列成字段组，每一个项目之间要有空行。默认模式下若选择字段组且只列出一个字段的时候，此时和列表其实没有差别，所以 Header（若有）放在最上面而不是每个前面，也不需要有空行。

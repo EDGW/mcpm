@@ -1,27 +1,101 @@
-//! Top-level explicit cache command dispatch.
+//! Cache management command selection and shared directory/Raw header options.
+
+use std::{
+    io::{self, Write},
+    path::PathBuf,
+};
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
+use mcpm_backend::local::cache::mods::ModsCacheSelection;
 
-mod mods;
+mod batch;
+mod columns;
+mod entry;
+mod export;
+mod import;
+mod info;
+mod init;
+mod input;
+mod list;
+mod protection;
+mod rebuild_index;
+mod refresh;
+mod remove;
+mod verify;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Modes: Console and Raw (--raw or redirected stdout). Cache management is local and explicit."
+    after_help = "Modes: Console and Raw (--raw or redirected stdout). Raw list, info and simple operations use TSV; refresh succeeds silently.\n\nDefault directory: ~/.mcpm/cache/mods. Import stores content only; refresh populates the named meta or ident metadata. Verify checks content only. Exports never overwrite or create parent directories. No automatic eviction. All operations are local.\n\nCommands that modify a server stash cache are refused, including verify --autoremove. Do not manage stash caches manually: snapshots depend on their contents. --no-protect-stash bypasses this protection. Read-only list, info, verify and exports outside stash caches remain available."
 )]
 pub(crate) struct CacheArgs {
+    /// Cache root; explicit directories must already be initialized.
+    #[arg(long, global = true, value_name = "PATH")]
+    directory: Option<PathBuf>,
+    /// Allow modifying a server's stash cache; this can make stashes unusable.
+    #[arg(long, global = true)]
+    no_protect_stash: bool,
+    /// Include a header in Raw TSV output; ignored by Console and refresh.
+    #[arg(long, global = true)]
+    headers: bool,
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Manage cached Mod content and named metadata (Console, Raw).
-    Mods(mods::ModsArgs),
+    /// Initialize a missing or empty cache directory (Console, Raw).
+    Init,
+    /// Import content without calculating meta or ident (Console, Raw).
+    Import(import::ImportArgs),
+    /// List BLAKE3 IDs or selected cache columns (Console, Raw).
+    List(list::ListArgs),
+    /// Inspect cached content and named metadata (Console, Raw).
+    Info(info::InfoArgs),
+    /// Refresh meta or ident metadata (Console, Raw).
+    Refresh(refresh::RefreshArgs),
+    /// Verify cached content without reading metadata (Console, Raw).
+    Verify(verify::VerifyArgs),
+    /// Export one object's bytes to multiple destinations (Console, Raw).
+    Export(export::ExportArgs),
+    /// Remove selected or all cache-owned names; exported hard links remain (Console, Raw).
+    Remove(remove::RemoveArgs),
+    /// Rebuild the optional imohash lookup index (Console, Raw).
+    RebuildIndex,
+}
+
+impl Command {
+    fn writes_cache(&self) -> bool {
+        match self {
+            Self::Init
+            | Self::Import(_)
+            | Self::Refresh(_)
+            | Self::Remove(_)
+            | Self::RebuildIndex => true,
+            Self::Verify(args) => args.autoremove(),
+            Self::List(_) | Self::Info(_) | Self::Export(_) => false,
+        }
+    }
 }
 
 pub(crate) fn run(args: CacheArgs) -> Result<()> {
+    let selection = match args.directory {
+        Some(path) => ModsCacheSelection::Directory { path },
+        None => ModsCacheSelection::Default,
+    };
+    let selection = protection::check(selection, &args.command, args.no_protect_stash)?;
+    let mut out = io::stdout().lock();
     match args.command {
-        Command::Mods(args) => mods::run(args),
+        Command::Init => init::run(selection, &mut out, args.headers)?,
+        Command::Import(args_) => import::run(args_, selection, &mut out, args.headers)?,
+        Command::List(args_) => list::run(args_, selection, &mut out, args.headers)?,
+        Command::Info(args_) => info::run(args_, selection, &mut out, args.headers)?,
+        Command::Refresh(args_) => refresh::run(args_, selection, &mut out)?,
+        Command::Verify(args_) => verify::run(args_, selection, &mut out, args.headers)?,
+        Command::Export(args_) => export::run(args_, selection, &mut out, args.headers)?,
+        Command::Remove(args_) => remove::run(args_, selection, &mut out, args.headers)?,
+        Command::RebuildIndex => rebuild_index::run(selection, &mut out, args.headers)?,
     }
+    out.flush()?;
+    Ok(())
 }

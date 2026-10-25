@@ -85,7 +85,7 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
         process.current_dir(&fixtures);
         process.arg("--raw");
         let output = process
-            .args(["mod", command, "complex-mod.jar", "--no-cache"])
+            .args(["mods", command, "complex-mod.jar", "--no-cache"])
             .args(options)
             .output()
             .expect("failed to run mcpm");

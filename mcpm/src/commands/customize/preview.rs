@@ -166,7 +166,7 @@ fn render_panel(
     } else {
         vec![
             Line::from(Span::styled(
-                format!("$ {} mod list", crate::program::roots().tools),
+                format!("$ {} mods list", crate::program::roots().tools),
                 role(Role::Muted),
             )),
             Line::from(vec![

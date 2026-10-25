@@ -16,8 +16,7 @@ fn fixture(root: &Path) -> Value {
         "minecraft_version":"1.21.1",
         "loader":{"type":"fabric","version":"0.16.10"},
         "start":{
-            "script":"C:\\服 务器 ' $()\\run.bat",
-            "directory":"C:\\服 务器 ' $()",
+            "script":"run.bat",
             "executable":"C:\\Program Files\\Java\\bin\\java.exe",
             "arguments":["", "-Dmessage=a \\\"quoted\\\" value", "C:\\server files\\", "-jar", "server.jar", "$(touch escaped)"],
             "windows":true
@@ -78,7 +77,8 @@ fn snapshot_retains_source_paths_loader_identity_and_windows_argv() {
     assert_eq!(snapshot["loader"]["id"], "fabric");
     assert_eq!(snapshot["loader"]["name"], "Fabric");
     assert_eq!(snapshot["loader"]["version"], "0.16.10");
-    for field in ["directory", "executable", "arguments", "windows"] {
+    assert_eq!(snapshot["start"]["directory"], "服务端 ' $()");
+    for field in ["executable", "arguments", "windows"] {
         assert_eq!(snapshot["start"][field], metadata["start"][field]);
     }
     assert_eq!(replies[replies.len() - 2]["status"], "finished");

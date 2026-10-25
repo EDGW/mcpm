@@ -50,7 +50,7 @@ mcpm --ssh 'ssh user@host' mods cache --server /srv/minecraft --file example.jar
 printf '%s\n' create jei | mcpm mods cache --server /srv/minecraft --input modid
 ```
 
-- Console shows progress and a final summary by default; `--details` adds per-file details. Errors always appear. Raw retains one structured record per selected file. Both reuse [`mod cache`](../mod/cache.md). Empty input prompts for a selection; use `--all` for the complete mods directory.
+- Console shows progress and a final summary by default; `--details` adds per-file details. Errors always appear. Raw retains one structured record per selected file. Both reuse [`mods cache`](../mod/cache.md). Empty input prompts for a selection; use `--all` for the complete mods directory.
 - Copies whole outer archives by default and stores metadata for the server's declared loader, including its complete nested tree. There are no loader override flags.
 - Imports and source-result publication use the Server runtime’s Mod cache.
 - `--mode copy|hard-link|prefer-hard-link` controls publishing new objects. Hard links share content protection with the original file. Existing BLAKE3 objects are reused without linking the source or replacing the cached inode.
@@ -75,7 +75,7 @@ Protocol version 4 requires matching client and remote binaries. Server requests
 ## Cache result categories
 
 `server mods cache` shares `--metas meta,ident` (default both) and
-`--sources modrinth,curseforge` (default all) with `mod cache`. `meta` uses the
+`--sources modrinth,curseforge` (default all) with `mods cache`. `meta` uses the
 server's declared loader; `ident` queries the selected providers. Data is always
 imported. With SSH/Remote, provider HTTP and API keys remain on the client;
 verified source results are published on the file host through

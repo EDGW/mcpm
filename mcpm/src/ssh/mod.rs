@@ -20,7 +20,7 @@ pub(crate) struct SshArgs {
         long,
         global = true,
         value_name = "COMMAND",
-        help = format!("SSH connection command, e.g. \"ssh -i key -p 2222 user@host\"; supported by {} init/info/mods list/info/cache/deps/source and {} mod list/info/deps/source identify.", crate::program::roots().server, crate::program::roots().tools),
+        help = format!("SSH connection command, e.g. \"ssh -i key -p 2222 user@host\"; supported by {} init/info/mods list/info/cache/deps/source and {} mods list/info/deps/source identify.", crate::program::roots().server, crate::program::roots().tools),
         help_heading = "Global options"
     )]
     ssh: Option<String>,

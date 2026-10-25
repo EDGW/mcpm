@@ -11,6 +11,12 @@ mcpm init ./server --start-script run.bat
 mcpm init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
 mcpm init ./server --minecraft-version 1.21.1 --loader vanilla
 
+# 跳过 Git 检测与初始化
+mcpm init ./server --minecraft-version 1.21.1 --loader vanilla --no-git
+
+# 即使属于父目录仓库，也在 server 目录建立自身仓库
+mcpm init ./server --force --minecraft-version 1.21.1 --loader vanilla --git
+
 # 在远端目录初始化 Local Server，位置参数是远端路径
 mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
 
@@ -26,11 +32,13 @@ mcpm mods list --server ./workspace
 
 - `[PATH]`：已存在的目录，默认 `.`。普通初始化时是服务端目录；使用全局 `--ssh` 时是远端服务端目录；同时指定 `--remote` 时则是本地工作目录。
 - `--remote <REMOTE_PATH>`：在本地 `PATH` 创建 Remote 工作目录，指向指定的远端目录。必须配合全局 `--ssh`；全局 `--ssh-mcpm` 可选。目标必须已经是可打开的 Local Server。此选项与 `--start-script`、`--minecraft-version`、`--loader`、`--loader-version` 互斥。
-- `--start-script <FILE>`：静态识别指定启动脚本。相对路径以实际服务端目录为基准，也接受绝对路径。与所有手动版本及 Loader 参数互斥。
+- `--start-script <FILE>`：静态识别指定启动脚本。必须使用相对于实际服务端目录的路径，不接受绝对路径或越界路径。与所有手动版本及 Loader 参数互斥。
 - `--minecraft-version <VERSION>`：Minecraft 版本，别名 `--mc-version`。信息完整时直接登记；不完整时作为自动识别候选的筛选条件。不能为空白。
 - `--loader <LOADER>`：服务端加载器，支持 `forge`、`neoforge`、`fabric`、`vanilla`。已知原版必须显式填写 `vanilla`，不能通过缺少 Loader 证据推断原版。
 - `--loader-version <VERSION>`：Loader 版本，与 Minecraft/FML 版本区分。模组加载器的完整手动登记需要此参数；`vanilla` 禁止指定此参数。不能为空白。
 - `--force`：允许替换已有登记，包括损坏的 `server.json`。普通初始化替换服务端元数据，`--remote` 模式替换本地保存的连接配置。不能用它切换 Local/Remote 类型，也不能替换配置路径上的目录。
+- `--git`：要求目标目录有自身的 Git 仓库，即使属于父目录仓库也会在目标目录创建。目标已有仓库或 worktree 时直接复用，不删除或重建。与 `--no-git` 互斥。SSH 初始化时作用于远端 Server；使用 `--remote` 时作用于本地工作目录。
+- `--no-git`：跳过 Git 仓库检测与自动初始化，仍按正常规则生成 `.mcpm/.gitignore`。与 `--git` 互斥。SSH 初始化时作用于远端 Server；使用 `--remote` 时作用于本地工作目录。
 - `--no-ui`：关闭候选选择 TUI，使用 Console 模式。多个候选必须通过更具体的识别条件消除歧义；与全局 `--raw` 同用时使用 Raw 模式。
 - `--full-command`：在初始化结果中显示完整启动命令。默认 Console 输出只占一行，超出部分显示 `(+N)`；Raw 输出始终保留完整内容。
 
@@ -44,9 +52,21 @@ SSH 连接和远端 mcpm 程序均复用[全局参数](../README.md#全局选项
 
 ```text
 .mcpm/
+├── .gitignore   # 忽略 /cache、/data 和 /registration.lock
 ├── mcpm.json    # version: 1, type: local
 └── server.json  # Local 服务端元数据，version: 2
 ```
+
+初始化 Local 或 Remote 工作目录时自动创建 `.mcpm/.gitignore`，内容为 `# Added by mcpm`、一个空行以及 `/cache`、`/data`、`/registration.lock` 三条规则，不新增 stash 忽略规则。已有文件保留原内容；忽略空行后，若文件末尾已与完整内容一致，则不追加，否则换行后追加完整内容。因此，连续使用 `--force` 初始化不会重复追加。
+
+Git 默认行为：
+
+- 写入登记前，用 Git 检测目标目录是否已属于仓库；已有仓库、父目录仓库或 worktree 均直接复用。
+- 未发现仓库时，在目标目录执行 `git init`，不自动暂存或提交文件。
+- Git 必须安装在执行初始化的主机上；Git 不可用、仓库损坏或初始化失败时明确报错。可用 `--no-git` 跳过 Git 操作。
+- 单独识别脚本或取消候选选择不会初始化 Git。
+- `--force` 同样执行 Git 设置；`--git` 要求目标目录自身的仓库，`--no-git` 则跳过。
+- Console 模式在服务端信息前用白色显示一行通知，再空一行，说明仓库已创建或因已有仓库而跳过初始化，并标明目标路径；SSH 操作的结果也在本地显示。所有初始化成功后均在服务端信息后显示绿色 `Initialized successfully.`，包括使用 `--no-git` 时。Raw 输出仍只包含原有服务端信息，`--no-git` 不显示 Git 提示。`NO_COLOR` 关闭颜色。
 
 `mcpm.json` 由 mcpm 管理，决定工作目录类型；Local 的 `server.json` 由 mcpm-backend 解析和持久化。没有 `mcpm.json` 的旧目录按 Local 处理。Local `server.json` 的 v1 仍可读取，会产生一条 warning 日志；读取不改写文件，重新初始化时写为 v2。
 
@@ -57,6 +77,10 @@ SSH 连接和远端 mcpm 程序均复用[全局参数](../README.md#全局选项
 唯一候选直接登记；多个候选在 TUI 中使用上下键选择、Enter 确认、Esc/Ctrl-C 取消。TUI 要求本地 stdout/stderr 为终端且未指定 `--raw`/`--no-ui`；Console 和 Raw 模式要求唯一候选。stdout 重定向时自动使用 Raw。
 
 登记保存所选启动项的快照，成功后输出与 [`server info`](info.md) 相同的信息。默认不覆盖已有登记；识别失败或取消选择保留旧登记。
+
+- `start.script` 保存相对于 Server 目录的脚本位置，移动整个目录后仍以新位置解析。
+- `server.json` 不保存启动工作目录 `directory`；工作目录使用打开 Server 时传入的目录。
+- 初始化和加载都拒绝绝对脚本路径、通过 `..` 越界的路径，以及指向 Server 目录之外的符号链接。已有配置中的绝对脚本路径同样会报错。
 
 ### 远程行为
 

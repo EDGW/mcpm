@@ -70,7 +70,7 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
         ),
         (
             LIST,
-            json!({"args":["mod","list"]}),
+            json!({"args":["mods","list"]}),
             vec!["error", "done"],
             false,
         ),

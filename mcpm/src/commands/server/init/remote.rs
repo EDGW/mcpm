@@ -5,15 +5,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    model::{Candidate, Initialize, Phase, Recognize},
+    model::{Candidate, Initialize, Initialized, Phase, Recognize},
     operation,
 };
-use crate::{
-    commands::server::metadata::ServerInfo,
-    remote::{
-        client::Session,
-        command::{Command, Output},
-    },
+use crate::remote::{
+    client::Session,
+    command::{Command, Output},
 };
 
 struct Init;
@@ -22,14 +19,12 @@ impl Command for Init {
     fn run(contents: Value, output: &Output) -> Result<()> {
         let args: Initialize = serde_json::from_value(contents)
             .context("invalid complete server initialization arguments")?;
-        let server = operation::initialize(
+        let result = operation::initialize(
             args,
             || output.checkpoint(),
             |phase| output.send(Event::Stage { phase }),
         )?;
-        output.send(Event::Initialized {
-            server: ServerInfo::from_server(&server),
-        })
+        output.send(Event::Initialized(result))
     }
 }
 
@@ -56,7 +51,7 @@ impl Command for Recognition {
 enum Event {
     Stage { phase: Phase },
     Candidates { candidates: Vec<Candidate> },
-    Initialized { server: ServerInfo },
+    Initialized(Initialized),
 }
 
 pub(super) fn recognize(
@@ -80,7 +75,7 @@ pub(super) fn initialize(
     session: &Session,
     args: Initialize,
     phase: impl Fn(Phase) -> Result<()>,
-) -> Result<ServerInfo> {
+) -> Result<Initialized> {
     match exchange(
         session,
         Init::ID,
@@ -88,7 +83,7 @@ pub(super) fn initialize(
         Kind::Initialization,
         phase,
     )? {
-        Event::Initialized { server } => Ok(server),
+        Event::Initialized(result) => Ok(result),
         _ => unreachable!("validated initialization result"),
     }
 }
@@ -172,7 +167,7 @@ impl Validator {
                 );
                 self.complete()?;
             }
-            Event::Initialized { .. } => {
+            Event::Initialized(_) => {
                 ensure!(
                     matches!(self.kind, Kind::Initialization),
                     "unexpected server initialization result"
@@ -213,14 +208,14 @@ mod tests {
         Event::Stage { phase }
     }
     fn initialized() -> Event {
-        Event::Initialized { server: serde_json::from_value(serde_json::json!({
+        Event::Initialized(Initialized { server: serde_json::from_value(serde_json::json!({
             "name":"server", "path":"C:\\server", "minecraft_version":"1.21.1", "loader":null, "start":null
-        })).unwrap() }
+        })).unwrap(), git: None })
     }
     fn candidates() -> Event {
         Event::Candidates { candidates: vec![serde_json::from_value(serde_json::json!({
             "metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{
-                "script":"C:\\server\\run.bat", "directory":"C:\\server", "executable":"java", "arguments":["-jar","server.jar"], "windows":true
+                "script":"run.bat", "executable":"java", "arguments":["-jar","server.jar"], "windows":true
             }}, "line":1, "main_class":"-jar"
         })).unwrap()] }
     }

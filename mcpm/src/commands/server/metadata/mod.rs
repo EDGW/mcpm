@@ -30,7 +30,7 @@ impl ServerInfo {
                 version: info.version,
             }),
             start: metadata.start.as_ref().map(|start| StartCommand {
-                directory: start.directory.display().to_string(),
+                directory: server.path().display().to_string(),
                 executable: start.executable.clone(),
                 arguments: start.arguments.clone(),
                 windows: start.windows,

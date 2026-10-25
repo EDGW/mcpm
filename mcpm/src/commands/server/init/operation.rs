@@ -9,8 +9,10 @@ use mcpm_backend::local::{
 };
 use thiserror::Error;
 
+use super::super::metadata::ServerInfo;
 use super::super::workspace::{self, Writer};
-use super::model::{Candidate, Initialize, Phase, Recognize};
+use super::git;
+use super::model::{Candidate, Initialize, Initialized, Phase, Recognize};
 
 /// Recognition never loads registration metadata, creates directories, or writes configuration.
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
@@ -69,10 +71,11 @@ pub(super) fn initialize(
     args: Initialize,
     checkpoint: impl Fn() -> Result<()>,
     phase: impl Fn(Phase) -> Result<()>,
-) -> Result<MinecraftServer> {
+) -> Result<Initialized> {
     let started = Instant::now();
     checkpoint()?;
     phase(Phase::Validating)?;
+    git::validate_options(args.git, args.no_git)?;
     tracing::info!(path = %args.path.display(), force = args.force, "Validating complete server initialization data");
     workspace::require_local(&args.path)?;
     validate_metadata(&args.metadata)?;
@@ -99,6 +102,11 @@ pub(super) fn initialize(
     tracing::info!(path = %args.path.display(), force = args.force, "Writing server registration metadata");
     let writer = Writer::acquire(&args.path)?;
     workspace::require_local(&args.path)?;
+    let git = if args.no_git {
+        None
+    } else {
+        Some(git::ensure_repository(&args.path, args.git)?)
+    };
     let server = if args.force {
         MinecraftServer::replace(args.path, args.metadata)?
     } else {
@@ -110,7 +118,10 @@ pub(super) fn initialize(
         elapsed_ms = started.elapsed().as_millis(),
         "Server initialization completed"
     );
-    Ok(server)
+    Ok(Initialized {
+        server: ServerInfo::from_server(&server),
+        git,
+    })
 }
 
 pub(super) fn validate_options(args: &Recognize) -> Result<()> {
@@ -149,9 +160,7 @@ fn validate_metadata(metadata: &MinecraftServerMetadata) -> Result<()> {
     }
     if let Some(start) = &metadata.start {
         ensure!(
-            !start.script.as_os_str().is_empty()
-                && !start.directory.as_os_str().is_empty()
-                && !start.executable.trim().is_empty()
+            !start.executable.trim().is_empty()
                 && !start.executable.contains('\0')
                 && start.arguments.iter().all(|arg| !arg.contains('\0')),
             InitializationError::InvalidStart
@@ -175,7 +184,7 @@ enum InitializationError {
     #[error("vanilla does not have a loader version")]
     VanillaLoaderVersion,
     #[error(
-        "invalid server start snapshot: script, directory and executable must be nonempty, and executable/arguments must not contain NUL"
+        "invalid server start snapshot: executable must be nonempty, and executable/arguments must not contain NUL"
     )]
     InvalidStart,
 }
@@ -201,6 +210,8 @@ mod tests {
             }))
             .unwrap(),
             force,
+            no_git: false,
+            git: false,
         }
     }
 

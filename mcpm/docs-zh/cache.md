@@ -1,43 +1,43 @@
 # Mod 缓存管理
 
-`mcpm-tools cache mods` 显式管理 `~/.mcpm/cache/mods` 中的内容和具名 metadata。
+`mcpm-tools cache` 显式管理 `~/.mcpm/cache/mods` 中的内容和具名 metadata。
 
 - 一个条目由完整的 64 位小写十六进制 BLAKE3 标识；相同内容只保存一次。
 - `meta`、`ident` 是两个 metadata 名字，分别保存 Loader 声明和来源匹配。
 - `import` 只存内容，不计算、刷新或读取这两个 metadata。
-- `mod info/list` 和 `mod source identify` 默认只读查询缓存；显式写入也可使用
-  [`mod cache`](mod/cache.md) 或 [`server mods cache`](server/mods.md#缓存)。
+- `mods info/list` 和 `mods source identify` 默认只读查询缓存；显式写入也可使用
+  [`mods cache`](mod/cache.md) 或 [`server mods cache`](server/mods.md#缓存)。
 - 缓存管理在本地执行。所有命令支持 Console、Raw；`--raw` 或非 TTY stdout 使用 Raw。
 - Raw 的 `list`、`info` 和简单操作结果采用 TSV；refresh 成功时无输出，退出码为 0。
 
 ## 命令
 
 ```sh
-mcpm-tools cache mods init --directory /path/to/cache
-mcpm-tools cache mods import example.jar another.jar
-mcpm-tools cache mods import example.jar --mode hard-link
-mcpm-tools cache mods list
-mcpm-tools cache mods list --columns blake3,size,metadatas
-mcpm-tools cache mods list --details
-mcpm-tools cache mods info HASH1 HASH2 --columns blake3,status,metadatas
-mcpm-tools cache mods info --all
-printf '%s\n' HASH1 HASH2 | mcpm-tools cache mods info
-mcpm-tools cache mods refresh HASH1 HASH2 meta --loaders fabric,forge
-mcpm-tools cache mods refresh HASH1 ident --source modrinth --source curseforge
-mcpm-tools cache mods refresh --all meta
-mcpm-tools cache mods refresh --all meta --parallelism 4
-mcpm-tools cache mods refresh --all ident --details
-mcpm-tools cache mods refresh HASH1 meta --short
-printf '%s\n' HASH1 HASH2 | mcpm-tools cache mods refresh ident
-mcpm-tools cache mods verify HASH1 HASH2
-mcpm-tools cache mods verify --all
-mcpm-tools cache mods verify --all --parallelism 4
-mcpm-tools cache mods verify --all --details
-mcpm-tools cache mods verify --all --autoremove
-mcpm-tools cache mods export HASH1 restored.jar another-copy.jar
-mcpm-tools cache mods remove HASH1
-mcpm-tools cache mods remove --all
-mcpm-tools cache mods rebuild-index
+mcpm-tools cache init --directory /path/to/cache
+mcpm-tools cache import example.jar another.jar
+mcpm-tools cache import example.jar --mode hard-link
+mcpm-tools cache list
+mcpm-tools cache list --columns blake3,size,metadatas
+mcpm-tools cache list --details
+mcpm-tools cache info HASH1 HASH2 --columns blake3,status,metadatas
+mcpm-tools cache info --all
+printf '%s\n' HASH1 HASH2 | mcpm-tools cache info
+mcpm-tools cache refresh HASH1 HASH2 meta --loaders fabric,forge
+mcpm-tools cache refresh HASH1 ident --source modrinth --source curseforge
+mcpm-tools cache refresh --all meta
+mcpm-tools cache refresh --all meta --parallelism 4
+mcpm-tools cache refresh --all ident --details
+mcpm-tools cache refresh HASH1 meta --short
+printf '%s\n' HASH1 HASH2 | mcpm-tools cache refresh ident
+mcpm-tools cache verify HASH1 HASH2
+mcpm-tools cache verify --all
+mcpm-tools cache verify --all --parallelism 4
+mcpm-tools cache verify --all --details
+mcpm-tools cache verify --all --autoremove
+mcpm-tools cache export HASH1 restored.jar another-copy.jar
+mcpm-tools cache remove HASH1
+mcpm-tools cache remove --all
+mcpm-tools cache rebuild-index
 ```
 
 | 命令 | 行为 |
@@ -55,6 +55,19 @@ mcpm-tools cache mods rebuild-index
 
 `--directory PATH` 可放在 mods 子命令前后。指定目录必须已初始化；默认目录不存在或为空时初始化。
 目录格式为 version 3；拒绝非空无标记目录、损坏 manifest 和不兼容版本，不自动迁移旧目录。
+
+## Stash 缓存保护
+
+- 服务器 `.mcpm/stash/blob` 保存快照依赖的内容，不应手动管理；删除或修改内容可能导致 stash 无法使用。
+- `init`、`import`、`refresh meta/ident`、`remove`、`rebuild-index` 和 `verify --autoremove`
+  在识别到 stash 缓存后于执行前拒绝，即使选择为空或本次可能只会复用已有内容。
+- `list`、`info`、普通 `verify` 及导出到 stash 缓存之外仍可使用。
+  导出到另一服务器 stash 缓存也会在本次任何导出前被拒绝。
+- `--no-protect-stash` 显式绕过保护，可放在子命令前后；缓存自身校验和原有导出限制仍然生效。
+- 同时检查传入路径和解析后的路径，覆盖相对路径、符号链接别名和尚未创建的缓存目录。
+  缺失路径的大小写变体保守保留；大小写敏感文件系统上的不同已有目录通过原生文件身份区分。
+  服务器的 `server.json` 条目存在即保留其固定 stash 缓存位置，即使 metadata 损坏；子路径也受保护。
+  这是本地路径检查，不是文件系统访问控制，无法发现无关联的反向符号链接引用，也不阻止其他进程在检查后替换路径。
 
 ## 输入与列选择
 
@@ -75,7 +88,7 @@ mcpm-tools cache mods rebuild-index
 - Console 单字段时每项一行，显式选择的字段标签只在顶部显示一次；默认 BLAKE3 没有标签。
   多字段时按字段组逐行显示标签和值，条目之间留一个空行。超过 80 个条目时先用 Y/n 确认，回车默认继续。
   Metadatas 列通过共享 Display 展示 metadata 状态及完整详情。
-  Loader 声明沿用 `mod info` 的展示格式：明确未识别的 Loader 也会显示，未检查的 Loader 不显示。
+  Loader 声明沿用 `mods info` 的展示格式：明确未识别的 Loader 也会显示，未检查的 Loader 不显示。
 - Raw 的 `list`、`info` 共用列定义与 TSV 渲染，每个条目一行；Metadatas 单元格只列排序后的名字，
   不解释快照。字段使用反斜杠转义控制字符及字面反斜杠。
   默认无表头，`--headers` 输出一次表头；该参数不影响 Console 和 refresh。

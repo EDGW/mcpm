@@ -85,7 +85,7 @@ fn init_identifies_loaders_and_retains_flattened_command() {
             assert_eq!(info.version, version);
         }
         let start = server.metadata().start.as_ref().unwrap();
-        assert!(start.directory.is_absolute());
+        assert!(start.script.is_relative());
         assert!(start.arguments.iter().all(|arg| !arg.starts_with('@')));
     }
 }
@@ -253,4 +253,84 @@ fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identif
             .arguments
             .contains(&"other.jar".into())
     );
+}
+
+#[test]
+fn explicit_git_creates_nested_repository_and_preserves_existing_repository_or_worktree() {
+    let parent = TempDir::new().unwrap();
+    let git = |root: &Path, args: &[&str]| {
+        let output = Command::new("git")
+            .current_dir(root)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_COMMON_DIR")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+    };
+    git(parent.path(), &["init", "--quiet"]);
+    let parent_config = fs::read(parent.path().join(".git/config")).unwrap();
+    let child = parent.path().join("server");
+    fs::create_dir(&child).unwrap();
+    let manual = [
+        "init",
+        "--minecraft-version",
+        "1.21.1",
+        "--loader",
+        "vanilla",
+    ];
+    assert!(run(&child, &manual).status.success());
+    assert!(!child.join(".git").exists());
+    let mut explicit = manual.to_vec();
+    explicit.extend(["--force", "--git"]);
+    let output = run(&child, &explicit);
+    assert!(output.status.success(), "{output:?}");
+    assert!(child.join(".git").is_dir());
+    git(&child, &["config", "mcpm.test", "preserve"]);
+    let child_config = fs::read(child.join(".git/config")).unwrap();
+    assert!(run(&child, &explicit).status.success());
+    assert_eq!(fs::read(child.join(".git/config")).unwrap(), child_config);
+    assert_eq!(
+        fs::read(parent.path().join(".git/config")).unwrap(),
+        parent_config
+    );
+
+    let hooks = parent.path().join("empty-hooks");
+    fs::create_dir(&hooks).unwrap();
+    git(
+        &child,
+        &[
+            "-c",
+            "user.name=mcpm test",
+            "-c",
+            "user.email=mcpm@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            &format!("core.hooksPath={}", hooks.display()),
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "-m",
+            "fixture",
+        ],
+    );
+    let worktree = parent.path().join("worktree");
+    git(
+        &child,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "--detach",
+            worktree.to_str().unwrap(),
+        ],
+    );
+    let marker = fs::read(worktree.join(".git")).unwrap();
+    let mut create = manual.to_vec();
+    create.push("--git");
+    let output = run(&worktree, &create);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(fs::read(worktree.join(".git")).unwrap(), marker);
 }

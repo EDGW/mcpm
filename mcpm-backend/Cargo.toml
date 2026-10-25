@@ -23,6 +23,7 @@ regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 thiserror = "2.0.21"
 tracing = "0.1"
+uuid = { version = "1", features = ["serde", "v4"] }
 tokio = { version = "1", features = ["rt"] }
 url = { version = "2", features = ["serde"] }
 toml = "1.1.8"

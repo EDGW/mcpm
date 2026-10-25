@@ -4,10 +4,12 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 mod apply;
+mod checksum;
 mod create;
 mod delete;
 mod input;
 mod verify;
+mod verify_with;
 
 #[derive(Debug, Args)]
 #[command(
@@ -26,6 +28,10 @@ enum Command {
     Apply(apply::ApplyArgs),
     /// Verify one or more backups without applying them (Console, Raw).
     Verify(verify::VerifyArgs),
+    /// Compute backup-compatible checksums for directories (Console, Raw).
+    Checksum(checksum::ChecksumArgs),
+    /// Compare a directory with backup manifests or checksums (Console, Raw).
+    VerifyWith(verify_with::VerifyWithArgs),
     /// Delete one or more backups while preserving cached content (Console, Raw).
     Delete(delete::DeleteArgs),
 }
@@ -35,6 +41,8 @@ pub(crate) fn run(args: BackupArgs) -> Result<()> {
         Command::Create(args) => create::run(args),
         Command::Apply(args) => apply::run(args),
         Command::Verify(args) => verify::run(args),
+        Command::Checksum(args) => checksum::run(args),
+        Command::VerifyWith(args) => verify_with::run(args),
         Command::Delete(args) => delete::run(args),
     }
 }

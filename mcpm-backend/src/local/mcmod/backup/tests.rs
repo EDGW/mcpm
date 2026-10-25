@@ -1,8 +1,14 @@
 //! Behavioral coverage for semantic checksums, cache isolation and failed publications.
 
 use super::*;
-use crate::local::cache::mods::{ModsCacheDir, ModsCacheSelection};
-use crate::local::files::FileIdentity;
+use crate::local::{
+    cache::{
+        CacheLinkPreference,
+        mods::{ModsCacheDir, ModsCacheSelection},
+    },
+    files::{self, FileIdentity},
+    runtime::RuntimeEnvironment,
+};
 
 struct Fixture {
     root: tempfile::TempDir,
@@ -35,7 +41,7 @@ impl Fixture {
                 path: self.cache.path().to_owned(),
             }),
             CreateOptions {
-                mode,
+                storage: CreateStorage::Full(mode),
                 parallelism: NonZeroUsize::new(3).unwrap(),
             },
             |_| Ok(()),
@@ -79,7 +85,13 @@ fn hard_link_backup_is_content_only_and_restores_writable_copies_without_cache()
     );
     assert_eq!(outcome.manifest().files().len(), 2);
     for (file, method) in outcome.files() {
-        assert_eq!(method, TransferMethod::HardLink);
+        assert_eq!(
+            method,
+            FileDisposition::Transferred {
+                source: FileSource::Cache,
+                method: TransferMethod::HardLink
+            }
+        );
         let cached = fixture.cache.content_path(&file.blake3());
         assert_eq!(
             FileIdentity::read(&cached).unwrap(),
@@ -101,7 +113,13 @@ fn hard_link_backup_is_content_only_and_restores_writable_copies_without_cache()
     }
     let applied = fixture.apply(false, CacheLinkPreference::Copy).unwrap();
     for (file, method) in applied.files() {
-        assert_eq!(method, TransferMethod::Copy);
+        assert_eq!(
+            method,
+            FileDisposition::Transferred {
+                source: FileSource::Backup,
+                method: TransferMethod::Copy
+            }
+        );
         assert_eq!(
             fs::read(fixture.source.join(file.path())).unwrap(),
             fs::read(fixture.target.join(file.path())).unwrap()
@@ -309,6 +327,13 @@ fn empty_backups_and_invalid_manifest_structures_are_handled_without_directory_r
     fs::remove_file(fixture.source.join("nested/second.jar.disabled")).unwrap();
     let outcome = fixture.create(CacheLinkPreference::PreferHardLink);
     assert!(outcome.manifest().files().is_empty());
+    assert_eq!(
+        checksum(&fixture.source, NonZeroUsize::new(1).unwrap(), |_| Ok(()))
+            .unwrap()
+            .manifest()
+            .checksum(),
+        outcome.manifest().checksum()
+    );
     fixture.apply(false, CacheLinkPreference::Copy).unwrap();
     assert_eq!(fs::read_dir(&fixture.target).unwrap().count(), 0);
     let key = crate::local::files::hash::blake3(b"x").unwrap();
@@ -333,8 +358,9 @@ fn empty_backups_and_invalid_manifest_structures_are_handled_without_directory_r
 fn links_and_overlapping_paths_are_rejected_before_publication() {
     let fixture = Fixture::new();
     std::os::unix::fs::symlink("first.jar", fixture.source.join("linked.jar")).unwrap();
+    assert!(checksum(&fixture.source, NonZeroUsize::new(1).unwrap(), |_| Ok(())).is_err());
     let options = CreateOptions {
-        mode: CacheLinkPreference::Copy,
+        storage: CreateStorage::Full(CacheLinkPreference::Copy),
         parallelism: NonZeroUsize::new(1).unwrap(),
     };
     assert!(
@@ -362,6 +388,103 @@ fn links_and_overlapping_paths_are_rejected_before_publication() {
             |_| Ok(())
         )
         .is_err()
+    );
+}
+
+#[test]
+fn directory_checksum_matches_backup_after_relocation_without_cache_or_backup_data() {
+    let fixture = Fixture::new();
+    let created = fixture.create(CacheLinkPreference::Copy);
+    for record in created.manifest().files() {
+        fixture.cache.remove(&record.blake3()).unwrap();
+    }
+    files::remove_protected_tree(&fixture.backup.join("data")).unwrap();
+    fs::rename(&fixture.source, &fixture.target).unwrap();
+    fs::create_dir(fixture.target.join("another-empty-directory")).unwrap();
+    let before = tree::scan(fixture.root.path()).unwrap().files;
+    let computed = checksum(&fixture.target, NonZeroUsize::new(2).unwrap(), |_| Ok(())).unwrap();
+    assert_eq!(
+        computed.manifest().checksum(),
+        created.manifest().checksum()
+    );
+    assert_eq!(
+        computed.manifest().files()[1].path(),
+        "nested/second.jar.disabled"
+    );
+    assert!(
+        computed
+            .compare_with_backup(&fixture.backup)
+            .unwrap()
+            .matches()
+    );
+    assert!(
+        computed
+            .compare_checksum(created.manifest().checksum())
+            .matches()
+    );
+    assert!(verify(&fixture.backup, NonZeroUsize::new(1).unwrap(), |_| Ok(())).is_err());
+    assert_eq!(tree::scan(fixture.root.path()).unwrap().files, before);
+}
+
+#[test]
+fn directory_comparison_reports_all_path_and_content_differences_in_order() {
+    let fixture = Fixture::new();
+    let created = fixture.create(CacheLinkPreference::Copy);
+    fs::remove_file(fixture.source.join("first.jar")).unwrap();
+    fs::write(
+        fixture.source.join("nested/second.jar.disabled"),
+        b"changed bytes!",
+    )
+    .unwrap();
+    fs::write(fixture.source.join("a.txt"), b"additional").unwrap();
+    fs::write(fixture.source.join("z.txt"), b"additional").unwrap();
+    let computed = checksum(&fixture.source, NonZeroUsize::new(2).unwrap(), |_| Ok(())).unwrap();
+    let compared = computed.compare_with_backup(&fixture.backup).unwrap();
+    assert!(!compared.matches());
+    assert_eq!(compared.expected(), created.manifest().checksum());
+    assert_eq!(compared.actual(), computed.manifest().checksum());
+    assert!(matches!(compared.differences(), [
+        FileDifference::Unexpected { actual: a },
+        FileDifference::Missing { expected: missing },
+        FileDifference::Changed { expected, actual },
+        FileDifference::Unexpected { actual: z },
+    ] if a.path() == "a.txt" && missing.path() == "first.jar"
+        && expected.path() == "nested/second.jar.disabled" && expected.size() == actual.size()
+        && expected.blake3() != actual.blake3() && z.path() == "z.txt"));
+    assert!(
+        computed
+            .compare_checksum(created.manifest().checksum())
+            .differences()
+            .is_empty()
+    );
+
+    fs::write(fixture.source.join("nested/second.jar.disabled"), b"short").unwrap();
+    let computed = checksum(&fixture.source, NonZeroUsize::new(1).unwrap(), |_| Ok(())).unwrap();
+    let compared = computed.compare_manifest(created.manifest());
+    assert!(matches!(&compared.differences()[2],
+        FileDifference::Changed { expected, actual } if expected.size() != actual.size()));
+}
+
+#[test]
+fn directory_checksum_rejects_inventory_changes_before_completion() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("original"), b"content").unwrap();
+    let result = checksum(root.path(), NonZeroUsize::new(1).unwrap(), |event| {
+        if matches!(
+            event,
+            Event::Progress {
+                stage: Stage::Checksum,
+                completed: 1,
+                ..
+            }
+        ) {
+            fs::write(root.path().join("added-during-hashing"), b"new")?;
+        }
+        Ok(())
+    });
+    assert!(
+        matches!(result.unwrap_err().downcast_ref::<VerificationError>(),
+        Some(VerificationError::FileSet { unexpected, .. }) if unexpected == &["added-during-hashing"])
     );
 }
 
@@ -560,4 +683,388 @@ fn deleting_damaged_data_unlinks_symlinks_without_touching_external_targets() {
         fs::metadata(&fixture.source).unwrap().permissions(),
         permissions
     );
+}
+
+#[test]
+fn manifest_only_backups_preserve_checksum_and_restore_verified_cache_as_copies_or_links() {
+    let fixture = Fixture::new();
+    let full = fixture.create(CacheLinkPreference::Copy);
+    let directory = fixture.root.path().join("manifest-only");
+    let created = create_with_cache(
+        &fixture.source,
+        &directory,
+        &fixture.cache,
+        CreateOptions {
+            storage: CreateStorage::CacheOnly,
+            parallelism: NonZeroUsize::new(2).unwrap(),
+        },
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(created.manifest().checksum(), full.manifest().checksum());
+    assert_eq!(created.operation(), Operation::CreateCacheOnly);
+    assert!(
+        created
+            .files()
+            .all(|(_, disposition)| disposition == FileDisposition::CacheOnly)
+    );
+    assert!(!directory.join("data").exists());
+    assert!(verify(&directory, NonZeroUsize::new(2).unwrap(), |_| Ok(())).is_err());
+    assert!(
+        apply(
+            &directory,
+            &fixture.target,
+            ApplyOptions {
+                mode: CacheLinkPreference::Copy,
+                force: false,
+                parallelism: NonZeroUsize::new(2).unwrap(),
+            },
+            |_| Ok(())
+        )
+        .is_err()
+    );
+    for mode in [CacheLinkPreference::Copy, CacheLinkPreference::HardLink] {
+        let restored = apply_with_cache(
+            &directory,
+            &fixture.target,
+            || Ok(fixture.cache.clone()),
+            ApplyOptions {
+                mode,
+                force: true,
+                parallelism: NonZeroUsize::new(2).unwrap(),
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+        for (record, disposition) in restored.files() {
+            assert_eq!(
+                fs::read(fixture.target.join(record.path())).unwrap(),
+                fs::read(fixture.source.join(record.path())).unwrap()
+            );
+            let target_identity = FileIdentity::read(&fixture.target.join(record.path())).unwrap();
+            let cache_identity =
+                FileIdentity::read(&fixture.cache.content_path(&record.blake3())).unwrap();
+            assert_eq!(
+                target_identity == cache_identity,
+                mode == CacheLinkPreference::HardLink
+            );
+            assert_eq!(
+                disposition,
+                FileDisposition::Transferred {
+                    source: FileSource::Cache,
+                    method: if mode == CacheLinkPreference::Copy {
+                        TransferMethod::Copy
+                    } else {
+                        TransferMethod::HardLink
+                    }
+                }
+            );
+        }
+    }
+    delete(&directory).unwrap();
+    for record in full.manifest().files() {
+        assert!(
+            fixture
+                .cache
+                .verified_size(&record.blake3())
+                .unwrap()
+                .is_some()
+        );
+    }
+    let empty_source = fixture.root.path().join("empty");
+    fs::create_dir(&empty_source).unwrap();
+    let empty = create_with_cache(
+        &empty_source,
+        &directory,
+        &fixture.cache,
+        CreateOptions {
+            storage: CreateStorage::CacheOnly,
+            parallelism: NonZeroUsize::new(1).unwrap(),
+        },
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert!(empty.manifest().files().is_empty());
+    verify(&directory, NonZeroUsize::new(1).unwrap(), |_| Ok(())).unwrap();
+    apply_with_cache(
+        &directory,
+        &fixture.target,
+        || panic!("empty backups do not need a cache"),
+        ApplyOptions {
+            mode: CacheLinkPreference::Copy,
+            force: true,
+            parallelism: NonZeroUsize::new(1).unwrap(),
+        },
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert!(fs::read_dir(&fixture.target).unwrap().next().is_none());
+}
+
+#[test]
+fn creation_rejects_corrupt_existing_cache_and_missing_content_before_manifest_only_publication() {
+    for storage in [
+        CreateStorage::CacheOnly,
+        CreateStorage::Full(CacheLinkPreference::Copy),
+    ] {
+        let fixture = Fixture::new();
+        let key = fixture
+            .cache
+            .import(&fixture.source.join("first.jar"), CacheLinkPreference::Copy)
+            .unwrap();
+        let path = fixture.cache.content_path(&key);
+        fixture.cache.remove(&key).unwrap();
+        fs::write(&path, b"corrupt existing content").unwrap();
+        assert!(
+            create_with_cache(
+                &fixture.source,
+                &fixture.backup,
+                &fixture.cache,
+                CreateOptions {
+                    storage,
+                    parallelism: NonZeroUsize::new(1).unwrap(),
+                },
+                |_| Ok(())
+            )
+            .is_err()
+        );
+        assert!(!fixture.backup.exists());
+        assert_eq!(fs::read(path).unwrap(), b"corrupt existing content");
+    }
+    let fixture = Fixture::new();
+    let key = fixture
+        .cache
+        .import(&fixture.source.join("first.jar"), CacheLinkPreference::Copy)
+        .unwrap();
+    let result = create_with_cache(
+        &fixture.source,
+        &fixture.backup,
+        &fixture.cache,
+        CreateOptions {
+            storage: CreateStorage::CacheOnly,
+            parallelism: NonZeroUsize::new(2).unwrap(),
+        },
+        |event| {
+            if matches!(event, Event::StageDone(Stage::Cache)) {
+                fixture.cache.remove(&key)?;
+            }
+            Ok(())
+        },
+    );
+    assert!(result.is_err());
+    assert!(!fixture.backup.exists());
+}
+
+#[test]
+fn application_uses_mixed_sources_but_never_masks_corruption_or_unexpected_files() {
+    let fixture = Fixture::new();
+    let created = fixture.create(CacheLinkPreference::Copy);
+    apply_with_cache(
+        &fixture.backup,
+        &fixture.target,
+        || panic!("complete backups must not open cache"),
+        ApplyOptions {
+            mode: CacheLinkPreference::Copy,
+            force: false,
+            parallelism: NonZeroUsize::new(2).unwrap(),
+        },
+        |_| Ok(()),
+    )
+    .unwrap();
+    let data = fixture.backup.join("data");
+    let _guard = files::DirectoryProtection::allow_removal(&data).unwrap();
+    fs::remove_file(data.join("first.jar")).unwrap();
+    let restored = apply_with_cache(
+        &fixture.backup,
+        &fixture.target,
+        || Ok(fixture.cache.clone()),
+        ApplyOptions {
+            mode: CacheLinkPreference::Copy,
+            force: true,
+            parallelism: NonZeroUsize::new(2).unwrap(),
+        },
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert!(restored.files().any(|(_, disposition)| matches!(
+        disposition,
+        FileDisposition::Transferred {
+            source: FileSource::Cache,
+            ..
+        }
+    )));
+    assert!(restored.files().any(|(_, disposition)| matches!(
+        disposition,
+        FileDisposition::Transferred {
+            source: FileSource::Backup,
+            ..
+        }
+    )));
+    assert!(!data.join("first.jar").exists());
+    fs::write(fixture.target.join("sentinel"), b"preserved").unwrap();
+    fs::write(data.join("first.jar"), b"wrong content").unwrap();
+    let result = apply_with_cache(
+        &fixture.backup,
+        &fixture.target,
+        || panic!("corrupt existing files are not missing"),
+        ApplyOptions {
+            mode: CacheLinkPreference::Copy,
+            force: true,
+            parallelism: NonZeroUsize::new(2).unwrap(),
+        },
+        |_| Ok(()),
+    );
+    assert!(result.is_err());
+    assert_eq!(
+        fs::read(fixture.target.join("sentinel")).unwrap(),
+        b"preserved"
+    );
+    fs::remove_file(data.join("first.jar")).unwrap();
+    fs::write(data.join("unexpected"), b"extra").unwrap();
+    assert!(
+        apply_with_cache(
+            &fixture.backup,
+            &fixture.target,
+            || panic!("unexpected files must fail before opening cache"),
+            ApplyOptions {
+                mode: CacheLinkPreference::Copy,
+                force: true,
+                parallelism: NonZeroUsize::new(2).unwrap(),
+            },
+            |_| Ok(())
+        )
+        .is_err()
+    );
+    for record in created.manifest().files() {
+        assert!(
+            fixture
+                .cache
+                .verified_size(&record.blake3())
+                .unwrap()
+                .is_some()
+        );
+    }
+}
+
+#[test]
+fn fallback_cache_missing_corrupt_wrong_size_or_late_disappearance_never_replace_target() {
+    for scenario in ["missing", "corrupt", "size", "late"] {
+        let fixture = Fixture::new();
+        let created = create_with_cache(
+            &fixture.source,
+            &fixture.backup,
+            &fixture.cache,
+            CreateOptions {
+                storage: CreateStorage::CacheOnly,
+                parallelism: NonZeroUsize::new(2).unwrap(),
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+        let record = &created.manifest().files()[0];
+        if scenario == "size" {
+            let mut records = created.manifest().files().to_vec();
+            records[0] = FileRecord::new(record.path().into(), record.blake3(), record.size() + 1);
+            fs::remove_file(fixture.backup.join(MANIFEST_NAME)).unwrap();
+            Manifest::new(records)
+                .unwrap()
+                .write(&fixture.backup.join(MANIFEST_NAME))
+                .unwrap();
+        } else if scenario != "late" {
+            fixture.cache.remove(&record.blake3()).unwrap();
+            if scenario == "corrupt" {
+                fs::write(
+                    fixture.cache.content_path(&record.blake3()),
+                    b"wrong cached bytes",
+                )
+                .unwrap();
+            }
+        }
+        fs::create_dir(&fixture.target).unwrap();
+        fs::write(fixture.target.join("sentinel"), b"preserved").unwrap();
+        let result = apply_with_cache(
+            &fixture.backup,
+            &fixture.target,
+            || Ok(fixture.cache.clone()),
+            ApplyOptions {
+                mode: CacheLinkPreference::Copy,
+                force: true,
+                parallelism: NonZeroUsize::new(2).unwrap(),
+            },
+            |event| {
+                if scenario == "late" && matches!(event, Event::StageDone(Stage::Verify)) {
+                    fixture.cache.remove(&record.blake3())?;
+                }
+                Ok(())
+            },
+        );
+        assert!(result.is_err(), "{scenario}");
+        assert_eq!(
+            fs::read(fixture.target.join("sentinel")).unwrap(),
+            b"preserved"
+        );
+        assert_eq!(fs::read_dir(&fixture.target).unwrap().count(), 1);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn fallback_rejects_data_symlinks_non_directories_and_permission_errors() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    for scenario in [
+        "root-link",
+        "parent-link",
+        "file-link",
+        "parent-file",
+        "file-directory",
+        "unreadable",
+    ] {
+        let fixture = Fixture::new();
+        fixture.create(CacheLinkPreference::Copy);
+        let data = fixture.backup.join("data");
+        files::remove_protected_tree(&data).unwrap();
+        match scenario {
+            "root-link" => symlink(&fixture.source, &data).unwrap(),
+            "parent-link" => {
+                fs::create_dir(&data).unwrap();
+                symlink(fixture.source.join("nested"), data.join("nested")).unwrap();
+            }
+            "file-link" => {
+                fs::create_dir(&data).unwrap();
+                symlink(fixture.source.join("first.jar"), data.join("first.jar")).unwrap();
+            }
+            "file-directory" => {
+                fs::create_dir_all(data.join("first.jar")).unwrap();
+            }
+            "parent-file" => {
+                fs::create_dir(&data).unwrap();
+                fs::write(data.join("nested"), b"not a directory").unwrap();
+            }
+            _ => {
+                fs::create_dir(&data).unwrap();
+                fs::set_permissions(&data, fs::Permissions::from_mode(0)).unwrap();
+            }
+        }
+        // Privileged users may bypass directory read permissions; test only an observable denial.
+        if scenario == "unreadable" && fs::read_dir(&data).is_ok() {
+            fs::set_permissions(&data, fs::Permissions::from_mode(0o700)).unwrap();
+            continue;
+        }
+        let result = apply_with_cache(
+            &fixture.backup,
+            &fixture.target,
+            || panic!("invalid data must not trigger fallback"),
+            ApplyOptions {
+                mode: CacheLinkPreference::Copy,
+                force: true,
+                parallelism: NonZeroUsize::new(2).unwrap(),
+            },
+            |_| Ok(()),
+        );
+        if scenario == "unreadable" {
+            fs::set_permissions(&data, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        assert!(result.is_err(), "{scenario}");
+        assert!(!fixture.target.exists());
+    }
 }

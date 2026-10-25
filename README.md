@@ -10,7 +10,7 @@ The command reference is currently difficult to read and will be improved over t
 
 ## Installation
 
-Install pre-release [v0.1.0-dev.26w43c](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43c).
+Install pre-release [v0.1.0-dev.26w43d](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d).
 The installer supports **v0.1.0-dev.26w43c and newer**; older tags are rejected before downloading.
 All five executables are installed together: `mcpm`, `mcpm-server`, `mcpmc`, `mcpm-client`, and `mcpm-tools`.
 
@@ -25,13 +25,13 @@ Installation does not require administrator privileges. Configuration, caches, a
 ### Windows (PowerShell 5.1 or later)
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43c/scripts/install.ps1))) -Version v0.1.0-dev.26w43c
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.ps1))) -Version v0.1.0-dev.26w43d
 ```
 
 Uninstall:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43c/scripts/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.ps1))) -Uninstall
 ```
 
 PATH changes apply to the current PowerShell session and newly opened terminals. Other existing terminals need to be reopened. Close running mcpm processes before upgrading if Windows reports files in use.
@@ -41,7 +41,7 @@ PATH changes apply to the current PowerShell session and newly opened terminals.
 Requires `curl`, `tar`, and either `sha256sum` or `shasum`.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43c/scripts/install.sh | sh -s -- v0.1.0-dev.26w43c
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- v0.1.0-dev.26w43d
 ```
 
 If `~/.local/bin` is not already on PATH, add the following line to your shell configuration (`~/.zshrc` for zsh or `~/.bashrc` for bash):
@@ -55,7 +55,7 @@ Reload that configuration or open a new terminal. The installer prints this inst
 Uninstall:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43c/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- --uninstall
 ```
 
 ### Upgrade, repair and uninstall behavior
@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43c/scripts
 
 ### Manual installation
 
-[Release assets](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43c) contain a complete `bin/` directory and a `manifest`:
+[Release assets](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d) contain a complete `bin/` directory and a `manifest`:
 
 - macOS/Linux: `mcpm-PLATFORM-ARCH[-LIBC].tar.gz`.
 - Windows: `mcpm-windows-x86_64.zip`.

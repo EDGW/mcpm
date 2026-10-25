@@ -118,7 +118,7 @@ failure) and message. All declarations/loaders/nested JARs for a file stay toget
 Invalid arguments emit business error then done false, followed by remote finished.
 Remote knows none of these business event names.
 
-The CLI `mod info/list` sends a default-cache selection unless `--no-cache` is used; `--cache-dir PATH` sends an explicit remote directory. At the structured protocol boundary, omitted/null `cache` still means disabled, preserving existing callers and deps behavior.
+The CLI `mods info/list` sends a default-cache selection unless `--no-cache` is used; `--cache-dir PATH` sends an explicit remote directory. At the structured protocol boundary, omitted/null `cache` still means disabled, preserving existing callers and deps behavior.
 
 Optional `cache` selects existing metadata reuse on the remote file host:
 
@@ -244,16 +244,27 @@ Malformed requests and server metadata loading failures use the terminal global 
 
 ```json
 {"event":"stage","phase":"recognizing"}
-{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"/srv/server/run.sh","directory":"/srv/server","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
+{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"run.sh","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
 ```
 
-`server.init` accepts complete `metadata`, `path` (default `.`), and `force` (default false). No recognition token or cached candidate is required:
+`server.init` accepts complete `metadata`, `path` (default `.`), `force` (default false), `git`, and `no_git` (both default false). No recognition token or cached candidate is required:
 
 ```json
 {"path":"/srv/server","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
 ```
 
-Metadata requires nonempty Minecraft/loader versions and explicit `loader` (`null` for vanilla). Optional `start` is the complete startup snapshot shown above; script/directory/executable must be nonempty, and executable/arguments cannot contain NUL. Initialization never rereads the script or requires its referenced files to exist. Wire v4 continues to emit metadata version 1 for compatibility; Local persistence writes disk version 2. Initialization emits `stage` with `validating`, then `writing`, then `initialized {server}` using the `server.info` schema. Successful operations finish with the common `finished` status; failures end with `error`. Clients validate phase order and exactly one result. Recognition and initialization share one SSH session when candidate selection is needed.
+By default, the file-owning host discovers and reuses an existing Git repository, including parent repositories and worktrees, or runs `git init` when none is found. Set `git: true` to require the target's own repository: an existing target repository or worktree is reused; otherwise one is created even inside a parent repository. Set `no_git: true` to skip Git setup. These fields cannot both be true and correspond to CLI `--git` and `--no-git`. Recognition requests never operate on Git.
+
+When Git setup is enabled, the `initialized` event also includes a `git` object: `{"status":"created","path":"/srv/server"}` or `{"status":"existing","path":"/srv/server"}`, for local Console rendering. This field is omitted with `no_git: true`; the `server.info` schema remains unchanged.
+
+Metadata requires nonempty Minecraft/loader versions and explicit `loader` (`null` for vanilla). Optional `start` is the complete startup snapshot shown above:
+
+- `script` must be a nonempty path relative to the Server directory. Absolute paths and escapes through `..` or existing symlinks are rejected during initialization and loading. Recognition requires the same containment for `start_script`.
+- `directory` is not stored in metadata. The `server.info` snapshot derives its working directory from the path supplied when opening the Server.
+- `executable` must be nonempty; executable/arguments cannot contain NUL.
+- Initialization never rereads the script or requires its referenced files to exist, but inspects existing script path components to validate containment.
+
+Wire v4 continues to emit metadata version 1; Local persistence writes disk version 2. Initialization emits `stage` with `validating`, then `writing`, then `initialized {server}` using the `server.info` schema. Successful operations finish with the common `finished` status; failures end with `error`. Clients validate phase order and exactly one result. Recognition and initialization share one SSH session when candidate selection is needed.
 
 All server endpoints, including recognition, require a Local workspace type. Remote references are resolved only by the frontend, never by `mcpm-tools remote`. Initialization can create a new Local registration but cannot replace a Remote workspace, even with `force`. Recognition remains an independent script-only operation and does not follow workspace references.
 
@@ -270,8 +281,8 @@ to decode payloads. Remote selects only handshake/global-error types and never
 interprets business fields. Handlers use checkpoint for cancellation.
 
 SSH lives in shared `src/ssh/`. `--ssh` and `--ssh-mcpm` are top-level global options,
-accepted before/after subcommands. Supported commands are mod list/info/deps/source identify, server init/info, and server mods list/info/cache/deps/source search/files/identify. List and source browsing keep their TUI local; inspection supports Console/Raw. Server mods check and dep-graph reject SSH. ssh-mcpm requires ssh and defaults
-to mcpm-tools on the remote PATH. There is no legacy mod list --remote entry point.
+accepted before/after subcommands. Supported commands are mods list/info/deps/source identify, server init/info, and server mods list/info/cache/deps/source search/files/identify. List and source browsing keep their TUI local; inspection supports Console/Raw. Server mods check and dep-graph reject SSH. ssh-mcpm requires ssh and defaults
+to mcpm-tools on the remote PATH. There is no legacy mods list --remote entry point.
 
 The SSH server's default shell directly starts `mcpm-tools remote`. Windows connections
 require cmd as the default shell; executable paths are double-quoted and must not
@@ -279,8 +290,8 @@ contain double quotes, line breaks, NUL, `%` or `!`. POSIX executables use shell
 quoting. Business arguments are sent as JSON, independently of shell syntax.
 
 ```sh
-mcpm-tools --ssh 'ssh -i key user@host' mod list mods/ --no-ui
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw mod list 'C:\mods'
+mcpm-tools --ssh 'ssh -i key user@host' mods list mods/ --no-ui
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw mods list 'C:\mods'
 ```
 
 [Command reference](README.md) · [简体中文](../docs-zh/remote.md)

@@ -100,4 +100,9 @@ impl ModsCacheDir {
     pub fn verify(&self, key: &Blake3Hash, mode: VerificationMode) -> Result<Option<()>> {
         Ok(self.cache.open_content_with_mode(key, mode)?.map(|_| ()))
     }
+
+    /// Fully verifies content and returns its observed size, without reading metadata.
+    pub fn verified_size(&self, key: &Blake3Hash) -> Result<Option<u64>> {
+        Ok(self.cache.open_content(key)?.map(|content| content.size()))
+    }
 }

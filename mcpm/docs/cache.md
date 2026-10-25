@@ -1,43 +1,43 @@
 # Mod cache management
 
-`mcpm-tools cache mods` explicitly manages content and named metadata in `~/.mcpm/cache/mods`.
+`mcpm-tools cache` explicitly manages content and named metadata in `~/.mcpm/cache/mods`.
 
 - Each entry is identified by a complete 64-character lowercase hexadecimal BLAKE3. Identical content is stored once.
 - `meta` and `ident` are metadata names, containing Loader declarations and source matches respectively.
 - `import` stores content only. It never calculates, refreshes or reads these metadata snapshots.
-- `mod info/list` and `mod source identify` query existing caches without writing. Use
-  [`mod cache`](mod/cache.md) or [`server mods cache`](server/mods.md) for selected-file caching.
+- `mods info/list` and `mods source identify` query existing caches without writing. Use
+  [`mods cache`](mod/cache.md) or [`server mods cache`](server/mods.md) for selected-file caching.
 - Management commands run locally and support Console and Raw. `--raw` or non-TTY stdout selects Raw.
 - Raw list, info and simple operation receipts use TSV. Refresh succeeds silently with exit code 0.
 
 ## Commands
 
 ```sh
-mcpm-tools cache mods init --directory /path/to/cache
-mcpm-tools cache mods import example.jar another.jar
-mcpm-tools cache mods import example.jar --mode hard-link
-mcpm-tools cache mods list
-mcpm-tools cache mods list --columns blake3,size,metadatas
-mcpm-tools cache mods list --details
-mcpm-tools cache mods info HASH1 HASH2 --columns blake3,status,metadatas
-mcpm-tools cache mods info --all
-printf '%s\n' HASH1 HASH2 | mcpm-tools cache mods info
-mcpm-tools cache mods refresh HASH1 HASH2 meta --loaders fabric,forge
-mcpm-tools cache mods refresh HASH1 ident --source modrinth --source curseforge
-mcpm-tools cache mods refresh --all meta
-mcpm-tools cache mods refresh --all meta --parallelism 4
-mcpm-tools cache mods refresh --all ident --details
-mcpm-tools cache mods refresh HASH1 meta --short
-printf '%s\n' HASH1 HASH2 | mcpm-tools cache mods refresh ident
-mcpm-tools cache mods verify HASH1 HASH2
-mcpm-tools cache mods verify --all
-mcpm-tools cache mods verify --all --parallelism 4
-mcpm-tools cache mods verify --all --details
-mcpm-tools cache mods verify --all --autoremove
-mcpm-tools cache mods export HASH1 restored.jar another-copy.jar
-mcpm-tools cache mods remove HASH1
-mcpm-tools cache mods remove --all
-mcpm-tools cache mods rebuild-index
+mcpm-tools cache init --directory /path/to/cache
+mcpm-tools cache import example.jar another.jar
+mcpm-tools cache import example.jar --mode hard-link
+mcpm-tools cache list
+mcpm-tools cache list --columns blake3,size,metadatas
+mcpm-tools cache list --details
+mcpm-tools cache info HASH1 HASH2 --columns blake3,status,metadatas
+mcpm-tools cache info --all
+printf '%s\n' HASH1 HASH2 | mcpm-tools cache info
+mcpm-tools cache refresh HASH1 HASH2 meta --loaders fabric,forge
+mcpm-tools cache refresh HASH1 ident --source modrinth --source curseforge
+mcpm-tools cache refresh --all meta
+mcpm-tools cache refresh --all meta --parallelism 4
+mcpm-tools cache refresh --all ident --details
+mcpm-tools cache refresh HASH1 meta --short
+printf '%s\n' HASH1 HASH2 | mcpm-tools cache refresh ident
+mcpm-tools cache verify HASH1 HASH2
+mcpm-tools cache verify --all
+mcpm-tools cache verify --all --parallelism 4
+mcpm-tools cache verify --all --details
+mcpm-tools cache verify --all --autoremove
+mcpm-tools cache export HASH1 restored.jar another-copy.jar
+mcpm-tools cache remove HASH1
+mcpm-tools cache remove --all
+mcpm-tools cache rebuild-index
 ```
 
 | Command | Behavior |
@@ -53,9 +53,26 @@ mcpm-tools cache mods rebuild-index
 | `remove [HASH]...` | Remove selected content and all owned metadata names; `--all` selects the complete inventory |
 | `rebuild-index` | Rebuild the optional imohash index from verified content |
 
-`--directory PATH` can appear before or after a mods subcommand. Explicit roots must already be initialized;
+`--directory PATH` can appear before or after a cache subcommand. Explicit roots must already be initialized;
 the default root initializes when absent/empty. Directory format is version 3. Nonempty unmarked roots,
 malformed manifests and incompatible versions are rejected. No automatic migration.
+
+## Stash cache protection
+
+- A server's `.mcpm/stash/blob` holds content required by its snapshots. Do not manage it manually;
+  deleting or changing content can make stashes unusable.
+- `init`, `import`, `refresh meta/ident`, `remove`, `rebuild-index` and `verify --autoremove` refuse
+  a recognized stash cache before execution, even for empty selections or otherwise harmless reuse.
+- `list`, `info`, ordinary `verify`, and exports to paths outside stash caches remain available.
+  Exporting into another server's stash cache is also refused before any export in that command.
+- `--no-protect-stash` explicitly bypasses this guard. It can appear before or after the subcommand.
+  Ordinary cache validation and export restrictions still apply.
+- Recognition checks supplied and resolved paths, including relative paths, symbolic-link aliases and
+  missing cache directories. Missing case variants are conservatively reserved; distinct existing
+  directories on case-sensitive filesystems are distinguished by native file identity. The server's `server.json` entry reserves the conventional stash cache
+  location even when its metadata is damaged. Descendants are protected too. This is a local path
+  guard, not a filesystem access restriction: it cannot discover unrelated reverse symlink references
+  or prevent another process from replacing paths after the check.
 
 ## Inputs and columns
 
@@ -76,7 +93,7 @@ malformed manifests and incompatible versions are rejected. No automatic migrati
   `--details` selects all columns unless columns are explicit.
 - Console prints single-field entries as a list; an explicit field label appears once at the top, while default BLAKE3 has no label.
   Multiple fields form a group with inline labels, separated from the next entry by a blank line. More than 80 entries require Y/n confirmation (Enter means Yes). Metadatas shows
-  snapshot states and complete details through the shared data renderer. Loader declarations use the same format as `mod info`;
+  snapshot states and complete details through the shared data renderer. Loader declarations use the same format as `mods info`;
   explicitly unrecognized Loaders are shown, while unchecked Loaders are omitted.
 - Raw list and info share the same columns and TSV rendering, one row per entry. Metadatas contains
   sorted names only and does not decode snapshots. Fields escape controls and literal backslashes.

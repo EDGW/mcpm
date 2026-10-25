@@ -4,17 +4,19 @@
 
 | 可执行文件 | 命令 |
 | --- | --- |
-| `mcpm`、`mcpm-server` | `init`、`info`、`mods` |
+| `mcpm`、`mcpm-server` | `init`、`info`、`mods`、`stash` |
 | `mcpmc`、`mcpm-client` | `list`、`check`、`launch` |
-| `mcpm-tools` | `cache`、`remote`、`customize`、`debug`、`mod`、`server`、`client` |
+| `mcpm-tools` | `cache`、`remote`、`customize`、`debug`、`mods`、`server`、`client` |
 
 长短名称的行为相同，帮助和命令提示使用所选名称。Tools 也保留 `mcpm-tools server info`、`mcpm-tools client list`。服务端和客户端入口只接受各自命令族；远程会话使用 `mcpm-tools remote`。
 
-检查命令只读取 Mod 归档；`mcpm-tools mod cache` 显式存储文件与摘要，可选择硬链接保护。依赖图可另存为文件。
+检查命令只读取 Mod 归档；`mcpm-tools mods cache` 显式存储文件与摘要，可选择硬链接保护。依赖图可另存为文件。
 
 [客户端列表](client/list.md) · [完整性检查](client/check.md) · [启动客户端](client/launch.md)
 
 [初始化服务端](server/init.md) · [服务端信息](server/info.md) · [服务端 Mod 来源](server/source.md)
+
+[服务端 Mod 快照与切换](server/stash.md)
 
 [Mod 命令](mod/README.md)：[list](mod/list.md) · [info](mod/info.md) · [cache](mod/cache.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
@@ -31,11 +33,11 @@
 ```sh
 mcpmc list "$HOME/Downloads/.minecraft"
 mcpmc launch 1.18.1 --directory "$HOME/Downloads/.minecraft" --java /path/to/java
-mcpm-tools mod list
-mcpm-tools mod list mods/ example.jar other-mods/
-mcpm-tools mod info example.jar another.jar.disabled
-mcpm-tools mod deps example.jar --loader fabric
-mcpm-tools --raw mod list mods/ -C MF > mods.tsv
+mcpm-tools mods list
+mcpm-tools mods list mods/ example.jar other-mods/
+mcpm-tools mods info example.jar another.jar.disabled
+mcpm-tools mods deps example.jar --loader fabric
+mcpm-tools --raw mods list mods/ -C MF > mods.tsv
 ```
 
 使用 `cargo build --manifest-path mcpm/Cargo.toml --release --bins` 构建全部五个程序。
@@ -44,12 +46,12 @@ mcpm-tools --raw mod list mods/ -C MF > mods.tsv
 
 ```sh
 cargo run --manifest-path mcpm/Cargo.toml --bin mcpmc -- list
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod list
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods list
 ```
 
 ## 全局选项
 
-`--ssh`、`--ssh-mcpm`、`--remote-logs` 仅在服务端和 Tools 入口提供。SSH 默认调用远端的 `mcpm-tools`；显式配置的 `--ssh-mcpm` 路径保持原样。`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，`mod list`、`mod info`、`mod deps`、`mod source identify`、`server init`、`server info` 和 `server mods list/info/cache/deps/source search/files/identify` 支持使用。详见 [Remote 会话](remote.md)。
+`--ssh`、`--ssh-mcpm`、`--remote-logs` 仅在服务端和 Tools 入口提供。SSH 默认调用远端的 `mcpm-tools`；显式配置的 `--ssh-mcpm` 路径保持原样。`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，`mods list`、`mods info`、`mods deps`、`mods source identify`、`server init`、`server info` 和 `server mods list/info/cache/deps/source search/files/identify` 支持使用。详见 [Remote 会话](remote.md)。
 
 ```text
 mcpm-tools [OPTIONS] <COMMAND>
@@ -72,8 +74,8 @@ mcpm-tools [OPTIONS] <COMMAND>
 `--raw` 是全局参数，可以放在子命令之前或之后：
 
 ```sh
-mcpm-tools --raw mod info example.jar
-mcpm-tools mod list mods/ --raw
+mcpm-tools --raw mods info example.jar
+mcpm-tools mods list mods/ --raw
 ```
 
 使用各命令的帮助查看可用参数：
@@ -83,13 +85,13 @@ mcpm --help
 mcpmc list --help
 mcpmc check --help
 mcpmc launch --help
-mcpm-tools mod list --help
-mcpm-tools mod info --help
-mcpm-tools mod cache --help
-mcpm-tools mod deps --help
-mcpm-tools mod dep-graph build --help
-mcpm-tools mod dep-graph test --help
-mcpm-tools mod dep-graph view --help
+mcpm-tools mods list --help
+mcpm-tools mods info --help
+mcpm-tools mods cache --help
+mcpm-tools mods deps --help
+mcpm-tools mods dep-graph build --help
+mcpm-tools mods dep-graph test --help
+mcpm-tools mods dep-graph view --help
 ```
 
 ## 终端输出
@@ -103,7 +105,7 @@ mcpm-tools mod dep-graph view --help
 设置 `NO_COLOR` 可禁用颜色，同时保留终端排版和提示：
 
 ```sh
-NO_COLOR=1 mcpm-tools mod list mods/
+NO_COLOR=1 mcpm-tools mods list mods/
 ```
 
 ## 退出状态

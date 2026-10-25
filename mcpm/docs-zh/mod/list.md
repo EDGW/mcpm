@@ -1,7 +1,7 @@
-# `mcpm-tools mod list`
+# `mcpm-tools mods list`
 
 ```text
-mcpm-tools mod list [OPTIONS] [PATH]...
+mcpm-tools mods list [OPTIONS] [PATH]...
 ```
 
 列出 Mod 文件，可混合传入多个文件和目录。不传路径时使用当前目录（`.`）。
@@ -25,8 +25,8 @@ Help 依次将选项分为全局参数（Global options）、模式参数（Mode
 ↑/↓、PageUp/PageDown、Home/End 和触控板用于导航。`F` 在 Mods 和 Details 之间打开 Filter 卡片。`-F/--filter <FILTER>` 使用同一 Filter 类型设置初始条件，也适用于 Console 和 Raw：
 
 ```sh
-mcpm-tools mod list mods/ -F "@modid 'Fabric'"
-mcpm-tools mod list mods/ -F "@loaders (=Forge | =Fabric) & @name ~'API$'"
+mcpm-tools mods list mods/ -F "@modid 'Fabric'"
+mcpm-tools mods list mods/ -F "@loaders (=Forge | =Fabric) & @name ~'API$'"
 ```
 
 普通文本或引号文本默认进行不区分大小写的包含匹配，`=` 表示完整值精确匹配，`~` 后跟带引号的 Rust 正则。空格或 `&` 表示 AND，`|` 表示 OR，AND 优先于 OR，括号改变优先级。支持 `@name`、`@modid`、`@file`、`@loaders`，Index 不参与搜索。字段限定紧随其后的一个值或括号组：`@loaders (Forge | Fabric)` 两项都限定于 Loaders；`@loaders Forge | Fabric` 的第二项不限定字段。组内显式字段覆盖继承字段，短语需要引号，例如 `@name "Fabric API"`。完整转义和正则规则见 [Filter 语法](filter.md) 或 `--help`。
@@ -45,7 +45,7 @@ Console 和 Raw 搜索全部声明（包括隐藏子项），再输出匹配行�
 
 ## SSH 列表
 
-使用 `--ssh 'ssh -i key -p 2222 user@host'` 从另一台机器加载 Mod，在本地显示。`--ssh-mcpm <PATH>` 指定远端 mcpm 可执行文件，未指定时直接使用远端 PATH 中的 `mcpm-tools`。这两个参数在最外层全局有效，可放在子命令前后；目前 `list` 的 TUI、Console、Raw 以及 [`mod source identify`](source-identify.md) 支持，其他命令明确报不支持。
+使用 `--ssh 'ssh -i key -p 2222 user@host'` 从另一台机器加载 Mod，在本地显示。`--ssh-mcpm <PATH>` 指定远端 mcpm 可执行文件，未指定时直接使用远端 PATH 中的 `mcpm-tools`。这两个参数在最外层全局有效，可放在子命令前后；目前 `list` 的 TUI、Console、Raw 以及 [`mods source identify`](source-identify.md) 支持，其他命令明确报不支持。
 
 连接字符串只包含 SSH 可执行文件、选项和目标地址，不包含远端命令；其中的参数使用 shell 风格引号。mcpm 只建立一个非 PTY 的 SSH 连接，由 SSH 默认 shell 直接启动一个持续运行的 `mcpm-tools remote` 进程。支持 POSIX shell 和 Windows cmd。Windows 连接要求：
 
@@ -60,8 +60,8 @@ Console 和 Raw 搜索全部声明（包括隐藏子项），再输出匹配行�
 单次 CLI 列表调用持有会话，直到本地界面关闭。需要执行多条命令的调用方可自行持有同一个 SSH 子进程，向同一个远端 mcpm 进程连续发送请求；见[持久远程会话](../remote.md)。不需要本地常驻进程，也不需要为每条命令重新握手。
 
 ```sh
-mcpm-tools mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --expanded --no-ui
-mcpm-tools --raw mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' -C NML
+mcpm-tools mods --ssh 'ssh -i key -p 2222 user@host' list mods/ --expanded --no-ui
+mcpm-tools --raw mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' -C NML
 ```
 
 ## Remote 支持
@@ -73,10 +73,10 @@ mcpm-tools --raw mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm
 重复路径会重复处理。例如，一个文件同时作为独立参数传入并通过目录扫描发现时，会出现两次。文件编号按合并后的显示顺序分配。
 
 ```sh
-mcpm-tools mod list first.jar mods/ second.jar other-mods/
-mcpm-tools mod list --expanded mods/ --loaders forge,neoforge
-mcpm-tools mod list --no-ui --width 100 mods/
-mcpm-tools mod list -- -leading-dash.jar
+mcpm-tools mods list first.jar mods/ second.jar other-mods/
+mcpm-tools mods list --expanded mods/ --loaders forge,neoforge
+mcpm-tools mods list --no-ui --width 100 mods/
+mcpm-tools mods list -- -leading-dash.jar
 ```
 
 | 选项 | 说明 |
@@ -106,9 +106,9 @@ mcpm-tools mod list -- -leading-dash.jar
 默认显示全部列。显式选择取并集，并始终按 `I`、`N`、`M`、`F`、`L` 的固定顺序显示，与参数选择顺序无关。
 
 ```sh
-mcpm-tools mod list mods/ -C NML
-mcpm-tools mod list mods/ --columns name,filename --column loaders
-mcpm-tools --raw mod list mods/ -C MF
+mcpm-tools mods list mods/ -C NML
+mcpm-tools mods list mods/ --columns name,filename --column loaders
+mcpm-tools --raw mods list mods/ -C MF
 ```
 
 默认视图使用第一个已识别声明作为文件摘要，并附带其他声明数量和 Loader 名称。`--expanded` 分别显示每个声明，并为失败的 Loader 尝试添加行。
@@ -158,8 +158,8 @@ mcpm-tools --raw mod list mods/ -C MF
 两种编号格式都支持列选择、路径样式和原始输出。原始输出保留编号字段内的首项对齐和紧凑层级，以及 Name 字段内的嵌套缩进，制表符分隔的列之间不添加终端排版的填充。
 
 ```sh
-mcpm-tools mod list mods/ --expanded --index-type flat
-mcpm-tools mod list mods/ --expanded --index-type tree
+mcpm-tools mods list mods/ --expanded --index-type flat
+mcpm-tools mods list mods/ --expanded --index-type tree
 ```
 
 未指定 Loader 筛选时，所有 Loader 都无法识别的归档显示为 `[unrecognized]`。指定筛选时，没有已识别声明且没有识别错误的文件会被跳过。识别失败会报告错误，不视为被筛选掉的文件。
@@ -171,17 +171,17 @@ mcpm-tools mod list mods/ --expanded --index-type tree
 ## 识别缓存
 
 - 默认查询 `~/.mcpm/cache/mods`。`--cache-dir PATH` 改用指定的已初始化目录；`--no-cache` 关闭缓存查询并直接识别文件；两者互斥。
-- 默认目录不存在或为空时自动初始化；指定目录必须合法，可先运行 `mcpm-tools cache mods init --directory PATH`。非空无标记目录、manifest 损坏或不支持的目录版本均失败。
+- 默认目录不存在或为空时自动初始化；指定目录必须合法，可先运行 `mcpm-tools cache init --directory PATH`。非空无标记目录、manifest 损坏或不支持的目录版本均失败。
 - 先使用 imohash 候选索引和当前原生文件身份匹配硬链接；没有身份匹配时计算完整 BLAKE3，因此内容相同的独立副本也能复用。
-- 已缓存的“未识别”也会复用。缺失、过期或无效结果正常识别。检查只读取已有缓存，不导入文件、不建立硬链接、不写回 metadata；存储结果可显式调用 [mod cache](cache.md)，或分别使用 cache import 和 refresh。
+- 已缓存的“未识别”也会复用。缺失、过期或无效结果正常识别。检查只读取已有缓存，不导入文件、不建立硬链接、不写回 metadata；存储结果可显式调用 [mods cache](cache.md)，或分别使用 cache import 和 refresh。
 - Console 空一行后展示 `A fully cached · B partially cached · C total items`。全部命中指所有请求 Loader 结果均来自缓存，包括“未识别”；部分命中指只有部分结果来自缓存。总数按规范化路径统计实际检查的独立文件，含未识别和失败项，筛选前计算；重复查询、嵌套声明不增加总数。关闭缓存时命中数均为 0，Raw 文本输出不添加统计行。
 - TUI 在 skipped 状态行下分别展示 `Metadata cache` 和 `Identification cache`。Metadata 使用上述 Loader 统计；Identification 随每个外层文件的缓存检查实时更新，Modrinth 和 CurseForge 均有校验通过的缓存匹配为全部命中，仅一个有匹配为部分命中。`checked` 为目前已处理的独立文件数，重复物理路径和嵌套声明不增加计数；本次网络查询得到的匹配不计为缓存命中。`--no-cache` 时 Identification 显示 `disabled`。
 - SSH 模式下，缓存选择与路径在远端解释；普通缓存管理命令仍在本地执行。
 
 ```sh
-mcpm-tools mod list example.jar
-mcpm-tools mod list example.jar --no-cache
-mcpm-tools mod list example.jar --cache-dir /path/to/cache
+mcpm-tools mods list example.jar
+mcpm-tools mods list example.jar --no-cache
+mcpm-tools mods list example.jar --cache-dir /path/to/cache
 ```
 
 [命令参考](../README.md) · [mod 概览](README.md) · [English](../../docs/mod/list.md)

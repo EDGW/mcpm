@@ -10,14 +10,7 @@ use serde_json::Value;
 
 fn run(root: &Path, cache: &Path, arguments: &[&std::ffi::OsStr]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-        .args([
-            "--raw",
-            "--log-level",
-            "off",
-            "cache",
-            "mods",
-            "--directory",
-        ])
+        .args(["--raw", "--log-level", "off", "cache", "--directory"])
         .arg(cache)
         .args(arguments)
         .current_dir(root)
@@ -48,14 +41,7 @@ fn imports(output: &Output) -> Vec<Value> {
 fn batch(root: &Path, cache: &Path, arguments: &[&str], input: &str) -> Output {
     use std::io::Write;
     let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-        .args([
-            "--raw",
-            "--log-level",
-            "off",
-            "cache",
-            "mods",
-            "--directory",
-        ])
+        .args(["--raw", "--log-level", "off", "cache", "--directory"])
         .arg(cache)
         .args(arguments)
         .current_dir(root)

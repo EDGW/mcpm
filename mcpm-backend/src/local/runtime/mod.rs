@@ -33,6 +33,12 @@ impl RuntimeEnvironment {
         self
     }
 
+    /// Selects the server's stash content cache without opening or initializing it.
+    pub fn with_stash_cache(mut self, selection: ModsCacheSelection) -> Self {
+        self.cache.stash = self.cache.select(selection);
+        self
+    }
+
     /// Read and write operations use the same selected Mod cache.
     pub fn mods_cache(&self) -> Result<Option<&ModsCacheDir>> {
         self.cache

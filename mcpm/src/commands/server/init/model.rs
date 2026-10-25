@@ -7,6 +7,9 @@ use mcpm_backend::local::mc::server::{
 };
 use serde::{Deserialize, Serialize};
 
+use super::super::metadata::ServerInfo;
+use super::git;
+
 /// Complete metadata is sufficient to initialize; no prior recognition or session state is required.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -17,6 +20,19 @@ pub(super) struct Initialize {
     pub metadata: MinecraftServerMetadata,
     #[serde(default)]
     pub force: bool,
+    #[serde(default)]
+    pub no_git: bool,
+    #[serde(default)]
+    pub git: bool,
+}
+
+/// Registration result and optional Git setup outcome, without changing server info metadata.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Initialized {
+    pub server: ServerInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<git::Outcome>,
 }
 
 /// Partial fields restrict recognized candidates rather than inventing missing metadata.
