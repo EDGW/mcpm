@@ -9,6 +9,8 @@ use super::{
 use anyhow::{Context, Result};
 use std::path::Path;
 
+// region: find_content
+
 impl CacheDir {
     /// Finds content without importing files, changing permissions or writing index state.
     /// imohash selects candidates only; matching pinned identities establish the
@@ -47,7 +49,21 @@ impl CacheDir {
         source.validate()?;
         Ok(matched)
     }
+}
 
+/// The input was hashed successfully, but its matching cached object could not be
+/// opened or verified. Business adapters can fall back without hiding input errors.
+#[derive(Debug, thiserror::Error)]
+#[error("cannot access matching cached content {key}: {source:#}")]
+pub struct CachedContentLookupError {
+    pub key: Blake3Hash,
+    #[source]
+    pub source: anyhow::Error,
+}
+
+// endregion
+
+impl CacheDir {
     /// Finds a canonical key using the same read-only lookup as `find_content`.
     pub fn find_file(&self, file: &Path) -> Result<Option<Blake3Hash>> {
         Ok(self.find_content(file)?.map(|content| content.key()))
@@ -76,14 +92,4 @@ impl CacheDir {
         index::replace(&self.path, &entries)?;
         Ok(entries.len())
     }
-}
-
-/// The input was hashed successfully, but its matching cached object could not be
-/// opened or verified. Business adapters can fall back without hiding input errors.
-#[derive(Debug, thiserror::Error)]
-#[error("cannot access matching cached content {key}: {source:#}")]
-pub struct CachedContentLookupError {
-    pub key: Blake3Hash,
-    #[source]
-    pub source: anyhow::Error,
 }

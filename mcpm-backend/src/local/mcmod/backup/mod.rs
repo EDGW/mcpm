@@ -28,73 +28,22 @@ use verification::{check_file, check_inventory};
 #[cfg(test)]
 mod tests;
 
-/// Cache-to-backup transfer policy; source-to-cache imports always copy content only.
-#[derive(Debug, Clone, Copy)]
-pub struct CreateOptions {
-    pub mode: CacheLinkPreference,
-    pub parallelism: NonZeroUsize,
-}
+// region: verify
 
-#[derive(Debug, Clone, Copy)]
-pub struct ApplyOptions {
-    pub mode: CacheLinkPreference,
-    pub parallelism: NonZeroUsize,
-    pub force: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Operation {
-    Create,
-    Apply,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Stage {
-    Cache,
-    Verify,
-    Transfer,
-}
-
-/// Observations contain no formatted labels or terminal policy.
-#[derive(Debug, Clone, Copy)]
-pub enum Event {
-    Progress {
-        stage: Stage,
-        completed: usize,
-        total: usize,
-    },
-    StageDone(Stage),
-}
-
-/// A successful publication; transfer methods correspond to the sorted manifest records.
-#[derive(Debug)]
-pub struct Outcome {
-    operation: Operation,
-    destination: PathBuf,
-    manifest: Manifest,
-    manifest_size: u64,
-    methods: Vec<TransferMethod>,
-}
-impl Outcome {
-    pub fn operation(&self) -> Operation {
-        self.operation
-    }
-    pub fn destination(&self) -> &Path {
-        &self.destination
-    }
-    pub fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-    /// Exact encoded manifest bytes, independent of semantic checksum encoding.
-    pub fn manifest_size(&self) -> u64 {
-        self.manifest_size
-    }
-    pub fn files(&self) -> impl Iterator<Item = (&FileRecord, TransferMethod)> {
-        self.manifest
-            .files()
-            .iter()
-            .zip(self.methods.iter().copied())
-    }
+/// Checks the manifest and every data file without creating files or consulting a cache.
+pub fn verify(
+    backup: &Path,
+    parallelism: NonZeroUsize,
+    mut emit: impl FnMut(Event) -> Result<()>,
+) -> Result<VerifiedBackup> {
+    let directory = tree::root(backup)?;
+    let (manifest, manifest_size) = Manifest::read_with_size(&directory.join(MANIFEST_NAME))?;
+    verify_tree(&directory.join("data"), &manifest, parallelism, &mut emit)?;
+    Ok(VerifiedBackup {
+        directory,
+        manifest,
+        manifest_size,
+    })
 }
 
 /// A complete read-only integrity check, with no transfer or cache ownership assumptions.
@@ -116,21 +65,9 @@ impl VerifiedBackup {
     }
 }
 
-/// Checks the manifest and every data file without creating files or consulting a cache.
-pub fn verify(
-    backup: &Path,
-    parallelism: NonZeroUsize,
-    mut emit: impl FnMut(Event) -> Result<()>,
-) -> Result<VerifiedBackup> {
-    let directory = tree::root(backup)?;
-    let (manifest, manifest_size) = Manifest::read_with_size(&directory.join(MANIFEST_NAME))?;
-    verify_tree(&directory.join("data"), &manifest, parallelism, &mut emit)?;
-    Ok(VerifiedBackup {
-        directory,
-        manifest,
-        manifest_size,
-    })
-}
+// endregion
+
+// region: create
 
 /// Creates a complete verified backup; successful content imports survive later failures.
 pub fn create(
@@ -221,6 +158,17 @@ pub fn create(
     })
 }
 
+/// Cache-to-backup transfer policy; source-to-cache imports always copy content only.
+#[derive(Debug, Clone, Copy)]
+pub struct CreateOptions {
+    pub mode: CacheLinkPreference,
+    pub parallelism: NonZeroUsize,
+}
+
+// endregion
+
+// region: apply
+
 /// Applies a self-contained backup without opening or populating a cache.
 pub fn apply(
     backup: &Path,
@@ -276,6 +224,71 @@ pub fn apply(
         manifest_size,
         methods,
     })
+}
+
+/// Backup-to-directory transfer policy and destination replacement behavior.
+#[derive(Debug, Clone, Copy)]
+pub struct ApplyOptions {
+    pub mode: CacheLinkPreference,
+    pub parallelism: NonZeroUsize,
+    pub force: bool,
+}
+
+// endregion
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Operation {
+    Create,
+    Apply,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage {
+    Cache,
+    Verify,
+    Transfer,
+}
+
+/// Observations contain no formatted labels or terminal policy.
+#[derive(Debug, Clone, Copy)]
+pub enum Event {
+    Progress {
+        stage: Stage,
+        completed: usize,
+        total: usize,
+    },
+    StageDone(Stage),
+}
+
+/// A successful publication; transfer methods correspond to the sorted manifest records.
+#[derive(Debug)]
+pub struct Outcome {
+    operation: Operation,
+    destination: PathBuf,
+    manifest: Manifest,
+    manifest_size: u64,
+    methods: Vec<TransferMethod>,
+}
+impl Outcome {
+    pub fn operation(&self) -> Operation {
+        self.operation
+    }
+    pub fn destination(&self) -> &Path {
+        &self.destination
+    }
+    pub fn manifest(&self) -> &Manifest {
+        &self.manifest
+    }
+    /// Exact encoded manifest bytes, independent of semantic checksum encoding.
+    pub fn manifest_size(&self) -> u64 {
+        self.manifest_size
+    }
+    pub fn files(&self) -> impl Iterator<Item = (&FileRecord, TransferMethod)> {
+        self.manifest
+            .files()
+            .iter()
+            .zip(self.methods.iter().copied())
+    }
 }
 
 fn verify_tree(

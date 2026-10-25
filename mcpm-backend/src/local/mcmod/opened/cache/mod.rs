@@ -65,6 +65,25 @@ pub enum ModOpenCacheReport {
     },
 }
 
+impl ModOpenCacheReport {
+    pub fn reuse(&self) -> ModCacheReuse {
+        let Self::Matched { loaders, .. } = self else {
+            return ModCacheReuse::None;
+        };
+        let reused = loaders
+            .values()
+            .filter(|usage| !matches!(usage, LoaderCacheUsage::Miss(_)))
+            .count();
+        if reused == 0 {
+            ModCacheReuse::None
+        } else if reused == loaders.len() {
+            ModCacheReuse::Full
+        } else {
+            ModCacheReuse::Partial
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoaderCacheUsage {
     Recognized,
@@ -85,23 +104,4 @@ pub enum ModCacheReuse {
     None,
     Partial,
     Full,
-}
-
-impl ModOpenCacheReport {
-    pub fn reuse(&self) -> ModCacheReuse {
-        let Self::Matched { loaders, .. } = self else {
-            return ModCacheReuse::None;
-        };
-        let reused = loaders
-            .values()
-            .filter(|usage| !matches!(usage, LoaderCacheUsage::Miss(_)))
-            .count();
-        if reused == 0 {
-            ModCacheReuse::None
-        } else if reused == loaders.len() {
-            ModCacheReuse::Full
-        } else {
-            ModCacheReuse::Partial
-        }
-    }
 }

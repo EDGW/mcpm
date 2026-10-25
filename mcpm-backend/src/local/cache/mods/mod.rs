@@ -18,6 +18,11 @@ mod status;
 pub use status::{CacheStatus, CacheUnavailableReason, MetadataRefresh};
 
 /// Owns Mod-specific metadata interpretation; the underlying cache remains an implementation detail.
+///
+/// # Implementations
+/// - [`Self::new`]: Mod cache access and content operations.
+/// - [`Self::ident_info`]: source identification metadata (`ident/mod.rs`).
+/// - [`Self::mod_metadata`]: loader metadata observation and refresh (`meta/mod.rs`).
 #[derive(Debug, Clone)]
 pub struct ModsCacheDir {
     cache: CacheDir,

@@ -28,6 +28,12 @@ pub struct NativeArchive {
 
 /// Immutable resolved launch inputs. Arguments may contain credentials: Debug
 /// intentionally shows only counts/paths; arguments() is an explicit raw accessor.
+///
+/// # Implementations
+/// - [`Self::arguments`]: access to resolved launch inputs.
+/// - [`std::fmt::Debug`]: diagnostic formatting without credentials.
+/// - [`Self::redacted_arguments`]: redacted diagnostic arguments (`launch/logging.rs`).
+/// - [`Self::prepare`]: local prerequisite and resource preparation (`launch/prepare/mod.rs`).
 #[derive(Clone)]
 pub struct LaunchPlan {
     pub(super) options: LaunchOptions,

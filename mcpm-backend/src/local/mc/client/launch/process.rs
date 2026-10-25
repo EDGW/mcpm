@@ -10,48 +10,7 @@ use thiserror::Error;
 
 use super::{LaunchPlan, PreparedLaunch, ProcessOptions, ProcessStream};
 
-#[derive(Debug, Error)]
-pub enum SpawnError {
-    #[error("cannot launch target OS {target:?} on host OS {host:?}")]
-    Platform { target: String, host: &'static str },
-    #[error("failed to start Java {executable:?} in {working_directory:?}")]
-    Io {
-        executable: PathBuf,
-        working_directory: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-}
-
-#[derive(Debug, Error)]
-#[error("failed to {operation} Java process {pid}")]
-struct ProcessIoError {
-    operation: &'static str,
-    pid: u32,
-    #[source]
-    source: io::Error,
-}
-
-fn process_error(operation: &'static str, pid: u32, source: io::Error) -> io::Error {
-    io::Error::new(
-        source.kind(),
-        ProcessIoError {
-            operation,
-            pid,
-            source,
-        },
-    )
-}
-
-/// Owns the child and launch plan. Native files remain on disk after exit.
-/// Dropping a running child does not kill it.
-#[derive(Debug)]
-pub struct LaunchProcess {
-    child: Option<Child>,
-    prepared: PreparedLaunch,
-    pid: u32,
-    exit_logged: bool,
-}
+// region: spawn
 
 impl PreparedLaunch {
     #[tracing::instrument(name = "launch.spawn", skip_all, fields(version = ?self.plan.version.name()), err)]
@@ -94,6 +53,31 @@ impl PreparedLaunch {
             exit_logged: false,
         })
     }
+}
+
+#[derive(Debug, Error)]
+pub enum SpawnError {
+    #[error("cannot launch target OS {target:?} on host OS {host:?}")]
+    Platform { target: String, host: &'static str },
+    #[error("failed to start Java {executable:?} in {working_directory:?}")]
+    Io {
+        executable: PathBuf,
+        working_directory: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+}
+
+// endregion
+
+/// Owns the child and launch plan. Native files remain on disk after exit.
+/// Dropping a running child does not kill it.
+#[derive(Debug)]
+pub struct LaunchProcess {
+    child: Option<Child>,
+    prepared: PreparedLaunch,
+    pid: u32,
+    exit_logged: bool,
 }
 
 impl LaunchProcess {
@@ -185,3 +169,27 @@ fn stdio(stream: ProcessStream) -> Stdio {
         ProcessStream::Piped => Stdio::piped(),
     }
 }
+
+// region: process_error
+
+fn process_error(operation: &'static str, pid: u32, source: io::Error) -> io::Error {
+    io::Error::new(
+        source.kind(),
+        ProcessIoError {
+            operation,
+            pid,
+            source,
+        },
+    )
+}
+
+#[derive(Debug, Error)]
+#[error("failed to {operation} Java process {pid}")]
+struct ProcessIoError {
+    operation: &'static str,
+    pid: u32,
+    #[source]
+    source: io::Error,
+}
+
+// endregion

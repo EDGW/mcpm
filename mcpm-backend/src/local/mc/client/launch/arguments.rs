@@ -1,3 +1,5 @@
+//! Client argument evaluation, legacy tokenization and placeholder expansion.
+
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
@@ -10,55 +12,7 @@ use thiserror::Error;
 use super::UnknownVariablePolicy;
 use crate::local::mc::client::{LibraryRule, LibraryRuleError, RuleEnvironment};
 
-#[derive(Debug, Error)]
-pub enum ArgumentError {
-    #[error("invalid {kind} argument at index {index}")]
-    Invalid {
-        kind: &'static str,
-        index: usize,
-        #[source]
-        source: serde_json::Error,
-    },
-    #[error("invalid rule for {kind} argument at index {index}")]
-    Rule {
-        kind: &'static str,
-        index: usize,
-        #[source]
-        source: LibraryRuleError,
-    },
-    #[error("failed to expand {kind} argument at index {index}")]
-    Expansion {
-        kind: &'static str,
-        index: usize,
-        #[source]
-        source: Box<ArgumentError>,
-    },
-    #[error("legacy minecraftArguments contains unmatched quotes or escapes")]
-    LegacySyntax,
-    #[error("unknown launch placeholder ${{{name}}}")]
-    UnknownVariable { name: String },
-    #[error("unterminated launch placeholder")]
-    UnterminatedVariable,
-    #[error("custom variable {name:?} attempts to override a reserved launch value")]
-    ReservedVariable { name: String },
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Argument {
-    Literal(String),
-    Conditional {
-        rules: Vec<LibraryRule>,
-        value: ArgumentValue,
-    },
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum ArgumentValue {
-    One(String),
-    Many(Vec<String>),
-}
+// region: evaluate
 
 pub(super) fn evaluate(
     values: Vec<&Value>,
@@ -96,6 +50,25 @@ pub(super) fn evaluate(
     }
     Ok(output)
 }
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Argument {
+    Literal(String),
+    Conditional {
+        rules: Vec<LibraryRule>,
+        value: ArgumentValue,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ArgumentValue {
+    One(String),
+    Many(Vec<String>),
+}
+
+// endregion
 
 pub(super) fn legacy(value: &str) -> Result<Vec<OsString>, ArgumentError> {
     // Tokenize before substitution: spaces inside player names or paths remain one argument.
@@ -150,4 +123,37 @@ pub(super) fn expand_all(
             })
         })
         .collect()
+}
+
+#[derive(Debug, Error)]
+pub enum ArgumentError {
+    #[error("invalid {kind} argument at index {index}")]
+    Invalid {
+        kind: &'static str,
+        index: usize,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("invalid rule for {kind} argument at index {index}")]
+    Rule {
+        kind: &'static str,
+        index: usize,
+        #[source]
+        source: LibraryRuleError,
+    },
+    #[error("failed to expand {kind} argument at index {index}")]
+    Expansion {
+        kind: &'static str,
+        index: usize,
+        #[source]
+        source: Box<ArgumentError>,
+    },
+    #[error("legacy minecraftArguments contains unmatched quotes or escapes")]
+    LegacySyntax,
+    #[error("unknown launch placeholder ${{{name}}}")]
+    UnknownVariable { name: String },
+    #[error("unterminated launch placeholder")]
+    UnterminatedVariable,
+    #[error("custom variable {name:?} attempts to override a reserved launch value")]
+    ReservedVariable { name: String },
 }
