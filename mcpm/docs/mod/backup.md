@@ -1,6 +1,6 @@
 # Mod file backups
 
-`mcpm-tools mod backup` creates, verifies, applies and deletes a complete directory's file backup,
+`mcpm-tools mods backup` creates, verifies, applies and deletes a complete directory's file backup,
 and computes directory checksums for comparison with backups. It recursively
 includes every regular file, including disabled mods and extensions other than `.jar`.
 Archives are not unpacked and empty directories are not recorded. Operations are local only.
@@ -8,22 +8,22 @@ Archives are not unpacked and empty directories are not recorded. Operations are
 ## Usage
 
 ```sh
-mcpm-tools mod backup create ./mods ./backups/before-update
-mcpm-tools mod backup create ./mods ./backups/before-update --mode copy
-mcpm-tools mod backup create ./mods ./backups/manifest-only --cache-only
-mcpm-tools mod backup apply ./backups/manifest-only ./mods --cache-dir ./cache
-mcpm-tools mod backup create ./mods ./backups/before-update --mode prefer-hard-link --parallelism 4
-mcpm-tools mod backup apply ./backups/before-update ./mods
-mcpm-tools mod backup apply ./backups/before-update ./mods --force
-mcpm-tools mod backup apply ./backups/before-update ./mods --mode hard-link
-mcpm-tools mod backup verify ./backups/before-update ./backups/another
-printf '%s\n' './backups/before-update' './backups/another' | mcpm-tools mod backup verify
-mcpm-tools mod backup checksum ./mods ./another-mods
-printf '%s\n' './mods' './another-mods' | mcpm-tools mod backup checksum
-mcpm-tools mod backup verify-with ./mods --backup ./backups/before-update
-mcpm-tools mod backup verify-with ./mods --checksum <CHECKSUM>
-mcpm-tools mod backup delete ./backups/before-update ./backups/another
-printf '%s\n' './backups/before-update' | mcpm-tools mod backup delete
+mcpm-tools mods backup create ./mods ./backups/before-update
+mcpm-tools mods backup create ./mods ./backups/before-update --mode copy
+mcpm-tools mods backup create ./mods ./backups/manifest-only --cache-only
+mcpm-tools mods backup apply ./backups/manifest-only ./mods --cache-dir ./cache
+mcpm-tools mods backup create ./mods ./backups/before-update --mode prefer-hard-link --parallelism 4
+mcpm-tools mods backup apply ./backups/before-update ./mods
+mcpm-tools mods backup apply ./backups/before-update ./mods --force
+mcpm-tools mods backup apply ./backups/before-update ./mods --mode hard-link
+mcpm-tools mods backup verify ./backups/before-update ./backups/another
+printf '%s\n' './backups/before-update' './backups/another' | mcpm-tools mods backup verify
+mcpm-tools mods backup checksum ./mods ./another-mods
+printf '%s\n' './mods' './another-mods' | mcpm-tools mods backup checksum
+mcpm-tools mods backup verify-with ./mods --backup ./backups/before-update
+mcpm-tools mods backup verify-with ./mods --checksum <CHECKSUM>
+mcpm-tools mods backup delete ./backups/before-update ./backups/another
+printf '%s\n' './backups/before-update' | mcpm-tools mods backup delete
 ```
 
 The backup destination's parent must exist; the destination must be absent or empty.
@@ -60,7 +60,7 @@ The apply target's parent must exist; the target must be absent or empty unless 
 4. Verify generated files, protect file contents and the `data/` directory tree, then write and protect the manifest contents before publishing the backup.
 
 Both `manifest.mcbackup` and data files are protected against in-place writes. After successful
-creation, Console prompts you to delete the backup with `mcpm-tools mod backup delete <BACKUP>`;
+creation, Console prompts you to delete the backup with `mcpm-tools mods backup delete <BACKUP>`;
 default directory permissions prevent ordinary recursive deletion on Unix.
 
 Source-to-cache imports always copy; `--mode` controls cache-to-backup transfer only.
@@ -117,7 +117,7 @@ Stash defaults to manifest-only creation and verifies/restores contents through 
 ## Standalone verification
 
 ```text
-mcpm-tools mod backup verify [OPTIONS] [BACKUP]...
+mcpm-tools mods backup verify [OPTIONS] [BACKUP]...
 ```
 
 - Accepts multiple directory arguments and one backup directory per stdin line; arguments are processed before stdin paths.
@@ -145,7 +145,7 @@ Successful `backup` paths are resolved absolute directories; failed paths retain
 ## Directory checksums
 
 ```text
-mcpm-tools mod backup checksum [OPTIONS] [DIRECTORY]...
+mcpm-tools mods backup checksum [OPTIONS] [DIRECTORY]...
 ```
 
 - Compute an independent checksum for each directory using the v1 backup checksum protocol; directories are not merged.
@@ -175,15 +175,15 @@ Console additionally shows the directory, status, file count and size. Size coun
 ## Comparing a directory
 
 ```text
-mcpm-tools mod backup verify-with [OPTIONS] <MODS_DIR>
+mcpm-tools mods backup verify-with [OPTIONS] <MODS_DIR>
 ```
 
 ```sh
-mcpm-tools mod backup verify-with ./mods --backup ./backups/before-update
-mcpm-tools mod backup verify-with ./mods --checksum <CHECKSUM>
-mcpm-tools mod backup verify-with ./mods --backups ./backups/a,./backups/b --checksum <CHECKSUM>
-printf '%s\n' './backups/a' './backups/b' | mcpm-tools mod backup verify-with ./mods --input backup
-mcpm-tools mod backup checksum ./mods | mcpm-tools mod backup verify-with ./another-mods --input checksum
+mcpm-tools mods backup verify-with ./mods --backup ./backups/before-update
+mcpm-tools mods backup verify-with ./mods --checksum <CHECKSUM>
+mcpm-tools mods backup verify-with ./mods --backups ./backups/a,./backups/b --checksum <CHECKSUM>
+printf '%s\n' './backups/a' './backups/b' | mcpm-tools mods backup verify-with ./mods --input backup
+mcpm-tools mods backup checksum ./mods | mcpm-tools mods backup verify-with ./another-mods --input checksum
 ```
 
 - Calculate `<MODS_DIR>` once using the complete `checksum` rules and reuse its records for every target.
@@ -214,7 +214,7 @@ Mismatches are comparison results; read, format and calculation errors use the e
 ## Deleting backups
 
 ```text
-mcpm-tools mod backup delete [OPTIONS] [BACKUP]...
+mcpm-tools mods backup delete [OPTIONS] [BACKUP]...
 ```
 
 - Accepts multiple directory arguments and one directory per stdin line, with the same ordering, blank-line, whitespace and deduplication rules as `verify`. At least one path is required.

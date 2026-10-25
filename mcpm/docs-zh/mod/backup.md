@@ -1,27 +1,27 @@
 # Mod 文件备份
 
-`mcpm-tools mod backup` 创建、校验、应用和删除完整文件夹的文件备份，也可以计算目录摘要并与备份比较。备份递归包含全部普通文件，
+`mcpm-tools mods backup` 创建、校验、应用和删除完整文件夹的文件备份，也可以计算目录摘要并与备份比较。备份递归包含全部普通文件，
 不限于 `.jar`，也包含禁用的 Mod；不解包归档、不记录空目录。操作仅支持本地。
 
 ## 用法
 
 ```sh
-mcpm-tools mod backup create ./mods ./backups/before-update
-mcpm-tools mod backup create ./mods ./backups/before-update --mode copy
-mcpm-tools mod backup create ./mods ./backups/manifest-only --cache-only
-mcpm-tools mod backup apply ./backups/manifest-only ./mods --cache-dir ./cache
-mcpm-tools mod backup create ./mods ./backups/before-update --mode prefer-hard-link --parallelism 4
-mcpm-tools mod backup apply ./backups/before-update ./mods
-mcpm-tools mod backup apply ./backups/before-update ./mods --force
-mcpm-tools mod backup apply ./backups/before-update ./mods --mode hard-link
-mcpm-tools mod backup verify ./backups/before-update ./backups/another
-printf '%s\n' './backups/before-update' './backups/another' | mcpm-tools mod backup verify
-mcpm-tools mod backup checksum ./mods ./another-mods
-printf '%s\n' './mods' './another-mods' | mcpm-tools mod backup checksum
-mcpm-tools mod backup verify-with ./mods --backup ./backups/before-update
-mcpm-tools mod backup verify-with ./mods --checksum <CHECKSUM>
-mcpm-tools mod backup delete ./backups/before-update ./backups/another
-printf '%s\n' './backups/before-update' | mcpm-tools mod backup delete
+mcpm-tools mods backup create ./mods ./backups/before-update
+mcpm-tools mods backup create ./mods ./backups/before-update --mode copy
+mcpm-tools mods backup create ./mods ./backups/manifest-only --cache-only
+mcpm-tools mods backup apply ./backups/manifest-only ./mods --cache-dir ./cache
+mcpm-tools mods backup create ./mods ./backups/before-update --mode prefer-hard-link --parallelism 4
+mcpm-tools mods backup apply ./backups/before-update ./mods
+mcpm-tools mods backup apply ./backups/before-update ./mods --force
+mcpm-tools mods backup apply ./backups/before-update ./mods --mode hard-link
+mcpm-tools mods backup verify ./backups/before-update ./backups/another
+printf '%s\n' './backups/before-update' './backups/another' | mcpm-tools mods backup verify
+mcpm-tools mods backup checksum ./mods ./another-mods
+printf '%s\n' './mods' './another-mods' | mcpm-tools mods backup checksum
+mcpm-tools mods backup verify-with ./mods --backup ./backups/before-update
+mcpm-tools mods backup verify-with ./mods --checksum <CHECKSUM>
+mcpm-tools mods backup delete ./backups/before-update ./backups/another
+printf '%s\n' './backups/before-update' | mcpm-tools mods backup delete
 ```
 
 创建前，备份目录的父目录必须存在；备份目录本身必须不存在或为空。
@@ -56,7 +56,7 @@ printf '%s\n' './backups/before-update' | mcpm-tools mod backup delete
 4. 校验生成结果，保护文件内容和 `data/` 目录树，最后写入并保护 manifest 内容后发布备份。
 
 `manifest.mcbackup` 与数据文件均不可原地写入。创建成功后的 Console 提示使用
-`mcpm-tools mod backup delete <BACKUP>` 删除备份；Unix 默认目录权限会阻止普通递归删除。
+`mcpm-tools mods backup delete <BACKUP>` 删除备份；Unix 默认目录权限会阻止普通递归删除。
 
 源文件导入缓存固定使用复制，`--mode` 只决定缓存到备份的传输方式。
 因此创建操作不会将原本独立的源文件变成只读文件；原先就与缓存硬链接的文件仍共享原有保护。
@@ -112,7 +112,7 @@ stash 默认以 cache-only 保存备份清单，使用服务器自己的 `.mcpm/
 ## 单独校验
 
 ```text
-mcpm-tools mod backup verify [OPTIONS] [BACKUP]...
+mcpm-tools mods backup verify [OPTIONS] [BACKUP]...
 ```
 
 - 位置参数接受多个备份目录，也可以从 stdin 每行读取一个目录；两者合并，先处理命令行参数。
@@ -139,7 +139,7 @@ backup  status  files  size  checksum
 ## 计算目录摘要
 
 ```text
-mcpm-tools mod backup checksum [OPTIONS] [DIRECTORY]...
+mcpm-tools mods backup checksum [OPTIONS] [DIRECTORY]...
 ```
 
 - 每个目录独立计算一个与 v1 backup checksum 相同规则的摘要，不合并多个目录。
@@ -167,15 +167,15 @@ Console 另外展示目录、状态、文件数量和大小；大小只统计文
 ## 与目录比较
 
 ```text
-mcpm-tools mod backup verify-with [OPTIONS] <MODS_DIR>
+mcpm-tools mods backup verify-with [OPTIONS] <MODS_DIR>
 ```
 
 ```sh
-mcpm-tools mod backup verify-with ./mods --backup ./backups/before-update
-mcpm-tools mod backup verify-with ./mods --checksum <CHECKSUM>
-mcpm-tools mod backup verify-with ./mods --backups ./backups/a,./backups/b --checksum <CHECKSUM>
-printf '%s\n' './backups/a' './backups/b' | mcpm-tools mod backup verify-with ./mods --input backup
-mcpm-tools mod backup checksum ./mods | mcpm-tools mod backup verify-with ./another-mods --input checksum
+mcpm-tools mods backup verify-with ./mods --backup ./backups/before-update
+mcpm-tools mods backup verify-with ./mods --checksum <CHECKSUM>
+mcpm-tools mods backup verify-with ./mods --backups ./backups/a,./backups/b --checksum <CHECKSUM>
+printf '%s\n' './backups/a' './backups/b' | mcpm-tools mods backup verify-with ./mods --input backup
+mcpm-tools mods backup checksum ./mods | mcpm-tools mods backup verify-with ./another-mods --input checksum
 ```
 
 - `<MODS_DIR>` 使用 `checksum` 的完整目录计算规则，只计算一次，复用于全部比较目标。
@@ -207,7 +207,7 @@ target_type  target  directory  status  expected_checksum  actual_checksum
 ## 删除备份
 
 ```text
-mcpm-tools mod backup delete [OPTIONS] [BACKUP]...
+mcpm-tools mods backup delete [OPTIONS] [BACKUP]...
 ```
 
 - 支持多个目录参数和 stdin 每行一个目录；合并顺序、空行、空格和去重规则与 `verify` 相同，至少提供一个路径。

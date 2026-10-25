@@ -95,7 +95,7 @@ fn category_and_source_selection_and_identify_leave_independent_snapshots_intact
         root.path(),
         cache.path(),
         &[
-            "mod",
+            "mods",
             "cache",
             "mod.jar",
             "--metas",
@@ -112,7 +112,7 @@ fn category_and_source_selection_and_identify_leave_independent_snapshots_intact
         root.path(),
         cache.path(),
         &[
-            "mod",
+            "mods",
             "source",
             "identify",
             "mod.jar",
@@ -132,7 +132,7 @@ fn category_and_source_selection_and_identify_leave_independent_snapshots_intact
     let record = first(&run(
         root.path(),
         cache.path(),
-        &["mod", "cache", "mod.jar"],
+        &["mods", "cache", "mod.jar"],
     ));
     assert_eq!(record["status"], "available");
     assert_eq!(record["identification"].as_object().unwrap().len(), 2);
@@ -140,7 +140,7 @@ fn category_and_source_selection_and_identify_leave_independent_snapshots_intact
     first(&run(
         root.path(),
         cache.path(),
-        &["mod", "cache", "mod.jar", "--metas", "meta"],
+        &["mods", "cache", "mod.jar", "--metas", "meta"],
     ));
     assert_eq!(fs::read(info.path()).unwrap(), b"broken source snapshot");
 }

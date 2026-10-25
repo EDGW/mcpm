@@ -19,7 +19,7 @@ fn run(root: &Path, operation: &str, paths: &[&str], input: &str) -> Output {
             "--raw",
             "--log-level",
             "off",
-            "mod",
+            "mods",
             "backup",
             operation,
             "--headers",

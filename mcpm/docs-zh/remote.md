@@ -44,7 +44,7 @@ ssh -T user@windows C:/mcpm-tools.exe remote
 {"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":4,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.init","server.init.recognize","server.mods.cache","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
 ```
 
-调用方检查版本与需要的 command ID。支持能力来自 initcall 注册表，不从 CLI 子命令推断。目前 mod list、mod info、mod deps 与 mod source identify 注册。
+调用方检查版本与需要的 command ID。支持能力来自 initcall 注册表，不从 CLI 子命令推断。目前 mods list、mods info、mods deps 与 mods source identify 注册。
 
 可以连续提交请求，无需等待前一条结束。同一请求内的回复保持顺序，不同请求的回复允许交错；调用方按 request GUID 路由。远端持续读 stdin，独立执行命令，由一个写入器向 stdout 写完整消息。本地同样由一个读取器按 GUID 分发给各请求句柄。
 
@@ -86,11 +86,11 @@ Remote 解码全局错误，不把它作为业务 contents 交给命令：
 {"cancel":"9b6dc7aa-a81c-4f39-81bd-0776b6524381"}
 ```
 
-取消是协作式的；mod list 在文件之间检查，不保证立即打断文件 I/O。未知或已完成 GUID 的取消无操作，完成可能赢得竞态。取消生效后返回 cancelled 全局错误，之前收到的数据是部分结果。丢弃未完成的请求句柄会尝试取消，Remote 仍排空该调用的回复，避免影响其他调用。
+取消是协作式的；mods list 在文件之间检查，不保证立即打断文件 I/O。未知或已完成 GUID 的取消无操作，完成可能赢得竞态。取消生效后返回 cancelled 全局错误，之前收到的数据是部分结果。丢弃未完成的请求句柄会尝试取消，Remote 仍排空该调用的回复，避免影响其他调用。
 
-## mod list 的 contents
+## mods list 的 contents
 
-以下内容完全由 mod list 模块编解码，Remote 不认识其字段或 event。
+以下内容完全由 mods list 模块编解码，Remote 不认识其字段或 event。
 
 请求支持 `parallelism` 正整数，默认 10，控制远端外层 JAR 的读取与 loader 解析并发。它独立于 identify 的并发参数，不影响 SSH 连接数或 Remote 会话分发。示例：`{"paths":["C:\\mods"],"loaders":[],"parallelism":4}`。取消会停止派发，等待正在执行的同步文件解析返回；不会强行中断 I/O。
 
@@ -116,7 +116,7 @@ Remote 解码全局错误，不把它作为业务 contents 交给命令：
 
 record 包含 path、name、enabled、status、metadata、errors。输入失败时 name/enabled 为 null；status 为 success、unrecognized、failed。metadata 包含 loader、mods 与递归 nested；errors 包含 loader（输入错误时为 null）、message 和按外层到根因排序的 causes 数组。本地始终用 `remote error:` 输出主错误，用缩进的 `caused by:` 逐层输出原因，不把整条错误链压成单行字符串。文件内多个声明、Loader、嵌套 JAR 和部分成功结果都保留在同一条记录中。
 
-## mod info 和 deps 的 contents
+## mods info 和 deps 的 contents
 
 `mod.info` 与 `mod.deps` 共用检查数据获取流程和结构化协议：
 
@@ -164,9 +164,9 @@ ignored=0 的 done。业务失败仍跟随 finished。执行失败（包括工�
 在查询之间、选中文件之间、目录扫描完成项之间检查取消。客户端校验序号、数量、诊断与失败
 状态的一致性以及事件生命周期。通信协议版本为 4，两端需要同步更新。
 
-## mod source identify 的 contents
+## mods source identify 的 contents
 
-Command ID 为 `mod.source.identify`，由 identify 模块注册，**只返回文件摘要**。CLI 和 mod list 的 TUI 共用本地识别调度与平台客户端。Remote 与 SSH 通用模块不理解这些字段。
+Command ID 为 `mod.source.identify`，由 identify 模块注册，**只返回文件摘要**。CLI 和 mods list 的 TUI 共用本地识别调度与平台客户端。Remote 与 SSH 通用模块不理解这些字段。
 
 ```json
 {"paths":["D:\\mods\\a.jar","D:\\mods\\b.jar"],"requirements":{"murmur2":true},"parallelism":10}
@@ -188,7 +188,7 @@ MurmurHash2 使用 seed=1，忽略 TAB、LF、CR 和 SPACE；未请求时 murmur
 
 本地收到摘要后向 Modrinth / CurseForge 发起请求，验证返回文件的大小及 SHA-1，保留 primary/additional 语义。网络出口、代理和官方 API key 均属于本地，远端不访问平台。CLI 立即更新完成进度，但按输入顺序打印结果与逐项错误。远端读文件失败始终用 `remote error:` 输出，本地网络查询失败始终用 `error:` 输出，均不受 `--remote-logs` 和 `--log-level` 影响。
 
-SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本地识别流程。`--identify-parallelism` 控制本地所有文件与平台合计的在途查询数，并传给远端控制摘要读取。退出 TUI 时取消本地网络任务和未完成的远端摘要调用，无需等待网络超时。Console 与 Raw 列表不自动识别来源。
+SSH mods list 的 TUI 在同一 Session 上请求摘要，再使用相同的本地识别流程。`--identify-parallelism` 控制本地所有文件与平台合计的在途查询数，并传给远端控制摘要读取。退出 TUI 时取消本地网络任务和未完成的远端摘要调用，无需等待网络超时。Console 与 Raw 列表不自动识别来源。
 
 日志用 execution=local/remote 和 phase=summary/provider 区分执行阶段，包含请求、摘要读取、结果校验、失败和耗时。远端日志通过日志会话回传，终端以斜体级别标记。本次调整改变了该 command 的 contents，客户端和远端均需更新；不保留旧的远端平台查询 schema。
 
@@ -241,20 +241,20 @@ wire v4 仍输出 metadata version 1；Local 磁盘持久化写为 version 2。�
 
 各模块通过 `inventory::submit! { Initcall(init) }` 提交自己的 initcall。程序启动统一执行 initcall，模块在自己的 init 中调用 `remote::registry::register::<Command>()`。Remote 不引用业务实现，中央入口不逐项列举命令。重复 command ID 在启动时明确报错。命令自己定义业务类型，通过 `Output::send(业务值)` 发送回复；序列化由 `Reply::new` 封装，接收端通过 `Reply::decode::<业务类型>()` 解码。Remote 仅选择握手和全局错误类型，不认识业务字段；处理器使用 checkpoint 响应取消。
 
-SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；支持 `mod list/info/deps/source identify`、`server init/info` 和 `server mods list/info/cache/deps/source search/files/identify`。列表和来源浏览的 TUI 在本地运行，检查命令支持 Console/Raw。`server mods check` 和 `dep-graph` 明确拒绝 SSH。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
+SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；支持 `mods list/info/deps/source identify`、`server init/info` 和 `server mods list/info/cache/deps/source search/files/identify`。列表和来源浏览的 TUI 在本地运行，检查命令支持 Console/Raw。`server mods check` 和 `dep-graph` 明确拒绝 SSH。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
 
 SSH 默认 shell 直接启动 `mcpm-tools remote`。Windows 连接要求默认 shell 为 cmd；可执行文件路径自动加双引号，不能包含双引号、换行、NUL、`%` 或 `!`。POSIX 可执行文件使用 shell 引号转义。业务参数通过 JSON 传输，不依赖 shell 语法。
 
 ```sh
-mcpm-tools --ssh 'ssh -i key user@host' mod list mods/ --no-ui
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw mod list 'C:\mods'
+mcpm-tools --ssh 'ssh -i key user@host' mods list mods/ --no-ui
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw mods list 'C:\mods'
 ```
 
 [命令参考](README.md) · [列表命令](mod/list.md) · [English](../docs/remote.md)
 
 ## Mod 识别缓存参数
 
-CLI 的 `mod info/list` 默认发送使用用户缓存的选择；`--no-cache` 关闭，`--cache-dir PATH` 指定远端目录。结构化协议中的 `cache` 省略或为 null 仍表示关闭，保持已有调用者和 deps 的行为。
+CLI 的 `mods info/list` 默认发送使用用户缓存的选择；`--no-cache` 关闭，`--cache-dir PATH` 指定远端目录。结构化协议中的 `cache` 省略或为 null 仍表示关闭，保持已有调用者和 deps 的行为。
 
 `mod.list`、`mod.info` 及共享请求结构的 `mod.deps` 接受可选 `cache`：
 

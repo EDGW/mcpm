@@ -46,8 +46,8 @@ expected output: inspect changes against the fixture declarations first.
 For an interactive preview of the colors:
 
 ```sh
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod info mcpm/tests/fixtures/complex-mod.jar
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod deps mcpm/tests/fixtures/complex-mod.jar
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods info mcpm/tests/fixtures/complex-mod.jar
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods deps mcpm/tests/fixtures/complex-mod.jar
 ```
 
 ## Client profiles

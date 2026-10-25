@@ -1,11 +1,11 @@
 # 远端 Mod 搜索表达式
 
-`mcpm-tools mod source search` 和 `mcpm mods source search` 共用以下语法，适用于
+`mcpm-tools mods source search` 和 `mcpm mods source search` 共用以下语法，适用于
 CurseForge 和 Modrinth，也适用于 TUI、Console、Raw。关键词放在前面，筛选字段放在后面。
 
 ```sh
-mcpm-tools mod source search 'create @version 1.20.1 @loader fabric' --source modrinth
-mcpm-tools mod source search 'create @version (1.20.1 | 1.21.1) @loader (forge | neoforge)' --source curseforge
+mcpm-tools mods source search 'create @version 1.20.1 @loader fabric' --source modrinth
+mcpm-tools mods source search 'create @version (1.20.1 | 1.21.1) @loader (forge | neoforge)' --source curseforge
 mcpm mods source search '@version * @loader *' --source modrinth
 ```
 
@@ -31,7 +31,7 @@ mcpm mods source search '@version * @loader *' --source modrinth
 Shell 命令还需要外层引用或转义：
 
 ```sh
-mcpm-tools mod source search "\"Steam 'n' Rails\" @loader forge" --source curseforge
+mcpm-tools mods source search "\"Steam 'n' Rails\" @loader forge" --source curseforge
 ```
 
 不支持正则、否定、版本范围或任意布尔嵌套。未知字段、重复字段、缺少值、未闭合引号或括号
@@ -39,7 +39,7 @@ mcpm-tools mod source search "\"Steam 'n' Rails\" @loader forge" --source cursef
 CurseForge 每次搜索最多支持 4 个版本、5 个 Loader；来源不支持的 Loader 会明确报错。
 
 TUI 中按 `/` 编辑顶部表达式，回车才搜索并回到第一页；Esc 放弃编辑。
-编辑器沿用 mod list 的语法配色：字段名和转义符用主色、值用附色、运算符用重要文本样式、
+编辑器沿用 mods list 的语法配色：字段名和转义符用主色、值用附色、运算符用重要文本样式、
 括号和引号用 dimmed。编辑时即时用红色下划线标出语法错误，不会触发网络请求。
 语法错误会在搜索框标出列号，并将光标移到对应位置，保留原结果。
 取消请求或请求失败也会保留原结果及筛选条件。进入 Files 时保留版本和 Loader 的候选值，
@@ -52,7 +52,7 @@ Version 在搜索界面打开时从当前来源的 API 后台获取，并在本�
 补全只修改草稿，再次 Enter 才搜索。Esc 先关闭候选框，再按一次才放弃编辑。
 版本加载失败时仍可手动输入，Ctrl-R 重试。两个候选框均使用附色边框，版本条目使用普通样式。
 
-Results 和 Details 复用 mod list / Files 的共享浏览组件。Tab 切换搜索框、结果列表
+Results 和 Details 复用 mods list / Files 的共享浏览组件。Tab 切换搜索框、结果列表
 和 Details，支持鼠标点击与滚轮导航。结果第一行显示项目名称和加载器，第二行使用整行宽度
 显示来源报告的 Minecraft 版本。Details 包含加载器、版本、分类和 slug；加载器使用对应
 配置色；列表和 Details 的 Loaders 仅显示 forge、neoforge、fabric。

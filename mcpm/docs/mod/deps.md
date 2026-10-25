@@ -1,7 +1,7 @@
-# `mcpm-tools mod deps`
+# `mcpm-tools mods deps`
 
 ```text
-mcpm-tools mod deps [OPTIONS] [INPUT]...
+mcpm-tools mods deps [OPTIONS] [INPUT]...
 ```
 
 Show direct dependency declarations for every recognized mod in one or more
@@ -13,9 +13,9 @@ Use `--path-style inner|full|outer` to change the `Source` path display. The
 default is `full`; see [Archive path styles](README.md#archive-path-styles).
 
 ```sh
-mcpm-tools mod deps example.jar
-mcpm-tools mod deps example.jar another.jar --loader neoforge
-mcpm-tools --raw mod deps example.jar > dependencies.txt
+mcpm-tools mods deps example.jar
+mcpm-tools mods deps example.jar another.jar --loader neoforge
+mcpm-tools --raw mods deps example.jar > dependencies.txt
 ```
 
 Nested sources use `!` between archive levels, retaining the outer filename and
@@ -52,8 +52,8 @@ Console and Raw modes are supported; use `--raw` or redirect stdout for Raw.
 SSH uses the same modes and local formatting:
 
 ```sh
-mcpm-tools --ssh 'ssh user@host' mod deps --directory /srv/mods --modid example
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm-tools.exe' --raw mod deps --directory 'D:\mods' --all
+mcpm-tools --ssh 'ssh user@host' mods deps --directory /srv/mods --modid example
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm-tools.exe' --raw mods deps --directory 'D:\mods' --all
 ```
 
 Inputs match filenames, then exact mod IDs, then exact names. Use repeated

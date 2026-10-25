@@ -1,11 +1,11 @@
 # Remote mod search expressions
 
-`mcpm-tools mod source search` and `mcpm mods source search` share this syntax
+`mcpm-tools mods source search` and `mcpm mods source search` share this syntax
 across CurseForge, Modrinth, TUI, Console and Raw. Put keywords before fields.
 
 ```sh
-mcpm-tools mod source search 'create @version 1.20.1 @loader fabric' --source modrinth
-mcpm-tools mod source search 'create @version (1.20.1 | 1.21.1) @loader (forge | neoforge)' --source curseforge
+mcpm-tools mods source search 'create @version 1.20.1 @loader fabric' --source modrinth
+mcpm-tools mods source search 'create @version (1.20.1 | 1.21.1) @loader (forge | neoforge)' --source curseforge
 mcpm mods source search '@version * @loader *' --source modrinth
 ```
 
@@ -34,7 +34,7 @@ request. Write a literal backslash as `\\`. In the search field, enter
 needs an additional layer of quoting or escaping:
 
 ```sh
-mcpm-tools mod source search "\"Steam 'n' Rails\" @loader forge" --source curseforge
+mcpm-tools mods source search "\"Steam 'n' Rails\" @loader forge" --source curseforge
 ```
 
 Regex, negation, version ranges and general nested boolean expressions are
@@ -44,7 +44,7 @@ matching and sorting. CurseForge accepts at most 4 versions and 5 loaders per
 search; unsupported loaders produce explicit errors.
 
 In the TUI, press `/` to edit the top expression, Enter to search from the first
-page, or Esc to discard edits. Like mod list, the editor colors fields and escapes
+page, or Esc to discard edits. Like mods list, the editor colors fields and escapes
 with the primary color, values with the secondary color, operators as important
 text, and delimiters as muted text. Draft syntax errors are underlined in red
 without submitting a request. Syntax errors show a column in the search field
@@ -62,7 +62,7 @@ only changes the draft; press Enter again to search. Esc closes the popup first;
 another Esc discards edits. Failed version loads allow manual input and Ctrl-R to
 retry. Both popup borders use the secondary color; version entries use normal text.
 
-Results and Details reuse the shared mod list / Files browser widgets. Tab switches
+Results and Details reuse the shared mods list / Files browser widgets. Tab switches
 between Search, Results and Details; mouse clicks and scrolling are supported.
 Each result shows the project name and loaders, with the reported Minecraft
 versions on a full-width second line. Details includes loaders, versions,

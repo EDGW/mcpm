@@ -1,7 +1,7 @@
-# `mcpm-tools mod list`
+# `mcpm-tools mods list`
 
 ```text
-mcpm-tools mod list [OPTIONS] [PATH]...
+mcpm-tools mods list [OPTIONS] [PATH]...
 ```
 
 List mod files, accepting any mixture of file and directory paths. With no
@@ -59,8 +59,8 @@ Filter card between Mods and Details. `-F/--filter <FILTER>` initializes it with
 the same typed expression accepted by Console and Raw. For example:
 
 ```sh
-mcpm-tools mod list mods/ -F "@modid 'Fabric'"
-mcpm-tools mod list mods/ -F "@loaders (=Forge | =Fabric) & @name ~'API$'"
+mcpm-tools mods list mods/ -F "@modid 'Fabric'"
+mcpm-tools mods list mods/ -F "@loaders (=Forge | =Fabric) & @name ~'API$'"
 ```
 
 Plain or quoted text performs case-insensitive contains matching. `=` matches a
@@ -116,7 +116,7 @@ Use `--ssh 'ssh -i key -p 2222 user@host'` to load mods on another machine and
 display them locally. `--ssh-mcpm <PATH>` selects its mcpm executable; without
 it, the remote command uses `mcpm-tools`. These options are top-level global options.
 They are supported by `list` TUI, Console and Raw, and by
-[`mod source identify`](source-identify.md); other commands reject them.
+[`mods source identify`](source-identify.md); other commands reject them.
 
 The connection command contains the SSH executable, options and destination,
 without a remote command. Quote its arguments using shell-style quoting.
@@ -152,8 +152,8 @@ requests to its `mcpm-tools remote` process; see [Persistent remote sessions](..
 No local daemon or per-command SSH handshake is required.
 
 ```sh
-mcpm-tools mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --expanded --no-ui
-mcpm-tools --raw mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' -C NML
+mcpm-tools mods --ssh 'ssh -i key -p 2222 user@host' list mods/ --expanded --no-ui
+mcpm-tools --raw mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' -C NML
 ```
 
 ## Remote support
@@ -173,10 +173,10 @@ and through its containing directory appears twice. Numbering follows the
 combined displayed file sequence.
 
 ```sh
-mcpm-tools mod list first.jar mods/ second.jar other-mods/
-mcpm-tools mod list --expanded mods/ --loaders forge,neoforge
-mcpm-tools mod list --no-ui --width 100 mods/
-mcpm-tools mod list -- -leading-dash.jar
+mcpm-tools mods list first.jar mods/ second.jar other-mods/
+mcpm-tools mods list --expanded mods/ --loaders forge,neoforge
+mcpm-tools mods list --no-ui --width 100 mods/
+mcpm-tools mods list -- -leading-dash.jar
 ```
 
 | Option | Description |
@@ -208,9 +208,9 @@ and displayed in the fixed order `I`, `N`, `M`, `F`, `L`, regardless of the orde
 of selection arguments.
 
 ```sh
-mcpm-tools mod list mods/ -C NML
-mcpm-tools mod list mods/ --columns name,filename --column loaders
-mcpm-tools --raw mod list mods/ -C MF
+mcpm-tools mods list mods/ -C NML
+mcpm-tools mods list mods/ --columns name,filename --column loaders
+mcpm-tools --raw mods list mods/ -C MF
 ```
 
 The default view uses the first recognized declaration as the file's summary,
@@ -289,8 +289,8 @@ and nested indentation within the Name field, without terminal padding between
 the tab-separated columns.
 
 ```sh
-mcpm-tools mod list mods/ --expanded --index-type flat
-mcpm-tools mod list mods/ --expanded --index-type tree
+mcpm-tools mods list mods/ --expanded --index-type flat
+mcpm-tools mods list mods/ --expanded --index-type tree
 ```
 
 Without loader selection, an archive that no loader recognizes is displayed as
@@ -310,15 +310,15 @@ For shared options, see [Loader selection](README.md#loader-selection). For colo
 - Caching is enabled by default using `~/.mcpm/cache/mods`. `--cache-dir PATH` selects an explicitly initialized directory; `--no-cache` disables cache lookup and identifies files directly. The two options are mutually exclusive.
 - Default roots initialize when absent or empty. Explicit roots must already be valid; run `mcpm-tools cache mods init --directory PATH` first. Nonempty unmarked directories, malformed manifests and unsupported directory versions fail.
 - Lookup uses an imohash candidate index and current native file identity for hard links. If no identity matches, full BLAKE3 lookup also permits independent copies with identical contents to reuse metadata.
-- Cached non-recognition is reused too. Missing, stale or invalid results are identified normally. Inspection only reads existing cache objects: it never imports files, establishes hard links or writes metadata. Use [mod cache](cache.md), or explicit cache import and refresh commands, to store results.
+- Cached non-recognition is reused too. Missing, stale or invalid results are identified normally. Inspection only reads existing cache objects: it never imports files, establishes hard links or writes metadata. Use [mods cache](cache.md), or explicit cache import and refresh commands, to store results.
 - Console shows `A fully cached · B partially cached · C total items` after a blank line. Full means every requested loader result came from cache, including non-recognition; partial means some did. Totals count unique normalized file inspections, including unrecognized/failed files, before filtering; duplicate queries and nested declarations do not increase them. With caching disabled, both hit counts are zero. Raw text output has no summary line.
 - TUI shows separate `Metadata cache` and `Identification cache` lines below the skipped-files status. Metadata uses the Loader totals above. Identification updates as each outer file's cache check completes: full means verified cached matches for both Modrinth and CurseForge, partial means one. `checked` counts unique files processed so far; duplicate physical paths and nested declarations do not increase it. Fresh provider matches do not count as cache hits. With `--no-cache`, Identification displays `disabled`.
 - With SSH, cache selection and paths are interpreted on the remote host. Ordinary local cache-management commands remain local.
 
 ```sh
-mcpm-tools mod list example.jar
-mcpm-tools mod list example.jar --no-cache
-mcpm-tools mod list example.jar --cache-dir /path/to/cache
+mcpm-tools mods list example.jar
+mcpm-tools mods list example.jar --no-cache
+mcpm-tools mods list example.jar --cache-dir /path/to/cache
 ```
 
 [Command reference](../README.md) · [mod overview](README.md) · [简体中文](../../docs-zh/mod/list.md)

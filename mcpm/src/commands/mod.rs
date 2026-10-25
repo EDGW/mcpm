@@ -17,7 +17,7 @@ use anyhow::Result;
 
 use clap::Subcommand;
 
-use self::{client::ClientArgs, debug::DebugArgs, mods::ModArgs, server::ServerArgs};
+use self::{client::ClientArgs, debug::DebugArgs, mods::ModsArgs, server::ServerArgs};
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
@@ -34,8 +34,7 @@ pub(crate) enum Command {
     /// Inspect local Minecraft servers.
     Server(ServerArgs),
     /// Inspect local mod files and search remote sources.
-    #[command(name = "mod")]
-    Mod(ModArgs),
+    Mods(ModsArgs),
 }
 
 /// Process startup options are CLI concerns; request arguments use command-owned schemas.
@@ -47,9 +46,9 @@ pub(crate) struct RemoteArgs {
 }
 
 pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if ssh.is_requested() && !matches!(command, Command::Mod(_) | Command::Server(_)) {
+    if ssh.is_requested() && !matches!(command, Command::Mods(_) | Command::Server(_)) {
         anyhow::bail!(
-            "--ssh and --ssh-mcpm are currently supported only by {} mod list/info/deps/source identify and {} init/info/mods list/info/cache/deps/source",
+            "--ssh and --ssh-mcpm are currently supported only by {} mods list/info/deps/source identify and {} init/info/mods list/info/cache/deps/source",
             crate::program::roots().tools,
             crate::program::roots().server
         );
@@ -61,7 +60,7 @@ pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<()> {
         }
         Command::Customize(args) => customize::run(args),
         Command::Debug(args) => debug::run(args),
-        Command::Mod(args) => mods::run(args, ssh),
+        Command::Mods(args) => mods::run(args, ssh),
         Command::Client(args) => client::run(args),
         Command::Cache(args) => cache::run(args),
         Command::Server(args) => server::run(args, ssh),

@@ -165,7 +165,7 @@ fn ssh_resolves_queries_on_remote_host_and_preserves_local_presentation() {
                 "--remote-logs",
                 "--log-level",
                 "off",
-                "mod",
+                "mods",
                 command,
             ])
             .args(options);

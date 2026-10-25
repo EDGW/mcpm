@@ -24,7 +24,14 @@ fn fixture(relative: &str) -> PathBuf {
 fn run(root: &Path, cache: &Path, arguments: &[&str], input: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
     command
-        .args(["--raw", "--log-level", "off", "mod", "cache", "--cache-dir"])
+        .args([
+            "--raw",
+            "--log-level",
+            "off",
+            "mods",
+            "cache",
+            "--cache-dir",
+        ])
         .arg(cache)
         .args(["--metas", "meta"])
         .args(arguments)

@@ -5,8 +5,8 @@
 - 一个条目由完整的 64 位小写十六进制 BLAKE3 标识；相同内容只保存一次。
 - `meta`、`ident` 是两个 metadata 名字，分别保存 Loader 声明和来源匹配。
 - `import` 只存内容，不计算、刷新或读取这两个 metadata。
-- `mod info/list` 和 `mod source identify` 默认只读查询缓存；显式写入也可使用
-  [`mod cache`](mod/cache.md) 或 [`server mods cache`](server/mods.md#缓存)。
+- `mods info/list` 和 `mods source identify` 默认只读查询缓存；显式写入也可使用
+  [`mods cache`](mod/cache.md) 或 [`server mods cache`](server/mods.md#缓存)。
 - 缓存管理在本地执行。所有命令支持 Console、Raw；`--raw` 或非 TTY stdout 使用 Raw。
 - Raw 的 `list`、`info` 和简单操作结果采用 TSV；refresh 成功时无输出，退出码为 0。
 
@@ -88,7 +88,7 @@ mcpm-tools cache mods rebuild-index
 - Console 单字段时每项一行，显式选择的字段标签只在顶部显示一次；默认 BLAKE3 没有标签。
   多字段时按字段组逐行显示标签和值，条目之间留一个空行。超过 80 个条目时先用 Y/n 确认，回车默认继续。
   Metadatas 列通过共享 Display 展示 metadata 状态及完整详情。
-  Loader 声明沿用 `mod info` 的展示格式：明确未识别的 Loader 也会显示，未检查的 Loader 不显示。
+  Loader 声明沿用 `mods info` 的展示格式：明确未识别的 Loader 也会显示，未检查的 Loader 不显示。
 - Raw 的 `list`、`info` 共用列定义与 TSV 渲染，每个条目一行；Metadatas 单元格只列排序后的名字，
   不解释快照。字段使用反斜杠转义控制字符及字面反斜杠。
   默认无表头，`--headers` 输出一次表头；该参数不影响 Console 和 refresh。

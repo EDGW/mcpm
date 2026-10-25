@@ -55,11 +55,11 @@
 
 ### 1.2. 通用命令
 
-通用命令有多个入口，比如说 `mcpm-tools mod list`，这个命令可以直接调用，也可以在 `mcpm mods list` 里使用，两者同时还有一些行为区别。
+通用命令有多个入口，比如说 `mcpm-tools mods list`，这个命令可以直接调用，也可以在 `mcpm mods list` 里使用，两者同时还有一些行为区别。
 
-这种命令一般成套出现，比如说 `mod` 命令族对应 `mcpm mods` 和 `mcpm-tools mod`，则这个命令族应该放在 `src/commands/supports/mod/` 下，内部路径也要直接体现命令路径，`Remote` 的入口同上。
+这种命令一般成套出现，比如说 `mods` 命令族对应 `mcpm mods` 和 `mcpm-tools mods`，则这个命令族应该放在 `src/commands/supports/mods/` 下，内部路径也要直接体现命令路径，`Remote` 的入口同上。
 
-值得注意的是，`Remote` 的调用口和命令行的调用口不同。`Remote` 一般直接针对底层做接口，比如说 `mcpm-tools mod list` 和 `mcpm mods list` 都对应一个 `mod.list` 的 `Remote` 命令，`Remote` 模式下两个调用分别对这一个 `Remote` 命令传参数。
+值得注意的是，`Remote` 的调用口和命令行的调用口不同。`Remote` 一般直接针对底层做接口，比如说 `mcpm-tools mods list` 和 `mcpm mods list` 都对应一个 `mod.list` 的 `Remote` 命令，`Remote` 模式下两个调用分别对这一个 `Remote` 命令传参数。
 
 所以此时 `Remote` 不该放在命令行的入口上，而是在 `support` 层的统一调用入口上。这类命令的所有调用都要走一个统一的 `support` 入口，不能有各自的实现。
 
@@ -75,7 +75,7 @@
 
 #### 2.1.1. 主参数类型
 
-当 `KEY` 可以是多个类型的时候，比如说 `mcpm-tools mod info` 支持 `modid`、`filename` 等多种类型作为 `key` 时：
+当 `KEY` 可以是多个类型的时候，比如说 `mcpm-tools mods info` 支持 `modid`、`filename` 等多种类型作为 `key` 时：
 
 - 此时应该用 `--input <type>` 来解释 `stdin` 的输入。
 - 此时应该用 `--<specific-type> <value>` 来指明输入。
@@ -88,7 +88,7 @@
 **示例：支持自动推断类型**
 
 ```plaintext
-> mcpm-tools mod info --help
+> mcpm-tools mods info --help
 ...
       --file <FILE>          Inspect a file without falling back to modid or name; repeat to select more
       --modid <MODID>        Match an exact modid; repeat to select more
@@ -107,7 +107,7 @@
 
 注意，有时候参数是一个**选择**而非列表，此时就不适用于这些规定。
 
-比如说在 `mcpm-tools mod source search --source` 里，`--source` 是一个选择，只能有一个值；但是在 `cache mods refresh <KEYS> ident --source --sources` 里，`source` 就是一个列表，适用于本节规定。
+比如说在 `mcpm-tools mods source search --source` 里，`--source` 是一个选择，只能有一个值；但是在 `cache mods refresh <KEYS> ident --source --sources` 里，`source` 就是一个列表，适用于本节规定。
 
 **标准示例：**
 
@@ -270,11 +270,11 @@ writeln!(console, "Next entry")?;
 
 `list` 命令一般要支持 `columns`，且 `Raw` 模式下要对自动化处理友好。
 
-如果 `list` 是树形数据，比如说 `Mod` 和 `Nested Mods`，一般而言可以以某种方式展示这些子数据的存在（如 `mod list` 的 `(+x mods)`），但是默认不列出，用 `--expanded` 等参数控制列出。没有折叠数据的命令不提供 `--expanded`；普通详情使用 `--details`。
+如果 `list` 是树形数据，比如说 `Mod` 和 `Nested Mods`，一般而言可以以某种方式展示这些子数据的存在（如 `mods list` 的 `(+x mods)`），但是默认不列出，用 `--expanded` 等参数控制列出。没有折叠数据的命令不提供 `--expanded`；普通详情使用 `--details`。
 
 **Console 模式下，List 的语义一般如下：**
 
-- **默认**：只列出最重要的几个 `Column`，比如说 `cache` 的 `BLAKE3`、`mod` 的 `ModName + ModId`。当列出的 `column` 数量很少、且 `expanded` 未打开时，可以在一行输出多个（此时不显示 `Header`），参考 Linux `ls` 的行为。
+- **默认**：只列出最重要的几个 `Column`，比如说 `cache` 的 `BLAKE3`、`mods` 的 `ModName + ModId`。当列出的 `column` 数量很少、且 `expanded` 未打开时，可以在一行输出多个（此时不显示 `Header`），参考 Linux `ls` 的行为。
 - **`--details`**：默认等于列出所有 `column`，但是不默认启用 `expanded`。
 - **`--columns`**：只要 `--columns` 被明确指定，就不能一行输出多个，并且必须显示 `Header`。
 - Console 模式下不一定要显示成表，Columns 可以指广义的字段名，也可以显示成 `XX: XX` 的格式，只要有助于阅读。如果不列成表而列成字段组，每一个项目之间要有空行。默认模式下若选择字段组且只列出一个字段的时候，此时和列表其实没有差别，所以 Header（若有）放在最上面而不是每个前面，也不需要有空行。

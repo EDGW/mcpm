@@ -66,7 +66,7 @@ mod transport {
             "2",
         ];
         let local = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-            .args(["--raw", "mod", "list"])
+            .args(["--raw", "mods", "list"])
             .arg(&fixture)
             .arg(&quick)
             .arg(&fixture)
@@ -81,7 +81,7 @@ mod transport {
         {
             let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
             command
-                .args(["--raw", "--ssh", &connection, "mod", "list", "--no-ui"])
+                .args(["--raw", "--ssh", &connection, "mods", "list", "--no-ui"])
                 .args(options)
                 .env(
                     "PATH",
@@ -147,7 +147,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             )).unwrap();
             fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
             let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-                .args(["--raw", "mod", "list", "--no-cache", "--ssh", &connection, "--ssh-mcpm"])
+                .args(["--raw", "mods", "list", "--no-cache", "--ssh", &connection, "--ssh-mcpm"])
                 .arg(&remote)
                 .stdin(Stdio::null())
                 .output()
@@ -249,7 +249,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
                 .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
                 .arg(&remote)
                 .args([
-                    "mod",
+                    "mods",
                     "list",
                     "--no-cache",
                     "z.jar",

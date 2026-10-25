@@ -58,15 +58,15 @@ definition next to the command entry point.
 
 ### 1.2. Shared commands
 
-A shared command has multiple entry points. For example, `mcpm-tools mod list` can be
+A shared command has multiple entry points. For example, `mcpm-tools mods list` can be
 called directly or through `mcpm mods list`, with some differences in
-behavior. The `mod` command family corresponds to both `mcpm-tools mod` and
+behavior. The `mods` command family corresponds to both `mcpm-tools mods` and
 `mcpm mods`; its shared implementation belongs in
-`src/commands/supports/mod/`, with internal paths that reflect the command path.
+`src/commands/supports/mods/`, with internal paths that reflect the command path.
 Place its Remote entry point alongside the shared implementation.
 
 The Remote interface differs from the CLI interface. Remote generally exposes
-the underlying operation: both `mcpm-tools mod list` and `mcpm mods list` use
+the underlying operation: both `mcpm-tools mods list` and `mcpm mods list` use
 one `mod.list` Remote command, passing different arguments to it.
 
 Therefore, the Remote entry point belongs at the common `supports` entry point,
@@ -85,7 +85,7 @@ keys from both `<KEYS>` and `stdin`.
 
 #### 2.1.1. Primary argument types
 
-When a key can have several types, as with `mcpm-tools mod info` accepting a mod ID,
+When a key can have several types, as with `mcpm-tools mods info` accepting a mod ID,
 filename, or name:
 
 - Use `--input <type>` to interpret `stdin`.
@@ -102,7 +102,7 @@ filename, or name:
 **Example with automatic type inference:**
 
 ```plaintext
-> mcpm-tools mod info --help
+> mcpm-tools mods info --help
 ...
       --file <FILE>          Inspect a file without falling back to modid or name; repeat to select more
       --modid <MODID>        Match an exact modid; repeat to select more
@@ -122,7 +122,7 @@ Represent a list with both `--<plural> A,B,C` and repeated singular options,
 such as `--<singular> A --<singular> B`.
 
 Some arguments are a **single choice**, not a list, and do not follow this rule.
-For example, `--source` in `mcpm-tools mod source search` selects one source. In
+For example, `--source` in `mcpm-tools mods source search` selects one source. In
 `cache mods refresh <KEYS> ident`, `--source` and `--sources` form a list and
 follow this section.
 
@@ -290,7 +290,7 @@ Unlike `info`, a `list` command generally has no primary argument. It should
 usually support columns, with Raw output suitable for automation.
 
 A tree-shaped list, such as one containing Mods and Nested Mods, may indicate
-collapsed children (for example, `(+x mods)` in `mod list`). Leave children
+collapsed children (for example, `(+x mods)` in `mods list`). Leave children
 collapsed by default and offer `--expanded` to show them. Commands without
 collapsible data do not need `--expanded`; use `--details` for ordinary details.
 

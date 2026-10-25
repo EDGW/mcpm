@@ -34,7 +34,7 @@ printf '%s\n' create ZzjhlDgM | mcpm mods source files --source modrinth
 
 终端中 search 和单项目 files 默认使用 TUI。搜索界面顶部始终显示搜索框，按 `/`
 进入编辑，修改后按 Enter 才重新搜索，并回到第一页；Esc 放弃修改。Tab / Shift+Tab
-切换搜索框、结果列表和底部 Details。结果列表复用 mod list 的布局，第一行显示
+切换搜索框、结果列表和底部 Details。结果列表复用 mods list 的布局，第一行显示
 Project Name（Primary Color）和加载器，第二行使用整行宽度显示来源报告的 Minecraft 版本（dimmed，逗号为灰色）。
 版本最多显示三个[基于完整目录的缩写项](../mod/source-search.md)，后接 `(all N versions)` 表示实际版本总数，
 Details 中使用排序后的完整版本名并自动换行。
@@ -46,13 +46,13 @@ CurseForge / Modrinth 色，ID 使用 dimmed。Details 复用共享字段列表�
 c 复制字段完整值；Enter 展开/收起详情，Esc 先收起完整详情再退出。支持鼠标点击与滚轮导航。
 选中结果时按 Enter 进入项目的 files，保留兼容性过滤；Esc 返回搜索。
 多项目、`-N/--no-ui`、指定列或流重定向时使用列表。
-排序、翻页和发布类型过滤沿用 `mcpm-tools mod source`。
+排序、翻页和发布类型过滤沿用 `mcpm-tools mods source`。
 
 Search 同样支持[字段值补全](../mod/source-search.md)：Loader 使用 Forge、NeoForge、Fabric，
 Version 从当前来源 API 获取并在会话内缓存。↑↓ 选择、Enter/Tab 填入，Esc 关闭候选框。
 补全只修改草稿，再次 Enter 才提交搜索。
 
-Files 复用 mod list 的紧凑列表和底部 Details 布局，不提供交互式 Filter。
+Files 复用 mods list 的紧凑列表和底部 Details 布局，不提供交互式 Filter。
 表头和每个文件均占两行：第一行是序号、Name、Minecraft、Loaders，第二行是 Version、Release；
 第二行的值分别与表头中的 Version、Release 对齐，数据行不重复字段标签；
 filename 仅在 Details 中查看。Tab / Shift+Tab 切换列表和 Details；↑↓ 或 j/k 选择
@@ -64,11 +64,11 @@ Esc 先收起完整详情，再返回上一级；q 直接返回。支持鼠标�
 不受当前页和兼容性过滤限制。`--loader`（别名 `--loaders`）支持逗号分隔和重复指定，匹配任意一个 loader。翻页时保持显示。TUI 列表保留同一发布文件的原始位置，其 Name 与置顶文件一样使用 primary，
 其他文件的 Name 使用 secondary；未传入 selected 时 Name 仍使用 primary。Console 和 Raw 输出继续去重。
 分页和总数仍对应原始筛选结果，置顶文件不占用每页数量；文件不存在或不属于指定项目时
-报错。独立的 `mcpm-tools mod source files` 同样支持此选项。
+报错。独立的 `mcpm-tools mods source files` 同样支持此选项。
 
 ```sh
-mcpm-tools mod source files sodium --source modrinth --selected yaoBL9D9
-mcpm-tools --raw mod source files sodium --source modrinth --selected yaoBL9D9 --columns selected,id,filename
+mcpm-tools mods source files sodium --source modrinth --selected yaoBL9D9
+mcpm-tools --raw mods source files sodium --source modrinth --selected yaoBL9D9 --columns selected,id,filename
 ```
 
 Raw 输出先列出选中文件，默认 TSV 列不变。可用 `--columns selected`（或 `-C S`）
@@ -79,7 +79,7 @@ Raw 输出先列出选中文件，默认 TSV 列不变。可用 `--columns selec
 沿用现有服务端 Mod 选择规则：依次匹配文件名、精确 modid、精确显示名称。
 `--file`、`--modid`、`--name` 可以明确指定解释方式。
 路径相对于服务端 mods 目录，也接受 `mods/` 前缀；不接受绝对路径或向上跳转。
-识别任意本地路径请使用独立的 `mcpm-tools mod source identify`。
+识别任意本地路径请使用独立的 `mcpm-tools mods source identify`。
 
 ```sh
 mcpm mods source identify create.jar --source curseforge
@@ -98,7 +98,7 @@ stdin 每行追加一个选择条件，`--input` 控制其解释方式；同一�
 未匹配文件输出 `unmatched`。选择、读取或请求失败会写入 stderr，继续处理其他输入，
 最终以非零状态退出。
 
-`--parallelism <COUNT>` 默认 10，与 mod list 共用默认值。并发检查时，结果和逐项错误仍按选择顺序输出，stderr 进度条沿用 mod list 样式。SSH 参数支持独立的 `mod source identify`、`mod list`、`mod info` 和 `mod deps`。
+`--parallelism <COUNT>` 默认 10，与 mods list 共用默认值。并发检查时，结果和逐项错误仍按选择顺序输出，stderr 进度条沿用 mods list 样式。SSH 参数支持独立的 `mods source identify`、`mods list`、`mods info` 和 `mods deps`。
 
 ## 输出
 

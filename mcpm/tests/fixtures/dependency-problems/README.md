@@ -41,21 +41,21 @@ and matched targets without dependencies provide additional isolated roots.
 From the repository root:
 
 ```sh
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod dep-graph build \
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods dep-graph build \
   mcpm/tests/fixtures/dependency-problems/mods -o /tmp/mcpm-dependency-problems.json
 
 # All six categories, including types that are disabled by default.
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod dep-graph view \
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods dep-graph view \
   -i /tmp/mcpm-dependency-problems.json \
   --types required,optional,recommended,suggested,breaks,conflicts \
   --ignore-isolated-root
 
 # Default problem rules: required mismatches/unknowns and matched/unknown incompatibilities.
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod dep-graph view \
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods dep-graph view \
   -i /tmp/mcpm-dependency-problems.json --problem
 
 # One category and loader, with ancestor retention and explicit rule selection.
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod dep-graph view \
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods dep-graph view \
   -i /tmp/mcpm-dependency-problems.json neoforge:case_optional_neoforge \
   --type optional --rule optional:unmatched,unknown
 ```
@@ -65,7 +65,7 @@ No graph JSON snapshots are checked in: generate them from these archives.
 External components can be supplied with or without a version. For example:
 
 ```sh
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod dep-graph build \
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods dep-graph build \
   mcpm/tests/fixtures/dependency-problems/mods \
   --external fabric:required_missing:0.5 \
   --external forge:required_missing \

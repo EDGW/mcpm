@@ -5,8 +5,8 @@
 - Each entry is identified by a complete 64-character lowercase hexadecimal BLAKE3. Identical content is stored once.
 - `meta` and `ident` are metadata names, containing Loader declarations and source matches respectively.
 - `import` stores content only. It never calculates, refreshes or reads these metadata snapshots.
-- `mod info/list` and `mod source identify` query existing caches without writing. Use
-  [`mod cache`](mod/cache.md) or [`server mods cache`](server/mods.md) for selected-file caching.
+- `mods info/list` and `mods source identify` query existing caches without writing. Use
+  [`mods cache`](mod/cache.md) or [`server mods cache`](server/mods.md) for selected-file caching.
 - Management commands run locally and support Console and Raw. `--raw` or non-TTY stdout selects Raw.
 - Raw list, info and simple operation receipts use TSV. Refresh succeeds silently with exit code 0.
 
@@ -93,7 +93,7 @@ malformed manifests and incompatible versions are rejected. No automatic migrati
   `--details` selects all columns unless columns are explicit.
 - Console prints single-field entries as a list; an explicit field label appears once at the top, while default BLAKE3 has no label.
   Multiple fields form a group with inline labels, separated from the next entry by a blank line. More than 80 entries require Y/n confirmation (Enter means Yes). Metadatas shows
-  snapshot states and complete details through the shared data renderer. Loader declarations use the same format as `mod info`;
+  snapshot states and complete details through the shared data renderer. Loader declarations use the same format as `mods info`;
   explicitly unrecognized Loaders are shown, while unchecked Loaders are omitted.
 - Raw list and info share the same columns and TSV rendering, one row per entry. Metadatas contains
   sorted names only and does not decode snapshots. Fields escape controls and literal backslashes.

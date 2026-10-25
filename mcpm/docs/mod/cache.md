@@ -1,9 +1,9 @@
-# `mcpm-tools mod cache`
+# `mcpm-tools mods cache`
 
 Explicitly store selected mod archives and their identification metadata.
 
 ```text
-mcpm-tools mod cache [OPTIONS] [INPUT]...
+mcpm-tools mods cache [OPTIONS] [INPUT]...
 ```
 
 Supports Console and Raw. Redirected stdout or `--raw` emits one JSON object per
@@ -11,7 +11,7 @@ selected file. This command is local; SSH options are rejected.
 
 ## Select files
 
-Use the same input rules as [mod info](info.md):
+Use the same input rules as [mods info](info.md):
 
 - Positional inputs match a filename, then an exact mod ID, then an exact mod name.
 - Repeat or mix `--file FILE`, `--modid ID`, and `--name NAME`; queries preserve
@@ -29,11 +29,11 @@ Use the same input rules as [mod info](info.md):
   BLAKE3 cache object.
 
 ```sh
-mcpm-tools mod cache example.jar another.jar.disabled
-mcpm-tools mod cache --directory ./mods --modid zeta
-mcpm-tools mod cache --directory ./mods --name 'Example Mod'
-mcpm-tools mod cache --directory ./mods --all --parallelism 4
-printf '%s\n' example.jar another.jar | mcpm-tools mod cache --input file
+mcpm-tools mods cache example.jar another.jar.disabled
+mcpm-tools mods cache --directory ./mods --modid zeta
+mcpm-tools mods cache --directory ./mods --name 'Example Mod'
+mcpm-tools mods cache --directory ./mods --all --parallelism 4
+printf '%s\n' example.jar another.jar | mcpm-tools mods cache --input file
 ```
 
 A positional directory is not a file input; use `--directory PATH --all`.
@@ -71,13 +71,13 @@ identification; scan metadata is not directly persisted.
 
 ```sh
 mcpm-tools cache mods init --directory /path/to/cache
-mcpm-tools mod cache example.jar --cache-dir /path/to/cache --loader fabric
-mcpm-tools mod cache example.jar --mode hard-link
-mcpm-tools mod cache example.jar --force
+mcpm-tools mods cache example.jar --cache-dir /path/to/cache --loader fabric
+mcpm-tools mods cache example.jar --mode hard-link
+mcpm-tools mods cache example.jar --force
 ```
 
 [cache mods import](../cache.md) remains a lower-level path-based import without
-identification. `mod info/list` reuse existing metadata by default (`--no-cache` disables this); they do not
+identification. `mods info/list` reuse existing metadata by default (`--no-cache` disables this); they do not
 store files or identification results.
 
 Both categories require the same cached content file. Loader results use `meta`; source
@@ -87,9 +87,9 @@ All CurseForge configurations share one cache namespace, without keys/endpoints.
 requests use one client runtime for the complete batch.
 
 ```sh
-mcpm-tools mod cache --directory ./mods --all --metas meta
-mcpm-tools mod cache example.jar --meta ident --source modrinth
-mcpm-tools mod cache example.jar --no-metas
+mcpm-tools mods cache --directory ./mods --all --metas meta
+mcpm-tools mods cache example.jar --meta ident --source modrinth
+mcpm-tools mods cache example.jar --no-metas
 ```
 
 ## Results and failures

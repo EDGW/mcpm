@@ -12,6 +12,6 @@ mcpmc --raw list .minecraft > clients.tsv
 
 `normal` 表示版本元数据成功加载。支持按 HMCL 的库、启动参数和 patches 规则识别 Fabric、Forge、NeoForge。未识别到支持的 Loader 时，根据 mainClass 判断显示 `vanilla` 或 `unrecognized`；这些标签不代表已验证版本能够启动或依赖库已下载。
 
-终端中版本名亮白、正常状态亮绿、损坏状态亮红、错误原因亮黄，Loader 沿用 `mod` 命令的配色。`NO_COLOR` 禁用颜色。重定向输出或使用 `--raw` 时，不输出表头，依次用制表符分隔五列：序号、目录名、状态、Loader、详细信息。名称和详细信息中的控制字符会被转义。
+终端中版本名亮白、正常状态亮绿、损坏状态亮红、错误原因亮黄，Loader 沿用 `mods` 命令的配色。`NO_COLOR` 禁用颜色。重定向输出或使用 `--raw` 时，不输出表头，依次用制表符分隔五列：序号、目录名、状态、Loader、详细信息。名称和详细信息中的控制字符会被转义。
 
 空结果、包含损坏版本的列表返回成功；根目录、扫描、输出或 Loader 探测失败返回状态码 `1`。Loader 探测失败的条目标记为 `failed`，其他条目仍会输出。

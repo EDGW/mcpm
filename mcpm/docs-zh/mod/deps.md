@@ -1,7 +1,7 @@
-# `mcpm-tools mod deps`
+# `mcpm-tools mods deps`
 
 ```text
-mcpm-tools mod deps [OPTIONS] [INPUT]...
+mcpm-tools mods deps [OPTIONS] [INPUT]...
 ```
 
 显示一个或多个 `.jar` 或 `.jar.disabled` 文件中，每个已识别 Mod 的直接依赖声明。文件按参数顺序处理，不接受目录。输出按外层文件、Loader 和 Mod 分组，包含 Mod 版本和声明所在归档的路径。
@@ -9,9 +9,9 @@ mcpm-tools mod deps [OPTIONS] [INPUT]...
 使用 `--path-style inner|full|outer` 调整 `Source` 路径格式，默认值为 `full`，详见[归档路径样式](README.md#归档路径样式)。
 
 ```sh
-mcpm-tools mod deps example.jar
-mcpm-tools mod deps example.jar another.jar --loader neoforge
-mcpm-tools --raw mod deps example.jar > dependencies.txt
+mcpm-tools mods deps example.jar
+mcpm-tools mods deps example.jar another.jar --loader neoforge
+mcpm-tools --raw mods deps example.jar > dependencies.txt
 ```
 
 嵌套来源使用 `!` 分隔归档层级，保留外层文件名和各层内部归档成员路径。`list` 的嵌套 Mod 文件名列也使用此格式，例如：
@@ -36,8 +36,8 @@ breaks: legacy_api: <1
 SSH 同样使用这两种模式，由本地控制输出格式：
 
 ```sh
-mcpm-tools --ssh 'ssh user@host' mod deps --directory /srv/mods --modid example
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm-tools.exe' --raw mod deps --directory 'D:\mods' --all
+mcpm-tools --ssh 'ssh user@host' mods deps --directory /srv/mods --modid example
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm-tools.exe' --raw mods deps --directory 'D:\mods' --all
 ```
 
 输入依次按文件名、精确 Mod ID、精确名称匹配。可重复使用 `--file`、`--modid`、

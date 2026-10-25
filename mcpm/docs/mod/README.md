@@ -1,9 +1,9 @@
-# `mcpm-tools mod`
+# `mcpm-tools mods`
 
 Inspect local Minecraft mod archives, explicitly cache files, and search mod sources.
 
 ```text
-mcpm-tools mod [OPTIONS] <COMMAND>
+mcpm-tools mods [OPTIONS] <COMMAND>
 ```
 
 | Command | Description |
@@ -25,8 +25,8 @@ can appear before or after its subcommands. `list` supports TUI, Console and Raw
 executable, defaulting to `mcpm-tools` on the remote PATH.
 
 ```sh
-mcpm-tools mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
-mcpm-tools mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw
+mcpm-tools mods --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
+mcpm-tools mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw
 ```
 
 See [SSH listing](list.md#ssh-listing) for transport and presentation behavior.
@@ -46,8 +46,8 @@ as a union, with duplicates removed. Loader records are displayed in built-in
 order: Forge, NeoForge, then Fabric.
 
 ```sh
-mcpm-tools mod list mods/ --loader fabric --loader neoforge
-mcpm-tools mod info example.jar --loader forge --loaders neoforge,fabric
+mcpm-tools mods list mods/ --loader fabric --loader neoforge
+mcpm-tools mods info example.jar --loader forge --loaders neoforge,fabric
 ```
 
 A single archive can be recognized by multiple loaders. Their records remain
@@ -56,7 +56,7 @@ read; it does not establish that the mod will run with that loader.
 
 ## Archive path styles
 
-`mod list` and `mod deps` accept `--path-style <STYLE>`. For a nested mod in
+`mods list` and `mods deps` accept `--path-style <STYLE>`. For a nested mod in
 `mods/example.jar!META-INF/jars/child.jar!lib/grandchild.jar`:
 
 | Style | Display |
@@ -71,12 +71,12 @@ changes path formatting only; inner mod declarations remain included.
 For nested declarations, the outer component is always the JAR filename,
 without its filesystem directory. Inner components retain their archive member
 paths. For an outer declaration in `deps`, `full` retains the supplied file path.
-`mod info` has no archive source field and does not accept this option.
+`mods info` has no archive source field and does not accept this option.
 
 ```sh
-mcpm-tools mod list mods/ --expanded --path-style inner
-mcpm-tools mod list mods/ --expanded --path-style full
-mcpm-tools mod deps example.jar --path-style outer
+mcpm-tools mods list mods/ --expanded --path-style inner
+mcpm-tools mods list mods/ --expanded --path-style full
+mcpm-tools mods deps example.jar --path-style outer
 ```
 
 In colored terminal output, each archive separator (`!`) uses bright white,
