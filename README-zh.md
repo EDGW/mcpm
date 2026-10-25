@@ -10,7 +10,7 @@
 
 ## 安装
 
-安装预发布版本 [v0.1.0-dev.26w43c](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43c)。
+安装预发布版本 [v0.1.0-dev.26w43d](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d)。
 安装脚本仅支持 **v0.1.0-dev.26w43c 及更新版本**，旧版本会在下载前被拒绝。
 五个程序整套安装：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`。
 
@@ -25,13 +25,13 @@
 ### Windows（PowerShell 5.1 或更高版本）
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43c/scripts/install.ps1))) -Version v0.1.0-dev.26w43c
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.ps1))) -Version v0.1.0-dev.26w43d
 ```
 
 卸载：
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43c/scripts/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.ps1))) -Uninstall
 ```
 
 PATH 对当前 PowerShell 和之后新开的终端生效，其他已打开的终端需要重新打开。升级时如提示文件被占用，请先退出正在运行的 mcpm 进程。
@@ -41,7 +41,7 @@ PATH 对当前 PowerShell 和之后新开的终端生效，其他已打开的终
 需要 `curl`、`tar`，以及 `sha256sum` 或 `shasum`。
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43c/scripts/install.sh | sh -s -- v0.1.0-dev.26w43c
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- v0.1.0-dev.26w43d
 ```
 
 如果 `~/.local/bin` 尚未加入 PATH，在 shell 配置文件中添加下面一行：zsh 使用 `~/.zshrc`，bash 使用 `~/.bashrc`。
@@ -55,7 +55,7 @@ export PATH="$HOME/.local/bin:$PATH"
 卸载：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43c/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- --uninstall
 ```
 
 ### 升级、修复与卸载行为
@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43c/scripts
 
 ### 手动安装
 
-[发布附件](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43c) 中提供完整的 `bin/` 目录和 `manifest`：
+[发布附件](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d) 中提供完整的 `bin/` 目录和 `manifest`：
 
 - macOS/Linux：`mcpm-PLATFORM-ARCH[-LIBC].tar.gz`。
 - Windows：`mcpm-windows-x86_64.zip`。
