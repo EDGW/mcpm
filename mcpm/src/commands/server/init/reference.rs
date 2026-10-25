@@ -5,10 +5,11 @@ use std::{fs, path::PathBuf};
 use anyhow::{Context, Result, ensure};
 
 use super::super::{
-    metadata::{self, ServerInfo},
+    metadata,
     workspace::{Remote, Writer},
 };
 use super::git;
+use super::model::Initialized;
 use crate::ssh::SshArgs;
 
 pub(super) fn create(
@@ -17,7 +18,9 @@ pub(super) fn create(
     ssh: SshArgs,
     force: bool,
     no_git: bool,
-) -> Result<ServerInfo> {
+    local_git: bool,
+) -> Result<Initialized> {
+    git::validate_options(local_git, no_git)?;
     ensure!(ssh.is_requested(), "--remote requires global --ssh");
     let directory = fs::canonicalize(&path)
         .context("Remote workspace PATH must be an existing local directory")?;
@@ -27,9 +30,11 @@ pub(super) fn create(
     // The server.info endpoint only opens Local Servers, so this also rejects chaining.
     let info = metadata::load_ssh(connection, PathBuf::from(&remote.path))?;
     let writer = Writer::acquire(&path)?;
-    if !no_git {
-        git::ensure_repository(&path)?;
-    }
+    let git = if no_git {
+        None
+    } else {
+        Some(git::ensure_repository(&path, local_git)?)
+    };
     writer.remote(&remote, force)?;
-    Ok(info)
+    Ok(Initialized { server: info, git })
 }
