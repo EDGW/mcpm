@@ -14,7 +14,7 @@
 - `.mcpm/stash/index/<UUID>.json` stores version=1, id, name, created_at (UTC) and backup UUID. `.mcpm/stash/HEAD` stores version=1 and stash UUID. Their sole JSON codecs and validation live in stash/index.rs.
 - Each frontend leaf owns its Clap arguments, input validation and execution entry, explicitly selecting a shared or exclusive session. The family only routes commands and carries common settings. List and info declare separate column choices while sharing selection validation.
 - Backend `stash/create.rs` owns snapshot publication. If publication and cleanup both fail, its dedicated error retains the publication source chain, an independent cleanup chain and the retained backup path. The frontend reports both chains through the existing diagnostics entry.
-- Each stash independently owns `.mcpm/data/<backup-UUID>`. File lists and checksums come from the existing backup manifest, never duplicate authoritative index fields. Corrupt stash data is not silently rebuilt as derived cache state.
+- Each stash independently owns a manifest at `.mcpm/data/<backup-UUID>`. New stashes use CacheOnly with contents in the server stash blob. File lists and checksums come from the existing backup manifest, never duplicate authoritative index fields. Corrupt stash data is not silently rebuilt as derived cache state.
 - The server RuntimeEnvironment stash role lazily selects `.mcpm/stash/blob`. Backup accepts an explicit cache through a shared creation implementation without depending on stash concepts.
 - Writers retain an exclusive OS lease; readers and verification retain shared leases on `.mcpm/stash/lock`. The lock file is never removed. Before first initialization, readers capture a fixed empty view instead of reading subsequently published state without a lease.
 - Switch fully verifies the target before workspace comparison, including force and no-op switches. HEAD advances only after successful application. There is no cross-file transaction or interruption recovery.
@@ -33,12 +33,13 @@
 ## Backup cache fallback
 
 - The v1 backup manifest is the sole authority for file mappings and checksums. Full and cache-only backups share it without persisted cache paths or availability fields.
-- `backup/create.rs` shares cache imports and source verification, with CreateStorage selecting full export or manifest-only publication.
+- `backup/create.rs` shares cache imports and source verification, with CreateStorage selecting full export or manifest-only publication. Stash explicitly selects CacheOnly.
 - `backup/sources.rs` owns source selection, full content verification and data inventory rechecks shared by verify/apply; verify_with_cache does not write or generate a target.
 - `backup/apply.rs` shares strict and cache-assisted staging/publication. Strict apply never accesses cache; apply_with_cache invokes a lazy opener only for actually missing manifest files. Corruption, invalid types, unreadable files and unexpected files never trigger fallback.
 - Cache owns full content hashing and directory protocols; backup checks manifest sizes, selects sources and publishes targets. Frontend code does not interpret cache layout or manifests.
 - Apply opens existing caches without initialization; complete backups and empty manifests do not open cache. All sources and staged results must verify before target replacement.
 - display/backup owns English notices, per-file provenance and statistics. Cache-only Raw output keeps existing columns; unfiltered risk/dependency notices go to stderr.
+- Stash uses CacheOnly creation and passes an existing server-local stash cache opener to verify_with_cache and apply_with_cache, never a global fallback. Switch fully verifies content under its exclusive lease before workspace checks. Deletion preserves blob contents without GC.
 
 ## 1. Commands
 

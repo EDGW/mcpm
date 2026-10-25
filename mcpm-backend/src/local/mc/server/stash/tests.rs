@@ -123,12 +123,17 @@ fn baseline_switch_and_batch_deletion_protect_unsaved_and_current_versions() {
         1
     );
     assert!(fixture.root.path().join(".mcpm/stash/blob").exists());
-    // Restoring is independent of the cache once backups have been created.
+    // Manifest-only stashes use server-local cache content, which readers never recreate.
     files::remove_protected_tree(&fixture.root.path().join(".mcpm/stash/blob")).unwrap();
-    store
-        .switch(&Selector::Id(original.id()), true, n, |_| Ok(()))
-        .unwrap();
-    assert_eq!(fixture.contents(), b"original");
+    let before = fixture.contents();
+    assert!(
+        store
+            .switch(&Selector::Id(original.id()), true, n, |_| Ok(()))
+            .is_err()
+    );
+    assert_eq!(fixture.contents(), before);
+    assert_eq!(store.head().unwrap().unwrap().id(), original.id());
+    assert!(!fixture.root.path().join(".mcpm/stash/blob").exists());
 }
 
 #[test]
@@ -138,7 +143,7 @@ fn target_verification_precedes_force_and_already_current_shortcuts() {
     let mut store = StashStore::write(&fixture.server).unwrap();
     let stash = store.create("saved".into(), n, |_| Ok(())).unwrap();
     let data = store.backup_path(&stash).join("data");
-    let _protection = files::DirectoryProtection::allow_removal(&data).unwrap();
+    fs::create_dir(&data).unwrap();
     fs::write(data.join("unexpected"), b"invalid backup inventory").unwrap();
     // Even a clean, already-current target must not bypass verify.
     assert!(
@@ -207,9 +212,13 @@ fn successful_apply_with_failed_head_publication_reports_files_already_switched(
 fn failed_publication_and_cleanup_retain_independent_causes_and_backup_location() {
     let fixture = Fixture::new();
     let mut store = StashStore::write(&fixture.server).unwrap();
+    let mut verified_stages = 0;
     let result = store.create("saved".into(), fixture.parallelism(), |event| {
-        if matches!(event, backup::Event::StageDone(backup::Stage::Transfer)) {
-            // Fail index publication and make the newly staged backup unsafe to delete.
+        if matches!(event, backup::Event::StageDone(backup::Stage::Verify)) {
+            verified_stages += 1;
+        }
+        if verified_stages == 2 {
+            // After source and cache verification, fail publication and make cleanup unsafe.
             fs::write(
                 fixture.root.path().join(".mcpm/stash/index"),
                 b"blocks index directory",
@@ -285,4 +294,131 @@ fn empty_read_snapshot_and_shared_leases_serialize_first_publication() {
     drop(reader);
     drop(another_reader);
     assert!(StashStore::write(&fixture.server).is_ok());
+}
+
+#[test]
+fn cache_only_stashes_validate_server_content_before_force_and_noop_and_keep_shared_objects() {
+    let fixture = Fixture::new();
+    let n = fixture.parallelism();
+    let mut store = StashStore::write(&fixture.server).unwrap();
+    let original = store.create("original".into(), n, |_| Ok(())).unwrap();
+    let path = store.backup_path(&original);
+    assert!(path.join(backup::MANIFEST_NAME).is_file());
+    assert!(!path.join("data").exists());
+    let manifest = store.manifest(&original).unwrap();
+    let record = manifest
+        .files()
+        .iter()
+        .find(|record| record.path() == "mod.jar")
+        .unwrap();
+    let cache = store.open_cache().unwrap();
+    let object = cache.content_path(&record.blake3());
+    cache.remove(&record.blake3()).unwrap();
+    fs::write(&object, b"corrupt cached content").unwrap();
+    assert!(
+        store
+            .verify(&Selector::Id(original.id()), n, |_| Ok(()))
+            .is_err()
+    );
+    assert!(
+        store
+            .switch(&Selector::Id(original.id()), false, n, |_| Ok(()))
+            .is_err()
+    );
+    fixture.change(b"unsaved");
+    assert!(
+        store
+            .switch(&Selector::Id(original.id()), true, n, |_| Ok(()))
+            .is_err()
+    );
+    assert_eq!(fixture.contents(), b"unsaved");
+    assert_eq!(store.head().unwrap().unwrap().id(), original.id());
+    // Repair only the test fixture; stash itself never silently repairs corrupt content.
+    cache.remove(&record.blake3()).unwrap();
+    fs::write(fixture.root.path().join("original-content"), b"original").unwrap();
+    cache
+        .import(
+            &fixture.root.path().join("original-content"),
+            CacheLinkPreference::Copy,
+        )
+        .unwrap();
+    store
+        .switch(&Selector::Id(original.id()), true, n, |_| Ok(()))
+        .unwrap();
+    assert_eq!(fixture.contents(), b"original");
+    fixture.change(b"updated");
+    let updated = store.create("updated".into(), n, |_| Ok(())).unwrap();
+    let common = store
+        .manifest(&updated)
+        .unwrap()
+        .files()
+        .iter()
+        .find(|record| record.path() == "note.txt")
+        .unwrap()
+        .blake3();
+    store
+        .delete(&[Selector::Id(original.id())])
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap()
+        .result
+        .unwrap();
+    assert!(cache.verified_size(&common).unwrap().is_some());
+    store
+        .verify(&Selector::Id(updated.id()), n, |_| Ok(()))
+        .unwrap();
+    assert!(!path.exists());
+}
+
+#[test]
+fn old_full_stashes_remain_usable_without_cache_and_new_stashes_survive_server_relocation() {
+    let fixture = Fixture::new();
+    let n = fixture.parallelism();
+    let mut store = StashStore::write(&fixture.server).unwrap();
+    let original = store.create("old full".into(), n, |_| Ok(())).unwrap();
+    let path = store.backup_path(&original);
+    backup::delete(&path).unwrap();
+    backup::create_with_cache(
+        &fixture.root.path().join("mods"),
+        &path,
+        &store.open_cache().unwrap(),
+        backup::CreateOptions {
+            storage: backup::CreateStorage::Full(CacheLinkPreference::Copy),
+            parallelism: n,
+        },
+        |_| Ok(()),
+    )
+    .unwrap();
+    files::remove_protected_tree(&fixture.root.path().join(".mcpm/stash/blob")).unwrap();
+    fixture.change(b"discarded");
+    store
+        .verify(&Selector::Id(original.id()), n, |_| Ok(()))
+        .unwrap();
+    store
+        .switch(&Selector::Id(original.id()), true, n, |_| Ok(()))
+        .unwrap();
+    assert_eq!(fixture.contents(), b"original");
+    assert!(!fixture.root.path().join(".mcpm/stash/blob").exists());
+    fixture.change(b"portable contents");
+    let portable = store.create("portable".into(), n, |_| Ok(())).unwrap();
+    drop(store);
+    let moved = tempfile::tempdir().unwrap();
+    let destination = moved.path().join("server");
+    fs::rename(fixture.root.path(), &destination).unwrap();
+    let server = MinecraftServer::inspect(&destination).unwrap();
+    let mut store = StashStore::write(&server).unwrap();
+    fs::write(destination.join("mods/mod.jar"), b"discard after moving").unwrap();
+    store
+        .verify(&Selector::Id(portable.id()), n, |_| Ok(()))
+        .unwrap();
+    store
+        .switch(&Selector::Id(portable.id()), true, n, |_| Ok(()))
+        .unwrap();
+    assert_eq!(
+        fs::read(destination.join("mods/mod.jar")).unwrap(),
+        b"portable contents"
+    );
+    drop(store);
+    files::remove_protected_tree(&destination).unwrap();
 }

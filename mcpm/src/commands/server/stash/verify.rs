@@ -56,7 +56,7 @@ pub(super) fn run(verify: VerifyArgs, context: &Context, mut out: &mut impl Writ
 
 #[derive(Debug, clap::Args)]
 #[command(
-    after_help = "Modes: Console and Raw. Accepts repeated --name/--id, plural lists and typed stdin. Checks manifest, full file set, sizes and complete BLAKE3 hashes through backup verification. Does not compare current mods. Failures do not stop later selections; any failure returns nonzero."
+    after_help = "Modes: Console and Raw. Accepts repeated --name/--id, plural lists and typed stdin. Checks the manifest, file set, sizes and complete BLAKE3 hashes through backup verification, using the server-local stash cache for missing backup files. Never initializes a missing cache or uses the global cache. Does not compare current mods. Failures do not stop later selections; any failure returns nonzero."
 )]
 pub(super) struct VerifyArgs {
     #[command(flatten)]

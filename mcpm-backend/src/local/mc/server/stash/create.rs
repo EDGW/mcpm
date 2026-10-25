@@ -6,7 +6,7 @@ use anyhow::{Context, Result, ensure};
 
 use super::{Stash, StashStore, WorkspaceState, index};
 use crate::local::{
-    cache::{CacheLinkPreference, mods::ModsCacheDir},
+    cache::mods::ModsCacheDir,
     mcmod::backup::{self, Event},
 };
 
@@ -34,7 +34,7 @@ impl StashStore<'_> {
             &self.backup_path(&stash),
             runtime_cache.open()?,
             backup::CreateOptions {
-                storage: backup::CreateStorage::Full(CacheLinkPreference::PreferHardLink),
+                storage: backup::CreateStorage::CacheOnly,
                 parallelism,
             },
             &mut emit,

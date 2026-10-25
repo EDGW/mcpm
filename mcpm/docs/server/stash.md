@@ -33,7 +33,7 @@ mcpm-server stash switch --name stable --force
 | `info` | Read selected indices and manifests; `--details` adds file records in Console |
 | `rename --name OLD NEW` / `--id UUID NEW` | Change the name without changing identity, time, backup or HEAD |
 | `delete` | Delete selected backups and indices, preserving mods and cached content; refuse HEAD |
-| `verify` | Verify indices, manifests, complete file inventories, sizes and full BLAKE3 hashes |
+| `verify` | Verify indices, manifests, file inventories, sizes and full BLAKE3 hashes from backup files or server-local stash cache |
 
 Names are unique and case-sensitive. Spaces and Unicode are allowed; whitespace-only
 names and control characters are rejected. Names are not trimmed automatically.
@@ -49,7 +49,7 @@ HEAD identifies the most recently saved or applied stash. Its marker does not im
 | `untracked` | HEAD does not exist | Requires `--force` |
 
 - All three valid status results exit successfully; inspection errors return nonzero.
-- Switch always fully verifies the target first, including with `--force` and when selecting HEAD.
+- Switch always fully verifies the target first, including with `--force` and when selecting HEAD. Referenced contents are checked through this server's stash cache; missing or corrupt required content refuses switching.
 - Force permits discarding contents; it does not bypass corrupt backups, invalid HEAD or workspace read errors.
 - Force-switching to HEAD restores the saved version and discards modifications.
 - No automatic snapshot is made before switching. Run create first to preserve modifications.
@@ -108,7 +108,11 @@ List and info accept `-C`, `--columns`, and repeated `--column`; explicit column
 
 - Index: `.mcpm/stash/index/<UUID>.json`; baseline: `.mcpm/stash/HEAD`.
 - Backups: `.mcpm/data/<backup-UUID>/`; content cache: `.mcpm/stash/blob/`.
-- Backups are self-contained and remain usable without the cache. Deleting a stash retains cached content.
+- New stashes default to cache-only: each backup directory contains only `manifest.mcbackup`. File contents live in the same server's `.mcpm/stash/blob/`, without a backup `data/` copy.
+- Verify and switch use this server's stash cache, never the global cache, and never initialize a missing cache. Status, list and info do not read cached contents.
+- When moving a server, keep its backup manifests, stash indices, HEAD and blob together. Manifests do not contain absolute cache paths.
+- Deleting a stash removes its backup manifest and index, retaining cached contents for other snapshots.
+- Older full backups remain supported. Missing files may use the server stash cache; existing corrupt files are never masked by fallback.
 - OS file locks serialize stash operations; busy locks fail immediately. Lock files persist and must not be removed manually.
 - External programs writing mods do not participate in these locks.
 - HEAD advances only after saving the index or successfully applying the backup. A failed HEAD update reports the already completed file operation.

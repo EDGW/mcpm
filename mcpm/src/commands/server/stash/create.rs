@@ -38,7 +38,7 @@ pub(super) fn run(create: CreateArgs, context: &Context, mut out: &mut impl Writ
 
 #[derive(Debug, clap::Args)]
 #[command(
-    after_help = "Modes: Console and Raw. Unchanged workspaces are refused. Names are unique, exact and case-sensitive. Creating a stash does not modify mods. The saved stash becomes the new comparison baseline."
+    after_help = "Modes: Console and Raw. Unchanged workspaces are refused. Names are unique, exact and case-sensitive. Creating a stash does not modify mods. The saved stash becomes the new comparison baseline. Stores a backup manifest and keeps file contents in the server-local stash cache."
 )]
 pub(super) struct CreateArgs {
     /// Unique exact stash name.

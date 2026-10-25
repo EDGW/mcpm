@@ -34,7 +34,7 @@ mcpm-server stash switch --name "稳定版" --force
 | `info` | 读取所选快照及 manifest，默认展示所有字段；不完整校验数据文件 |
 | `rename --name OLD NEW` / `--id UUID NEW` | 修改名称，UUID、创建时间和备份引用不变 |
 | `delete` | 删除所选索引及备份，保留 mods 和缓存；拒绝删除 HEAD |
-| `verify` | 完整检查索引、manifest、文件集合、大小和 BLAKE3；不修改或修复数据 |
+| `verify` | 完整检查索引、manifest、文件集合，以及备份或服务器 stash 缓存内容的大小和 BLAKE3；不修改或修复数据 |
 
 名称唯一、大小写敏感，允许中文和空格，不自动去除两端空格；禁止空白名称及控制字符。
 
@@ -49,7 +49,7 @@ HEAD 指向工作区最近保存或切换到的 stash，不表示工作区始终
 | `untracked` | 尚无 HEAD | 拒绝，除非使用 `--force` |
 
 - `status` 成功得到以上任一状态都返回 0，检查错误才返回非零。
-- switch 总是先完整 verify，包括 `--force` 和目标为 HEAD 的情况。
+- switch 总是先完整 verify，包括 `--force` 和目标为 HEAD 的情况；清单引用的内容通过服务器自己的 stash 缓存校验，缺失或损坏时拒绝切换。
 - `--force` 只允许丢弃内容，不忽略损坏目标、损坏 HEAD 或工作区读取错误。
 - 强制切换到 HEAD 可以丢弃当前修改、恢复已保存版本。
 - switch 不自动保存被覆盖的修改。需要保留时先 create。
@@ -107,7 +107,11 @@ list 和 info 支持 `-C`、`--columns`、重复的 `--column`，显式选择覆
 
 - 索引位于 `.mcpm/stash/index/<UUID>.json`，HEAD 位于 `.mcpm/stash/HEAD`。
 - 备份位于 `.mcpm/data/<backup-UUID>/`，缓存根为 `.mcpm/stash/blob/`。
-- 备份自包含；缓存删除不影响完整备份的恢复。删除 stash 默认保留缓存。
+- 新建 stash 默认使用 cache-only：备份目录只保存 `manifest.mcbackup`，内容保存在同一服务器的 `.mcpm/stash/blob/`，不再生成 backup 的 `data/` 副本。
+- verify 和 switch 使用该服务器的 stash 缓存，不使用 global cache，不初始化缺失缓存。status、list、info 不读取缓存内容。
+- 移动服务器时将备份清单、stash 索引、HEAD 和 blob 一起保留，路径没有写死在清单中。
+- 删除 stash 只删除其备份清单和索引，保留缓存内容供其他 stash 使用。
+- 旧完整备份仍可使用；其中缺失的文件可由服务器 stash 缓存补足，已经存在但损坏的文件不会被缓存掩盖。
 - 操作系统文件锁协调 stash 命令；占用时直接报错。锁文件长期保留，不要手动删除。
 - 不同程序修改 mods 不受该锁约束。
 - HEAD 仅在保存索引或成功应用之后更新。HEAD 更新失败会明确报告已有结果，不伪装全部成功。

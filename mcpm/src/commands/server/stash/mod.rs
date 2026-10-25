@@ -51,7 +51,7 @@ pub(super) fn run(args: StashArgs, ssh: SshArgs) -> Result<()> {
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Modes: Console and Raw (TSV; --raw or redirected stdout). Local only; SSH and Remote workspaces are rejected. Snapshots include every regular file in mods/, including disabled mods and non-JAR files. Empty directories are omitted. Keep mods stable during snapshot creation and switching. No automatic interruption recovery."
+    after_help = "Modes: Console and Raw (TSV; --raw or redirected stdout). Local only; SSH and Remote workspaces are rejected. Snapshots include every regular file in mods/, including disabled mods and non-JAR files. Empty directories are omitted. Backup manifests reference contents in the server-local stash cache; keep the stash directory together with its backups. Keep mods stable during snapshot creation and switching. No automatic interruption recovery."
 )]
 pub(super) struct StashArgs {
     /// Registered local server directory.

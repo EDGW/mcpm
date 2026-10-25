@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::MinecraftServer;
 use crate::local::{
-    cache::CacheLinkPreference,
+    cache::{CacheLinkPreference, mods::ModsCacheDir},
     mcmod::backup::{self, Event, Manifest},
 };
 
@@ -163,9 +163,10 @@ impl<'a> StashStore<'a> {
                 changed: false,
             });
         }
-        backup::apply(
+        backup::apply_with_cache(
             &self.backup_path(&stash),
             &self.mods_path(),
+            || self.open_cache(),
             backup::ApplyOptions {
                 mode: CacheLinkPreference::Copy,
                 parallelism,
@@ -268,8 +269,19 @@ impl<'a> StashStore<'a> {
         emit: impl FnMut(Event) -> Result<()>,
     ) -> Result<()> {
         self.manifest(stash)?;
-        backup::verify(&self.backup_path(stash), parallelism, emit)?;
+        backup::verify_with_cache(
+            &self.backup_path(stash),
+            || self.open_cache(),
+            parallelism,
+            emit,
+        )?;
         Ok(())
+    }
+
+    /// Opens existing server-local content without initializing or falling back to a global cache.
+    fn open_cache(&self) -> Result<ModsCacheDir> {
+        ModsCacheDir::new(self.server.runtime().cache.stash.selection().path()?)
+            .context("failed to open server stash content cache")
     }
 
     fn require_unique_name(&self, name: &str, except: Option<Uuid>) -> Result<()> {

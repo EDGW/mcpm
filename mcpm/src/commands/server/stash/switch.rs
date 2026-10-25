@@ -42,7 +42,7 @@ pub(super) fn run(switch: SwitchArgs, context: &Context, mut out: &mut impl Writ
 
 #[derive(Debug, clap::Args)]
 #[command(
-    after_help = "Modes: Console and Raw. Always fully verifies the target before checking the workspace, including with --force and when selecting HEAD. Modified or untracked workspaces are refused unless --force discards their contents. Copies replace the entire mods directory, including removal of extra files. No automatic backup of discarded modifications. HEAD changes only after successful application."
+    after_help = "Modes: Console and Raw. Always fully verifies the target backup and any required server-local stash cache contents before checking the workspace, including with --force and when selecting HEAD. Modified or untracked workspaces are refused unless --force discards their contents. Copies replace the entire mods directory, including removal of extra files. No automatic backup of discarded modifications. HEAD changes only after successful application."
 )]
 pub(super) struct SwitchArgs {
     #[command(flatten)]

@@ -24,7 +24,7 @@
 - 前端每个子命令独立拥有 Clap 参数、输入校验与执行入口，并显式选择共享或独占会话；命令族仅负责路由和公共设置。list/info 分别声明可选列，列合并与校验逻辑共用。
 - 后端 `stash/create.rs` 负责快照发布；发布失败且清理失败时，专用错误保留发布错误主链、独立清理错误链和残留备份路径。前端通过既有诊断入口分别报告两条错误链。
 - 每个 `.mcpm/stash/index/<UUID>.json` 保存 version=1、id、name、created_at（UTC）和 backup UUID；`.mcpm/stash/HEAD` 保存 version=1 与 stash UUID。两者的 JSON 编解码与验证只在 stash/index.rs 实现。
-- backup 引用解析为 `.mcpm/data/<backup-UUID>`，每条记录独立拥有 backup；文件清单和摘要仅由现有 backup manifest 提供。数据损坏不按缓存派生索引的规则静默重建。
+- backup 引用解析为 `.mcpm/data/<backup-UUID>`，每条记录独立拥有 backup 清单；新建 stash 使用 CacheOnly，文件内容位于服务器 stash blob；文件清单和摘要仅由现有 backup manifest 提供。数据损坏不按缓存派生索引的规则静默重建。
 - 服务器 RuntimeEnvironment 的 stash 角色延迟指向 `.mcpm/stash/blob`。backup 的显式缓存创建入口共享原有创建实现，不知道 stash 概念。
 - 独占锁覆盖所有修改操作；共享锁保护数据读取和校验。锁位于 `.mcpm/stash/lock`，文件永久保留。首次只读访问缺失目录或尚无锁的空目录时，固定返回空视图，不在无锁状态下继续读取后来发布的数据。
 - switch 先完整 verify，再比较工作区；force 不能绕过验证或检查错误。只有 apply 成功后才更新 HEAD；文件发布与 HEAD 更新不是跨文件事务，不提供中断恢复。
@@ -33,12 +33,13 @@
 ## Backup 缓存回退
 
 - backup 的 v1 manifest 是文件集合及摘要的唯一真相，cache-only 与完整备份共用格式；不持久化缓存路径或存在性副本。
-- `backup/create.rs` 共用内容导入与源验证，通过 CreateStorage 明确选择完整导出或仅清单发布。
+- `backup/create.rs` 共用内容导入与源验证，通过 CreateStorage 明确选择完整导出或仅清单发布；stash 显式选择 CacheOnly。
 - `backup/sources.rs` 是 verify/apply 共用的来源选择、完整内容验证和数据集合复查入口；verify_with_cache 不写入或生成目标。
 - `backup/apply.rs` 共用严格与可回退应用流程。严格 apply 不访问缓存；apply_with_cache 仅在清单文件实际缺失时调用延迟缓存入口。损坏、非法类型、不可读和额外文件不得触发回退。
 - cache 模块负责完整内容哈希和目录协议，backup 负责对照 manifest 的大小验证、来源选择和目标发布；前端不解释缓存布局或清单。
 - apply 使用已有缓存，不初始化；完整备份和空清单不打开缓存。全部来源和暂存结果验证通过后才能替换目标。
 - display/backup 统一英文风险提示、逐文件来源及统计；cache-only 的 Raw 格式保持原列，警告及缓存依赖提示写 stderr，不受普通日志级别过滤。
+- stash 使用 CacheOnly 创建，verify_with_cache 与 apply_with_cache 明确传入服务器 stash 缓存的只读打开入口，绝不回退 global；switch 在独占锁下先完整验证再检查工作区。删除 stash 保留 blob，不做 GC。
 
 ## 1. 命令
 
