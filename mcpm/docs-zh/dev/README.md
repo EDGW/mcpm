@@ -18,6 +18,18 @@
 - `official` 表示正式发布流程构建，也包含官方预发布版本，不表示稳定版。该标记不是来源签名。
 - 五个入口共享版本详情和非正式 release 启动提示；提示仅写 stderr，不受日志级别影响。
 
+## 服务端 stash
+
+- `mcpm-backend::local::mc::server::stash` 负责快照业务、索引、HEAD 和锁；前端 `commands/server/stash` 只负责参数、路由和展示协调，`display/stash` 统一呈现。
+- 前端每个子命令独立拥有 Clap 参数、输入校验与执行入口，并显式选择共享或独占会话；命令族仅负责路由和公共设置。list/info 分别声明可选列，列合并与校验逻辑共用。
+- 后端 `stash/create.rs` 负责快照发布；发布失败且清理失败时，专用错误保留发布错误主链、独立清理错误链和残留备份路径。前端通过既有诊断入口分别报告两条错误链。
+- 每个 `.mcpm/stash/index/<UUID>.json` 保存 version=1、id、name、created_at（UTC）和 backup UUID；`.mcpm/stash/HEAD` 保存 version=1 与 stash UUID。两者的 JSON 编解码与验证只在 stash/index.rs 实现。
+- backup 引用解析为 `.mcpm/data/<backup-UUID>`，每条记录独立拥有 backup；文件清单和摘要仅由现有 backup manifest 提供。数据损坏不按缓存派生索引的规则静默重建。
+- 服务器 RuntimeEnvironment 的 stash 角色延迟指向 `.mcpm/stash/blob`。backup 的显式缓存创建入口共享原有创建实现，不知道 stash 概念。
+- 独占锁覆盖所有修改操作；共享锁保护数据读取和校验。锁位于 `.mcpm/stash/lock`，文件永久保留。首次只读访问缺失目录或尚无锁的空目录时，固定返回空视图，不在无锁状态下继续读取后来发布的数据。
+- switch 先完整 verify，再比较工作区；force 不能绕过验证或检查错误。只有 apply 成功后才更新 HEAD；文件发布与 HEAD 更新不是跨文件事务，不提供中断恢复。
+- 新工作区的 `.gitignore` 不忽略 stash；data 与 cache 仍按生成模板处理。
+
 ## 1. 命令
 
 命令主要按照可复用性分为 **单一命令** 和 **通用命令**。

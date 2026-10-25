@@ -9,6 +9,7 @@ mod metadata;
 mod mod_source;
 mod mods;
 mod output;
+mod stash;
 mod target;
 mod workspace;
 
@@ -26,6 +27,8 @@ enum ServerCommand {
     Info(info::InfoArgs),
     /// Inspect mods associated with a registered server.
     Mods(mods::ModsArgs),
+    /// Save, inspect and switch complete Mod snapshots (Console, Raw; local only).
+    Stash(stash::StashArgs),
 }
 
 pub(crate) fn run(args: ServerArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
@@ -34,5 +37,6 @@ pub(crate) fn run(args: ServerArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         ServerCommand::Init(args) => init::run(args, ssh),
         ServerCommand::Info(args) => info::run(args, ssh),
         ServerCommand::Mods(args) => mods::run(args, ssh),
+        ServerCommand::Stash(args) => stash::run(args, ssh),
     }
 }

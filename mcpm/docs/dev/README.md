@@ -8,6 +8,18 @@
 - `app.rs` owns shared process initialization and dispatch. The binary passes its identity explicitly; renaming a file does not change its command family.
 - SSH starts `mcpm-tools remote` by default. Remote executable overrides belong to connection settings, independently of local command roots.
 
+## Server stash
+
+- `mcpm-backend::local::mc::server::stash` owns snapshot operations, indices, HEAD and locks. `commands/server/stash` owns CLI inputs and local routing; `display/stash` owns presentation.
+- `.mcpm/stash/index/<UUID>.json` stores version=1, id, name, created_at (UTC) and backup UUID. `.mcpm/stash/HEAD` stores version=1 and stash UUID. Their sole JSON codecs and validation live in stash/index.rs.
+- Each frontend leaf owns its Clap arguments, input validation and execution entry, explicitly selecting a shared or exclusive session. The family only routes commands and carries common settings. List and info declare separate column choices while sharing selection validation.
+- Backend `stash/create.rs` owns snapshot publication. If publication and cleanup both fail, its dedicated error retains the publication source chain, an independent cleanup chain and the retained backup path. The frontend reports both chains through the existing diagnostics entry.
+- Each stash independently owns `.mcpm/data/<backup-UUID>`. File lists and checksums come from the existing backup manifest, never duplicate authoritative index fields. Corrupt stash data is not silently rebuilt as derived cache state.
+- The server RuntimeEnvironment stash role lazily selects `.mcpm/stash/blob`. Backup accepts an explicit cache through a shared creation implementation without depending on stash concepts.
+- Writers retain an exclusive OS lease; readers and verification retain shared leases on `.mcpm/stash/lock`. The lock file is never removed. Before first initialization, readers capture a fixed empty view instead of reading subsequently published state without a lease.
+- Switch fully verifies the target before workspace comparison, including force and no-op switches. HEAD advances only after successful application. There is no cross-file transaction or interruption recovery.
+- Generated workspace Git ignore rules do not ignore stash; data and cache follow the generation template.
+
 ## Build identity
 
 - `build.rs` is the authority for compile-time build identity; `build_info.rs` exposes version metadata and `display/build_info.rs` renders the startup warning.
