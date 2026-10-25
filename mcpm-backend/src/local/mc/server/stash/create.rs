@@ -34,7 +34,7 @@ impl StashStore<'_> {
             &self.backup_path(&stash),
             runtime_cache.open()?,
             backup::CreateOptions {
-                mode: CacheLinkPreference::PreferHardLink,
+                storage: backup::CreateStorage::Full(CacheLinkPreference::PreferHardLink),
                 parallelism,
             },
             &mut emit,

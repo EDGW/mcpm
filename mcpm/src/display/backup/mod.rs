@@ -6,20 +6,22 @@ use std::{
 };
 
 use anyhow::Result;
-use mcpm_backend::local::{
-    cache::TransferMethod,
-    mcmod::backup::{
-        ChecksumMismatch, Comparison, DirectoryChecksum, Event, FileRecord, Manifest, Operation,
-        Outcome, Stage, VerificationError, VerifiedBackup,
-    },
+use mcpm_backend::local::mcmod::backup::{
+    ChecksumMismatch, Comparison, DirectoryChecksum, Event, FileDisposition, FileSource, Manifest,
+    Operation, Outcome, Stage, VerificationError, VerifiedBackup,
 };
 
 use super::{
     console::ConsoleWriter,
-    size::{binary, size},
+    size::size,
     style::{OutputStyle, text, tsv},
 };
 use crate::terminal;
+
+mod notice;
+pub(crate) use notice::{cache_only_created, cache_only_warning};
+mod summary;
+pub(crate) use summary::{file, summary};
 
 mod checksum;
 pub(crate) use checksum::file_difference;
@@ -73,9 +75,24 @@ impl<W: Write> Presentation<W> {
         summary(&mut self.output, outcome, self.headers)?;
         if terminal::stdout_is_tty() && self.details {
             let mut console = ConsoleWriter::new(&mut self.output);
-            for (record, method) in outcome.files() {
+            for (record, disposition) in outcome.files() {
                 writeln!(console)?;
-                file(&mut console, record, Some((method, outcome.operation())))?;
+                match disposition {
+                    FileDisposition::CacheOnly => {
+                        file(&mut console, record, None)?;
+                        writeln!(console.subwriter(), "Method: cache-only")?;
+                    }
+                    FileDisposition::Transferred { source, method } => {
+                        file(&mut console, record, Some((method, outcome.operation())))?;
+                        if outcome.operation() == Operation::Apply {
+                            let source = match source {
+                                FileSource::Backup => "backup",
+                                FileSource::Cache => "cache",
+                            };
+                            writeln!(console.subwriter(), "Source: {source}")?;
+                        }
+                    }
+                }
             }
         }
         self.output.flush()?;
@@ -247,162 +264,6 @@ pub(crate) fn verification_result(
                 .map(|verified| verified.manifest().checksum().to_string())
                 .unwrap_or_default()
         )?;
-    }
-    Ok(())
-}
-
-pub(crate) fn summary(out: &mut impl Write, outcome: &Outcome, headers: bool) -> Result<()> {
-    let manifest = outcome.manifest();
-    let count = manifest.files().len();
-    let (total, shared, linked) = outcome.files().fold(
-        (u128::from(outcome.manifest_size()), 0_u128, 0_usize),
-        |(total, shared, linked), (file, method)| {
-            let bytes = u128::from(file.size());
-            match method {
-                TransferMethod::Copy => (total + bytes, shared, linked),
-                TransferMethod::HardLink => (total + bytes, shared + bytes, linked + 1),
-            }
-        },
-    );
-    let copied = count - linked;
-    let actual = total - shared;
-    let operation = match outcome.operation() {
-        Operation::Create => "create",
-        Operation::Apply => "apply",
-    };
-    if terminal::stdout_is_tty() {
-        let style = OutputStyle::new();
-        let mut console = ConsoleWriter::new(out);
-        let message = match outcome.operation() {
-            Operation::Create => "The backup was created successfully.",
-            Operation::Apply => "The backup was applied successfully.",
-        };
-        writeln!(console, "\n{}", style.success(message))?;
-        {
-            let mut fields = console.subwriter();
-            writeln!(
-                fields,
-                "Destination: {}",
-                style.muted(text(&outcome.destination().to_string_lossy()))
-            )?;
-            writeln!(fields, "Files: {}", style.important(count))?;
-            sizes(&mut fields, total, shared, outcome.operation(), &style)?;
-            writeln!(fields, "Copied: {copied}")?;
-            writeln!(fields, "Hard linked: {linked}")?;
-            writeln!(fields, "Checksum: {}", style.muted(manifest.checksum()))?;
-        }
-        if linked > 0 {
-            hard_link_tip(&mut console, shared, outcome.operation(), &style)?;
-        }
-        if outcome.operation() == Operation::Create {
-            let protection = if cfg!(unix) {
-                " Its default permissions prevent ordinary recursive deletion."
-            } else {
-                " This command handles the backup's directory protection."
-            };
-            tip(
-                &mut console,
-                &format!(
-                    "Tip: Use {} mod backup delete <BACKUP> to delete this backup.{protection}",
-                    crate::program::roots().tools
-                ),
-                &style,
-            )?;
-        }
-    } else {
-        if headers {
-            writeln!(
-                out,
-                "operation\tdestination\tfiles\tsize\tactual_size\tshared_size\tchecksum\tcopied\thard_linked"
-            )?;
-        }
-        writeln!(
-            out,
-            "{operation}\t{}\t{count}\t{total}\t{actual}\t{shared}\t{}\t{copied}\t{linked}",
-            tsv(&outcome.destination().to_string_lossy()),
-            manifest.checksum()
-        )?;
-    }
-    Ok(())
-}
-
-pub(crate) fn file(
-    out: &mut ConsoleWriter<'_>,
-    record: &FileRecord,
-    transfer: Option<(TransferMethod, Operation)>,
-) -> Result<()> {
-    let style = OutputStyle::new();
-    writeln!(out, "File: {}", style.primary(text(record.path())))?;
-    let mut fields = out.subwriter();
-    writeln!(fields, "BLAKE3: {}", style.muted(record.blake3()))?;
-    let total = u128::from(record.size());
-    if let Some((method, operation)) = transfer {
-        let shared = if method == TransferMethod::HardLink {
-            total
-        } else {
-            0
-        };
-        sizes(&mut fields, total, shared, operation, &style)?;
-        writeln!(
-            fields,
-            "Method: {}",
-            super::cache::operations::method(method)
-        )?;
-    } else {
-        writeln!(fields, "Size: {}", size(total, &style))?;
-    }
-    Ok(())
-}
-
-fn sizes(
-    out: &mut ConsoleWriter<'_>,
-    total: u128,
-    shared: u128,
-    operation: Operation,
-    style: &OutputStyle,
-) -> Result<()> {
-    writeln!(out, "Size: {}", size(total, style))?;
-    write!(out, "Actual Size: {}", size(total - shared, style))?;
-    if shared > 0 {
-        let label = match operation {
-            Operation::Create => "cached",
-            Operation::Apply => "shared",
-        };
-        write!(
-            out,
-            " {}",
-            style.muted(format!("({} {label})", binary(shared)))
-        )?;
-    }
-    writeln!(out)?;
-    Ok(())
-}
-
-fn hard_link_tip(
-    out: &mut ConsoleWriter<'_>,
-    shared: u128,
-    operation: Operation,
-    style: &OutputStyle,
-) -> Result<()> {
-    let (source, object, option) = match operation {
-        Operation::Create => ("the cache", "this backup", "when creating the backup"),
-        Operation::Apply => ("the backup", "these files", "when applying the backup"),
-    };
-    let message = format!(
-        "Tip: {} of files are hard-linked to {source} and use no additional disk space; \
-         copying or transferring {object}, or moving {object} to a location that cannot preserve \
-         those hard links, will require that space again; use --mode copy {option} to store independent copies.",
-        binary(shared)
-    );
-    tip(out, &message, style)
-}
-
-fn tip(out: &mut ConsoleWriter<'_>, message: &str, style: &OutputStyle) -> Result<()> {
-    writeln!(out)?;
-    let options = textwrap::Options::new(textwrap::termwidth().max(1))
-        .word_splitter(textwrap::WordSplitter::NoHyphenation);
-    for line in textwrap::wrap(message, options) {
-        writeln!(out, "{}", style.muted(line))?;
     }
     Ok(())
 }

@@ -30,6 +30,16 @@
 - switch 先完整 verify，再比较工作区；force 不能绕过验证或检查错误。只有 apply 成功后才更新 HEAD；文件发布与 HEAD 更新不是跨文件事务，不提供中断恢复。
 - 新工作区的 `.gitignore` 不忽略 stash；data 与 cache 仍按生成模板处理。
 
+## Backup 缓存回退
+
+- backup 的 v1 manifest 是文件集合及摘要的唯一真相，cache-only 与完整备份共用格式；不持久化缓存路径或存在性副本。
+- `backup/create.rs` 共用内容导入与源验证，通过 CreateStorage 明确选择完整导出或仅清单发布。
+- `backup/sources.rs` 是 verify/apply 共用的来源选择、完整内容验证和数据集合复查入口；verify_with_cache 不写入或生成目标。
+- `backup/apply.rs` 共用严格与可回退应用流程。严格 apply 不访问缓存；apply_with_cache 仅在清单文件实际缺失时调用延迟缓存入口。损坏、非法类型、不可读和额外文件不得触发回退。
+- cache 模块负责完整内容哈希和目录协议，backup 负责对照 manifest 的大小验证、来源选择和目标发布；前端不解释缓存布局或清单。
+- apply 使用已有缓存，不初始化；完整备份和空清单不打开缓存。全部来源和暂存结果验证通过后才能替换目标。
+- display/backup 统一英文风险提示、逐文件来源及统计；cache-only 的 Raw 格式保持原列，警告及缓存依赖提示写 stderr，不受普通日志级别过滤。
+
 ## 1. 命令
 
 命令主要按照可复用性分为 **单一命令** 和 **通用命令**。

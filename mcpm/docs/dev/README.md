@@ -30,6 +30,16 @@
 - `official` includes official prereleases; it does not mean stable. This marker is not a source signature.
 - All five executables share version details and the unofficial release startup warning. The warning goes only to stderr and is independent of log filtering.
 
+## Backup cache fallback
+
+- The v1 backup manifest is the sole authority for file mappings and checksums. Full and cache-only backups share it without persisted cache paths or availability fields.
+- `backup/create.rs` shares cache imports and source verification, with CreateStorage selecting full export or manifest-only publication.
+- `backup/sources.rs` owns source selection, full content verification and data inventory rechecks shared by verify/apply; verify_with_cache does not write or generate a target.
+- `backup/apply.rs` shares strict and cache-assisted staging/publication. Strict apply never accesses cache; apply_with_cache invokes a lazy opener only for actually missing manifest files. Corruption, invalid types, unreadable files and unexpected files never trigger fallback.
+- Cache owns full content hashing and directory protocols; backup checks manifest sizes, selects sources and publishes targets. Frontend code does not interpret cache layout or manifests.
+- Apply opens existing caches without initialization; complete backups and empty manifests do not open cache. All sources and staged results must verify before target replacement.
+- display/backup owns English notices, per-file provenance and statistics. Cache-only Raw output keeps existing columns; unfiltered risk/dependency notices go to stderr.
+
 ## 1. Commands
 
 Commands are classified by reuse as **single entry point commands** or **shared commands**.

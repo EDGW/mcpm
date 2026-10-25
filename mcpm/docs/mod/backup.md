@@ -10,6 +10,8 @@ Archives are not unpacked and empty directories are not recorded. Operations are
 ```sh
 mcpm-tools mod backup create ./mods ./backups/before-update
 mcpm-tools mod backup create ./mods ./backups/before-update --mode copy
+mcpm-tools mod backup create ./mods ./backups/manifest-only --cache-only
+mcpm-tools mod backup apply ./backups/manifest-only ./mods --cache-dir ./cache
 mcpm-tools mod backup create ./mods ./backups/before-update --mode prefer-hard-link --parallelism 4
 mcpm-tools mod backup apply ./backups/before-update ./mods
 mcpm-tools mod backup apply ./backups/before-update ./mods --force
@@ -32,8 +34,9 @@ The apply target's parent must exist; the target must be absent or empty unless 
 | Option | create | apply |
 | --- | --- | --- |
 | Positional arguments | `<SOURCE> <BACKUP>` | `<BACKUP> <TARGET>` |
-| `--mode MODE` | Cache to backup; defaults to `hard-link` | Backup to target; defaults to `copy` |
-| `--cache-dir PATH` | An initialized content cache; defaults to `~/.mcpm/cache/mods` | No cache is used |
+| `--mode MODE` | Cache to backup; defaults to `hard-link`; conflicts with explicit `--cache-only` | Backup or cache to target; defaults to `copy` |
+| `--cache-dir PATH` | An initialized content cache; defaults to global: `~/.mcpm/cache/mods` | Fallback for missing files; same default; opens an existing cache only when needed |
+| `--cache-only` | Import and verify content in cache, then publish only the manifest, without `data/` | Unavailable |
 | `--parallelism COUNT` | Concurrent files per stage; defaults to `10` | Same |
 | `--force` | Unavailable | Replace the entire nonempty target, removing files absent from the backup |
 | `--details` | Show file paths, BLAKE3, sizes and actual transfer methods in Console | Same |
@@ -68,21 +71,48 @@ while each file path has its own manifest record. Empty sources are valid, but e
 Failures do not publish an incomplete backup. Completed cache imports remain.
 Source, backup and cache directories must not overlap.
 
+## Manifest-only backups
+
+`create --cache-only` shares normal creation's cache imports and source verification. Before publication, it fully verifies all referenced cache contents, then writes only the protected `manifest.mcbackup`, without `data/`.
+
+- This is not a shortcut around content verification: cached bytes must exist and match their complete BLAKE3 and manifest size.
+- It conflicts with an explicit `--mode`, because no files are transferred into the backup. The implicit default mode does not conflict.
+- The existing v1 format and checksum are unchanged. Identical file sets have the same checksum as full backups; no absolute cache path is stored.
+- Cache cleanup, loss or corruption may make restoration impossible. Copying the manifest does not copy file contents. The manifest does not retain or protect cache objects from removal.
+- English risk/dependency notices appear on stderr before creation and after success, including in Raw and with logging disabled. No extra confirmation is required.
+- The success notice identifies the actual cache path. An empty manifest explicitly has no cached-content dependency.
+- Failure does not publish an incomplete backup; completed cache imports remain. Corrupt cache objects are not automatically repaired.
+
 ## Applying
 
-1. Validate the manifest version, paths and semantic checksum.
-2. Match the complete regular-file set in `data/` and verify each file's size and BLAKE3.
-3. Generate and verify files in a sibling staging directory, then replace the target after all files succeed.
+1. Validate the manifest format, paths, semantic checksum and target-platform names.
+2. Inspect backup `data/`, rejecting unexpected files or invalid types. The data directory may be absent.
+3. Prefer each backup file, falling back to the selected cache only when missing. Fully verify sizes and complete BLAKE3 hashes for all selected sources.
+4. Generate and verify files and the complete file set in a sibling staging directory, then replace the target after all files succeed.
 
-Default copies are writable. Hard links share the backup's contents and write protection;
-replace linked files when updating them rather than editing their bytes in place.
-Backups are self-contained and remain usable after the original cache objects are removed.
+| Backup file state | Behavior |
+| --- | --- |
+| Present and valid | Use the backup file |
+| Absent, including an absent data directory | Retrieve its manifest BLAKE3 from the selected cache |
+| Wrong size/hash or unreadable | Fail without cache fallback |
+| Occupied by a directory, symlink or special file, or invalid parent type | Fail without cache fallback |
+| Unexpected files in data | Fail |
+| Required cache missing, malformed, or content absent/corrupt | Fail |
 
-`--force` never skips verification or merges directories. The previous target is retained until
-publication succeeds, with rollback attempted on failure. If rollback or cleanup of the previous tree
-fails, the error identifies the retained recovery directory. Directory switching does not provide
-transaction recovery after power loss. Backup and target must not overlap. Unsupported target-platform
-names or conflicting paths fail the operation.
+- The default is the global cache (`~/.mcpm/cache/mods`); `--cache-dir` selects another initialized cache.
+- Complete backups never open a cache and work even if the default cache is absent or an explicitly selected cache is unavailable.
+- Apply does not initialize caches, search other caches or the network, repair the backup, or import content into cache.
+- Only cache objects actually used by this operation are fully verified; unrelated cache entries are not scanned. Quick hashes and indexes do not establish content correctness.
+- Default copies are writable. Hard links share their actual backup or cache source's contents and write protection; replace linked files rather than editing their bytes in place.
+- Normal complete backups remain self-contained after cache removal. Manifest-only or incomplete backups depend on the selected cache.
+- Empty manifests restore empty targets without requiring data or cache. Empty subdirectories are not restored.
+
+`--force` never skips verification or merges directories. Content verification or staging failures leave the target unchanged.
+The previous target is retained until publication succeeds, with rollback attempted on failure. If rollback or cleanup of the previous tree fails, the error identifies the retained recovery directory. Directory switching does not provide transaction recovery after power loss.
+Backup and target must not overlap. A fallback cache must not overlap either backup or target.
+Existing read/transfer change detection remains in force; it does not prevent external cache removal after the operation.
+
+Stash defaults to manifest-only creation and verifies/restores contents through its server-local `.mcpm/stash/blob`. Switch must fully verify all required content, including cache contents, before checking the workspace and applying. Standalone `backup verify` still checks only self-contained integrity without cache access.
 
 ## Standalone verification
 
@@ -94,6 +124,7 @@ mcpm-tools mod backup verify [OPTIONS] [BACKUP]...
 - Blank lines are ignored and spaces are preserved. Quotes in stdin are literal filename characters, not shell quoting.
 - Identical paths are checked once in first-seen order. At least one path is required after combining inputs.
 - Checks manifest format and checksum, the complete `data/` file set, file sizes and full BLAKE3 hashes.
+- Verifies self-contained integrity without cache fallback: nonempty manifest-only backups fail; empty manifests do not require data.
 - Does not unpack archives, apply backups, create target directories or open/populate a cache.
 - Processes backups sequentially. `--parallelism COUNT` limits concurrent files within each backup; defaults to `10` and must be positive.
 - Continues after individual backup failures. Returns `0` only if all selected backups pass.
@@ -218,6 +249,8 @@ backup/
         └── another.jar.disabled
 ```
 
+A manifest-only backup contains just `manifest.mcbackup`, without `data/`; no separate format is introduced.
+
 `manifest.mcbackup` is JSON. Version `1` has these fields:
 
 ```json
@@ -239,7 +272,7 @@ backup/
 - `blake3` is both the content hash and cache key. `size` is in bytes.
 - Directories, absolute cache paths, transfer methods, permissions, modification times and named metadata are omitted.
 - Unknown fields, duplicate JSON fields, duplicate file paths and files also used as parent directories are rejected.
-- Missing or extra files, symbolic links and special files in `data/` fail verification. Extra empty directories do not affect the file set.
+- Strict verify requires a complete data file set. Apply may retrieve missing files from cache, but rejects extra files, symlinks, special files and directories occupying manifest file paths. Extra empty directories do not affect the file set.
 
 The checksum uses parsed records, independently of JSON formatting, object field order, record order
 and equivalent string escaping. Sort files by ascending UTF-8 path bytes and calculate BLAKE3 over:
@@ -260,10 +293,14 @@ Summary sizes count content bytes, without querying allocated filesystem space:
 
 - `Size`: all file sizes plus the manifest's actual encoded byte count, including JSON formatting.
 - `Actual Size`: copied file sizes plus the manifest size; shared hard-linked contents are excluded.
-- Creation labels shared contents `(… cached)`; application links directly to the backup and labels them `(… shared)`.
+- Creation labels shared contents `(… cached)`; application may link to backup or cache and labels them `(… shared)`.
+- For cache-only creation, Actual Size is only the manifest size; Copied, Hard linked and shared size are zero. Size still includes referenced contents.
+- Apply summaries show From backup / From cache file counts; details include Source and actual Method. Cache-only details show Method: cache-only.
 - Application summaries also include the input manifest size; the manifest is not copied into the target Mod directory.
 - Sizes use forms such as `1.50MiB (1572864 bytes)`, with parentheses and exact bytes shown in gray.
 - Hard links trigger an English tip explaining that copying, transferring or moving to a location that cannot preserve the links may consume that space again, with `--mode copy` for independent copies.
+
+All in-program help, warnings, errors, progress, details and result messages use English. User-provided paths retain their text with existing escaping.
 
 Redirected stdout automatically uses Raw. Stderr independently controls progress; explicit `--raw` disables it.
 
@@ -272,6 +309,8 @@ Creation and application emit one Raw TSV row only after success, without header
 ```text
 operation  destination  files  size  actual_size  shared_size  checksum  copied  hard_linked
 ```
+
+Cache-only creation keeps these Raw columns: `actual_size` is only the manifest size; `shared_size`, `copied` and `hard_linked` are zero. Risk notices and success-time cache dependencies go to stderr without contaminating TSV.
 
 `operation` is `create` or `apply`; `destination` is the resolved absolute target path.
 `size`, `actual_size` and `shared_size` are integer byte counts; `shared_size` counts hard-linked file contents and excludes the manifest.

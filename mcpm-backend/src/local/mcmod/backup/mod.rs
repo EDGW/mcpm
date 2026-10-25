@@ -10,19 +10,20 @@ use anyhow::{Context, Result};
 
 use crate::{
     blocking,
-    local::{
-        cache::{CacheLinkPreference, TransferMethod, mods::ModsCacheDir},
-        files::{self, Content, DirectoryProtection},
-        runtime::RuntimeEnvironment,
-    },
+    local::cache::{TransferMethod, mods::ModsCacheDir},
 };
 
+mod apply;
+pub use apply::{ApplyOptions, apply, apply_with_cache};
+mod create;
+pub use create::{CreateOptions, CreateStorage, create, create_with_cache};
 mod checksum;
 pub use checksum::{Comparison, DirectoryChecksum, FileDifference, checksum};
 mod delete;
 pub use delete::delete;
 mod manifest;
 pub use manifest::{ChecksumMismatch, FileRecord, MANIFEST_NAME, Manifest};
+mod sources;
 mod tree;
 mod verification;
 pub use verification::VerificationError;
@@ -37,16 +38,40 @@ mod tests;
 pub fn verify(
     backup: &Path,
     parallelism: NonZeroUsize,
+    emit: impl FnMut(Event) -> Result<()>,
+) -> Result<VerifiedBackup> {
+    verify_inner(
+        backup,
+        None::<fn() -> Result<ModsCacheDir>>,
+        parallelism,
+        emit,
+    )
+}
+
+/// Fully verifies restoration sources, consulting the supplied cache only for missing backup files.
+/// Does not create files, initialize caches or populate backup data.
+pub fn verify_with_cache(
+    backup: &Path,
+    open_cache: impl FnOnce() -> Result<ModsCacheDir>,
+    parallelism: NonZeroUsize,
+    emit: impl FnMut(Event) -> Result<()>,
+) -> Result<VerifiedBackup> {
+    verify_inner(backup, Some(open_cache), parallelism, emit)
+}
+
+fn verify_inner(
+    backup: &Path,
+    open_cache: Option<impl FnOnce() -> Result<ModsCacheDir>>,
+    parallelism: NonZeroUsize,
     mut emit: impl FnMut(Event) -> Result<()>,
 ) -> Result<VerifiedBackup> {
-    let directory = tree::root(backup)?;
-    let (manifest, manifest_size) = Manifest::read_with_size(&directory.join(MANIFEST_NAME))?;
-    verify_tree(&directory.join("data"), &manifest, parallelism, &mut emit)?;
-    Ok(VerifiedBackup {
-        directory,
-        manifest,
-        manifest_size,
-    })
+    let plan = sources::Sources::inspect(backup, open_cache).map_err(|error| {
+        if matches!(error.downcast_ref::<VerificationError>(), Some(VerificationError::FileSet { missing, unexpected, .. }) if !missing.is_empty() && unexpected.is_empty()) {
+            error.context("backup is not self-contained; cache-assisted restoration requires a verified cache")
+        } else { error }
+    })?;
+    plan.verify(parallelism, &mut emit)?;
+    Ok(plan.backup)
 }
 
 /// A complete read-only integrity check, with no transfer or cache ownership assumptions.
@@ -70,190 +95,10 @@ impl VerifiedBackup {
 
 // endregion
 
-// region: create
-
-/// Creates a complete verified backup; successful content imports survive later failures.
-pub fn create(
-    source: &Path,
-    destination: &Path,
-    environment: &RuntimeEnvironment,
-    options: CreateOptions,
-    emit: impl FnMut(Event) -> Result<()>,
-) -> Result<Outcome> {
-    let cache = environment.cache.backup.open()?;
-    create_with_cache(source, destination, cache, options, emit)
-}
-
-/// Creates a backup using an explicitly selected content resource, without choosing a runtime role.
-pub fn create_with_cache(
-    source: &Path,
-    destination: &Path,
-    cache: &ModsCacheDir,
-    options: CreateOptions,
-    mut emit: impl FnMut(Event) -> Result<()>,
-) -> Result<Outcome> {
-    let source = tree::root(source)?;
-    let destination = tree::Destination::inspect(destination, false)?;
-    tree::disjoint(&source, &destination.path)?;
-    tree::disjoint(&source, cache.path())?;
-    tree::disjoint(&destination.path, cache.path())?;
-    let inventory = tree::scan(&source)?;
-    tracing::info!(
-        files = inventory.files.len(),
-        "Preparing backup cache contents"
-    );
-    let records = run_files(
-        inventory.files.len(),
-        options.parallelism,
-        Stage::Cache,
-        |index| {
-            let relative = &inventory.files[index];
-            let path = tree::file_path(&source, relative)?;
-            let original = Content::open(&path)?.context("backup source disappeared")?;
-            let key = cache
-                .import(&path, CacheLinkPreference::Copy)
-                .with_context(|| format!("failed to cache backup file {path:?}"))?;
-            original.validate()?;
-            Ok(FileRecord::new(relative.clone(), key, original.size()))
-        },
-        &mut emit,
-    )?;
-    let manifest = Manifest::new(records)?;
-    // The source set and every file must still match before backup generation starts.
-    verify_tree(&source, &manifest, options.parallelism, &mut emit)?;
-    let workspace = tempfile::tempdir_in(destination.path.parent().unwrap())?;
-    let staged = workspace.path().join("new");
-    let data = staged.join("data");
-    fs::create_dir_all(&data)?;
-    let result = (|| {
-        let methods = run_files(
-            manifest.files().len(),
-            options.parallelism,
-            Stage::Transfer,
-            |index| {
-                let record = &manifest.files()[index];
-                let path = data.join(record.path());
-                fs::create_dir_all(path.parent().unwrap())?;
-                let method = cache
-                    .export_file(&record.blake3(), &path, options.mode)
-                    .with_context(|| format!("failed to create backup file {:?}", record.path()))?;
-                check_file(&path, record)?;
-                files::protect_file_contents(&path)
-                    .with_context(|| format!("failed to protect backup file {path:?}"))?;
-                Ok(method)
-            },
-            &mut emit,
-        )?;
-        check_inventory(&data, &manifest)?;
-        // Guards restore directory access before workspace cleanup on every error path.
-        let mut protections = Vec::new();
-        for path in tree::scan(&data)?.directories.into_iter().rev() {
-            protections.push(
-                DirectoryProtection::protect(&path)
-                    .with_context(|| format!("failed to protect backup directory {path:?}"))?,
-            );
-        }
-        let manifest_path = staged.join(MANIFEST_NAME);
-        let manifest_size = manifest.write(&manifest_path)?;
-        files::protect_file_contents(&manifest_path)
-            .context("failed to protect backup manifest contents")?;
-        destination.commit(&staged, &workspace.path().join("previous"))?;
-        for protection in protections {
-            protection.persist();
-        }
-        Ok((methods, manifest_size))
-    })();
-    let (methods, manifest_size) = finish_workspace(workspace, result)?;
-    Ok(Outcome {
-        operation: Operation::Create,
-        destination: destination.path,
-        manifest,
-        manifest_size,
-        methods,
-    })
-}
-
-/// Cache-to-backup transfer policy; source-to-cache imports always copy content only.
-#[derive(Debug, Clone, Copy)]
-pub struct CreateOptions {
-    pub mode: CacheLinkPreference,
-    pub parallelism: NonZeroUsize,
-}
-
-// endregion
-
-// region: apply
-
-/// Applies a self-contained backup without opening or populating a cache.
-pub fn apply(
-    backup: &Path,
-    destination: &Path,
-    options: ApplyOptions,
-    mut emit: impl FnMut(Event) -> Result<()>,
-) -> Result<Outcome> {
-    let backup = tree::root(backup)?;
-    let destination = tree::Destination::inspect(destination, options.force)?;
-    tree::disjoint(&backup, &destination.path)?;
-    let VerifiedBackup {
-        manifest,
-        manifest_size,
-        ..
-    } = verify(&backup, options.parallelism, &mut emit)?;
-    tree::validate_target_names(manifest.files())?;
-    let data = backup.join("data");
-    let workspace = tempfile::tempdir_in(destination.path.parent().unwrap())?;
-    let staged = workspace.path().join("new");
-    fs::create_dir(&staged)?;
-    let result = (|| {
-        let methods = run_files(
-            manifest.files().len(),
-            options.parallelism,
-            Stage::Transfer,
-            |index| {
-                let record = &manifest.files()[index];
-                let source = tree::file_path(&data, record.path())?;
-                let mut content = Content::open(&source)?.context("backup file disappeared")?;
-                let path = staged.join(record.path());
-                fs::create_dir_all(path.parent().unwrap())?;
-                let method = files::stage(&mut content, &path, options.mode)
-                    .with_context(|| format!("failed to apply backup file {:?}", record.path()))?;
-                check_file(&path, record)?;
-                content.validate()?;
-                if method == TransferMethod::HardLink {
-                    files::protect_file_contents(&path)?;
-                }
-                Ok(method)
-            },
-            &mut emit,
-        )?;
-        check_inventory(&staged, &manifest)?;
-        check_inventory(&data, &manifest)?;
-        destination.commit(&staged, &workspace.path().join("previous"))?;
-        Ok(methods)
-    })();
-    let methods = finish_workspace(workspace, result)?;
-    Ok(Outcome {
-        operation: Operation::Apply,
-        destination: destination.path,
-        manifest,
-        manifest_size,
-        methods,
-    })
-}
-
-/// Backup-to-directory transfer policy and destination replacement behavior.
-#[derive(Debug, Clone, Copy)]
-pub struct ApplyOptions {
-    pub mode: CacheLinkPreference,
-    pub parallelism: NonZeroUsize,
-    pub force: bool,
-}
-
-// endregion
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation {
     Create,
+    CreateCacheOnly,
     Apply,
 }
 
@@ -276,14 +121,14 @@ pub enum Event {
     StageDone(Stage),
 }
 
-/// A successful publication; transfer methods correspond to the sorted manifest records.
+/// A successful publication; per-file dispositions correspond to the sorted manifest records.
 #[derive(Debug)]
 pub struct Outcome {
     operation: Operation,
     destination: PathBuf,
     manifest: Manifest,
     manifest_size: u64,
-    methods: Vec<TransferMethod>,
+    dispositions: Vec<FileDisposition>,
 }
 impl Outcome {
     pub fn operation(&self) -> Operation {
@@ -299,12 +144,29 @@ impl Outcome {
     pub fn manifest_size(&self) -> u64 {
         self.manifest_size
     }
-    pub fn files(&self) -> impl Iterator<Item = (&FileRecord, TransferMethod)> {
+    pub fn files(&self) -> impl Iterator<Item = (&FileRecord, FileDisposition)> {
         self.manifest
             .files()
             .iter()
-            .zip(self.methods.iter().copied())
+            .zip(self.dispositions.iter().copied())
     }
+}
+
+/// A file was retained only in cache, or transferred from one verified source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileDisposition {
+    CacheOnly,
+    Transferred {
+        source: FileSource,
+        method: TransferMethod,
+    },
+}
+
+/// The content resource used to generate an exported file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileSource {
+    Backup,
+    Cache,
 }
 
 fn verify_tree(

@@ -10,7 +10,7 @@ use std::{
 
 use mcpm_backend::local::{
     cache::{CacheLinkPreference, mods::ModsCacheDir},
-    mcmod::backup::{self, CreateOptions},
+    mcmod::backup::{self, CreateOptions, CreateStorage},
 };
 
 fn run(root: &Path, operation: &str, paths: &[&str], input: &str) -> Output {
@@ -61,7 +61,7 @@ fn arguments_and_literal_stdin_paths_verify_all_backups_after_a_failure() {
             },
         ),
         CreateOptions {
-            mode: CacheLinkPreference::Copy,
+            storage: CreateStorage::Full(CacheLinkPreference::Copy),
             parallelism: NonZeroUsize::new(2).unwrap(),
         },
         |_| Ok(()),
@@ -107,7 +107,7 @@ fn deletion_combines_arguments_and_stdin_and_continues_after_a_refused_directory
     fs::write(source.join("file.jar"), b"cached content").unwrap();
     let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
     let options = CreateOptions {
-        mode: CacheLinkPreference::HardLink,
+        storage: CreateStorage::Full(CacheLinkPreference::HardLink),
         parallelism: NonZeroUsize::new(2).unwrap(),
     };
     for name in ["first backup", "second backup"] {
