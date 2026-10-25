@@ -52,12 +52,12 @@ Without explicit global SSH options, a Local or unregistered `PATH` initializes 
 
 ```text
 .mcpm/
-├── .gitignore   # Ignores /stash, /cache and /registration.lock
+├── .gitignore   # Ignores /cache, /data and /registration.lock
 ├── mcpm.json    # version: 1, type: local
 └── server.json  # Local server metadata, version: 2
 ```
 
-Initializing a Local or Remote workspace creates `.mcpm/.gitignore` containing `# Added by mcpm`, a blank line, and the `/stash`, `/cache`, and `/registration.lock` rules. Existing contents are preserved. If the file already ends with the complete block when blank lines are ignored, nothing is appended; otherwise, the complete block is appended after a newline. Repeated initialization with `--force` therefore does not duplicate the block.
+Initializing a Local or Remote workspace creates `.mcpm/.gitignore` containing `# Added by mcpm`, a blank line, and the `/cache`, `/data`, and `/registration.lock` rules. No stash ignore rule is added. Existing contents are preserved. If the file already ends with the complete block when blank lines are ignored, nothing is appended; otherwise, the complete block is appended after a newline. Repeated initialization with `--force` therefore does not duplicate the block.
 
 Default Git behavior:
 

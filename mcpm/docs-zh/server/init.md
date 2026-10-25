@@ -52,12 +52,12 @@ SSH 连接和远端 mcpm 程序均复用[全局参数](../README.md#全局选项
 
 ```text
 .mcpm/
-├── .gitignore   # 忽略 /stash、/cache 和 /registration.lock
+├── .gitignore   # 忽略 /cache、/data 和 /registration.lock
 ├── mcpm.json    # version: 1, type: local
 └── server.json  # Local 服务端元数据，version: 2
 ```
 
-初始化 Local 或 Remote 工作目录时自动创建 `.mcpm/.gitignore`，内容为 `# Added by mcpm`、一个空行以及 `/stash`、`/cache`、`/registration.lock` 三条规则。已有文件保留原内容；忽略空行后，若文件末尾已与完整内容一致，则不追加，否则换行后追加完整内容。因此，连续使用 `--force` 初始化不会重复追加。
+初始化 Local 或 Remote 工作目录时自动创建 `.mcpm/.gitignore`，内容为 `# Added by mcpm`、一个空行以及 `/cache`、`/data`、`/registration.lock` 三条规则，不新增 stash 忽略规则。已有文件保留原内容；忽略空行后，若文件末尾已与完整内容一致，则不追加，否则换行后追加完整内容。因此，连续使用 `--force` 初始化不会重复追加。
 
 Git 默认行为：
 
