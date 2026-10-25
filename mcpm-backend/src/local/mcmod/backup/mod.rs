@@ -11,8 +11,9 @@ use anyhow::{Context, Result};
 use crate::{
     blocking,
     local::{
-        cache::{CacheLinkPreference, TransferMethod, mods::ModsCacheDir},
+        cache::{CacheLinkPreference, TransferMethod},
         files::{self, Content, DirectoryProtection},
+        runtime::RuntimeEnvironment,
     },
 };
 
@@ -73,10 +74,11 @@ impl VerifiedBackup {
 pub fn create(
     source: &Path,
     destination: &Path,
-    cache: &ModsCacheDir,
+    environment: &RuntimeEnvironment,
     options: CreateOptions,
     mut emit: impl FnMut(Event) -> Result<()>,
 ) -> Result<Outcome> {
+    let cache = environment.cache.backup.open()?;
     let source = tree::root(source)?;
     let destination = tree::Destination::inspect(destination, false)?;
     tree::disjoint(&source, &destination.path)?;

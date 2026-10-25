@@ -46,7 +46,7 @@ pub fn build_with_progress(
         let mut file = mcmod::open(
             entry,
             loaders.clone(),
-            &mcmod::ModOpenContext::default(),
+            &crate::local::runtime::RuntimeEnvironment::new().with_mods_cache(None),
             |entry, loader, _, error| {
                 on_error(error);
                 graph.identification_failures.push(IdentificationFailure {

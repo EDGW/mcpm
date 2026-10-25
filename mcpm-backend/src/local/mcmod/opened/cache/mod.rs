@@ -1,48 +1,11 @@
-//! Cache selection, reusable read-only Mod context and per-loader usage reports.
+//! Per-loader cache usage reports for Mod operations using the shared runtime environment.
 
-pub use crate::local::cache::mods::ModsCacheSelection as ModOpenCache;
 use crate::local::{
-    cache::{
-        hash::Blake3Hash,
-        mods::{CacheStatus, ModsCacheDir, meta::CacheEntry},
-    },
+    cache::{hash::Blake3Hash, mods::CacheStatus},
     mcmod::ModFile,
     modloader::LoaderId,
 };
-use anyhow::Result;
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
-
-#[derive(Debug, Default)]
-pub struct ModOpenContext {
-    cache: Option<ModsCacheDir>,
-}
-impl ModOpenContext {
-    pub fn new(selection: Option<ModOpenCache>) -> Result<Self> {
-        Ok(Self {
-            cache: selection.map(ModOpenCache::open).transpose()?,
-        })
-    }
-    pub(super) fn find(&self, path: &Path) -> Result<Option<CacheEntry>> {
-        let Some(cache) = &self.cache else {
-            return Ok(None);
-        };
-        cache.find_metadata(path)
-    }
-    pub(super) fn root(&self) -> Option<&Path> {
-        self.cache.as_ref().map(ModsCacheDir::path)
-    }
-    pub(super) fn report(&self) -> ModOpenCacheReport {
-        match self.root() {
-            None => ModOpenCacheReport::Disabled,
-            Some(root) => ModOpenCacheReport::Miss {
-                root: root.to_owned(),
-            },
-        }
-    }
-}
+use std::{collections::HashMap, path::PathBuf};
 
 /// Runtime metadata plus a description of cache reuse; owns no cache lock.
 #[derive(Debug)]

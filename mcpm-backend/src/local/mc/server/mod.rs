@@ -11,6 +11,7 @@ use thiserror::Error;
 use crate::local::{
     mcmod::{ModContainer, ModDirectory},
     modloader::{BUILTIN_LOADERS, LoaderInfo},
+    runtime::RuntimeEnvironment,
 };
 
 pub mod identify;
@@ -31,6 +32,7 @@ pub struct MinecraftServer {
     name: String,
     metadata: MinecraftServerMetadata,
     mods: Option<ModContainer>,
+    runtime: RuntimeEnvironment,
 }
 
 impl MinecraftServer {
@@ -70,6 +72,7 @@ impl MinecraftServer {
             name,
             metadata,
             mods,
+            runtime: RuntimeEnvironment::new(),
         })
     }
 
@@ -137,7 +140,14 @@ impl MinecraftServer {
             name,
             metadata,
             mods,
+            runtime: RuntimeEnvironment::new(),
         })
+    }
+
+    /// Default global resources until Server-specific settings are implemented.
+    /// Accessing the environment does not open any cache.
+    pub fn runtime(&self) -> &RuntimeEnvironment {
+        &self.runtime
     }
 
     pub fn path(&self) -> &Path {

@@ -14,6 +14,7 @@ use std::{
 use mcpm_backend::local::cache::CacheLinkPreference;
 use mcpm_backend::local::cache::mods::MetadataRefresh;
 use mcpm_backend::local::cache::mods::ModsCacheDir;
+use mcpm_backend::local::cache::mods::ModsCacheSelection;
 use mcpm_backend::local::mcmod;
 use mcpm_backend::local::mcmod::CachedModMeta;
 use mcpm_backend::local::mcmod::IdentificationErrorAction;
@@ -21,13 +22,12 @@ use mcpm_backend::local::mcmod::LoaderCacheMissReason;
 use mcpm_backend::local::mcmod::LoaderCacheUsage;
 use mcpm_backend::local::mcmod::ModEntry;
 use mcpm_backend::local::mcmod::ModMeta;
-use mcpm_backend::local::mcmod::ModOpenCache;
 use mcpm_backend::local::mcmod::ModOpenCacheReport;
-use mcpm_backend::local::mcmod::ModOpenContext;
 use mcpm_backend::local::modloader::BUILTIN_LOADERS;
 use mcpm_backend::local::modloader::LoaderId;
 use mcpm_backend::local::modloader::ModLoader;
 use mcpm_backend::local::modloader::ModLoaderMeta;
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 
 #[derive(Debug)]
 struct CountingLoader {
@@ -83,17 +83,16 @@ fn fixture(root: &Path) -> (ModsCacheDir, std::path::PathBuf) {
     (cache, source)
 }
 
-fn context(cache: &ModsCacheDir) -> ModOpenContext {
-    ModOpenContext::new(Some(ModOpenCache::Directory {
+fn context(cache: &ModsCacheDir) -> RuntimeEnvironment {
+    RuntimeEnvironment::new().with_mods_cache(Some(ModsCacheSelection::Directory {
         path: cache.path().to_owned(),
     }))
-    .unwrap()
 }
 
 fn open(
     path: &Path,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
-    context: &ModOpenContext,
+    context: &RuntimeEnvironment,
 ) -> mcmod::ModOpenReport {
     mcmod::open(
         ModEntry::new(path.to_owned()).unwrap(),
