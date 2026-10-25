@@ -44,9 +44,12 @@ Without explicit global SSH options, a Local or unregistered `PATH` initializes 
 
 ```text
 .mcpm/
+├── .gitignore   # Ignores /stash, /cache and /registration.lock
 ├── mcpm.json    # version: 1, type: local
 └── server.json  # Local server metadata, version: 2
 ```
+
+Initializing a Local or Remote workspace creates `.mcpm/.gitignore` containing `# Added by mcpm`, a blank line, and the `/stash`, `/cache`, and `/registration.lock` rules. Existing contents are preserved. If the file already ends with the complete block when blank lines are ignored, nothing is appended; otherwise, the complete block is appended after a newline. Repeated initialization with `--force` therefore does not duplicate the block.
 
 mcpm owns `mcpm.json`, which selects the workspace type. mcpm-backend parses and persists Local `server.json`. Legacy directories without `mcpm.json` are Local. Local metadata version 1 remains readable with a warning; reading never rewrites it, and explicit reinitialization writes version 2.
 
