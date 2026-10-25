@@ -10,6 +10,7 @@ use mcpm_backend::local::{
 use thiserror::Error;
 
 use super::super::workspace::{self, Writer};
+use super::git;
 use super::model::{Candidate, Initialize, Phase, Recognize};
 
 /// Recognition never loads registration metadata, creates directories, or writes configuration.
@@ -99,6 +100,9 @@ pub(super) fn initialize(
     tracing::info!(path = %args.path.display(), force = args.force, "Writing server registration metadata");
     let writer = Writer::acquire(&args.path)?;
     workspace::require_local(&args.path)?;
+    if !args.no_git {
+        git::ensure_repository(&args.path)?;
+    }
     let server = if args.force {
         MinecraftServer::replace(args.path, args.metadata)?
     } else {
@@ -199,6 +203,7 @@ mod tests {
             }))
             .unwrap(),
             force,
+            no_git: false,
         }
     }
 

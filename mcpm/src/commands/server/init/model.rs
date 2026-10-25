@@ -17,6 +17,8 @@ pub(super) struct Initialize {
     pub metadata: MinecraftServerMetadata,
     #[serde(default)]
     pub force: bool,
+    #[serde(default)]
+    pub no_git: bool,
 }
 
 /// Partial fields restrict recognized candidates rather than inventing missing metadata.

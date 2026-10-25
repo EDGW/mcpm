@@ -8,6 +8,7 @@ use super::super::{
     metadata::{self, ServerInfo},
     workspace::{Remote, Writer},
 };
+use super::git;
 use crate::ssh::SshArgs;
 
 pub(super) fn create(
@@ -15,6 +16,7 @@ pub(super) fn create(
     remote_path: String,
     ssh: SshArgs,
     force: bool,
+    no_git: bool,
 ) -> Result<ServerInfo> {
     ensure!(ssh.is_requested(), "--remote requires global --ssh");
     let directory = fs::canonicalize(&path)
@@ -24,6 +26,10 @@ pub(super) fn create(
     let connection = SshArgs::from_connection(remote.connection(), directory);
     // The server.info endpoint only opens Local Servers, so this also rejects chaining.
     let info = metadata::load_ssh(connection, PathBuf::from(&remote.path))?;
-    Writer::acquire(&path)?.remote(&remote, force)?;
+    let writer = Writer::acquire(&path)?;
+    if !no_git {
+        git::ensure_repository(&path)?;
+    }
+    writer.remote(&remote, force)?;
     Ok(info)
 }

@@ -17,6 +17,7 @@ use super::{
 use crate::{progress::Progress, ssh::SshArgs};
 use model::{Initialize, Phase, Recognize};
 
+mod git;
 mod model;
 mod operation;
 mod reference;
@@ -49,6 +50,9 @@ pub(super) struct InitArgs {
     /// Replace existing registration within the same Local/Remote workspace type.
     #[arg(long)]
     force: bool,
+    /// Skip Git repository detection and automatic initialization.
+    #[arg(long)]
+    no_git: bool,
     /// Disable the local TUI; multiple candidates require more specific manual filters.
     #[arg(long)]
     no_ui: bool,
@@ -60,7 +64,7 @@ pub(super) struct InitArgs {
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
     if let Some(remote_path) = args.remote {
-        let info = reference::create(args.path, remote_path, ssh, args.force)?;
+        let info = reference::create(args.path, remote_path, ssh, args.force, args.no_git)?;
         return write_info(&info, args.full_command);
     }
     let Target { path, ssh, .. } = target::resolve(args.path, ssh)?;
@@ -124,6 +128,7 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
         path,
         metadata,
         force: args.force,
+        no_git: args.no_git,
     };
     let info = match session.as_ref() {
         Some(session) => remote::initialize(session, initialization, phase)?,

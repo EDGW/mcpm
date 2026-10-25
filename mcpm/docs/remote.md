@@ -247,11 +247,13 @@ Malformed requests and server metadata loading failures use the terminal global 
 {"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"run.sh","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
 ```
 
-`server.init` accepts complete `metadata`, `path` (default `.`), and `force` (default false). No recognition token or cached candidate is required:
+`server.init` accepts complete `metadata`, `path` (default `.`), `force` (default false), and `no_git` (default false). No recognition token or cached candidate is required:
 
 ```json
 {"path":"/srv/server","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
 ```
+
+By default, the file-owning host discovers and reuses an existing Git repository, including parent repositories and worktrees, or runs `git init` when none is found. Set `no_git: true` to skip this step, matching CLI `--no-git`. Recognition requests never operate on Git.
 
 Metadata requires nonempty Minecraft/loader versions and explicit `loader` (`null` for vanilla). Optional `start` is the complete startup snapshot shown above:
 

@@ -214,11 +214,13 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 {"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"run.sh","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
 ```
 
-`server.init` 接受完整 `metadata`、`path`（默认 `.`）和 `force`（默认 false），不要求识别 token 或缓存候选：
+`server.init` 接受完整 `metadata`、`path`（默认 `.`）、`force`（默认 false）和 `no_git`（默认 false），不要求识别 token 或缓存候选：
 
 ```json
 {"path":"/srv/server","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
 ```
+
+默认在文件所属主机检测 Git 仓库，已有仓库（含父目录仓库和 worktree）直接复用，否则执行 `git init`。`no_git: true` 跳过此步骤，对应 CLI 的 `--no-git`；识别请求始终不操作 Git。
 
 元数据要求非空的 Minecraft/Loader 版本及显式 `loader`（原版为 `null`）。可选 `start` 为上面的完整启动快照：
 
