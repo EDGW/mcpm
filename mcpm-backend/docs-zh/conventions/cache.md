@@ -16,6 +16,16 @@
 - `ModsCacheSelection::Default.open()` 初始化不存在或空的 `~/.mcpm/cache/mods`；
   `Directory { path }.open()` 要求目录已合法初始化。保留默认位置，但不静默接管或迁移版本 1/2 目录。
 
+## 运行资源
+
+- `local::runtime::RuntimeEnvironment` 在缓存层之上组合操作资源；存储与 metadata codec 不依赖它。
+- `new()` 不访问文件系统。`cache.global`、`cache.mods`、`cache.backup`、`cache.stash` 默认共享同一个 `Arc<RuntimeCache>`，其中只有 `mods` 可空。
+- `RuntimeCache` 保留 `ModsCacheSelection`，首次使用时通过其唯一目录策略打开缓存。环境克隆共享成功打开的资源；失败保留错误上下文，后续可重试。
+- `with_mods_cache(None)` 禁用 Mod 查询，不回退 global；禁用时 `require_mods_cache()` 拒绝显式写入。备份创建使用 `cache.backup`。
+- `MinecraftServer::runtime()` 借用 Server 持有的环境；当前提供全 global 默认值，不读取或写入 Server 专属设置。
+- 独立 Mod 命令入口从现有参数选择资源；Server 命令入口使用 Server 环境，仅应用 `--no-cache` 等本次操作策略。
+- 缓存管理继续显式使用 `ModsCacheDir`。运行环境不改变查询与写入保证，也不接管 metadata 解释。
+
 ## Loader 元数据
 
 `<key>.meta.json` 保存格式版本 2、BLAKE3 key、大小、SHA-256、识别规则版本

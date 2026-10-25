@@ -50,7 +50,7 @@ SSH 模式在远端完成选择、文件读取和 Loader 解析，本地先读�
 文件扫描并发，本地与 SSH 均适用。多个独立文件输入仍顺序处理，不受此参数影响。
 每个扫描项完成后回传进度，包括失败和未识别文件；本地依据 stderr 是否为 TTY 显示进度。
 
-两端均需协议版本 3。结构化 `mod.deps` 请求见 [Remote](../remote.md)。
+两端均需协议版本 4。结构化 `mod.deps` 请求见 [Remote](../remote.md)。
 
 通用选项见 [Loader 选择](README.md#loader-选择)，颜色和 `--raw` 行为见[终端输出](../README.md#终端输出)。
 

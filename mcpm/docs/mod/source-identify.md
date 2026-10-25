@@ -30,7 +30,8 @@ The Remote command ID is `mod.source.identify`. Standalone identification and mo
 ## Read-only cache
 
 - Default: query the file host's `~/.mcpm/cache/mods` before provider requests.
-- `--cache-dir PATH` chooses an initialized cache on that host; `--no-cache` disables lookup. They conflict.
+- Standalone `mod source identify`: `--cache-dir PATH` chooses an initialized cache on that host; `--no-cache` disables lookup. They conflict.
+- `server mods source identify` uses the Server runtime’s Mod cache and accepts `--no-cache` to disable lookup for this operation.
 - A hit requires cached content file, a valid `ident`, and matches validated against the queried file summary. Loader metadata can be missing or corrupt.
 - A miss queries the provider without writing anything. Use `mod cache --metas ident` or `server mods cache --metas ident` to populate results explicitly.
 - Official API keys and Curse.tools reuse the same `curseforge` results. Credentials are never persisted or sent over SSH.

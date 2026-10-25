@@ -20,6 +20,16 @@ are owned by `local::cache`. See [Generic local cache](local-cache.md) for the v
   `Directory { path }.open()` requires an already initialized valid root. The default
   location is retained, but version 1/2 roots are never silently adopted or migrated.
 
+## Runtime resources
+
+- `local::runtime::RuntimeEnvironment` composes operation resources above the cache layer. Storage and metadata codecs do not depend on it.
+- `new()` performs no filesystem access. `cache.global`, `cache.mods`, `cache.backup` and `cache.stash` initially share one `Arc<RuntimeCache>`; only `mods` is optional.
+- `RuntimeCache` retains its `ModsCacheSelection` and opens through that owner on first use. Successful opens are shared by environment clones; failed opens retain their error context and can be retried.
+- `with_mods_cache(None)` disables Mod queries with no fallback. `require_mods_cache()` rejects explicit writes when disabled. Backup creation uses `cache.backup`.
+- `MinecraftServer::runtime()` borrows the Server-owned environment. It currently supplies the global defaults without reading or writing per-server settings.
+- Standalone Mod command adapters select resources from existing CLI options. Server adapters use the Server environment and apply only operation policy, such as `--no-cache`.
+- Cache management remains an explicit `ModsCacheDir` API. Runtime resources do not change query/write guarantees or metadata ownership.
+
 ## Loader metadata
 
 `<key>.meta.json` contains format version 2, the BLAKE3 key, size, SHA-256,

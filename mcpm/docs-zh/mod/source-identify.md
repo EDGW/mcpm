@@ -30,7 +30,8 @@ Remote command ID 是 `mod.source.identify`。它与 `mod.list` 使用相同的�
 ## 只读缓存
 
 - 默认查询文件主机的 `~/.mcpm/cache/mods`，命中则跳过平台请求。
-- `--cache-dir PATH` 指定该主机上已初始化的缓存；`--no-cache` 关闭查询，二者互斥。
+- 独立 `mod source identify` 的 `--cache-dir PATH` 指定该主机上已初始化的缓存；`--no-cache` 关闭查询，二者互斥。
+- `server mods source identify` 使用 Server 运行环境的 Mod 缓存，支持 `--no-cache` 禁用本次查询。
 - 命中必须有 缓存内容文件、合法 `ident`，并且来源结果与查询文件摘要一致；Loader metadata 缺失或损坏不影响来源缓存。
 - 未命中则查平台，绝不写缓存。显式填充使用 `mod cache --metas ident` 或 `server mods cache --metas ident`。
 - 官方 API／不同 key／Curse.tools 共用 `curseforge` 结果；凭据不持久化，也不跨 SSH 传输。
