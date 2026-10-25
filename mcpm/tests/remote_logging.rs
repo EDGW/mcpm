@@ -18,7 +18,7 @@ fn event(reader: &mut impl BufRead) -> Value {
 #[test]
 fn log_subscription_keeps_command_slot_free_and_drains_before_closed() {
     let home = tempfile::tempdir().unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .args(["--log-level", "trace", "remote", "--max-concurrency", "1"])
         .env("HOME", home.path())
         .stdin(Stdio::piped())

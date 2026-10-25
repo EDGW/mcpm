@@ -7,6 +7,7 @@ use super::super::{
 use crate::diagnostics::ErrorReport;
 use anyhow::Result;
 use mcpm_backend::local::modloader::{LoaderId, ModLoaderMeta};
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::collections::HashMap;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -21,6 +22,7 @@ pub(super) fn load(
     selection: Selection,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
+    environment: &RuntimeEnvironment,
     loading: impl Into<scan::Options>,
     checkpoint: impl Fn() -> Result<()>,
     observe: impl Fn(scan::Event) -> Result<()>,
@@ -28,7 +30,7 @@ pub(super) fn load(
 ) -> Result<Counts> {
     tracing::info!("Resolving server mod list selections");
     let mut resolver = Resolver::new(
-        ScanSession::new(loaders)
+        ScanSession::new(loaders, environment)
             .with_options(loading.into())?
             .with_checkpoint(&checkpoint)
             .with_observer(&observe),

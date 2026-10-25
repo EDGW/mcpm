@@ -1,5 +1,8 @@
 //! Source-identification CLI options, ordered presentation and shared local acquisition.
 
+use crate::commands::supports::mods::reuse::QueryArgs;
+use mcpm_backend::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::{
     io::{self, Write},
     path::PathBuf,
@@ -24,7 +27,7 @@ pub(in crate::commands) use worker::{Identification, Sources, sources as prepare
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Modes: Console (field groups) and Raw (TSV; --raw or redirected stdout); Remote supported through --ssh.\n\nPaths are literal file paths, resolved on the remote host with --ssh. Redirected stdin is appended, one path per line. --columns, --column and -C select fields; --headers adds a Raw header.\nThe default cache is read-only: hits skip provider requests, misses never write. --no-cache disables lookup; --cache-dir selects an initialized cache on the file host.\nUnmatched files are reported as unmatched; read or request failures exit unsuccessfully.\n\nExamples:\n  mcpm mod source identify --source modrinth ./mods/create.jar\n  mcpm mod source identify --source curseforge ./mods/a.jar ./mods/b.jar\n  mcpm mod source identify --source 'curseforge@KEY' ./mods/create.jar\n  printf '%s\\n' ./mods/a.jar ./mods/b.jar | mcpm mod source identify --source modrinth\n  mcpm --raw mod source identify --source modrinth ./mods/create.jar --columns path,project,id,status"
+    after_help = format!("Modes: Console (field groups) and Raw (TSV; --raw or redirected stdout); Remote supported through --ssh.\n\nPaths are literal file paths, resolved on the remote host with --ssh. Redirected stdin is appended, one path per line. --columns, --column and -C select fields; --headers adds a Raw header.\nThe default cache is read-only: hits skip provider requests, misses never write. --no-cache disables lookup; --cache-dir selects an initialized cache on the file host.\nUnmatched files are reported as unmatched; read or request failures exit unsuccessfully.\n\nExamples:\n  {tools} mod source identify --source modrinth ./mods/create.jar\n  {tools} mod source identify --source curseforge ./mods/a.jar ./mods/b.jar\n  {tools} mod source identify --source 'curseforge@KEY' ./mods/create.jar\n  printf '%s\\n' ./mods/a.jar ./mods/b.jar | {tools} mod source identify --source modrinth\n  {tools} --raw mod source identify --source modrinth ./mods/create.jar --columns path,project,id,status", tools = crate::program::roots().tools)
 )]
 pub(in crate::commands) struct IdentifyArgs {
     /// Files to identify (remote paths with --ssh) by their contents, not their names.
@@ -32,6 +35,14 @@ pub(in crate::commands) struct IdentifyArgs {
     paths: Vec<PathBuf>,
     #[command(flatten)]
     options: IdentifyOptions,
+    /// Initialized cache directory on the file host.
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with = "no_cache",
+        help_heading = "Loading options"
+    )]
+    cache_dir: Option<PathBuf>,
 }
 
 /// Source and presentation options, independent of local path selection.
@@ -49,7 +60,7 @@ pub(in crate::commands) struct IdentifyOptions {
     #[arg(long)]
     headers: bool,
     #[command(flatten)]
-    cache: crate::commands::supports::mods::reuse::CacheArgs,
+    pub cache: QueryArgs,
 }
 
 impl IdentifyOptions {
@@ -75,8 +86,17 @@ impl std::fmt::Debug for IdentifyOptions {
 pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     ssh.validate()?;
     let paths = crate::commands::stdin::append(args.paths)?;
+    let environment = RuntimeEnvironment::new().with_mods_cache(if args.options.cache.no_cache {
+        None
+    } else {
+        Some(
+            args.cache_dir
+                .map(|path| ModsCacheSelection::Directory { path })
+                .unwrap_or(ModsCacheSelection::Default),
+        )
+    });
     if !ssh.is_requested() {
-        return run_paths(args.options, paths);
+        return present(args.options, paths, Location::Local(&environment));
     }
     ensure!(
         !paths.is_empty(),
@@ -84,38 +104,25 @@ pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> 
     );
     let _span = tracing::info_span!("source_identify", source = "ssh").entered();
     let mut session = ssh.connect()?;
-    let result = present(args.options, paths, Some(&session));
+    let result = present(
+        args.options,
+        paths,
+        Location::Remote(&session, &environment),
+    );
     session.close()?;
     result
 }
 
-/// Identifies already-resolved paths without reading stdin again.
-pub(in crate::commands) fn run_paths(options: IdentifyOptions, paths: Vec<PathBuf>) -> Result<()> {
-    let _span = tracing::info_span!("source_identify", source = "local").entered();
-    present(options, paths, None)
-}
-
-/// Identifies paths on the supplied host while retaining local provider requests and output.
+/// Identifies paths using resources selected by the caller on their owning host.
 pub(in crate::commands) fn run_paths_at(
     options: IdentifyOptions,
     paths: Vec<PathBuf>,
     location: Location<'_>,
 ) -> Result<()> {
-    present(
-        options,
-        paths,
-        match location {
-            Location::Local => None,
-            Location::Remote(session) => Some(session),
-        },
-    )
+    present(options, paths, location)
 }
 
-fn present(
-    options: IdentifyOptions,
-    paths: Vec<PathBuf>,
-    session: Option<&crate::remote::client::Session>,
-) -> Result<()> {
+fn present(options: IdentifyOptions, paths: Vec<PathBuf>, location: Location<'_>) -> Result<()> {
     ensure!(
         !paths.is_empty(),
         "provide file paths as arguments or one per stdin line"
@@ -124,7 +131,7 @@ fn present(
     tracing::info!(
         files = paths.len(),
         parallelism = options.parallelism.get(),
-        remote = session.is_some(),
+        remote = !location.is_local(),
         "Starting source identify command"
     );
     tracing::debug!(?options, "Selected source identify options");
@@ -208,13 +215,11 @@ fn present(
         Ok(())
     };
     let result = runtime.block_on(async {
-        let location = session.map(Location::Remote).unwrap_or(Location::Local);
-        Identification::start_with_cache(
+        Identification::start(
             paths.clone(),
             &[options.source],
             options.parallelism.get(),
             location,
-            options.cache.selection(),
         )?
         .run(&mut emit)
         .await

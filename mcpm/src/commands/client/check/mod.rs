@@ -19,7 +19,7 @@ use super::{input, output as client_output, platform, selector};
 
 #[derive(Args, Debug)]
 pub(super) struct CheckArgs {
-    /// Version directory IDs shown by client list; omit to select one with arrow keys.
+    /// Version directory IDs; omit to select one with arrow keys.
     #[arg(value_name = "VERSION")]
     versions: Vec<String>,
     /// Minecraft root; defaults to the last .minecraft in the current path, or the current directory.
@@ -45,7 +45,9 @@ pub(super) fn run(args: CheckArgs) -> Result<()> {
         client_output::write_inferred_root(
             &mut io::stderr().lock(),
             directory.path(),
-            "mcpm client check --directory .",
+            &crate::program::roots()
+                .client
+                .command("check --directory ."),
         )
         .context("failed to write Minecraft root hint")?;
     }

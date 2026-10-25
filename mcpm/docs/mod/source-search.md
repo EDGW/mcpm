@@ -1,12 +1,12 @@
 # Remote mod search expressions
 
-`mcpm mod source search` and `mcpm server mods source search` share this syntax
+`mcpm-tools mod source search` and `mcpm mods source search` share this syntax
 across CurseForge, Modrinth, TUI, Console and Raw. Put keywords before fields.
 
 ```sh
-mcpm mod source search 'create @version 1.20.1 @loader fabric' --source modrinth
-mcpm mod source search 'create @version (1.20.1 | 1.21.1) @loader (forge | neoforge)' --source curseforge
-mcpm server mods source search '@version * @loader *' --source modrinth
+mcpm-tools mod source search 'create @version 1.20.1 @loader fabric' --source modrinth
+mcpm-tools mod source search 'create @version (1.20.1 | 1.21.1) @loader (forge | neoforge)' --source curseforge
+mcpm mods source search '@version * @loader *' --source modrinth
 ```
 
 | Syntax | Meaning |
@@ -34,7 +34,7 @@ request. Write a literal backslash as `\\`. In the search field, enter
 needs an additional layer of quoting or escaping:
 
 ```sh
-mcpm mod source search "\"Steam 'n' Rails\" @loader forge" --source curseforge
+mcpm-tools mod source search "\"Steam 'n' Rails\" @loader forge" --source curseforge
 ```
 
 Regex, negation, version ranges and general nested boolean expressions are

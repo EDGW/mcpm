@@ -1,9 +1,10 @@
 //! Adapts library identification reports to command-local scan results and diagnostics.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use mcpm_backend::local::{
-    mcmod::{self, IdentificationErrorAction, ModCacheReuse, ModEntry, ModOpenContext},
+    mcmod::{self, IdentificationErrorAction, ModCacheReuse, ModEntry},
     modloader::{LoaderId, ModLoaderMeta},
 };
 
@@ -32,14 +33,14 @@ pub(in crate::commands) struct ScanError {
 pub(super) fn read(
     path: PathBuf,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
-    context: &ModOpenContext,
+    environment: &RuntimeEnvironment,
 ) -> ScanResult {
     let started = std::time::Instant::now();
     tracing::debug!(path = %path.display(), "Identifying mod file");
     let mut errors = Vec::new();
     let mut failures = Vec::new();
     let result = ModEntry::new(path.clone()).and_then(|entry| {
-        mcmod::open(entry, loaders.clone(), context, |_, loader, _, error| {
+        mcmod::open(entry, loaders.clone(), environment, |_, loader, _, error| {
             tracing::debug!(path = %path.display(), loader = %loader.id(), error = %format_args!("{error:#}"), "Mod loader identification failed");
             failures.push(FailedIdentification {
                 loader: loader.clone(),

@@ -1,3 +1,5 @@
+//! Client version manifest decoding, inspection and inheritance.
+
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
@@ -23,6 +25,10 @@ pub use rules::{LibraryRule, LibraryRuleAction, LibraryRuleOs};
 
 /// Loader-neutral fields from a client version JSON. Unknown fields are ignored.
 /// Can also be deserialized directly for inspecting an in-memory profile.
+///
+/// # Implementations
+/// - [`Self::id`]: manifest inspection, loader identification and inheritance.
+/// - [`Self`]: internal `into_launch_manifest` normalization (`manifest/launch.rs`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MinecraftVersionManifest {

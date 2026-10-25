@@ -1,15 +1,15 @@
-# `mcpm mod dep-graph`
+# `mcpm-tools mod dep-graph`
 
 ```text
-mcpm mod dep-graph build [OPTIONS] <DIR>
+mcpm-tools mod dep-graph build [OPTIONS] <DIR>
 ```
 
 Scans `.jar` and `.jar.disabled` files in the supplied directory and recursively identifies declared nested JARs. Filesystem subdirectories are not scanned. Valid archives unrecognized by the selected loaders are ignored. Every loader identification failure, including archive read and metadata parse errors, uses Skip: other loaders and later files are still attempted, successful records are retained, and the graph is exported. Directory scanning and output errors still fail the command.
 
 ```sh
-mcpm mod dep-graph build mods/
-mcpm mod dep-graph build mods/ -o graph.json
-mcpm mod dep-graph build mods/ --loader fabric --external fabric:minecraft --external fabric:java --output graph.json
+mcpm-tools mod dep-graph build mods/
+mcpm-tools mod dep-graph build mods/ -o graph.json
+mcpm-tools mod dep-graph build mods/ --loader fabric --external fabric:minecraft --external fabric:java --output graph.json
 ```
 
 Writes formatted JSON to stdout by default, without colors or hints. Use `-o <FILE>` or `--output <FILE>` to write to a file, overwriting existing contents. Diagnostics use stderr. Supports `--loader` and `--loaders`; see [loader selection](README.md#loader-selection).
@@ -47,7 +47,7 @@ Reverse indices and runtime loader instances are omitted. This is a declaration 
 ## Validate and restore a snapshot
 
 ```sh
-mcpm mod dep-graph test graph.json
+mcpm-tools mod dep-graph test graph.json
 ```
 
 `test <FILE>` calls the library JSON reader with the built-in loader registry. It restores all candidates, complete dependencies, `ModInfo.dependencies`, and reverse relations, then prints node count, candidate counts by kind, edge count, empty node count and identification failure count to stdout. It does not print the graph JSON. It does not open mod archives or evaluate version compatibility. Empty nodes and external candidates require no loader instance; mod candidates must resolve their loader in the registry. Array order does not represent dependency or loading order.
@@ -59,9 +59,9 @@ The reader distinguishes I/O, JSON syntax/encoding, schema, unsupported format v
 ## View a mod's dependencies
 
 ```sh
-mcpm mod dep-graph view -i graph.json fabric:examplemod
-mcpm mod dep-graph build mods/ | mcpm mod dep-graph view fabric:examplemod
-mcpm --raw mod dep-graph view -i graph.json fabric:examplemod
+mcpm-tools mod dep-graph view -i graph.json fabric:examplemod
+mcpm-tools mod dep-graph build mods/ | mcpm-tools mod dep-graph view fabric:examplemod
+mcpm-tools --raw mod dep-graph view -i graph.json fabric:examplemod
 ```
 
 `view [-i FILE] <LOADER:MODID>` reads graph JSON from the specified file, or from stdin when `-i` is omitted or set to `-`. Selectors split at the first colon. Unknown nodes and invalid input are reported through standard error-chain diagnostics.
@@ -73,10 +73,10 @@ In forward mode, a node expands at its shallowest dependency level. Deeper occur
 ### Ignore targets and select relation types
 
 ```sh
-mcpm mod dep-graph view -i graph.json fabric:examplemod --ignores java,fabric:helper
-mcpm mod dep-graph view -i graph.json fabric:examplemod --ignore java --ignore :helper
-mcpm mod dep-graph view -i graph.json fabric:examplemod --no-default-ignores
-mcpm mod dep-graph view -i graph.json fabric:examplemod --type required --types optional,recommended
+mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --ignores java,fabric:helper
+mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --ignore java --ignore :helper
+mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --no-default-ignores
+mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --type required --types optional,recommended
 ```
 
 | Option | Behavior |
@@ -92,7 +92,7 @@ Ignore selectors match case-sensitively: `loader:name` matches that exact loader
 Without type options, only `required`, `breaks`, and `conflicts` are shown. Supplying any `--type` or `--types` replaces that default with the union of explicit selections. Accepted types are `required`, `optional`, `recommended`, `suggested`, `breaks`, and `conflicts`; `break` and `conflict` are singular aliases. To show every relation and remove default ignores:
 
 ```sh
-mcpm mod dep-graph view -i graph.json fabric:examplemod --no-default-ignores --types required,optional,recommended,suggested,breaks,conflicts
+mcpm-tools mod dep-graph view -i graph.json fabric:examplemod --no-default-ignores --types required,optional,recommended,suggested,breaks,conflicts
 ```
 
 Filtering applies to every dependency level and prunes traversal through hidden edges. A node can still appear through another visible path. In forward mode, shallowest-level expansion and `[shared]` markers are computed from the filtered graph, so hidden relations do not determine folding. Reverse mode expands each path without shared-node folding. Filters do not modify the stored graph or identification failure records.
@@ -100,8 +100,8 @@ Filtering applies to every dependency level and prunes traversal through hidden 
 ### Reverse dependencies
 
 ```sh
-mcpm mod dep-graph view -i graph.json fabric:library_b --reverse
-mcpm mod dep-graph view -i graph.json fabric:library_b -R --types required,optional
+mcpm-tools mod dep-graph view -i graph.json fabric:library_b --reverse
+mcpm-tools mod dep-graph view -i graph.json fabric:library_b -R --types required,optional
 ```
 
 `--reverse` / `-R` follows incoming declarations to show which mods directly or indirectly refer to the selected node. A child marked `(required by)` declares a required dependency on its parent; other labels retain their original relation categories, including conflicts and incompatibilities. `parent:` introduces the original version requirement and qualifiers for the parent, not a requirement on the child's own version.

@@ -50,11 +50,16 @@ fn seed(cache: &ModsCacheDir, source: &Path) -> Blake3Hash {
     id
 }
 fn run(root: &Path, cache: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    fs::create_dir_all(root.join("home")).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
+    command
+        .env("HOME", root.join("home"))
         .args(["--raw", "--log-level", "off"])
-        .args(args)
-        .arg("--cache-dir")
-        .arg(cache)
+        .args(args);
+    if !args.windows(2).any(|part| part == ["server", "mods"]) {
+        command.arg("--cache-dir").arg(cache);
+    }
+    command
         .current_dir(root)
         .stdin(Stdio::null())
         .output()
@@ -166,14 +171,15 @@ fn ssh_server_cache_enriches_on_the_client_and_uses_the_file_hosts_snapshots() {
         &source,
     )
     .unwrap();
-    let cache = ModsCacheDir::initialize(host.join("cache")).unwrap();
+    let cache = ModsCacheDir::initialize(host.join("home/.mcpm/cache/mods")).unwrap();
     let id = seed(&cache, &source);
     let ssh = root.path().join("ssh");
     fs::write(
         &ssh,
         format!(
-            "#!/bin/sh\ncd {} || exit 1\nfor last do :; done\nexec /bin/sh -c \"$last\"\n",
-            shlex::try_quote(host.to_str().unwrap()).unwrap()
+            "#!/bin/sh\ncd {} || exit 1\nexport HOME={}\nfor last do :; done\nexec /bin/sh -c \"$last\"\n",
+            shlex::try_quote(host.to_str().unwrap()).unwrap(),
+            shlex::try_quote(host.join("home").to_str().unwrap()).unwrap()
         ),
     )
     .unwrap();
@@ -186,7 +192,7 @@ fn ssh_server_cache_enriches_on_the_client_and_uses_the_file_hosts_snapshots() {
             "--ssh",
             &connection,
             "--ssh-mcpm",
-            env!("CARGO_BIN_EXE_mcpm"),
+            env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "mods",
             "cache",
@@ -199,7 +205,7 @@ fn ssh_server_cache_enriches_on_the_client_and_uses_the_file_hosts_snapshots() {
     assert_eq!(record["identification"].as_object().unwrap().len(), 2);
     assert_eq!(record["status"], "available");
     assert!(cache.mod_metadata(id).digest_path().exists());
-    assert!(!client.join("cache").exists());
+    assert!(!client.join("home/.mcpm/cache").exists());
     let output = run(
         &client,
         Path::new("cache"),
@@ -207,7 +213,7 @@ fn ssh_server_cache_enriches_on_the_client_and_uses_the_file_hosts_snapshots() {
             "--ssh",
             &connection,
             "--ssh-mcpm",
-            env!("CARGO_BIN_EXE_mcpm"),
+            env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "mods",
             "source",
@@ -248,7 +254,7 @@ fn remote_publication_acknowledges_verified_data_and_rejects_incorrect_content()
         role: MatchedFileRole::Additional,
     };
     let request = |file: &FileMatch| {
-        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
             .args(["--log-level", "off", "remote"])
             .current_dir(root.path())
             .stdin(Stdio::piped())

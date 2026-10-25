@@ -1,6 +1,7 @@
 //! Behavioral coverage for semantic checksums, cache isolation and failed publications.
 
 use super::*;
+use crate::local::cache::mods::{ModsCacheDir, ModsCacheSelection};
 use crate::local::files::FileIdentity;
 
 struct Fixture {
@@ -30,7 +31,9 @@ impl Fixture {
         create(
             &self.source,
             &self.backup,
-            &self.cache,
+            &RuntimeEnvironment::new().with_backup_cache(ModsCacheSelection::Directory {
+                path: self.cache.path().to_owned(),
+            }),
             CreateOptions {
                 mode,
                 parallelism: NonZeroUsize::new(3).unwrap(),
@@ -338,7 +341,9 @@ fn links_and_overlapping_paths_are_rejected_before_publication() {
         create(
             &fixture.source,
             &fixture.backup,
-            &fixture.cache,
+            &RuntimeEnvironment::new().with_backup_cache(ModsCacheSelection::Directory {
+                path: fixture.cache.path().to_owned()
+            }),
             options,
             |_| Ok(())
         )
@@ -350,7 +355,9 @@ fn links_and_overlapping_paths_are_rejected_before_publication() {
         create(
             &fixture.source,
             &fixture.source.join("backup"),
-            &fixture.cache,
+            &RuntimeEnvironment::new().with_backup_cache(ModsCacheSelection::Directory {
+                path: fixture.cache.path().to_owned()
+            }),
             options,
             |_| Ok(())
         )

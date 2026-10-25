@@ -28,9 +28,12 @@ impl Command for List {
             args.selection.into_selection()?,
             source.scope(),
             source.loaders(),
+            &crate::commands::supports::mods::reuse::QueryArgs {
+                no_cache: args.no_cache,
+            }
+            .environment(source.runtime()),
             scan::Options {
                 parallelism: args.parallelism.get(),
-                cache: args.cache,
             },
             output,
         )
@@ -46,8 +49,8 @@ struct Request {
     selection: SelectionInput,
     #[serde(default = "crate::commands::execution::default_parallelism")]
     parallelism: NonZeroUsize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    cache: Option<mcpm_backend::local::mcmod::ModOpenCache>,
+    #[serde(default)]
+    no_cache: bool,
 }
 fn default_server() -> PathBuf {
     PathBuf::from(".")
@@ -56,6 +59,7 @@ fn default_server() -> PathBuf {
 pub(super) fn request(
     server: PathBuf,
     selection: Selection,
+    no_cache: bool,
     loading: scan::Options,
 ) -> Result<Value> {
     Ok(serde_json::to_value(Request {
@@ -63,7 +67,7 @@ pub(super) fn request(
         selection: SelectionInput::from_selection(selection)?,
         parallelism: NonZeroUsize::new(loading.parallelism)
             .context("list parallelism must be positive")?,
-        cache: loading.cache,
+        no_cache,
     })?)
 }
 fn init() -> Result<()> {

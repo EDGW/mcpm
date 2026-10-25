@@ -1,22 +1,40 @@
 # 开发原则
 
+## 可执行文件入口
+
+- `src/bin/` 提供五个薄入口：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`。
+- `program.rs` 统一定义程序名称和进程只读的 Server、Client、Tools 命令根；命令提示和示例使用这些命令根。
+- `cli/` 将公共选项与命令族已有参数结构组合；客户端入口不提供 SSH 和远端日志选项。
+- `app.rs` 负责公共初始化和分发。二进制显式传入程序身份，文件改名不改变命令族。
+- SSH 默认启动 `mcpm-tools remote`；远端可执行文件覆盖配置属于连接设置，与本地命令根独立。
+
+## 构建身份
+
+- `build.rs` 统一生成编译期构建身份；`build_info.rs` 提供版本元数据，`display/build_info.rs` 渲染启动提示。
+- Commit ID 和工作区状态在构建时从 Git 读取，仅受跟踪文件的已暂存或未暂存变更计为 `modified`；监视仓库受跟踪文件及 Git 索引、引用以刷新构建缓存。
+- 非正式版本号由 `build.rs` 在 Cargo 包版本后追加六位 commit ID 和可选的 `.modified`；无 Git 信息时使用 `.unknown`。打包脚本校验整套二进制版本一致，并将实际版本写入清单；提供 Tag 时必须与实际版本一致。
+- 正式构建要求同时满足：release 配置、`MCPM_OFFICIAL_RELEASE=1`、`GITHUB_ACTIONS=true`、仓库为 `EDGW/mcpm`、事件为 `push` 或 `workflow_dispatch`、引用类型为 Tag，且 Tag 为 `v<Cargo 包版本>`。
+- 发布工作流在 Tag 构建中注入标记；分支、PR、本地和 Fork 构建默认非正式。环境变量改变时 Cargo 重新生成身份。
+- `official` 表示正式发布流程构建，也包含官方预发布版本，不表示稳定版。该标记不是来源签名。
+- 五个入口共享版本详情和非正式 release 启动提示；提示仅写 stderr，不受日志级别影响。
+
 ## 1. 命令
 
 命令主要按照可复用性分为 **单一命令** 和 **通用命令**。
 
 ### 1.1. 单一命令
 
-单一命令只有一个调用点，比如说 `mcpm server init`，这个命令只有在 `server` 命令族下，此时这个命令的主体和入口就要放在 `src/commands/server/init.rs` 下，路径可以直接体现命令路径。
+单一命令归属于一个命令族。比如 `mcpm init`、`mcpm-server init` 和 `mcpm-tools server init` 共享 `server` 命令族中的同一份定义与实现，放在 `src/commands/server/init/mod.rs` 下。可执行文件入口不重复定义命令。
 
 如果这个命令同时支持 `Remote`，则 `Remote` 的入口和 `Remote` 的定义也要放在命令入口旁边。
 
 ### 1.2. 通用命令
 
-通用命令有多个入口，比如说 `mcpm mod list`，这个命令可以直接调用，也可以在 `mcpm server mods list` 里使用，两者同时还有一些行为区别。
+通用命令有多个入口，比如说 `mcpm-tools mod list`，这个命令可以直接调用，也可以在 `mcpm mods list` 里使用，两者同时还有一些行为区别。
 
-这种命令一般成套出现，比如说 `mod` 命令族对应 `mcpm server mods` 和 `mcpm mod`，则这个命令族应该放在 `src/commands/supports/mod/` 下，内部路径也要直接体现命令路径，`Remote` 的入口同上。
+这种命令一般成套出现，比如说 `mod` 命令族对应 `mcpm mods` 和 `mcpm-tools mod`，则这个命令族应该放在 `src/commands/supports/mod/` 下，内部路径也要直接体现命令路径，`Remote` 的入口同上。
 
-值得注意的是，`Remote` 的调用口和命令行的调用口不同。`Remote` 一般直接针对底层做接口，比如说 `mcpm mod list` 和 `mcpm server mods list` 都对应一个 `mod.list` 的 `Remote` 命令，`Remote` 模式下两个调用分别对这一个 `Remote` 命令传参数。
+值得注意的是，`Remote` 的调用口和命令行的调用口不同。`Remote` 一般直接针对底层做接口，比如说 `mcpm-tools mod list` 和 `mcpm mods list` 都对应一个 `mod.list` 的 `Remote` 命令，`Remote` 模式下两个调用分别对这一个 `Remote` 命令传参数。
 
 所以此时 `Remote` 不该放在命令行的入口上，而是在 `support` 层的统一调用入口上。这类命令的所有调用都要走一个统一的 `support` 入口，不能有各自的实现。
 
@@ -28,11 +46,11 @@
 
 查询类命令语义上应该支持多个输入，并且应该支持从 `stdin` 按行输入项目。
 
-比如说 `mcpm cache mods info <KEYS>`，应该支持从 `<KEYS>` 和 `stdin` 接收多个参数。
+比如说 `mcpm-tools cache mods info <KEYS>`，应该支持从 `<KEYS>` 和 `stdin` 接收多个参数。
 
 #### 2.1.1. 主参数类型
 
-当 `KEY` 可以是多个类型的时候，比如说 `mcpm mod info` 支持 `modid`、`filename` 等多种类型作为 `key` 时：
+当 `KEY` 可以是多个类型的时候，比如说 `mcpm-tools mod info` 支持 `modid`、`filename` 等多种类型作为 `key` 时：
 
 - 此时应该用 `--input <type>` 来解释 `stdin` 的输入。
 - 此时应该用 `--<specific-type> <value>` 来指明输入。
@@ -45,7 +63,7 @@
 **示例：支持自动推断类型**
 
 ```plaintext
-> mcpm mod info --help
+> mcpm-tools mod info --help
 ...
       --file <FILE>          Inspect a file without falling back to modid or name; repeat to select more
       --modid <MODID>        Match an exact modid; repeat to select more
@@ -64,7 +82,7 @@
 
 注意，有时候参数是一个**选择**而非列表，此时就不适用于这些规定。
 
-比如说在 `mcpm mod source search --source` 里，`--source` 是一个选择，只能有一个值；但是在 `cache mods refresh <KEYS> ident --source --sources` 里，`source` 就是一个列表，适用于本节规定。
+比如说在 `mcpm-tools mod source search --source` 里，`--source` 是一个选择，只能有一个值；但是在 `cache mods refresh <KEYS> ident --source --sources` 里，`source` 就是一个列表，适用于本节规定。
 
 **标准示例：**
 
@@ -147,7 +165,7 @@
 
 `Raw` 模式一般仅仅输出本职数据。
 
-比如说 `mcpm cache mods list`，这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，可以输出为这种形式：
+比如说 `mcpm-tools cache mods list`，这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，可以输出为这种形式：
 
 ```plaintext
 <blake3>\t<filename>\t<sha256>\tident,meta
@@ -161,7 +179,7 @@
 
 `Console` 模式可以列出附加数据，来避免用户执行更多命令。
 
-还是比如说 `mcpm cache mods list`，虽然这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，但是建议这么输出：
+还是比如说 `mcpm-tools cache mods list`，虽然这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，但是建议这么输出：
 
 ```plaintext
 <BLAKE3>  available

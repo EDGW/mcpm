@@ -20,6 +20,84 @@ pub(super) fn path(root: &Path) -> PathBuf {
     root.join(".mcpm/index.sqlite3")
 }
 
+/// Opens existing state read-only. Missing, invalid or busy indexes are reported
+/// to lookup, which falls back to full hashing without repairing derived state.
+pub(super) fn candidates(root: &Path, quick: &ImoHash) -> Result<Vec<Blake3Hash>> {
+    let database = connect(root, false)?;
+    let mut statement =
+        database.prepare("SELECT blake3 FROM quick_lookup WHERE imohash = ?1 ORDER BY blake3")?;
+    let rows = statement.query_map([quick.as_bytes().as_slice()], |row| {
+        row.get::<_, Vec<u8>>(0)
+    })?;
+    let mut keys = Vec::new();
+    for row in rows {
+        let bytes: [u8; 32] = row?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("invalid BLAKE3 length in quick index"))?;
+        keys.push(Blake3Hash::new(bytes));
+    }
+    Ok(keys)
+}
+
+pub(super) fn record(root: &Path, quick: &ImoHash, key: &Blake3Hash) {
+    if let Err(error) = insert(root, quick, key) {
+        tracing::debug!(%key, error = %format!("{error:#}"), "Skipping optional quick-index update");
+    }
+}
+
+pub(super) fn forget(root: &Path, key: &Blake3Hash) {
+    if let Err(error) = remove(root, key) {
+        tracing::debug!(%key, error = %format!("{error:#}"), "Skipping optional quick-index removal");
+    }
+}
+
+/// Exclusive leases prevent replacing a database still used by cooperating WAL
+/// connections. Recovery affects only derived state; content remains authoritative.
+pub(super) fn replace(root: &Path, entries: &[(ImoHash, Blake3Hash)]) -> Result<()> {
+    let _lease = lease(root, true, true)?;
+    for suffix in ["", "-wal", "-shm"] {
+        storage::remove_if_exists(&root.join(format!(".mcpm/index.sqlite3{suffix}")))?;
+    }
+    let mut connection = open(root, true)?;
+    let transaction = connection.transaction()?;
+    {
+        let mut statement = transaction
+            .prepare("INSERT OR IGNORE INTO quick_lookup(imohash, blake3) VALUES (?1, ?2)")?;
+        for (quick, key) in entries {
+            statement.execute(params![
+                quick.as_bytes().as_slice(),
+                key.as_bytes().as_slice()
+            ])?;
+        }
+    }
+    transaction
+        .commit()
+        .context("failed to commit rebuilt quick index")
+}
+
+fn insert(root: &Path, quick: &ImoHash, key: &Blake3Hash) -> Result<()> {
+    connect(root, true)?.execute(
+        "INSERT OR IGNORE INTO quick_lookup(imohash, blake3) VALUES (?1, ?2)",
+        params![quick.as_bytes().as_slice(), key.as_bytes().as_slice()],
+    )?;
+    Ok(())
+}
+
+fn remove(root: &Path, key: &Blake3Hash) -> Result<()> {
+    // A removal never creates a missing index or attempts to adopt a damaged one.
+    if !path(root)
+        .try_exists()
+        .context("failed to inspect quick index for removal")?
+    {
+        return Ok(());
+    }
+    connect(root, true)?.execute(
+        "DELETE FROM quick_lookup WHERE blake3 = ?1",
+        [key.as_bytes().as_slice()],
+    )?;
+    Ok(())
+}
+
 struct Database {
     connection: Connection,
     _lease: File,
@@ -106,84 +184,6 @@ fn open(root: &Path, write: bool) -> Result<Connection> {
         );
     }
     Ok(connection)
-}
-
-/// Opens existing state read-only. Missing, invalid or busy indexes are reported
-/// to lookup, which falls back to full hashing without repairing derived state.
-pub(super) fn candidates(root: &Path, quick: &ImoHash) -> Result<Vec<Blake3Hash>> {
-    let database = connect(root, false)?;
-    let mut statement =
-        database.prepare("SELECT blake3 FROM quick_lookup WHERE imohash = ?1 ORDER BY blake3")?;
-    let rows = statement.query_map([quick.as_bytes().as_slice()], |row| {
-        row.get::<_, Vec<u8>>(0)
-    })?;
-    let mut keys = Vec::new();
-    for row in rows {
-        let bytes: [u8; 32] = row?
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("invalid BLAKE3 length in quick index"))?;
-        keys.push(Blake3Hash::new(bytes));
-    }
-    Ok(keys)
-}
-
-fn insert(root: &Path, quick: &ImoHash, key: &Blake3Hash) -> Result<()> {
-    connect(root, true)?.execute(
-        "INSERT OR IGNORE INTO quick_lookup(imohash, blake3) VALUES (?1, ?2)",
-        params![quick.as_bytes().as_slice(), key.as_bytes().as_slice()],
-    )?;
-    Ok(())
-}
-
-pub(super) fn record(root: &Path, quick: &ImoHash, key: &Blake3Hash) {
-    if let Err(error) = insert(root, quick, key) {
-        tracing::debug!(%key, error = %format!("{error:#}"), "Skipping optional quick-index update");
-    }
-}
-
-fn remove(root: &Path, key: &Blake3Hash) -> Result<()> {
-    // A removal never creates a missing index or attempts to adopt a damaged one.
-    if !path(root)
-        .try_exists()
-        .context("failed to inspect quick index for removal")?
-    {
-        return Ok(());
-    }
-    connect(root, true)?.execute(
-        "DELETE FROM quick_lookup WHERE blake3 = ?1",
-        [key.as_bytes().as_slice()],
-    )?;
-    Ok(())
-}
-
-pub(super) fn forget(root: &Path, key: &Blake3Hash) {
-    if let Err(error) = remove(root, key) {
-        tracing::debug!(%key, error = %format!("{error:#}"), "Skipping optional quick-index removal");
-    }
-}
-
-/// Exclusive leases prevent replacing a database still used by cooperating WAL
-/// connections. Recovery affects only derived state; content remains authoritative.
-pub(super) fn replace(root: &Path, entries: &[(ImoHash, Blake3Hash)]) -> Result<()> {
-    let _lease = lease(root, true, true)?;
-    for suffix in ["", "-wal", "-shm"] {
-        storage::remove_if_exists(&root.join(format!(".mcpm/index.sqlite3{suffix}")))?;
-    }
-    let mut connection = open(root, true)?;
-    let transaction = connection.transaction()?;
-    {
-        let mut statement = transaction
-            .prepare("INSERT OR IGNORE INTO quick_lookup(imohash, blake3) VALUES (?1, ?2)")?;
-        for (quick, key) in entries {
-            statement.execute(params![
-                quick.as_bytes().as_slice(),
-                key.as_bytes().as_slice()
-            ])?;
-        }
-    }
-    transaction
-        .commit()
-        .context("failed to commit rebuilt quick index")
 }
 
 #[cfg(test)]

@@ -1,8 +1,16 @@
 # mcpm command reference
 
-`mcpm` inspects and launches local Minecraft clients, and inspects mod archives. The available commands are
-`client list`, `client check`, `client launch`, `server init`, `server info`, `mod list`, `mod info`, `mod cache`, `mod deps`, and `mod dep-graph build`. Mod archives
-are read without modifying them by inspection commands; `mod cache` explicitly stores files and metadata, with optional hard-link protection. Graph snapshots can be written to a separate file.
+The executables share one implementation and configuration:
+
+| Executable | Commands |
+| --- | --- |
+| `mcpm`, `mcpm-server` | `init`, `info`, `mods` |
+| `mcpmc`, `mcpm-client` | `list`, `check`, `launch` |
+| `mcpm-tools` | `cache`, `remote`, `customize`, `debug`, `mod`, `server`, `client` |
+
+Each long name has the same behavior as its short name; help and command hints use the selected name. Tools also exposes `mcpm-tools server info` and `mcpm-tools client list`. The server and client executables accept only their own command families; remote sessions use `mcpm-tools remote`.
+
+Inspection commands read mod archives without modifying them. `mcpm-tools mod cache` explicitly stores files and metadata, with optional hard-link protection. Graph snapshots can be written to a separate file.
 
 [Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
 
@@ -21,24 +29,30 @@ are read without modifying them by inspection commands; `mod cache` explicitly s
 ## Quick start
 
 ```sh
-mcpm client list "$HOME/Downloads/.minecraft"
-mcpm client launch 1.18.1 --directory "$HOME/Downloads/.minecraft" --java /path/to/java
-mcpm mod list
-mcpm mod list mods/ example.jar other-mods/
-mcpm mod info example.jar another.jar.disabled
-mcpm mod deps example.jar --loader fabric
-mcpm --raw mod list mods/ -C MF > mods.tsv
+mcpmc list "$HOME/Downloads/.minecraft"
+mcpmc launch 1.18.1 --directory "$HOME/Downloads/.minecraft" --java /path/to/java
+mcpm-tools mod list
+mcpm-tools mod list mods/ example.jar other-mods/
+mcpm-tools mod info example.jar another.jar.disabled
+mcpm-tools mod deps example.jar --loader fabric
+mcpm-tools --raw mod list mods/ -C MF > mods.tsv
 ```
 
-To run from the repository without installing the executable, replace `mcpm`
-with `cargo run --manifest-path mcpm/Cargo.toml --`.
+Build all five executables with `cargo build --manifest-path mcpm/Cargo.toml --release --bins`.
+`cargo run --manifest-path mcpm/Cargo.toml -- info` starts `mcpm` by default.
+Select another executable with `--bin`, for example:
+
+```sh
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpmc -- list
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod list
+```
 
 ## Global options
 
-`--ssh` and `--ssh-mcpm` are global; supported by `mod list`, `mod info`, `mod deps`, `mod source identify`, `server init`, `server info`, and `server mods list/info/cache/deps/source search/files/identify`. See [Remote sessions](remote.md).
+`--ssh`, `--ssh-mcpm`, and `--remote-logs` are available only in the server and tools executables. SSH defaults to the remote `mcpm-tools` executable; explicit `--ssh-mcpm` paths are used as provided. `--ssh` and `--ssh-mcpm` are global; supported by `mod list`, `mod info`, `mod deps`, `mod source identify`, `server init`, `server info`, and `server mods list/info/cache/deps/source search/files/identify`. See [Remote sessions](remote.md).
 
 ```text
-mcpm [OPTIONS] <COMMAND>
+mcpm-tools [OPTIONS] <COMMAND>
 ```
 
 | Option | Description |
@@ -48,29 +62,35 @@ mcpm [OPTIONS] <COMMAND>
 | `--remote-logs` | Show remote logs on stderr, filtered by `--log-level`; hidden by default. Remote errors are always shown. |
 | `-h`, `--help` | Show help for the current command. |
 | `-V` | Show the executable version at the top level. |
-| `--version` | Show the version and build-time contributors (commit counts, names, and email addresses); mark contributors as unavailable if Git history could not be read. |
+| `--version` | Show the version, build identity (`official` / `unofficial`), build profile, Git commit ID, and build-time contributors (commit counts, names, and email addresses); mark the relevant information as unavailable if Git metadata could not be read. |
+
+The detailed output shows the full commit ID. Staged or unstaged changes to tracked files append ` + modified`; untracked files do not count. This information is captured at build time and does not depend on the runtime directory.
+
+Unofficial versions append `.<first six commit characters>`, or `.<first six commit characters>.modified` when tracked files have changes. If Git metadata is unavailable, they append `.unknown`. Both `-V` and `--version` use this version; official builds retain the Cargo package version.
+
+Unofficial release-profile builds print a startup warning on stderr when executing commands: the program may be a third-party build or contain changes that have not been officially released. The warning does not change command results or exit status and remains visible with `--raw` or `--log-level off`. Debug builds omit the startup warning; `-V` prints only the executable name and version.
 
 `--raw` is global and can appear before or after subcommands:
 
 ```sh
-mcpm --raw mod info example.jar
-mcpm mod list mods/ --raw
+mcpm-tools --raw mod info example.jar
+mcpm-tools mod list mods/ --raw
 ```
 
 Use command-specific help to see the accepted arguments:
 
 ```sh
 mcpm --help
-mcpm client list --help
-mcpm client check --help
-mcpm client launch --help
-mcpm mod list --help
-mcpm mod info --help
-mcpm mod cache --help
-mcpm mod deps --help
-mcpm mod dep-graph build --help
-mcpm mod dep-graph test --help
-mcpm mod dep-graph view --help
+mcpmc list --help
+mcpmc check --help
+mcpmc launch --help
+mcpm-tools mod list --help
+mcpm-tools mod info --help
+mcpm-tools mod cache --help
+mcpm-tools mod deps --help
+mcpm-tools mod dep-graph build --help
+mcpm-tools mod dep-graph test --help
+mcpm-tools mod dep-graph view --help
 ```
 
 ## Terminal output
@@ -78,7 +98,7 @@ mcpm mod dep-graph view --help
 For terminal stdout, `list` aligns and wraps columns to the terminal width.
 Key browsing content uses bold primary color; secondary content uses the secondary color.
 Paths and descriptions use dim white. Warning, success and error use bright yellow,
-green and red. Loaders use configured colors. See [`mcpm customize`](customize.md).
+green and red. Loaders use configured colors. See [`mcpm-tools customize`](customize.md).
 Dependency labels use bold white for `required`, secondary color for `recommended`,
 white for `suggested`, dim white for `optional`, error color for `breaks`, and warning color for `conflicts`.
 
@@ -95,7 +115,7 @@ explicit version IDs (or `check --all`) when selection is disabled.
 Setting `NO_COLOR` disables colors while retaining terminal layout and hints:
 
 ```sh
-NO_COLOR=1 mcpm mod list mods/
+NO_COLOR=1 mcpm-tools mod list mods/
 ```
 
 ## Exit status
@@ -115,8 +135,8 @@ transfer statistics, selected libraries, paths and the final redacted Java argum
 and `trace` for individual native entries and required-file inspections.
 
 ```sh
-mcpm --log-level info client launch 1.18.1 --no-logging-config
-mcpm client launch 1.18.1 --no-logging-config --log-level debug
+mcpmc --log-level info launch 1.18.1 --no-logging-config
+mcpmc launch 1.18.1 --no-logging-config --log-level debug
 ```
 
 Logs use stderr and cooperate with progress bars. Colors follow terminal policy,

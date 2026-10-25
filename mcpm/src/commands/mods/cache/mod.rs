@@ -1,5 +1,7 @@
 //! CLI adapter for selecting and explicitly caching whole mod archives and metadata.
 
+use mcpm_backend::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -29,6 +31,9 @@ pub(super) struct CacheArgs {
     directory: PathBuf,
     #[command(flatten)]
     writing: WriteArgs,
+    /// Target cache; explicit directories must already be initialized.
+    #[arg(long, value_name = "PATH")]
+    cache_dir: Option<PathBuf>,
     #[command(flatten)]
     sources: SourcesArgs,
     #[command(flatten)]
@@ -39,17 +44,23 @@ pub(super) struct CacheArgs {
 
 pub(super) fn run(args: CacheArgs) -> Result<()> {
     let selection = args.items.read()?;
+    let environment = RuntimeEnvironment::new().with_mods_cache(Some(
+        args.cache_dir
+            .map(|path| ModsCacheSelection::Directory { path })
+            .unwrap_or(ModsCacheSelection::Default),
+    ));
     let mut completion = Completion::new(&args.writing, &args.sources.selected()?)?;
     let mut output = Presentation::new(args.display);
     cache::run(
         selection,
         Scope::directory(args.directory),
+        &environment,
         args.writing.options(args.loaders.select())?,
         || Ok(()),
         |event| completion.accept(event, &mut |event| output.event(event)),
     )?;
     completion.finish(
-        crate::commands::source_support::identify::Location::Local,
+        crate::commands::source_support::identify::Location::Local(&environment),
         |event| output.event(event),
     )?;
     output.finish()

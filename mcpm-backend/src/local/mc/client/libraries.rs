@@ -1,3 +1,5 @@
+//! Shared client library repository access and artifact/native resolution.
+
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -12,24 +14,6 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct LibrariesDirectory {
     path: PathBuf,
-}
-
-/// A selected artifact or native archive, including verification/download metadata.
-#[derive(Debug, Clone)]
-pub struct LibraryFile {
-    pub kind: LibraryFileKind,
-    pub name: String,
-    pub classifier: Option<String>,
-    pub path: PathBuf,
-    pub download: DownloadInfo,
-    /// Alternative SHA-1 values declared by legacy library metadata.
-    pub checksums: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LibraryFileKind {
-    Artifact,
-    Native,
 }
 
 impl LibrariesDirectory {
@@ -143,6 +127,24 @@ impl LibrariesDirectory {
             checksums,
         })
     }
+}
+
+/// A selected artifact or native archive, including verification/download metadata.
+#[derive(Debug, Clone)]
+pub struct LibraryFile {
+    pub kind: LibraryFileKind,
+    pub name: String,
+    pub classifier: Option<String>,
+    pub path: PathBuf,
+    pub download: DownloadInfo,
+    /// Alternative SHA-1 values declared by legacy library metadata.
+    pub checksums: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryFileKind {
+    Artifact,
+    Native,
 }
 
 #[derive(Debug, Error)]

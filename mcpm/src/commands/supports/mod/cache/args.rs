@@ -8,15 +8,11 @@ use mcpm_backend::local::cache::mods::MetadataRefresh;
 use mcpm_backend::local::modloader::LoaderId;
 use mcpm_backend::local::modloader::ModLoaderMeta;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, num::NonZeroUsize, path::PathBuf};
+use std::{collections::HashMap, num::NonZeroUsize};
 
 #[derive(Debug, Args, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::commands) struct WriteArgs {
-    /// Target cache on the file host; defaults to ~/.mcpm/cache/mods. Explicit directories must be initialized.
-    #[arg(long, value_name = "PATH")]
-    #[serde(default)]
-    cache_dir: Option<PathBuf>,
     /// Copy, require a hard link, or copy only when hard links are unsupported.
     #[arg(long, value_enum, default_value = "copy")]
     #[serde(default)]
@@ -73,17 +69,9 @@ impl WriteArgs {
     pub fn parallelism(&self) -> usize {
         self.parallelism.get()
     }
-    pub fn cache_selection(&self) -> mcpm_backend::local::cache::mods::ModsCacheSelection {
-        use mcpm_backend::local::cache::mods::ModsCacheSelection;
-        match &self.cache_dir {
-            Some(path) => ModsCacheSelection::Directory { path: path.clone() },
-            None => ModsCacheSelection::Default,
-        }
-    }
     pub fn options(self, loaders: HashMap<LoaderId, ModLoaderMeta>) -> Result<Options> {
         let metadata = self.selected_metas()?.contains(&Meta::Meta);
         Ok(Options {
-            cache: self.cache_selection().open()?,
             loaders,
             mode: self.mode.into(),
             refresh: if self.force {

@@ -9,7 +9,7 @@ use std::{
 use serde_json::Value;
 
 fn run(root: &Path, cache: &Path, arguments: &[&std::ffi::OsStr]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .args([
             "--raw",
             "--log-level",
@@ -47,7 +47,7 @@ fn imports(output: &Output) -> Vec<Value> {
 
 fn batch(root: &Path, cache: &Path, arguments: &[&str], input: &str) -> Output {
     use std::io::Write;
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .args([
             "--raw",
             "--log-level",
@@ -617,7 +617,7 @@ fn remote_inspection_counts_full_partial_and_uncached_files_before_expanding_row
             if enabled {
                 contents["cache"] = json!({"kind":"directory", "path":cache.path()});
             }
-            let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+            let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
                 .args(["--log-level", "off", "remote"])
                 .current_dir(root.path())
                 .stdin(Stdio::piped())

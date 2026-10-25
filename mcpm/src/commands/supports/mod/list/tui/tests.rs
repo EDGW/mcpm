@@ -5,6 +5,7 @@ use super::*;
 use crate::commands::supports::mods::{scan::ScannedFile, source_path::PathArgs};
 use clap::Parser;
 use crossterm::event::{Event, KeyModifiers, MouseEvent, MouseEventKind};
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use mcpm_backend::local::{
     mcmod::{self, IdentificationErrorAction, ModEntry},
     modloader::BUILTIN_LOADERS,
@@ -23,7 +24,7 @@ fn fixture(expanded: bool) -> Browser {
         ModEntry::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex-mod.jar"))
             .unwrap(),
         BUILTIN_LOADERS.clone(),
-        &mcmod::ModOpenContext::default(),
+        &RuntimeEnvironment::new().with_mods_cache(None),
         |_, _, _, _| IdentificationErrorAction::Abort,
     )
     .unwrap()
@@ -48,9 +49,10 @@ fn fixture(expanded: bool) -> Browser {
     )
 }
 fn summary() -> Summary<'static> {
+    static ENVIRONMENT: std::sync::LazyLock<RuntimeEnvironment> =
+        std::sync::LazyLock::new(|| RuntimeEnvironment::new().with_mods_cache(None));
     Summary {
-        source_cache: None,
-        location: Location::Local,
+        location: Location::Local(&ENVIRONMENT),
         ignored: 0,
         ignored_files: &[],
         input_errors: 0,

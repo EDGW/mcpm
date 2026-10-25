@@ -1,7 +1,7 @@
-# `mcpm mod info`
+# `mcpm-tools mod info`
 
 ```text
-mcpm mod info [OPTIONS] [INPUT]...
+mcpm-tools mod info [OPTIONS] [INPUT]...
 ```
 
 Inspect one or more `.jar` or `.jar.disabled` files in argument order.
@@ -10,9 +10,9 @@ disabled status inferred from the filename, loader records, mod names, IDs,
 versions, and declared dependencies. Recognized nested mods are included.
 
 ```sh
-mcpm mod info example.jar
-mcpm mod info example.jar another.jar.disabled --loaders fabric,neoforge
-mcpm --raw mod info example.jar > info.txt
+mcpm-tools mod info example.jar
+mcpm-tools mod info example.jar another.jar.disabled --loaders fabric,neoforge
+mcpm-tools --raw mod info example.jar > info.txt
 ```
 
 A file unrecognized by every loader is an error when no loader filter is
@@ -24,8 +24,8 @@ Console and Raw modes are supported; use `--raw` or redirect stdout for Raw.
 SSH uses the same modes and local formatting:
 
 ```sh
-mcpm --ssh 'ssh user@host' mod info --directory /srv/mods --modid example
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm.exe' --raw mod info --directory 'D:\mods' --all
+mcpm-tools --ssh 'ssh user@host' mod info --directory /srv/mods --modid example
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm-tools.exe' --raw mod info --directory 'D:\mods' --all
 ```
 
 Inputs match filenames, then exact mod IDs, then exact names. Use repeated
@@ -51,16 +51,16 @@ For shared options, see [Loader selection](README.md#loader-selection). For colo
 ## Identification cache
 
 - Caching is enabled by default using `~/.mcpm/cache/mods`. `--cache-dir PATH` selects an explicitly initialized directory; `--no-cache` disables cache lookup and identifies files directly. The two options are mutually exclusive.
-- Default roots initialize when absent or empty. Explicit roots must already be valid; run `mcpm cache mods init --directory PATH` first. Nonempty unmarked directories, malformed manifests and unsupported directory versions fail.
+- Default roots initialize when absent or empty. Explicit roots must already be valid; run `mcpm-tools cache mods init --directory PATH` first. Nonempty unmarked directories, malformed manifests and unsupported directory versions fail.
 - Lookup uses an imohash candidate index and current native file identity for hard links. If no identity matches, full BLAKE3 lookup also permits independent copies with identical contents to reuse metadata.
 - Cached non-recognition is reused too. Missing, stale or invalid results are identified normally. Inspection only reads existing cache objects: it never imports files, establishes hard links or writes metadata. Use [mod cache](cache.md), or explicit cache import and refresh commands, to store results.
 - Console shows `A fully cached · B partially cached · C total items` after a blank line; list TUI shows the same totals below its skipped-files status line. Full means every requested loader result came from cache, including non-recognition; partial means some did. Totals count unique normalized file inspections, including unrecognized/failed files, before filtering; duplicate queries and nested declarations do not increase them. With caching disabled, both hit counts are zero. Raw text output has no summary line.
 - With SSH, cache selection and paths are interpreted on the remote host. Ordinary local cache-management commands remain local.
 
 ```sh
-mcpm mod info example.jar
-mcpm mod info example.jar --no-cache
-mcpm mod info example.jar --cache-dir /path/to/cache
+mcpm-tools mod info example.jar
+mcpm-tools mod info example.jar --no-cache
+mcpm-tools mod info example.jar --cache-dir /path/to/cache
 ```
 
 [Command reference](../README.md) · [mod overview](README.md) · [简体中文](../../docs-zh/mod/info.md)

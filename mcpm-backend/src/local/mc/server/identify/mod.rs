@@ -28,18 +28,6 @@ pub struct ServerCandidate {
     pub launch: ServerLaunch,
 }
 
-#[derive(Debug, Error)]
-pub enum ServerIdentificationError {
-    #[error("no Java server launch found in {path:?}")]
-    NoLaunch { path: PathBuf },
-    #[error(
-        "cannot accurately identify server at {path:?}:{line}; no recognized loader or vanilla entry"
-    )]
-    Unrecognized { path: PathBuf, line: usize },
-    #[error("multiple loader implementations recognized the same Java launch at {path:?}:{line}")]
-    ConflictingLoaders { path: PathBuf, line: usize },
-}
-
 /// `script` is relative to `root` unless absolute. All script/file paths are resolved
 /// without executing anything. This extracts identity evidence, not command validity.
 /// Unavailable commands are diagnosed independently; recognized candidates survive
@@ -182,4 +170,16 @@ fn identify_launch(
         }
     };
     Ok(Some(metadata))
+}
+
+#[derive(Debug, Error)]
+pub enum ServerIdentificationError {
+    #[error("no Java server launch found in {path:?}")]
+    NoLaunch { path: PathBuf },
+    #[error(
+        "cannot accurately identify server at {path:?}:{line}; no recognized loader or vanilla entry"
+    )]
+    Unrecognized { path: PathBuf, line: usize },
+    #[error("multiple loader implementations recognized the same Java launch at {path:?}:{line}")]
+    ConflictingLoaders { path: PathBuf, line: usize },
 }

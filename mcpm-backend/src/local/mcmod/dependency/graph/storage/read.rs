@@ -22,6 +22,57 @@ use super::{
     error::{GraphValidationError, ReadGraphError},
 };
 
+// region: read_json
+
+/// Reads a version-1 JSON snapshot and restores the complete declaration graph.
+///
+/// Mod candidates resolve their loader metadata and shared runtime instances from
+/// `loaders`. Empty nodes and external candidates need no runtime loader instance.
+/// Reverse relations are rebuilt; edge and dependency order is not significant.
+/// No mod archives are opened and no dependency/version/loading checks are run.
+///
+/// # Errors
+///
+/// Returns a typed [`ReadGraphError`] for I/O, syntax, schema, version or structural
+/// failures. Unknown fields are rejected rather than silently discarded. The
+/// graph is returned only after every node, candidate and edge has been validated.
+pub fn read_json(
+    mut input: impl Read,
+    loaders: &HashMap<LoaderId, ModLoaderMeta>,
+) -> Result<DependencyGraph, ReadGraphError> {
+    let mut bytes = Vec::new();
+    input
+        .read_to_end(&mut bytes)
+        .map_err(|source| ReadGraphError::Read { source })?;
+    let header: VersionHeader = decode(&bytes)?;
+    check_version(header.format_version)?;
+    let snapshot: Snapshot = decode(&bytes)?;
+    check_version(snapshot.format_version)?;
+
+    let mut graph = DependencyGraph::new();
+    // Register every node first, including placeholders and isolated nodes.
+    let mut nodes = Vec::with_capacity(snapshot.nodes.len());
+    for node in snapshot.nodes {
+        let identifier = node.identifier.into_identifier();
+        if graph.nodes.contains_key(&identifier) {
+            return Err(GraphValidationError::DuplicateNode { node: identifier }.into());
+        }
+        graph.nodes.insert(
+            identifier.clone(),
+            DependencyNode::empty(identifier.clone()),
+        );
+        nodes.push((identifier, node.candidates));
+    }
+    for (identifier, candidates) in nodes {
+        for candidate in candidates {
+            let candidate = restore_candidate(candidate, &identifier, &graph.nodes, loaders)?;
+            graph.add_modcandidate(candidate);
+        }
+    }
+    graph.identification_failures = snapshot.identification_failures;
+    Ok(graph)
+}
+
 // Read the version before interpreting the rest of the version-specific schema.
 #[derive(Deserialize, Debug)]
 struct VersionHeader {
@@ -88,54 +139,7 @@ struct Edge {
     dependency: Dependency,
 }
 
-/// Reads a version-1 JSON snapshot and restores the complete declaration graph.
-///
-/// Mod candidates resolve their loader metadata and shared runtime instances from
-/// `loaders`. Empty nodes and external candidates need no runtime loader instance.
-/// Reverse relations are rebuilt; edge and dependency order is not significant.
-/// No mod archives are opened and no dependency/version/loading checks are run.
-///
-/// # Errors
-///
-/// Returns a typed [`ReadGraphError`] for I/O, syntax, schema, version or structural
-/// failures. Unknown fields are rejected rather than silently discarded. The
-/// graph is returned only after every node, candidate and edge has been validated.
-pub fn read_json(
-    mut input: impl Read,
-    loaders: &HashMap<LoaderId, ModLoaderMeta>,
-) -> Result<DependencyGraph, ReadGraphError> {
-    let mut bytes = Vec::new();
-    input
-        .read_to_end(&mut bytes)
-        .map_err(|source| ReadGraphError::Read { source })?;
-    let header: VersionHeader = decode(&bytes)?;
-    check_version(header.format_version)?;
-    let snapshot: Snapshot = decode(&bytes)?;
-    check_version(snapshot.format_version)?;
-
-    let mut graph = DependencyGraph::new();
-    // Register every node first, including placeholders and isolated nodes.
-    let mut nodes = Vec::with_capacity(snapshot.nodes.len());
-    for node in snapshot.nodes {
-        let identifier = node.identifier.into_identifier();
-        if graph.nodes.contains_key(&identifier) {
-            return Err(GraphValidationError::DuplicateNode { node: identifier }.into());
-        }
-        graph.nodes.insert(
-            identifier.clone(),
-            DependencyNode::empty(identifier.clone()),
-        );
-        nodes.push((identifier, node.candidates));
-    }
-    for (identifier, candidates) in nodes {
-        for candidate in candidates {
-            let candidate = restore_candidate(candidate, &identifier, &graph.nodes, loaders)?;
-            graph.add_modcandidate(candidate);
-        }
-    }
-    graph.identification_failures = snapshot.identification_failures;
-    Ok(graph)
-}
+// endregion
 
 fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ReadGraphError> {
     serde_json::from_slice(bytes).map_err(|source| {

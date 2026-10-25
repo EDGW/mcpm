@@ -11,6 +11,10 @@ use super::{
 };
 
 /// A Minecraft root containing a `versions` directory.
+///
+/// # Implementations
+/// - [`Self::new`]: directory access, version loading and resource checks.
+/// - [`Self::plan_launch`]: read-only launch planning (`launch/plan/mod.rs`).
 #[derive(Debug, Clone)]
 pub struct MinecraftDirectory {
     path: PathBuf,

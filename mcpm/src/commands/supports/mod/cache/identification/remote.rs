@@ -3,6 +3,7 @@
 use anyhow::{Context, Result, ensure};
 use mcpm_backend::local::cache::hash::Blake3Hash;
 use mcpm_backend::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use mcpm_backend::source::FileMatch;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,7 +20,8 @@ impl Command for Publish {
         let request: Request =
             serde_json::from_value(contents).context("invalid identification cache publication")?;
         output.checkpoint()?;
-        let cache = request.cache.open()?;
+        let environment = RuntimeEnvironment::new().with_mods_cache(Some(request.cache));
+        let cache = environment.require_mods_cache()?;
         // Trusted client provider result, never loader metadata. The library verifies the
         // stored BLAKE3, size and SHA-1 before publishing through its sole snapshot codec.
         cache.write_ident_info(request.id.parse()?, &request.file)?;

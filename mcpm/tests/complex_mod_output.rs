@@ -15,7 +15,7 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
     let file = mcmod::open(
         ModEntry::new(fixtures.join("complex-mod.jar")).unwrap(),
         BUILTIN_LOADERS.clone(),
-        &mcmod::ModOpenContext::default(),
+        &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_mods_cache(None),
         |_, _, _, _| IdentificationErrorAction::Abort,
     )
     .expect("failed to identify composite archive")
@@ -81,7 +81,7 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
             include_str!("fixtures/complex-mod.list.tree.neoforge.txt"),
         ),
     ] {
-        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
         process.current_dir(&fixtures);
         process.arg("--raw");
         let output = process

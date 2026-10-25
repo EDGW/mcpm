@@ -1,5 +1,6 @@
 //! Resolves user-selected mod files for shared deps inspection.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -9,7 +10,7 @@ use crate::commands::supports::mods::{inspect, loaders::LoaderArgs, source_path:
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Modes: Console (default in a terminal), Raw (--raw or redirected stdout). Remote: supported through mcpm remote (command ID: mod.deps) and --ssh.\n\nAdditional inputs are read from redirected stdin, one per line; --input sets their interpretation (default: filename, modid, then name matching)."
+    after_help = format!("Modes: Console (default in a terminal), Raw (--raw or redirected stdout). Remote: supported through {tools} remote (command ID: mod.deps) and --ssh.\n\nAdditional inputs are read from redirected stdin, one per line; --input sets their interpretation (default: filename, modid, then name matching).", tools = crate::program::roots().tools)
 )]
 pub(super) struct DepsArgs {
     #[command(flatten)]
@@ -31,6 +32,7 @@ pub(super) fn run(args: DepsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         selection,
         args.directory,
         args.loaders,
+        &RuntimeEnvironment::new().with_mods_cache(None),
         args.loading.parallelism(),
         inspect::Display::Dependencies(&args.paths_output),
         ssh,

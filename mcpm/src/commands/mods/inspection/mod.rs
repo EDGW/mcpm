@@ -1,5 +1,6 @@
 //! Shared file-command dispatch for local and SSH inspection; no command-specific presentation.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -20,6 +21,7 @@ pub(super) fn run(
     selection: Selection,
     directory: PathBuf,
     loaders: LoaderArgs,
+    environment: &RuntimeEnvironment,
     loading: impl Into<crate::commands::supports::mods::scan::Options>,
     display: Display<'_>,
     ssh: SshArgs,
@@ -49,13 +51,22 @@ pub(super) fn run(
         return inspect::prompt_for_input();
     }
     let result = if ssh.is_requested() {
-        remote::run_ssh(ssh, selection, directory, loaders, loading, display)
+        remote::run_ssh(
+            ssh,
+            selection,
+            directory,
+            loaders,
+            environment,
+            loading,
+            display,
+        )
     } else {
         inspect::run(
             selection,
             Scope::directory(directory),
             loaders.select(),
             loaders.is_filtered(),
+            environment,
             loading,
             display,
         )

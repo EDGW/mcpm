@@ -88,7 +88,6 @@ pub(super) fn start(
     paths: Vec<PathBuf>,
     parallelism: usize,
     location: Location<'_>,
-    cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
 ) -> Result<Receiver<Update>> {
     let (sender, receiver) = channel();
     let count = paths.len();
@@ -96,13 +95,8 @@ pub(super) fn start(
         return Ok(receiver);
     }
     let sources = Platform::ALL.map(|platform| platform.id().to_owned());
-    let identification = acquisition::Identification::start_with_cache(
-        paths,
-        &sources,
-        parallelism,
-        location,
-        cache,
-    )?;
+    let identification =
+        acquisition::Identification::start(paths, &sources, parallelism, location)?;
     tracing::info!(
         files = count,
         parallelism,

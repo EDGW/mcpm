@@ -1,12 +1,12 @@
 # 远端 Mod 搜索表达式
 
-`mcpm mod source search` 和 `mcpm server mods source search` 共用以下语法，适用于
+`mcpm-tools mod source search` 和 `mcpm mods source search` 共用以下语法，适用于
 CurseForge 和 Modrinth，也适用于 TUI、Console、Raw。关键词放在前面，筛选字段放在后面。
 
 ```sh
-mcpm mod source search 'create @version 1.20.1 @loader fabric' --source modrinth
-mcpm mod source search 'create @version (1.20.1 | 1.21.1) @loader (forge | neoforge)' --source curseforge
-mcpm server mods source search '@version * @loader *' --source modrinth
+mcpm-tools mod source search 'create @version 1.20.1 @loader fabric' --source modrinth
+mcpm-tools mod source search 'create @version (1.20.1 | 1.21.1) @loader (forge | neoforge)' --source curseforge
+mcpm mods source search '@version * @loader *' --source modrinth
 ```
 
 | 写法 | 含义 |
@@ -31,7 +31,7 @@ mcpm server mods source search '@version * @loader *' --source modrinth
 Shell 命令还需要外层引用或转义：
 
 ```sh
-mcpm mod source search "\"Steam 'n' Rails\" @loader forge" --source curseforge
+mcpm-tools mod source search "\"Steam 'n' Rails\" @loader forge" --source curseforge
 ```
 
 不支持正则、否定、版本范围或任意布尔嵌套。未知字段、重复字段、缺少值、未闭合引号或括号

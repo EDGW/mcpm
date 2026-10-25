@@ -44,7 +44,8 @@ pub(crate) fn run(args: ModArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         )
     {
         anyhow::bail!(
-            "--ssh and --ssh-mcpm are currently supported only by mcpm mod list, mod info, mod deps and mod source identify"
+            "--ssh and --ssh-mcpm are currently supported only by {} mod list/info/deps/source identify",
+            crate::program::roots().tools
         );
     }
     match args.command {

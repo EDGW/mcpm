@@ -1,5 +1,6 @@
 //! Ordered mod selection and inspection events, independent of transport and rendering.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::{cell::RefCell, collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
@@ -19,6 +20,7 @@ pub(in crate::commands) fn load(
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
     hide_unrecognized: bool,
+    environment: &RuntimeEnvironment,
     loading: impl Into<crate::commands::supports::mods::scan::Options>,
     checkpoint: impl Fn() -> Result<()>,
     emit: impl FnMut(Event) -> Result<()>,
@@ -37,7 +39,7 @@ pub(in crate::commands) fn load(
         })
     };
     let mut resolver = Resolver::new(
-        ScanSession::new(loaders)
+        ScanSession::new(loaders, environment)
             .with_options(loading.into())?
             .with_checkpoint(&checkpoint)
             .with_observer(&observe),
@@ -143,6 +145,7 @@ mod tests {
                 Scope::directory(root.path().into()),
                 BUILTIN_LOADERS.clone(),
                 false,
+                &RuntimeEnvironment::new().with_mods_cache(None),
                 2,
                 || Ok(()),
                 |event| {
@@ -161,6 +164,7 @@ mod tests {
                     Scope::directory(root.path().into()),
                     BUILTIN_LOADERS.clone(),
                     false,
+                    &RuntimeEnvironment::new().with_mods_cache(None),
                     2,
                     || Ok(()),
                     |_| {
@@ -197,6 +201,7 @@ mod tests {
                 Scope::directory(root.path().into()),
                 BUILTIN_LOADERS.clone(),
                 false,
+                &RuntimeEnvironment::new().with_mods_cache(None),
                 2,
                 || {
                     if cancelled.get() {
@@ -234,6 +239,7 @@ mod tests {
             Scope::directory(root.path().into()),
             BUILTIN_LOADERS.clone(),
             false,
+            &RuntimeEnvironment::new().with_mods_cache(None),
             2,
             || Ok(()),
             |event| {

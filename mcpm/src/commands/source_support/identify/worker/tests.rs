@@ -1,6 +1,7 @@
 //! Local HTTP regression tests for lookup ordering, concurrency, deduplication and failures.
 
 use super::*;
+use mcpm_backend::local::{cache::mods::ModsCacheSelection, runtime::RuntimeEnvironment};
 use mcpm_backend::source::Source;
 use mcpm_backend::source::{SourceId, curseforge::CurseForgeSource, modrinth::ModrinthSource};
 use std::sync::{Arc, mpsc::channel};
@@ -259,17 +260,22 @@ async fn identify(
             })
         })
         .collect();
-    Identification::with_sources(paths, sources, parallelism, Location::Local)
-        .unwrap()
-        .run_checked(
-            || Ok(()),
-            |event| {
-                sender.send(event)?;
-                Ok(())
-            },
-        )
-        .await
-        .unwrap();
+    Identification::with_sources(
+        paths,
+        sources,
+        parallelism,
+        Location::Local(&RuntimeEnvironment::new().with_mods_cache(None)),
+    )
+    .unwrap()
+    .run_checked(
+        || Ok(()),
+        |event| {
+            sender.send(event)?;
+            Ok(())
+        },
+    )
+    .await
+    .unwrap();
 }
 
 #[test]
@@ -316,21 +322,26 @@ fn cancellation_interrupts_a_provider_wait_without_finishing_the_batch() {
         ];
         tokio::time::timeout(
             Duration::from_secs(2),
-            Identification::with_sources(vec![path], sources, 1, Location::Local)
-                .unwrap()
-                .run_checked(
-                    || {
-                        anyhow::ensure!(
-                            !cancelled.load(Ordering::Acquire),
-                            "cancelled while waiting"
-                        );
-                        Ok(())
-                    },
-                    |event| {
-                        done |= matches!(event, Event::Done { .. });
-                        Ok(())
-                    },
-                ),
+            Identification::with_sources(
+                vec![path],
+                sources,
+                1,
+                Location::Local(&RuntimeEnvironment::new().with_mods_cache(None)),
+            )
+            .unwrap()
+            .run_checked(
+                || {
+                    anyhow::ensure!(
+                        !cancelled.load(Ordering::Acquire),
+                        "cancelled while waiting"
+                    );
+                    Ok(())
+                },
+                |event| {
+                    done |= matches!(event, Event::Done { .. });
+                    Ok(())
+                },
+            ),
         )
         .await
     });
@@ -395,7 +406,7 @@ fn remote_summaries_drive_local_provider_requests_without_reading_remote_paths()
     };
     let script = format!(
         r#"
-printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{{"version":3,"commands":["mod.source.identify"],"max_concurrency":8}}}}'
+printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{{"version":4,"commands":["mod.source.identify"],"max_concurrency":8}}}}'
 IFS= read -r logs
 log_guid=$(printf '%s' "$logs" | cut -d '"' -f6)
 printf {} "$log_guid"
@@ -442,7 +453,7 @@ printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"closed"
             vec![PathBuf::from(r"D:\remote-only.jar"); 2],
             sources,
             2,
-            Location::Remote(&session),
+            Location::Remote(&session, &RuntimeEnvironment::new().with_mods_cache(None)),
         )
         .unwrap()
         .run(|event| {
@@ -598,14 +609,15 @@ fn cache_events_preserve_hit_provenance_and_group_duplicate_physical_files() {
             .collect();
         let mut inputs = paths;
         inputs.push(inputs[0].clone());
-        Identification::with_sources_cached(
+        Identification::with_sources(
             inputs,
             sources,
             2,
-            Location::Local,
-            Some(ModsCacheSelection::Directory {
-                path: cache.path().to_owned(),
-            }),
+            Location::Local(&RuntimeEnvironment::new().with_mods_cache(Some(
+                ModsCacheSelection::Directory {
+                    path: cache.path().to_owned(),
+                },
+            ))),
         )
         .unwrap()
         .run(|event| {

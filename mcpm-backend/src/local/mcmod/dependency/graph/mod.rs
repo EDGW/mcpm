@@ -21,6 +21,10 @@ pub mod storage;
 mod traversal;
 
 /// A declaration graph. Candidate selection and loading-order evaluation are separate.
+///
+/// # Implementations
+/// - [`Self::new`]: graph construction, node access and identification diagnostics.
+/// - [`Self::dependency_depths`]: traversal and incoming relations (`traversal.rs`).
 #[derive(Debug, Default)]
 pub struct DependencyGraph {
     nodes: HashMap<DependencyIdentifier, DependencyNode>,

@@ -1,6 +1,6 @@
 # Filter type
 
-`mcpm mod list` and `mcpm server mods list` accept `-F/--filter <FILTER>` in
+`mcpm-tools mod list` and `mcpm mods list` accept `-F/--filter <FILTER>` in
 TUI, Console and Raw. The same expression can be edited in the TUI Filter card.
 
 | Syntax | Meaning |
@@ -53,9 +53,9 @@ the error and matches no rows until the expression is valid again.
 Quote the complete expression for your shell:
 
 ```sh
-mcpm mod list mods/ -F "@modid 'Fabric'"
-mcpm server mods list --all -F "@loaders (=Forge | =Fabric)"
-mcpm --raw server mods list --file example.jar -F "@name ~'API$'" --expanded
+mcpm-tools mod list mods/ -F "@modid 'Fabric'"
+mcpm mods list --all -F "@loaders (=Forge | =Fabric)"
+mcpm --raw mods list --file example.jar -F "@name ~'API$'" --expanded
 ```
 
 Server input options `--file`, `--modid`, `--name` and `--all` first resolve the

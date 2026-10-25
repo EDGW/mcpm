@@ -10,10 +10,11 @@ use crate::local::{
     modloader::{LoaderId, ModLoaderMeta},
 };
 
+use crate::local::runtime::RuntimeEnvironment;
+
 mod cache;
 pub use cache::{
-    LoaderCacheMissReason, LoaderCacheUsage, ModCacheReuse, ModOpenCache, ModOpenCacheReport,
-    ModOpenContext, ModOpenReport,
+    LoaderCacheMissReason, LoaderCacheUsage, ModCacheReuse, ModOpenCacheReport, ModOpenReport,
 };
 
 use crate::local::cache::mods::CacheStatus;
@@ -94,7 +95,7 @@ pub enum IdentificationErrorAction {
 /// separate metadata record; loaders that return `None` are skipped.
 /// If no loader recognizes the entry, the returned file has empty metadata.
 /// The entry and loader map are consumed, and the file is not modified.
-/// Use a shared context across opens to reuse cache selection and lookup setup.
+/// Use a shared environment across opens to reuse cache selection and resources.
 /// On failure, `on_error` receives the entry, loader, attempt number (starting
 /// at one for each loader), and the error with loader/path context. It may retry,
 /// skip, or abort. Skipped errors are the caller's responsibility to record.
@@ -113,14 +114,18 @@ pub enum IdentificationErrorAction {
 pub fn open<F>(
     entry: ModEntry,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
-    context: &ModOpenContext,
+    environment: &RuntimeEnvironment,
     mut on_error: F,
 ) -> Result<ModOpenReport>
 where
     F: FnMut(&ModEntry, &ModLoaderMeta, usize, &anyhow::Error) -> IdentificationErrorAction,
 {
     let mut metadata = Vec::new();
-    let cached = context.find(entry.path())?;
+    let cache = environment.mods_cache()?;
+    let cached = cache
+        .map(|cache| cache.find_metadata(entry.path()))
+        .transpose()?
+        .flatten();
     tracing::debug!(path = %entry.path().display(), cache = ?cached.as_ref().map(|entry| (entry.id(), entry.status())), "Checked mod cache association");
     let mut usage = HashMap::new();
 
@@ -175,15 +180,20 @@ where
 
     let cache = match cached {
         Some(cached) => ModOpenCacheReport::Matched {
-            root: context
-                .root()
+            root: cache
+                .map(|cache| cache.path())
                 .expect("cache enabled for a match")
                 .to_owned(),
             id: cached.id(),
             status: cached.status().clone(),
             loaders: usage,
         },
-        None => context.report(),
+        None => match cache {
+            None => ModOpenCacheReport::Disabled,
+            Some(cache) => ModOpenCacheReport::Miss {
+                root: cache.path().to_owned(),
+            },
+        },
     };
     Ok(ModOpenReport {
         file: ModFile { entry, metadata },

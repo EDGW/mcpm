@@ -272,7 +272,8 @@ pub(crate) fn summary(out: &mut impl Write, outcome: &Outcome, headers: bool) ->
             tip(
                 &mut console,
                 &format!(
-                    "Tip: Use mcpm mod backup delete <BACKUP> to delete this backup.{protection}"
+                    "Tip: Use {} mod backup delete <BACKUP> to delete this backup.{protection}",
+                    crate::program::roots().tools
                 ),
                 &style,
             )?;

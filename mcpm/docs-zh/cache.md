@@ -1,6 +1,6 @@
 # Mod 缓存管理
 
-`mcpm cache mods` 显式管理 `~/.mcpm/cache/mods` 中的内容和具名 metadata。
+`mcpm-tools cache mods` 显式管理 `~/.mcpm/cache/mods` 中的内容和具名 metadata。
 
 - 一个条目由完整的 64 位小写十六进制 BLAKE3 标识；相同内容只保存一次。
 - `meta`、`ident` 是两个 metadata 名字，分别保存 Loader 声明和来源匹配。
@@ -13,31 +13,31 @@
 ## 命令
 
 ```sh
-mcpm cache mods init --directory /path/to/cache
-mcpm cache mods import example.jar another.jar
-mcpm cache mods import example.jar --mode hard-link
-mcpm cache mods list
-mcpm cache mods list --columns blake3,size,metadatas
-mcpm cache mods list --details
-mcpm cache mods info HASH1 HASH2 --columns blake3,status,metadatas
-mcpm cache mods info --all
-printf '%s\n' HASH1 HASH2 | mcpm cache mods info
-mcpm cache mods refresh HASH1 HASH2 meta --loaders fabric,forge
-mcpm cache mods refresh HASH1 ident --source modrinth --source curseforge
-mcpm cache mods refresh --all meta
-mcpm cache mods refresh --all meta --parallelism 4
-mcpm cache mods refresh --all ident --details
-mcpm cache mods refresh HASH1 meta --short
-printf '%s\n' HASH1 HASH2 | mcpm cache mods refresh ident
-mcpm cache mods verify HASH1 HASH2
-mcpm cache mods verify --all
-mcpm cache mods verify --all --parallelism 4
-mcpm cache mods verify --all --details
-mcpm cache mods verify --all --autoremove
-mcpm cache mods export HASH1 restored.jar another-copy.jar
-mcpm cache mods remove HASH1
-mcpm cache mods remove --all
-mcpm cache mods rebuild-index
+mcpm-tools cache mods init --directory /path/to/cache
+mcpm-tools cache mods import example.jar another.jar
+mcpm-tools cache mods import example.jar --mode hard-link
+mcpm-tools cache mods list
+mcpm-tools cache mods list --columns blake3,size,metadatas
+mcpm-tools cache mods list --details
+mcpm-tools cache mods info HASH1 HASH2 --columns blake3,status,metadatas
+mcpm-tools cache mods info --all
+printf '%s\n' HASH1 HASH2 | mcpm-tools cache mods info
+mcpm-tools cache mods refresh HASH1 HASH2 meta --loaders fabric,forge
+mcpm-tools cache mods refresh HASH1 ident --source modrinth --source curseforge
+mcpm-tools cache mods refresh --all meta
+mcpm-tools cache mods refresh --all meta --parallelism 4
+mcpm-tools cache mods refresh --all ident --details
+mcpm-tools cache mods refresh HASH1 meta --short
+printf '%s\n' HASH1 HASH2 | mcpm-tools cache mods refresh ident
+mcpm-tools cache mods verify HASH1 HASH2
+mcpm-tools cache mods verify --all
+mcpm-tools cache mods verify --all --parallelism 4
+mcpm-tools cache mods verify --all --details
+mcpm-tools cache mods verify --all --autoremove
+mcpm-tools cache mods export HASH1 restored.jar another-copy.jar
+mcpm-tools cache mods remove HASH1
+mcpm-tools cache mods remove --all
+mcpm-tools cache mods rebuild-index
 ```
 
 | 命令 | 行为 |

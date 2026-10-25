@@ -3,7 +3,7 @@
 use super::{Event, Location, Outcome, remote, summary};
 use crate::diagnostics::ErrorReport;
 use anyhow::{Result, ensure};
-use mcpm_backend::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use mcpm_backend::source::{FileSummary, Source, SummaryRequirements};
 use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
@@ -39,24 +39,13 @@ impl std::fmt::Debug for Identification {
     }
 }
 impl Identification {
-    pub(in crate::commands) fn start_with_cache(
+    pub(in crate::commands) fn start(
         paths: Vec<PathBuf>,
         specifications: &[String],
         parallelism: usize,
         location: Location<'_>,
-        cache: Option<ModsCacheSelection>,
     ) -> Result<Self> {
-        Self::with_sources_cached(paths, sources(specifications), parallelism, location, cache)
-    }
-
-    #[cfg(test)]
-    fn with_sources(
-        paths: Vec<PathBuf>,
-        sources: Sources,
-        parallelism: usize,
-        location: Location<'_>,
-    ) -> Result<Self> {
-        Self::with_sources_cached(paths, sources, parallelism, location, None)
+        Self::with_sources(paths, sources(specifications), parallelism, location)
     }
 
     #[tracing::instrument(
@@ -66,12 +55,11 @@ impl Identification {
         fields(execution = "local"),
         err(level = "debug")
     )]
-    pub(in crate::commands) fn with_sources_cached(
+    pub(in crate::commands) fn with_sources(
         paths: Vec<PathBuf>,
         sources: Sources,
         parallelism: usize,
         location: Location<'_>,
-        cache: Option<ModsCacheSelection>,
     ) -> Result<Self> {
         ensure!(
             !sources.is_empty(),
@@ -97,16 +85,16 @@ impl Identification {
             "Prepared identification pipeline"
         );
         let input = match location {
-            Location::Local => Input::Local {
+            Location::Local(environment) => Input::Local {
                 requirements,
-                cache,
+                environment: environment.clone(),
             },
-            Location::Remote(session) => Input::Remote(remote::Lookup::start(
+            Location::Remote(session, environment) => Input::Remote(remote::Lookup::start(
                 session,
                 &remote::Request {
                     paths: paths.clone(),
                     requirements,
-                    cache,
+                    cache: crate::commands::supports::mods::reuse::selection(environment),
                     parallelism: std::num::NonZeroUsize::new(parallelism).unwrap(),
                 },
             )?),
@@ -153,7 +141,7 @@ impl Identification {
         let mut acquisition = tokio::task::JoinSet::new();
         if let Input::Local {
             requirements,
-            cache,
+            environment,
         } = input
         {
             let (sender, receiver) = mpsc::channel(self.parallelism);
@@ -165,7 +153,7 @@ impl Identification {
                         paths,
                         requirements,
                         parallelism,
-                        cache,
+                        &environment,
                         || Ok(()),
                         |event| {
                             let sender = sender.clone();
@@ -276,7 +264,7 @@ impl Identification {
 enum Input {
     Local {
         requirements: SummaryRequirements,
-        cache: Option<ModsCacheSelection>,
+        environment: RuntimeEnvironment,
     },
     Remote(remote::Lookup),
     Receiving(mpsc::Receiver<Result<summary::Event>>),

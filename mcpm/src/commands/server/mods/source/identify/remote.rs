@@ -1,5 +1,8 @@
 //! Remote server selection, streamed scan diagnostics and validated archive paths.
 
+use crate::commands::supports::mods::reuse::HostEnvironment;
+use crate::commands::supports::mods::reuse::QueryArgs;
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::{num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
@@ -36,10 +39,16 @@ impl Command for Identify {
         tracing::info!(server = %args.server.display(), "Resolving remote server mods for source identification");
         output.checkpoint()?;
         let server = ServerMods::load(args.server)?;
+        let environment = QueryArgs {
+            no_cache: args.no_cache,
+        }
+        .environment(server.runtime());
+        let selection_environment = environment.clone().with_mods_cache(None);
         let (paths, failed) = selection::resolve_paths(
             selection,
             server.scope(),
             server.loaders(),
+            &selection_environment,
             args.parallelism.get(),
             || output.checkpoint(),
             |event| {
@@ -58,7 +67,11 @@ impl Command for Identify {
             failed,
             "Remote server source selection completed"
         );
-        output.send(Event::Done { paths, failed })
+        output.send(Event::Done {
+            paths,
+            failed,
+            environment: HostEnvironment::capture(&environment)?,
+        })
     }
 }
 
@@ -68,6 +81,8 @@ impl Command for Identify {
 struct Request {
     server: PathBuf,
     selection: SelectionInput,
+    #[serde(default)]
+    no_cache: bool,
     #[serde(default = "crate::commands::execution::default_parallelism")]
     parallelism: NonZeroUsize,
 }
@@ -75,20 +90,31 @@ struct Request {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 enum Event {
-    Scan { completed: usize, total: usize },
-    Error { error: ErrorReport },
-    Done { paths: Vec<PathBuf>, failed: usize },
+    Scan {
+        completed: usize,
+        total: usize,
+    },
+    Error {
+        error: ErrorReport,
+    },
+    Done {
+        paths: Vec<PathBuf>,
+        failed: usize,
+        environment: HostEnvironment,
+    },
 }
 
 pub(super) fn resolve(
     session: &Session,
     server: PathBuf,
     selection: Selection,
+    no_cache: bool,
     parallelism: usize,
-) -> Result<(Vec<PathBuf>, usize)> {
+) -> Result<(Vec<PathBuf>, usize, RuntimeEnvironment)> {
     let args = Request {
         server,
         selection: SelectionInput::from_selection(selection)?,
+        no_cache,
         parallelism: NonZeroUsize::new(parallelism)
             .context("identification parallelism must be positive")?,
     };
@@ -107,8 +133,12 @@ pub(super) fn resolve(
                     output.event(scan::Event::Progress { completed, total })
                 }
                 Event::Error { error } => output.event(scan::Event::Diagnostic { error }),
-                Event::Done { paths, failed } => {
-                    result = Some((paths, failed));
+                Event::Done {
+                    paths,
+                    failed,
+                    environment,
+                } => {
+                    result = Some((paths, failed, environment.into_runtime()));
                     Ok(())
                 }
             }
@@ -132,7 +162,7 @@ impl Validator {
                 self.scan.accept(*completed, *total)?;
             }
             Event::Error { .. } => self.errors = true,
-            Event::Done { paths, failed } => {
+            Event::Done { paths, failed, .. } => {
                 ensure!(
                     self.scan.is_complete(),
                     "server source selection ended during scan"
@@ -189,6 +219,7 @@ mod tests {
             Event::Done {
                 paths: vec!["good.jar".into()],
                 failed: 1,
+                environment: HostEnvironment { cache: None },
             },
         ] {
             validator.accept(&event).unwrap();
@@ -201,6 +232,7 @@ mod tests {
         let done = || Event::Done {
             paths: Vec::new(),
             failed: 0,
+            environment: HostEnvironment { cache: None },
         };
         let cases = [
             vec![Event::Scan {
@@ -227,10 +259,12 @@ mod tests {
             vec![Event::Done {
                 paths: vec!["a.jar".into(), "a.jar".into()],
                 failed: 0,
+                environment: HostEnvironment { cache: None },
             }],
             vec![Event::Done {
                 paths: Vec::new(),
                 failed: 1,
+                environment: HostEnvironment { cache: None },
             }],
             vec![done(), done()],
         ];

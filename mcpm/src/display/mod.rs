@@ -1,6 +1,7 @@
 //! Shared data rendering; command acquisition, transport and storage stay with their owners.
 
 pub(crate) mod backup;
+pub(crate) mod build_info;
 pub(crate) mod cache;
 pub(crate) mod console;
 pub(crate) mod dependency;

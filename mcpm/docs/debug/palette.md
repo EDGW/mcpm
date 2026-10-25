@@ -1,9 +1,9 @@
 # Debug palette
 
 ```sh
-mcpm debug palette
-mcpm debug palette --no-ui
-mcpm debug palette --raw
+mcpm-tools debug palette
+mcpm-tools debug palette --no-ui
+mcpm-tools debug palette --raw
 ```
 
 Displays the 8 ordinary ANSI colors, 8 bright ANSI colors, and default foreground,

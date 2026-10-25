@@ -41,7 +41,7 @@ pub(super) fn write_snapshot(
                 "{}\t{}\t{}\t",
                 text(&remote.path),
                 text(&remote_ssh(&connection)),
-                text(connection.ssh_mcpm.as_deref().unwrap_or("mcpm")),
+                text(connection.executable()),
             )?;
         }
         return writeln!(
@@ -54,10 +54,7 @@ pub(super) fn write_snapshot(
         for (label, value) in [
             ("Remote path: ", text(&remote.path)),
             ("Remote SSH: ", text(&remote_ssh(&connection))),
-            (
-                "Remote mcpm: ",
-                text(connection.ssh_mcpm.as_deref().unwrap_or("mcpm")),
-            ),
+            ("Remote mcpm: ", text(connection.executable())),
         ] {
             writeln!(output, "{}{}", style.muted(label), style.muted(value))?;
         }

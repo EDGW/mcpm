@@ -16,7 +16,7 @@ fn source_and_list_requests_share_one_server_and_preserve_file_failures() {
         root.path().join("missing-b.jar"),
         root.path().join("missing-a.jar"),
     ];
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .arg("remote")
         .env("HOME", root.path())
         .stdin(Stdio::piped())
@@ -133,7 +133,7 @@ mod transport {
             ),
         );
         let mut body = print(
-            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":3,"commands":["mod.source.identify"],"max_concurrency":8}}),
+            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":4,"commands":["mod.source.identify"],"max_concurrency":8}}),
             "",
         );
         body.push_str("IFS= read -r logs\nlog_guid=$(printf '%s' \"$logs\" | cut -d '\"' -f6)\n");
@@ -183,7 +183,7 @@ mod transport {
                 json!({"event":"done","failed":4}),
             ],
         );
-        let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+        let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
             .args([
                 "--raw",
                 "--log-level",
@@ -266,7 +266,7 @@ mod transport {
         ] {
             let root = tempfile::tempdir().unwrap();
             let connection = setup(root.path(), events);
-            let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+            let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
                 .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
                 .arg(root.path().join("remote"))
                 .args([

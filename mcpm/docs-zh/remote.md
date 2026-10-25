@@ -1,13 +1,13 @@
 # Remote 会话与分发
 
-`mcpm remote` 使用一个进程承载整个会话。调用方可通过一个非 PTY 的 SSH 连接持续发送、并行执行多条请求。Remote 只负责会话、GUID 路由、并发限制、取消和全局错误；每个命令自己定义、编码和解码业务 contents，不依赖命令行参数解析。
+`mcpm-tools remote` 使用一个进程承载整个会话。调用方可通过一个非 PTY 的 SSH 连接持续发送、并行执行多条请求。Remote 只负责会话、GUID 路由、并发限制、取消和全局错误；每个命令自己定义、编码和解码业务 contents，不依赖命令行参数解析。
 
 ```sh
-ssh -T user@host mcpm remote
-ssh -T user@windows C:/mcpm.exe remote
+ssh -T user@host mcpm-tools remote
+ssh -T user@windows C:/mcpm-tools.exe remote
 ```
 
-双向使用 UTF-8 NDJSON，每条消息是一个单行 JSON 加换行，写完立即刷新。字符串内换行由 JSON 转义。stdout 仅包含协议，正常运行时日志通过独立日志会话传输；stderr 仅保留启动或连接失败诊断，无颜色或终端界面。
+双向使用 UTF-8 NDJSON，每条消息是一个单行 JSON 加换行，写完立即刷新。字符串内换行由 JSON 转义。stdout 仅包含协议，正常运行时日志通过独立日志会话传输；stderr 保留非正式 release 构建的启动提示，以及启动或连接失败诊断，无颜色或终端界面。
 
 ## Command ID、调用会话 GUID 与统一回复
 
@@ -41,14 +41,14 @@ ssh -T user@windows C:/mcpm.exe remote
 先等待握手：
 
 ```json
-{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":3,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.init","server.init.recognize","server.mods.cache","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":4,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.init","server.init.recognize","server.mods.cache","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
 ```
 
 调用方检查版本与需要的 command ID。支持能力来自 initcall 注册表，不从 CLI 子命令推断。目前 mod list、mod info、mod deps 与 mod source identify 注册。
 
 可以连续提交请求，无需等待前一条结束。同一请求内的回复保持顺序，不同请求的回复允许交错；调用方按 request GUID 路由。远端持续读 stdin，独立执行命令，由一个写入器向 stdout 写完整消息。本地同样由一个读取器按 GUID 分发给各请求句柄。
 
-`mcpm remote --max-concurrency 8` 设置并发上限，默认 8。超出上限的新调用返回 `busy` 全局错误，稍后可以用新的 request GUID 重试。
+`mcpm-tools remote --max-concurrency 8` 设置并发上限，默认 8。超出上限的新调用返回 `busy` 全局错误，稍后可以用新的 request GUID 重试。
 
 关闭 stdin 表示不再提交请求。服务端先完成所有已接收任务，再发送全零 GUID 的 closed 回复并成功退出，即使此前有调用失败。丢弃本地 Session 会关闭并回收子进程。 Session 关闭时以 info 日志报告 `stdin_bytes`（本地发送）、`stdout_bytes`（本地接收）和 `total_bytes`。统计包含握手、命令、日志、控制帧和换行的实际 UTF-8 字节，不含 SSH 协议开销或 stderr；异常退出也会报告一次。
 
@@ -66,7 +66,7 @@ ssh -T user@windows C:/mcpm.exe remote
 
 远端日志默认不在 stderr 显示，只有添加全局参数 `--remote-logs` 后才显示；远端操作错误始终以 `remote error:` 显示，不受 `--remote-logs` 和 `--log-level` 影响。文件日志和失败退出码不受影响。终端同时按本地 `--log-level` 过滤日志，远端日志的 `INFO`、`DEBUG` 等级别标签采用斜体，不添加前缀。Raw、重定向或 `NO_COLOR` 下不输出样式。文件日志仍至少保留到 debug，因此即使终端为 off 也会传输 debug 日志；trace 仅在选择 trace 时传输，日志文件仍固定记录到 debug。远端也保留自己的日志文件。
 
-订阅前缓存最近 256 条启动日志，超过上限时附带丢弃数量警告。关闭 stdin 后先排空命令，再排空日志，发送日志 GUID 的 finished，最后发送全零 GUID 的 closed。本地 TUI 打开期间延迟终端日志显示，关闭面板后输出；文件日志持续写入。当前协议版本为 3，调用方和远端需同时更新。
+订阅前缓存最近 256 条启动日志，超过上限时附带丢弃数量警告。关闭 stdin 后先排空命令，再排空日志，发送日志 GUID 的 finished，最后发送全零 GUID 的 closed。本地 TUI 打开期间延迟终端日志显示，关闭面板后输出；文件日志持续写入。当前协议版本为 4，调用方和远端需同时更新。
 
 ## 全局错误与取消
 
@@ -162,7 +162,7 @@ ignored=0 的 done。业务失败仍跟随 finished。执行失败（包括工�
 向调用方传播；远端通过全局 error 结束，不再发送业务 done 或 finished。
 取消使用 cancelled 全局状态并可留下部分结果。
 在查询之间、选中文件之间、目录扫描完成项之间检查取消。客户端校验序号、数量、诊断与失败
-状态的一致性以及事件生命周期。通信协议版本为 3，两端需要同步更新。
+状态的一致性以及事件生命周期。通信协议版本为 4，两端需要同步更新。
 
 ## mod source identify 的 contents
 
@@ -194,7 +194,7 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 ## Server 命令的 contents
 
-协议版本继续使用 3。客户端检查握手声明的命令 ID；旧版 v3 远端若没有这些命令，会明确返回 unsupported_command，使用前需更新远端程序。
+协议版本为 4，两端必须同步升级。客户端检查握手版本及声明的命令 ID。Server 缓存由远端 Server 决定，请求不再接受目录覆盖。
 
 - [`server.init` 与 `server.init.recognize`](server/init.md#远程行为)：独立的完整参数初始化和只读识别，本地选择候选。
 - [`server.info`](server/info.md#ssh)：来源主机的元数据快照，在本地渲染。
@@ -220,9 +220,9 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 {"path":"/srv/server","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
 ```
 
-元数据要求非空的 Minecraft/Loader 版本及显式 `loader`（原版为 `null`）。可选 `start` 为上面的完整启动快照；脚本、目录和可执行文件不能为空，可执行文件及参数不能含 NUL。初始化不重读脚本，也不要求引用文件仍存在。为兼容既有客户端，wire v3 仍输出 metadata version 1；Local 磁盘持久化写为 version 2。初始化依次回传 `stage {phase: "validating"}`、`stage {phase: "writing"}`、`initialized {server}`，最后一个使用 `server.info` 结构。成功由通用 `finished` 结束，失败以 `error` 结束；客户端校验阶段顺序和唯一结果。需要候选选择时，识别与初始化共用同一 SSH 会话。
+元数据要求非空的 Minecraft/Loader 版本及显式 `loader`（原版为 `null`）。可选 `start` 为上面的完整启动快照；脚本、目录和可执行文件不能为空，可执行文件及参数不能含 NUL。初始化不重读脚本，也不要求引用文件仍存在。为兼容既有客户端，wire v4 仍输出 metadata version 1；Local 磁盘持久化写为 version 2。初始化依次回传 `stage {phase: "validating"}`、`stage {phase: "writing"}`、`initialized {server}`，最后一个使用 `server.info` 结构。成功由通用 `finished` 结束，失败以 `error` 结束；客户端校验阶段顺序和唯一结果。需要候选选择时，识别与初始化共用同一 SSH 会话。
 
-所有 server 端点（包括识别）都要求 Local 工作目录类型。Remote 引用仅由前端解析，`mcpm remote` 不跟随引用。初始化可以创建 Local 登记，但即使带 `force` 也不能替换 Remote 工作目录。识别继续作为独立的脚本读取操作，不跟随工作目录引用。
+所有 server 端点（包括识别）都要求 Local 工作目录类型。Remote 引用仅由前端解析，`mcpm-tools remote` 不跟随引用。初始化可以创建 Local 登记，但即使带 `force` 也不能替换 Remote 工作目录。识别继续作为独立的脚本读取操作，不跟随工作目录引用。
 
 元数据文件分别原子写入，不构成双文件事务。mcpm 登记写入持有工作目录锁，并在写入前重新检查类型。新 Remote 登记先写 `server.json`，再发布 `mcpm.json`；发布类型失败则删除刚创建的服务端文件。进程突然终止仍可能留下无法加载的未完成登记。Local 初始化可能先保存 `server.json` 再发布 Local 标记；标记失败会明确报告部分成功，缺失标记仍按 Local 处理。原子写入完成后，取消或连接中断不回滚配置；结果不确定时先通过 `server info` 检查。
 
@@ -232,11 +232,11 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；支持 `mod list/info/deps/source identify`、`server init/info` 和 `server mods list/info/cache/deps/source search/files/identify`。列表和来源浏览的 TUI 在本地运行，检查命令支持 Console/Raw。`server mods check` 和 `dep-graph` 明确拒绝 SSH。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
 
-SSH 默认 shell 直接启动 `mcpm remote`。Windows 连接要求默认 shell 为 cmd；可执行文件路径自动加双引号，不能包含双引号、换行、NUL、`%` 或 `!`。POSIX 可执行文件使用 shell 引号转义。业务参数通过 JSON 传输，不依赖 shell 语法。
+SSH 默认 shell 直接启动 `mcpm-tools remote`。Windows 连接要求默认 shell 为 cmd；可执行文件路径自动加双引号，不能包含双引号、换行、NUL、`%` 或 `!`。POSIX 可执行文件使用 shell 引号转义。业务参数通过 JSON 传输，不依赖 shell 语法。
 
 ```sh
-mcpm --ssh 'ssh -i key user@host' mod list mods/ --no-ui
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw mod list 'C:\mods'
+mcpm-tools --ssh 'ssh -i key user@host' mod list mods/ --no-ui
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw mod list 'C:\mods'
 ```
 
 [命令参考](README.md) · [列表命令](mod/list.md) · [English](../docs/remote.md)
@@ -274,9 +274,11 @@ CLI 的 `mod info/list` 默认发送使用用户缓存的选择；`--no-cache` �
 
 ## 来源识别缓存传输
 
+Server 命令使用 Server 运行环境的缓存。Server list scope 和来源选择完成事件携带 `environment:{cache}`；显式 Server 缓存请求首条 data 为 `{cache}`。文件主机解析有效目标，客户端后续读取、发布沿用此目标。详见[服务器 Mod 协议](server/mods.md#远程协议)。
+
 - `mod.source.identify` 可选 `cache`：null／省略关闭，`{"kind":"default"}` 或 `{"kind":"directory","path":"..."}` 选择文件主机目录；CLI 默认开启。
 - 成功 summary 可含来源 map `cached`（FileMatch）；空 map 省略以兼容旧端。复用要求 缓存内容文件 且与 summary 一致；客户端检查 key 所有权、hash 格式、大小和 SHA-1 后跳过平台请求。
-- `server.mods.cache.writing.contents` 选择 metadata／ident，默认两类。远端 handler 导入 缓存内容文件、按需刷新 Loader metadata；客户端存储完成后用本地 provider／凭据补全来源，source 配置不跨 SSH。
+- `server.mods.cache.writing.metas` 选择 meta／ident，默认两类。远端 handler 导入 缓存内容文件、按需刷新 Loader metadata；客户端存储完成后用本地 provider／凭据补全来源，source 配置不跨 SSH。
 - 显式 `cache.mods.identification.write` 接受 `{cache,id,file}`；id 为 BLAKE3，file 为可信的规范来源 FileMatch，cache 使用上述选择。主机验证 缓存内容文件 的 BLAKE3／size／SHA-1，通过库 codec 合并后返回一条 null data 确认。缺失／无效数据使用通用命令错误。Identify 不调用写操作。
 - FileMatch 含 `reference {project:{source,id},id}`、`filename`、`size`、`hashes`（`{algorithm,value}`）、`role`（primary／additional）。所有 CurseForge 配置持久化为 `source:"curseforge"`。
 - 缓存 record 新增 `metadata_requested`、各来源 `identification`（matched／unmatched／failed，失败含 error 和 remote）、主错误的 `error_remote`。多个 source 失败仍按一个文件计失败，Console 分别按真实来源展示错误。

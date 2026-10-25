@@ -59,12 +59,13 @@ pub(super) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
     cache::run(
         selection,
         server.scope(),
+        server.runtime(),
         args.writing.options(server.loaders())?,
         || Ok(()),
         |event| completion.accept(event, &mut |event| output.event(event)),
     )?;
     completion.finish(
-        crate::commands::source_support::identify::Location::Local,
+        crate::commands::source_support::identify::Location::Local(server.runtime()),
         |event| output.event(event),
     )?;
     output.finish()

@@ -1,6 +1,7 @@
 //! SSH-backed list data acquisition, process cleanup and local presentation.
 
 use anyhow::{Context, Result, bail};
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 
 use crate::commands::supports::mods::{list, loaders::LoaderArgs};
 
@@ -18,6 +19,7 @@ pub(in crate::commands) fn run(
     contents: serde_json::Value,
     loaders: LoaderArgs,
     display: ListDisplayArgs,
+    environment: &RuntimeEnvironment,
 ) -> Result<()> {
     let started = std::time::Instant::now();
     tracing::info!("Opening SSH data source for mod list");
@@ -64,7 +66,7 @@ pub(in crate::commands) fn run(
             cache,
         },
         source_loaders,
-        crate::commands::source_support::identify::Location::Remote(&session),
+        crate::commands::source_support::identify::Location::Remote(&session, environment),
     );
     session.close()?;
     tracing::debug!(

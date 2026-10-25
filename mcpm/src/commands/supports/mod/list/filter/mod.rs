@@ -214,7 +214,7 @@ Examples (quote the entire expression for your shell):
   -F "@name ='Fabric API' | @file ~'(?-i)API.*[.]jar$'"
   -F "@file user\@host.jar"
 
-Input selection (--file/--modid/--name/--all on server mods list) happens
+Input selection (--file/--modid/--name/--all for server-scoped mod listing) happens
 before filtering and is independent of this expression. TUI keeps ancestor
 rows as context. Console/Raw print matching declarations; without --expanded,
 only the first matching declaration per input file is printed."#;

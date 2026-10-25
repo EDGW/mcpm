@@ -1,8 +1,8 @@
-# `mcpm server info`
+# `mcpm info`
 
 ```sh
-mcpm server info [PATH] [--full-command]
-mcpm server info /path/to/server
+mcpm info [PATH] [--full-command]
+mcpm info /path/to/server
 ```
 
 Defaults to the current directory. A Remote workspace automatically supplies its saved SSH connection unless explicit global SSH options are provided. Local loading requires readable, valid `.mcpm/server.json`;
@@ -22,14 +22,14 @@ When a Remote workspace supplies the connection, output also includes its saved 
 
 - Remote server path.
 - SSH command, showing only the first and last three characters with `***` between them. Short commands reveal fewer characters so the middle always stays hidden.
-- Remote mcpm executable, or `mcpm` when no override is saved.
+- Remote mcpm executable, or `mcpm-tools` when no override is saved.
 
 Console output shows the saved Remote configuration first, then a short separator and the server information.
 Raw output places these three TSV fields first in that order, followed by the six server fields, for nine fields total; no separator is emitted.
 `--full-command` never disables SSH masking. Explicit `--ssh` uses the remote PATH directly and does not load a local Remote registration.
 
 The command and its working directory come from the snapshot saved by
-[`server init`](init.md); scripts are not reread. Older/manual configurations
+[`mcpm init`](init.md); scripts are not reread. Older/manual configurations
 without a saved command display `unavailable`. In non-raw mode the command fits
 one terminal line with `(+N)` showing the number of omitted characters.
 `--full-command` disables truncation; raw output always includes the full command.
@@ -37,7 +37,7 @@ one terminal line with `(+N)` showing the number of omitted characters.
 ## SSH
 
 ```sh
-mcpm --ssh 'ssh user@host' server info /path/to/server --full-command
+mcpm --ssh 'ssh user@host' info /path/to/server --full-command
 ```
 
 The server directory and `.mcpm/server.json` are read on the SSH host. Startup arguments retain their source platform for quoting. Console/Raw formatting stays local; protocol command ID: `server.info`.

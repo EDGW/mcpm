@@ -1,5 +1,6 @@
 //! Inspection command registration, structured SSH requests and business-stream validation.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::{num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result};
@@ -48,7 +49,7 @@ struct Request {
     #[serde(default = "crate::commands::execution::default_parallelism")]
     parallelism: NonZeroUsize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    cache: Option<mcpm_backend::local::mcmod::ModOpenCache>,
+    cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
 }
 
 fn default_directory() -> PathBuf {
@@ -79,13 +80,13 @@ fn serve(contents: Value, output: &Output) -> Result<()> {
             args.directory,
             loaders,
             filtered,
+            RuntimeEnvironment::new().with_mods_cache(args.cache),
             crate::commands::supports::mods::scan::Options {
                 parallelism: args.parallelism.get(),
-                cache: args.cache,
             },
         ))
     })();
-    let (selection, directory, loaders, filtered, loading) = match decoded {
+    let (selection, directory, loaders, filtered, environment, loading) = match decoded {
         Ok(args) => args,
         Err(error) => {
             tracing::debug!(error = %format_args!("{error:#}"), "Rejected invalid mod inspection arguments");
@@ -106,6 +107,7 @@ fn serve(contents: Value, output: &Output) -> Result<()> {
         Scope::directory(directory),
         loaders,
         filtered,
+        &environment,
         loading,
         || output.checkpoint(),
         |event| {
@@ -123,6 +125,7 @@ pub(super) fn run_ssh(
     selection: Selection,
     directory: PathBuf,
     loaders: LoaderArgs,
+    environment: &RuntimeEnvironment,
     loading: crate::commands::supports::mods::scan::Options,
     display: Display<'_>,
 ) -> Result<()> {
@@ -146,7 +149,7 @@ pub(super) fn run_ssh(
         loaders: ids,
         parallelism: NonZeroUsize::new(loading.parallelism)
             .context("inspection parallelism must be positive")?,
-        cache: loading.cache,
+        cache: crate::commands::supports::mods::reuse::selection(environment),
     };
     inspect::run_ssh(ssh, command, serde_json::to_value(args)?, display)
 }

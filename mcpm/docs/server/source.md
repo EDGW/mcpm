@@ -3,9 +3,9 @@
 Search remote projects, browse published files, or identify local mod archives:
 
 ```sh
-mcpm server mods source search create --server ./my-server --source modrinth
-mcpm server mods source files create --server ./my-server --source curseforge
-mcpm server mods source identify --server ./my-server --source modrinth --all
+mcpm mods source search create --server ./my-server --source modrinth
+mcpm mods source files create --server ./my-server --source curseforge
+mcpm mods source identify --server ./my-server --source modrinth --all
 ```
 
 All commands accept `--server PATH`, defaulting to the current directory, and
@@ -28,10 +28,10 @@ redirected stdin, one per line. These identifiers refer to remote projects, not
 local mod IDs.
 
 ```sh
-mcpm server mods source search "Steam 'n' Rails" --source modrinth
-mcpm server mods source files 688231 --source curseforge --all-versions
-mcpm server mods source files create --source modrinth --game-version 1.21.1
-printf '%s\n' create ZzjhlDgM | mcpm server mods source files --source modrinth
+mcpm mods source search "Steam 'n' Rails" --source modrinth
+mcpm mods source files 688231 --source curseforge --all-versions
+mcpm mods source files create --source modrinth --game-version 1.21.1
+printf '%s\n' create ZzjhlDgM | mcpm mods source files --source modrinth
 ```
 
 Search and single-project files use the TUI when all streams are terminals.
@@ -55,7 +55,7 @@ before exiting. Mouse clicks and scrolling are supported.
 Enter on a result opens its files with the same compatibility filters;
 Esc returns to search. Multiple projects, `-N/--no-ui`, explicit columns, or
 redirected streams use list output. Sorting, pagination, and file release filters
-work like `mcpm mod source`.
+work like `mcpm-tools mod source`.
 
 Search also provides [field value suggestions](../mod/source-search.md): loader
 choices are Forge, NeoForge and Fabric; versions load from the current source API
@@ -82,11 +82,11 @@ names use secondary color. Without `--selected`, names use primary color.
 Console and Raw output continue to omit the duplicate pinned publication. Pagination and totals still describe the original
 filtered results; the pinned file does not consume the page limit. A missing file
 or a file belonging to another project is an error. This also works with standalone
-`mcpm mod source files`.
+`mcpm-tools mod source files`.
 
 ```sh
-mcpm mod source files sodium --source modrinth --selected yaoBL9D9
-mcpm --raw mod source files sodium --source modrinth --selected yaoBL9D9 --columns selected,id,filename
+mcpm-tools mod source files sodium --source modrinth --selected yaoBL9D9
+mcpm-tools --raw mod source files sodium --source modrinth --selected yaoBL9D9 --columns selected,id,filename
 ```
 
 Raw output puts the selected file first and keeps the default TSV columns.
@@ -99,12 +99,12 @@ Inputs follow the existing server mod selection rules: filename, then exact
 mod ID, then exact display name. `--file`, `--modid`, and `--name` select an
 explicit interpretation. Paths are relative to the server's mods directory;
 `mods/` prefixes are accepted. Parent traversal and absolute paths are rejected.
-Use standalone `mcpm mod source identify` for arbitrary local paths.
+Use standalone `mcpm-tools mod source identify` for arbitrary local paths.
 
 ```sh
-mcpm server mods source identify create.jar --source curseforge
-mcpm server mods source identify --modid create --source modrinth
-printf '%s\n' create | mcpm server mods source identify --source modrinth --input modid
+mcpm mods source identify create.jar --source curseforge
+mcpm mods source identify --modid create --source modrinth
+printf '%s\n' create | mcpm mods source identify --source modrinth --input modid
 ```
 
 Use `--all` to select every `.jar` and `.jar.disabled` file in the mods directory.
@@ -129,16 +129,16 @@ command's `--help` for available columns. Raw or redirected stdout emits escaped
 TSV without headers; `--raw` also disables progress indicators.
 
 ```sh
-mcpm server mods source search create --source modrinth -N --columns name,id,url
-mcpm server mods source files create --source modrinth --columns id,filename,size
-mcpm --raw server mods source identify --source modrinth --all --columns path,project,id,status
+mcpm mods source search create --source modrinth -N --columns name,id,url
+mcpm mods source files create --source modrinth --columns id,filename,size
+mcpm --raw mods source identify --source modrinth --all --columns path,project,id,status
 ```
 
 ## SSH
 
 ```sh
-mcpm --ssh 'ssh user@host' server mods source search create --server /srv/minecraft --source modrinth
-mcpm --ssh 'ssh user@host' server mods source identify --server /srv/minecraft --source modrinth --all
+mcpm --ssh 'ssh user@host' mods source search create --server /srv/minecraft --source modrinth
+mcpm --ssh 'ssh user@host' mods source identify --server /srv/minecraft --source modrinth --all
 ```
 
 All source subcommands support SSH. The server directory and mod selections are resolved on the SSH host; provider requests, API credentials, TUI and output remain local. Identify reuses one session for selection and file summaries, sends progress and diagnostics while indexing, and preserves valid selections after input failures. Its `--parallelism` bounds remote index scans, summaries and local provider lookups in their respective phases. No archive bytes or provider credentials are transferred.

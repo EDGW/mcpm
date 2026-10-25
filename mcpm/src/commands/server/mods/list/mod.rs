@@ -12,7 +12,7 @@ use super::super::{
 use crate::{
     commands::supports::mods::{
         list::{self, ListDisplayArgs, ListLoadingArgs},
-        reuse::CacheArgs,
+        reuse::QueryArgs,
         scan,
         selection::SelectionArgs,
     },
@@ -47,22 +47,21 @@ pub(super) struct ListArgs {
     #[command(flatten)]
     loading: ListLoadingArgs,
     #[command(flatten)]
-    cache: CacheArgs,
+    cache: QueryArgs,
 }
 
 pub(super) fn run(args: ListArgs, ssh: SshArgs) -> Result<()> {
     let loading = scan::Options {
         parallelism: args.loading.parallelism(),
-        cache: args.cache.selection(),
     };
-    let display = args.display.with_cache(loading.cache.clone());
+    let display = args.display;
     let selection = args.selection.with_stdin()?.into_selection();
     let Target { path, ssh, .. } = target::resolve(args.path, ssh)?;
     if ssh.is_requested() {
         return list::remote_selection::run_ssh(
             ssh,
             remote::List::ID,
-            remote::request(path, selection, loading)?,
+            remote::request(path, selection, args.cache.no_cache, loading)?,
             display,
         );
     }
@@ -71,6 +70,7 @@ pub(super) fn run(args: ListArgs, ssh: SshArgs) -> Result<()> {
         selection,
         source.scope(),
         source.loaders(),
+        &args.cache.environment(source.runtime()),
         loading,
         display,
     )

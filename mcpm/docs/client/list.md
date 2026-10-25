@@ -1,17 +1,17 @@
-# mcpm client list
+# mcpmc list
 
 List local Minecraft client profiles and their declared mod loader versions.
 
 ```sh
-mcpm client list [PATH]
-mcpm client list "$HOME/Downloads/.minecraft"
-mcpm --raw client list .minecraft > clients.tsv
+mcpmc list [PATH]
+mcpmc list "$HOME/Downloads/.minecraft"
+mcpmc --raw list .minecraft > clients.tsv
 ```
 
 `PATH` is the Minecraft root containing `versions/`. When omitted, the last
 ancestor directory named exactly `.minecraft` in the current path is selected;
 if there is none, the current directory is used. An inferred root is reported
-on stderr with a reminder to use `mcpm client list .` to force the current
+on stderr with a reminder to use `mcpmc list .` to force the current
 directory. Explicit paths bypass inference. `--raw` suppresses the hint. Every version subdirectory is loaded in name order. Missing or invalid
 version JSON, missing parents, and inheritance cycles appear as `broken` entries
 with their error chain. Other profiles remain visible. No files are modified.

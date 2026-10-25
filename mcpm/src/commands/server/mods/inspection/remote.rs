@@ -1,5 +1,6 @@
 //! Server inspection command schemas and handlers; shared inspection owns event production and consumption.
 
+use crate::commands::supports::mods::reuse::QueryArgs;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,14 +21,14 @@ struct Info;
 impl Command for Info {
     const ID: &'static str = "server.mods.info";
     fn run(contents: Value, output: &Output) -> Result<()> {
-        serve(contents, output)
+        serve(contents, output, false)
     }
 }
 struct Deps;
 impl Command for Deps {
     const ID: &'static str = "server.mods.deps";
     fn run(contents: Value, output: &Output) -> Result<()> {
-        serve(contents, output)
+        serve(contents, output, true)
     }
 }
 
@@ -40,15 +41,15 @@ struct Request {
     selection: SelectionInput,
     #[serde(default = "crate::commands::execution::default_parallelism")]
     parallelism: NonZeroUsize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    cache: Option<mcpm_backend::local::mcmod::ModOpenCache>,
+    #[serde(default)]
+    no_cache: bool,
 }
 fn default_server() -> PathBuf {
     PathBuf::from(".")
 }
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
-fn serve(contents: Value, output: &Output) -> Result<()> {
+fn serve(contents: Value, output: &Output, dependencies: bool) -> Result<()> {
     let args: Request =
         serde_json::from_value(contents).context("invalid server mod inspection arguments")?;
     output.checkpoint()?;
@@ -59,9 +60,12 @@ fn serve(contents: Value, output: &Output) -> Result<()> {
         source.scope(),
         source.loaders(),
         true,
+        &QueryArgs {
+            no_cache: dependencies || args.no_cache,
+        }
+        .environment(source.runtime()),
         scan::Options {
             parallelism: args.parallelism.get(),
-            cache: args.cache,
         },
         || output.checkpoint(),
         |event| {
@@ -77,6 +81,7 @@ pub(super) fn run(
     ssh: SshArgs,
     server: PathBuf,
     selection: Selection,
+    query: QueryArgs,
     loading: scan::Options,
     display: Display<'_>,
 ) -> Result<()> {
@@ -92,7 +97,7 @@ pub(super) fn run(
             selection: SelectionInput::from_selection(selection)?,
             parallelism: NonZeroUsize::new(loading.parallelism)
                 .context("inspection parallelism must be positive")?,
-            cache: loading.cache,
+            no_cache: query.no_cache,
         })?,
         display,
     )

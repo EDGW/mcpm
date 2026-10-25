@@ -13,21 +13,23 @@ pub(crate) use config::Connection;
 mod connection;
 mod windows;
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Default)]
 pub(crate) struct SshArgs {
-    /// SSH connection command, e.g. "ssh -i key -p 2222 user@host"; supported by mod list/info/deps/source identify and server init/info/mods list/info/deps/source.
+    /// SSH connection command, e.g. "ssh -i key -p 2222 user@host".
     #[arg(
         long,
         global = true,
         value_name = "COMMAND",
+        help = format!("SSH connection command, e.g. \"ssh -i key -p 2222 user@host\"; supported by {} init/info/mods list/info/cache/deps/source and {} mod list/info/deps/source identify.", crate::program::roots().server, crate::program::roots().tools),
         help_heading = "Global options"
     )]
     ssh: Option<String>,
-    /// Remote mcpm executable path (default: mcpm); requires --ssh. Windows SSH must use cmd as its default shell.
+    /// Remote tools executable path; requires --ssh. Windows SSH must use cmd as its default shell.
     #[arg(
         long,
         global = true,
         value_name = "PATH",
+        help = format!("Remote tools executable path (default: {}); requires --ssh. Windows SSH must use cmd as its default shell.", crate::program::Program::McpmTools.name()),
         help_heading = "Global options"
     )]
     ssh_mcpm: Option<String>,

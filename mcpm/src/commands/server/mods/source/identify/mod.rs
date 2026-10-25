@@ -20,7 +20,7 @@ mod remote;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Modes: Console (field groups) and Raw (TSV; --raw or redirected stdout); Remote supported through --ssh.\n\nWith --ssh, server paths and file reads are remote; source requests and credentials remain local.\nInputs match filename, then exact modid, then exact mod name in the server's mods directory.\nPaths are relative to that directory; mods/ prefixes are accepted. Use --all to select every mod.\nRedirected stdin appends one selection per line; --input sets its interpretation.\nMatching uses file contents and is independent of Minecraft version or loader compatibility.\n--columns, --column and -C select fields; --headers adds a Raw header.\n\nExamples:\n  mcpm server mods source identify --server ./my-server --source modrinth --all\n  mcpm server mods source identify create.jar --source curseforge\n  mcpm server mods source identify --modid create --source modrinth --columns path,project,id,status\n  printf '%s\\n' create | mcpm server mods source identify --source modrinth --input modid"
+    after_help = format!("Modes: Console (field groups) and Raw (TSV; --raw or redirected stdout); Remote supported through --ssh.\n\nWith --ssh, server paths and file reads are remote; source requests and credentials remain local.\nInputs match filename, then exact modid, then exact mod name in the server's mods directory.\nPaths are relative to that directory; mods/ prefixes are accepted. Use --all to select every mod.\nRedirected stdin appends one selection per line; --input sets its interpretation.\nMatching uses file contents and is independent of Minecraft version or loader compatibility.\n--columns, --column and -C select fields; --headers adds a Raw header.\n\nExamples:\n  {server} mods source identify --server ./my-server --source modrinth --all\n  {server} mods source identify create.jar --source curseforge\n  {server} mods source identify --modid create --source modrinth --columns path,project,id,status\n  printf '%s\\n' create | {server} mods source identify --source modrinth --input modid", server = crate::program::roots().server)
 )]
 pub(super) struct IdentifyArgs {
     #[command(flatten)]
@@ -39,31 +39,40 @@ pub(super) fn run(args: IdentifyArgs, ssh: SshArgs) -> Result<()> {
         path: server, ssh, ..
     } = target::resolve(server, ssh)?;
     let parallelism = args.options.parallelism();
-    let (paths, failed, mut session) = if ssh.is_requested() {
+    let (paths, failed, environment, mut session) = if ssh.is_requested() {
         tracing::info!("Opening SSH data source for server source identification");
         let session = ssh.connect()?;
-        let (paths, failed) = remote::resolve(&session, server, selection, parallelism)?;
-        (paths, failed, Some(session))
+        let (paths, failed, environment) = remote::resolve(
+            &session,
+            server,
+            selection,
+            args.options.cache.no_cache,
+            parallelism,
+        )?;
+        (paths, failed, environment, Some(session))
     } else {
         let server = ServerMods::load(server)?;
+        let environment = args.options.cache.environment(server.runtime());
+        let selection_environment = environment.clone().with_mods_cache(None);
         let output = ScanOutput::default();
         let (paths, failed) = selection::resolve_paths(
             selection,
             server.scope(),
             server.loaders(),
+            &selection_environment,
             parallelism,
             || Ok(()),
             |event| output.event(event),
         )?;
-        (paths, failed, None)
+        (paths, failed, environment, None)
     };
     let result = if paths.is_empty() {
         Ok(())
     } else {
         let location = session
             .as_ref()
-            .map(identify::Location::Remote)
-            .unwrap_or(identify::Location::Local);
+            .map(|session| identify::Location::Remote(session, &environment))
+            .unwrap_or(identify::Location::Local(&environment));
         identify::run_paths_at(args.options, paths, location)
     };
     if let Some(session) = session.as_mut() {

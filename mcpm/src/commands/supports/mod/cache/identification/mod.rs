@@ -3,7 +3,6 @@
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, ensure};
-use mcpm_backend::local::cache::mods::ModsCacheSelection;
 use mcpm_backend::source::FileMatch;
 
 use super::{
@@ -25,7 +24,6 @@ mod remote;
 /// The input protocol is validated before paths or IDs are used for client requests.
 pub(in crate::commands) struct Completion {
     enabled: bool,
-    cache: ModsCacheSelection,
     force: bool,
     parallelism: usize,
     sources: Sources,
@@ -65,7 +63,6 @@ impl Completion {
         }
         Ok(Self {
             enabled,
-            cache: writing.cache_selection(),
             force: writing.force(),
             parallelism: writing.parallelism(),
             sources,
@@ -163,17 +160,17 @@ impl Completion {
             return record;
         };
         let operation = (|| -> Result<()> {
-            let identification = Identification::with_sources_cached(
-                vec![path],
-                self.sources.clone(),
-                1,
-                location,
-                if self.force {
-                    None
-                } else {
-                    Some(self.cache.clone())
-                },
-            )?;
+            let environment = if self.force {
+                location.environment().clone().with_mods_cache(None)
+            } else {
+                location.environment().clone()
+            };
+            let lookup_location = match location {
+                Location::Local(_) => Location::Local(&environment),
+                Location::Remote(session, _) => Location::Remote(session, &environment),
+            };
+            let identification =
+                Identification::with_sources(vec![path], self.sources.clone(), 1, lookup_location)?;
             let mut outcomes = vec![None; self.keys.len()];
             runtime.block_on(identification.run(|event| {
                 if let identify::Event::Item {
@@ -226,12 +223,14 @@ impl Completion {
             .context("missing cache content ID")?
             .parse()?;
         match location {
-            Location::Local => {
-                let cache = self.cache.clone().open()?;
+            Location::Local(environment) => {
+                let cache = environment.require_mods_cache()?;
                 cache.write_ident_info(id, file)?;
             }
-            Location::Remote(session) => {
-                remote::publish(session, self.cache.clone(), id, file.clone())?
+            Location::Remote(session, environment) => {
+                let cache = crate::commands::supports::mods::reuse::selection(environment)
+                    .context("Mod cache is disabled")?;
+                remote::publish(session, cache, id, file.clone())?
             }
         }
         Ok(())

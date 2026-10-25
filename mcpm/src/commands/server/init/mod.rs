@@ -25,7 +25,7 @@ mod selector;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Modes: TUI (candidate selection), Console (--no-ui), Raw (--raw or redirected stdout). Console and Raw require an unambiguous candidate or complete manual arguments.\n\nTwo different SSH operations:\n  mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <REMOTE_PATH>\n    Initialize a Local Server on the SSH host. The positional path is remote.\n  mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <PATH> --remote <REMOTE_PATH>\n    Create a Remote workspace locally. PATH is local; --remote points to an existing remote Local Server.\n\nComplete --minecraft-version and --loader (plus --loader-version unless vanilla) initialize directly without reading scripts. Otherwise, recognition returns candidates before initialization."
+    after_help = format!("Modes: TUI (candidate selection), Console (--no-ui), Raw (--raw or redirected stdout). Console and Raw require an unambiguous candidate or complete manual arguments.\n\nTwo different SSH operations:\n  {server} --ssh COMMAND [--ssh-mcpm EXE] init <REMOTE_PATH>\n    Initialize a Local Server on the SSH host. The positional path is remote.\n  {server} --ssh COMMAND [--ssh-mcpm EXE] init <PATH> --remote <REMOTE_PATH>\n    Create a Remote workspace locally. PATH is local; --remote points to an existing remote Local Server.\n\nComplete --minecraft-version and --loader (plus --loader-version unless vanilla) initialize directly without reading scripts. Otherwise, recognition returns candidates before initialization.", server = crate::program::roots().server)
 )]
 pub(super) struct InitArgs {
     /// Existing server directory; with --ssh it is remote, but with --remote it is a local workspace.

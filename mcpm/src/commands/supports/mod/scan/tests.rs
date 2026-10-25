@@ -1,5 +1,6 @@
 //! Regression coverage for bounded concurrency, ordered collection and cached failures/aliases.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::{collections::HashMap, sync::Arc};
 
 use mcpm_backend::local::modloader::BUILTIN_LOADERS;
@@ -28,7 +29,8 @@ fn normalized_duplicates_share_success_and_failure_but_disabled_alias_is_separat
         missing.clone(),
         root.path().join("invalid.txt"),
     ];
-    let mut scan = ScanSession::new(BUILTIN_LOADERS.clone()).with_parallelism(3);
+    let environment = RuntimeEnvironment::new().with_mods_cache(None);
+    let mut scan = ScanSession::new(BUILTIN_LOADERS.clone(), &environment).with_parallelism(3);
     let mut files = HashMap::new();
     let mut fresh = 0;
     scan.batch(

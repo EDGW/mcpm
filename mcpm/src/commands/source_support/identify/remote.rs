@@ -1,6 +1,7 @@
 //! Command-owned source-identification registration, structured arguments and reply validation.
 
 use anyhow::{Context, Result, ensure};
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use mcpm_backend::source::SummaryRequirements;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -34,12 +35,13 @@ impl Command for Identify {
         args.validate()?;
         tracing::debug!(?args, "Decoded remote source identify arguments");
         let runtime = Runtime::new()?;
+        let environment = RuntimeEnvironment::new().with_mods_cache(args.cache);
         let result = runtime.block_on(async {
             summary::run(
                 args.paths,
                 args.requirements,
                 args.parallelism.get(),
-                args.cache,
+                &environment,
                 || output.checkpoint(),
                 |event| std::future::ready(output.send(event)),
             )

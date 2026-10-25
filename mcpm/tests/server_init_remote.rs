@@ -38,7 +38,7 @@ fn fixture(name: &str, target: &Path) {
 }
 
 fn remote(root: &Path, requests: &[(&str, Value)]) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .arg("remote")
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -218,7 +218,7 @@ fn recognition_ignores_existing_configuration_and_selected_snapshot_is_independe
     let mut selected = candidates[0]["metadata"].clone();
     assert_eq!(
         selected["version"], 1,
-        "protocol v3 retains the legacy metadata envelope"
+        "protocol v4 retains the legacy metadata envelope"
     );
     assert_eq!(selected["loader"]["type"], "forge");
     assert!(selected["start"]["directory"].as_str().is_some());
@@ -230,7 +230,7 @@ fn recognition_ignores_existing_configuration_and_selected_snapshot_is_independe
         &[("server.init", json!({"metadata":selected,"force":true}))],
     );
     succeeded(&replies);
-    // Wire v3 retains version 1, while persistence normalizes to disk version 2.
+    // Wire v4 retains version 1, while persistence normalizes to disk version 2.
     selected["version"] = 2.into();
     assert_eq!(
         serde_json::from_slice::<Value>(&fs::read(root.path().join(".mcpm/server.json")).unwrap())
@@ -360,7 +360,7 @@ impl SshFixture {
     }
 
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_mcpm"))
+        Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
             .current_dir(self.client.path())
             .args([
                 "--raw",
@@ -370,7 +370,7 @@ impl SshFixture {
                 "--ssh",
                 &self.connection,
                 "--ssh-mcpm",
-                env!("CARGO_BIN_EXE_mcpm"),
+                env!("CARGO_BIN_EXE_mcpm-tools"),
                 "server",
                 "init",
             ])

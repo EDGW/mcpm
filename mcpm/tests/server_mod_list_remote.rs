@@ -28,7 +28,9 @@ fn fixture(root: &Path) {
 }
 
 fn remote(root: &Path, selection: Value) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    fs::create_dir_all(root.join("home")).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+        .env("HOME", root.join("home"))
         .arg("remote")
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -69,7 +71,13 @@ fn selected_records_and_failure_counts_are_independent_of_output_multiplicity() 
             {"kind":"file","value":"../escape.jar"}
         ]}),
     );
-    assert_eq!(events[0], json!({"event":"scope","loaders":["fabric"]}));
+    assert_eq!(
+        events[0],
+        json!({
+            "event":"scope", "loaders":["fabric"],
+            "environment":{"cache":{"kind":"directory","path":fs::canonicalize(root.path().join("home/.mcpm/cache/mods")).unwrap()}}
+        })
+    );
     let scan: Vec<_> = events
         .iter()
         .filter(|event| event["event"] == "scan")
@@ -150,7 +158,7 @@ fn ssh_keeps_nested_selection_filtering_and_paths_equivalent_to_local_lists() {
         vec![],
     ] {
         let run = |remote: bool| {
-            let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+            let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
             process
                 .args([
                     "--raw",
@@ -170,7 +178,7 @@ fn ssh_keeps_nested_selection_filtering_and_paths_equivalent_to_local_lists() {
                     "--ssh",
                     &connection,
                     "--ssh-mcpm",
-                    env!("CARGO_BIN_EXE_mcpm"),
+                    env!("CARGO_BIN_EXE_mcpm-tools"),
                 ]);
             } else {
                 process.current_dir(root.path());

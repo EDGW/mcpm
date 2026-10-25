@@ -1,9 +1,9 @@
-# `mcpm mod cache`
+# `mcpm-tools mod cache`
 
 显式缓存选中的 Mod 完整归档及其识别摘要。
 
 ```text
-mcpm mod cache [OPTIONS] [INPUT]...
+mcpm-tools mod cache [OPTIONS] [INPUT]...
 ```
 
 支持 Console 和 Raw；重定向 stdout 或使用 `--raw` 时，每个选中的文件输出一行 JSON。
@@ -23,11 +23,11 @@ mcpm mod cache [OPTIONS] [INPUT]...
 - 同一规范路径重复选中只处理一次，保留首次选中位置。内容相同的不同文件复用同一个 BLAKE3 对象。
 
 ```sh
-mcpm mod cache example.jar another.jar.disabled
-mcpm mod cache --directory ./mods --modid zeta
-mcpm mod cache --directory ./mods --name 'Example Mod'
-mcpm mod cache --directory ./mods --all --parallelism 4
-printf '%s\n' example.jar another.jar | mcpm mod cache --input file
+mcpm-tools mod cache example.jar another.jar.disabled
+mcpm-tools mod cache --directory ./mods --modid zeta
+mcpm-tools mod cache --directory ./mods --name 'Example Mod'
+mcpm-tools mod cache --directory ./mods --all --parallelism 4
+printf '%s\n' example.jar another.jar | mcpm-tools mod cache --input file
 ```
 
 位置参数不接受目录；批量处理目录使用 `--directory PATH --all`。
@@ -48,7 +48,7 @@ printf '%s\n' example.jar another.jar | mcpm mod cache --input file
 | `--parallelism COUNT` | 名称／ID 扫描和导入／识别阶段的最大并发文件数，默认 10 |
 
 默认目标为 `~/.mcpm/cache/mods`，不存在或为空时初始化。
-指定目录必须已经合法，可先运行 `mcpm cache mods init --directory PATH`。不自动迁移 version 1 缓存。
+指定目录必须已经合法，可先运行 `mcpm-tools cache mods init --directory PATH`。不自动迁移 version 1 缓存。
 
 内容已经存在时直接复用，不替换缓存 identity，也不把另一个源文件连接到它。
 导入模式只用于新增对象。硬链接共享内容和权限，修改时应替换文件名，不可原地覆盖、
@@ -59,10 +59,10 @@ printf '%s\n' example.jar another.jar | mcpm mod cache --input file
 ID／名称选择可能先进行目录识别；选择扫描得到的 metadata 不直接写入缓存。
 
 ```sh
-mcpm cache mods init --directory /path/to/cache
-mcpm mod cache example.jar --cache-dir /path/to/cache --loader fabric
-mcpm mod cache example.jar --mode hard-link
-mcpm mod cache example.jar --force
+mcpm-tools cache mods init --directory /path/to/cache
+mcpm-tools mod cache example.jar --cache-dir /path/to/cache --loader fabric
+mcpm-tools mod cache example.jar --mode hard-link
+mcpm-tools mod cache example.jar --force
 ```
 
 [cache mods import](../cache.md) 保留按路径导入、不识别的底层语义。
@@ -73,9 +73,9 @@ mcpm mod cache example.jar --force
 `--metas ident` 仍导入文件，但不会创建 Loader metadata。整批平台请求共用持续存活的客户端 runtime。
 
 ```sh
-mcpm mod cache --directory ./mods --all --metas meta
-mcpm mod cache example.jar --meta ident --source modrinth
-mcpm mod cache example.jar --no-metas
+mcpm-tools mod cache --directory ./mods --all --metas meta
+mcpm-tools mod cache example.jar --meta ident --source modrinth
+mcpm-tools mod cache example.jar --no-metas
 ```
 
 ## 结果与失败

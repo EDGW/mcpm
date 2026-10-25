@@ -1,12 +1,12 @@
-# `mcpm mod source identify`
+# `mcpm-tools mod source identify`
 
 Identify files by their contents on a configured provider in Console, Raw or SSH Remote mode:
 
 ```sh
-mcpm mod source identify --source modrinth --parallelism 4 a.jar b.jar
-mcpm --raw mod source identify --source curseforge a.jar b.jar
-mcpm --ssh 'ssh user@host' mod source identify --source modrinth /srv/mods/a.jar /srv/mods/b.jar
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' mod source identify --source curseforge 'D:\mods\a.jar'
+mcpm-tools mod source identify --source modrinth --parallelism 4 a.jar b.jar
+mcpm-tools --raw mod source identify --source curseforge a.jar b.jar
+mcpm-tools --ssh 'ssh user@host' mod source identify --source modrinth /srv/mods/a.jar /srv/mods/b.jar
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' mod source identify --source curseforge 'D:\mods\a.jar'
 ```
 
 `--source` accepts `modrinth`, `curseforge` (Curse.tools), or `curseforge@KEY` (official API). Inputs are literal file paths, with one additional path per stdin line. With SSH, paths, file reads and digest computation belong to the remote host. Size, SHA-1, requested MurmurHash2 fingerprints, validated cache matches and read errors cross the connection; JAR bytes stay remote. Provider requests and match verification run locally, using local proxies and API keys.
@@ -25,12 +25,13 @@ Unmatched files produce `unmatched` rows, verified matches produce `matched` row
 
 The Remote command ID is `mod.source.identify`. Standalone identification and mod-list TUI lookups share one scheduler. An SSH list acquires summaries on its existing session and queries providers locally through this same scheduler. Each file is read once for both providers. `--identify-parallelism` bounds both providers together. Exiting cancels local queries and unfinished remote reads. See the [remote protocol](../remote.md).
 
-`mcpm server mods source identify` shares local parallelism and ordered output, including SSH and registered Remote routing.
+`mcpm mods source identify` shares local parallelism and ordered output, including SSH and registered Remote routing.
 
 ## Read-only cache
 
 - Default: query the file host's `~/.mcpm/cache/mods` before provider requests.
-- `--cache-dir PATH` chooses an initialized cache on that host; `--no-cache` disables lookup. They conflict.
+- Standalone `mod source identify`: `--cache-dir PATH` chooses an initialized cache on that host; `--no-cache` disables lookup. They conflict.
+- `server mods source identify` uses the Server runtime’s Mod cache and accepts `--no-cache` to disable lookup for this operation.
 - A hit requires cached content file, a valid `ident`, and matches validated against the queried file summary. Loader metadata can be missing or corrupt.
 - A miss queries the provider without writing anything. Use `mod cache --metas ident` or `server mods cache --metas ident` to populate results explicitly.
 - Official API keys and Curse.tools reuse the same `curseforge` results. Credentials are never persisted or sent over SSH.

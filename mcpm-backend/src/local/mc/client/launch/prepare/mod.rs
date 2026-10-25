@@ -15,9 +15,19 @@ mod error;
 pub use error::PreparationError;
 
 /// A ready-to-run plan. Prepared native files remain on disk.
+///
+/// # Implementations
+/// - [`Self::plan`]: access to the prepared launch plan.
+/// - [`Self::spawn`]: Java process creation (`launch/process.rs`).
 #[derive(Debug)]
 pub struct PreparedLaunch {
     pub(super) plan: LaunchPlan,
+}
+
+impl PreparedLaunch {
+    pub fn plan(&self) -> &LaunchPlan {
+        &self.plan
+    }
 }
 
 impl LaunchPlan {
@@ -83,12 +93,6 @@ impl LaunchPlan {
         }
         tracing::debug!("Launch preparation complete");
         Ok(PreparedLaunch { plan: self })
-    }
-}
-
-impl PreparedLaunch {
-    pub fn plan(&self) -> &LaunchPlan {
-        &self.plan
     }
 }
 

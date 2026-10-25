@@ -1,9 +1,9 @@
 # 调试调色板
 
 ```sh
-mcpm debug palette
-mcpm debug palette --no-ui
-mcpm debug palette --raw
+mcpm-tools debug palette
+mcpm-tools debug palette --no-ui
+mcpm-tools debug palette --raw
 ```
 
 显示标准 ANSI 的 8 种普通色、8 种亮色和默认前景色，每种颜色展示 Normal、Bold、Dim

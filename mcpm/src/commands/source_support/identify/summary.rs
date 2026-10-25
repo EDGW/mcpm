@@ -1,7 +1,7 @@
 //! File-summary acquisition shared by local identification and the remote command handler.
 
 use anyhow::{Context, Result};
-use mcpm_backend::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use mcpm_backend::source::FileMatch;
 use mcpm_backend::source::FileSummary;
 use mcpm_backend::source::SummaryRequirements;
@@ -54,14 +54,12 @@ pub(super) async fn run<F: std::future::Future<Output = Result<()>>>(
     paths: Vec<PathBuf>,
     requirements: SummaryRequirements,
     parallelism: usize,
-    cache: Option<ModsCacheSelection>,
+    environment: &RuntimeEnvironment,
     checkpoint: impl Fn() -> Result<()>,
     mut emit: impl FnMut(Event) -> F,
 ) -> Result<()> {
-    let lookup = cache
-        .map(ModsCacheSelection::open)
-        .transpose()?
-        .map(std::sync::Arc::new);
+    environment.mods_cache()?;
+    let environment = environment.clone();
     let started = std::time::Instant::now();
     let count = paths.len();
     let mut positions = HashMap::new();
@@ -96,14 +94,14 @@ pub(super) async fn run<F: std::future::Future<Output = Result<()>>>(
                 indices: indices.clone(),
             })
             .await?;
-            let lookup = lookup.clone();
+            let environment = environment.clone();
             let span = tracing::debug_span!("file_summary", path = %path.display());
             active.spawn(async move {
                 let started = std::time::Instant::now();
                 tracing::debug!(?requirements, "Reading file bytes for summary");
                 let result = tokio::task::spawn_blocking(move || -> Result<_> {
                     let summary = FileSummary::read(&path, requirements).with_context(|| format!("failed to summarize file {path:?}"))?;
-                    let cached = match lookup {
+                    let cached = match environment.mods_cache()? {
                         Some(lookup) => lookup.find_ident_info(&path)?.map(|info| info.verified_matches(&summary)).unwrap_or_default(),
                         None => BTreeMap::new(),
                     };

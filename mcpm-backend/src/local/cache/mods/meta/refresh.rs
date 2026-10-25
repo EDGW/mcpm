@@ -14,44 +14,6 @@ use crate::local::{
 use anyhow::{Context, Result, ensure};
 use std::collections::{BTreeMap, HashMap};
 
-fn prepare(cache: &CacheDir, key: Blake3Hash) -> Result<(CacheContent, CacheDigest)> {
-    let content = cache
-        .open_content(&key)?
-        .with_context(|| format!("cache object {key} does not exist"))?;
-    let sha256 = observation::sha256(&content)?;
-    let existing = content.try_read_metadata::<CacheDigest>(METANAME)?;
-    let stored = existing.is_some();
-    let mut digest = existing.unwrap_or_else(|| CacheDigest {
-        version: CACHE_FORMAT_VERSION,
-        blake3: key,
-        size: content.size(),
-        sha256: sha256.clone(),
-        metadata_version: MOD_METADATA_VERSION,
-        loaders: BTreeMap::new(),
-    });
-    ensure!(
-        digest.valid_content_descriptor()
-            && digest.blake3 == key
-            && digest.size == content.size()
-            && digest.sha256 == sha256,
-        "cached Loader descriptor does not match content {key}"
-    );
-    if digest.metadata_version != MOD_METADATA_VERSION {
-        digest.loaders.clear();
-        digest.metadata_version = MOD_METADATA_VERSION;
-    } else if !digest.loaders.is_empty() {
-        ensure!(
-            digest.valid_metadata(),
-            "invalid current Loader metadata for {key}"
-        );
-    } else {
-        // An existing empty snapshot is invalid; an absent snapshot may start empty.
-        ensure!(!stored, "empty stored Loader metadata for {key}");
-    }
-    content.validate()?;
-    Ok((content, digest))
-}
-
 pub(super) fn refresh(
     cache: &CacheDir,
     key: Blake3Hash,
@@ -122,4 +84,42 @@ pub(crate) fn write_metadata(
     }
     content.validate()?;
     Ok((observation::read(cache, key), changed))
+}
+
+fn prepare(cache: &CacheDir, key: Blake3Hash) -> Result<(CacheContent, CacheDigest)> {
+    let content = cache
+        .open_content(&key)?
+        .with_context(|| format!("cache object {key} does not exist"))?;
+    let sha256 = observation::sha256(&content)?;
+    let existing = content.try_read_metadata::<CacheDigest>(METANAME)?;
+    let stored = existing.is_some();
+    let mut digest = existing.unwrap_or_else(|| CacheDigest {
+        version: CACHE_FORMAT_VERSION,
+        blake3: key,
+        size: content.size(),
+        sha256: sha256.clone(),
+        metadata_version: MOD_METADATA_VERSION,
+        loaders: BTreeMap::new(),
+    });
+    ensure!(
+        digest.valid_content_descriptor()
+            && digest.blake3 == key
+            && digest.size == content.size()
+            && digest.sha256 == sha256,
+        "cached Loader descriptor does not match content {key}"
+    );
+    if digest.metadata_version != MOD_METADATA_VERSION {
+        digest.loaders.clear();
+        digest.metadata_version = MOD_METADATA_VERSION;
+    } else if !digest.loaders.is_empty() {
+        ensure!(
+            digest.valid_metadata(),
+            "invalid current Loader metadata for {key}"
+        );
+    } else {
+        // An existing empty snapshot is invalid; an absent snapshot may start empty.
+        ensure!(!stored, "empty stored Loader metadata for {key}");
+    }
+    content.validate()?;
+    Ok((content, digest))
 }

@@ -1,25 +1,25 @@
-## `mcpm server init`
+## `mcpm init`
 
 为现有服务端建立 Local 登记，或者在本机建立指向远端 Local Server 的 Remote 工作目录。此命令不安装服务端，也不启动游戏进程。
 
 ```sh
 # 在本机识别并登记服务端
-mcpm server init ./server
-mcpm server init ./server --start-script run.bat
+mcpm init ./server
+mcpm init ./server --start-script run.bat
 
 # 使用完整信息直接登记本机服务端
-mcpm server init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
-mcpm server init ./server --minecraft-version 1.21.1 --loader vanilla
+mcpm init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
+mcpm init ./server --minecraft-version 1.21.1 --loader vanilla
 
 # 在远端目录初始化 Local Server，位置参数是远端路径
-mcpm --ssh 'ssh user@host' server init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
+mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
 
 # 在本机目录创建 Remote 工作目录：位置参数是本地路径，--remote 后是远端路径
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' server init ./workspace --remote 'D:\EDGW-26Summer'
+mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' init ./workspace --remote 'D:\EDGW-26Summer'
 
 # 创建工作目录后，后续命令自动使用保存的连接
-mcpm server info ./workspace
-mcpm server mods list --server ./workspace
+mcpm info ./workspace
+mcpm mods list --server ./workspace
 ```
 
 ## 参数解释
@@ -63,8 +63,8 @@ SSH 连接和远端 mcpm 程序均复用[全局参数](../README.md#全局选项
 以下两条命令使用相同的全局 SSH 参数，作用不同：
 
 ```text
-mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <REMOTE_PATH>
-mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <PATH> --remote <REMOTE_PATH>
+mcpm --ssh COMMAND [--ssh-mcpm EXE] init <REMOTE_PATH>
+mcpm --ssh COMMAND [--ssh-mcpm EXE] init <PATH> --remote <REMOTE_PATH>
 ```
 
 | 用法 | 位置参数 | `--remote` 参数 | 登记写入位置 |
@@ -85,8 +85,8 @@ mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <PATH> --remote <REMOTE_PATH>
 }
 ```
 
-`ssh_mcpm` 省略或为 `null` 时使用远端 PATH 中的 `mcpm`。SSH 命令中的相对路径（例如 `-i keys/key`）以本地工作目录为基准；远端目录按远端系统解释。
+`ssh_mcpm` 省略或为 `null` 时使用远端 PATH 中的 `mcpm-tools`。SSH 命令中的相对路径（例如 `-i keys/key`）以本地工作目录为基准；远端目录按远端系统解释。
 
 后续 `server init/info` 和已支持远程的 `server mods list/info/deps/source` 在没有显式全局 SSH 参数时自动使用保存的连接。`server init ./workspace --force ...` 因此会重新登记远端 Local Server；若要修改本地保存的连接，应重新使用完整的 `--ssh ... server init ./workspace --remote ... --force`。显式 `--ssh` 优先，位置参数直接按远端路径处理；单独指定 `--ssh-mcpm` 仍然报错。
 
-`mcpm remote` 只打开 Local Server，目标为 Remote 工作目录时拒绝执行，禁止多段 Remote 引用。`server mods check/dep-graph` 暂不支持 Remote 工作目录。配置损坏或连接失败会明确报错，不回退为本地操作。
+`mcpm-tools remote` 只打开 Local Server，目标为 Remote 工作目录时拒绝执行，禁止多段 Remote 引用。`server mods check/dep-graph` 暂不支持 Remote 工作目录。配置损坏或连接失败会明确报错，不回退为本地操作。

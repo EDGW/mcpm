@@ -12,6 +12,63 @@ use super::super::{
     identifier::DependencyIdentifier,
 };
 
+// region: write_json
+
+/// Writes a deterministic, formatted JSON snapshot followed by a newline.
+/// Complete declarations are stored directly on edges without positional indices.
+/// Edge and declaration collection order has no semantic meaning.
+/// Candidate selection, environment checks and version evaluation are not performed.
+pub fn write_json(graph: &DependencyGraph, mut output: impl Write) -> Result<()> {
+    let mut nodes: Vec<_> = graph.nodes.iter().collect();
+    nodes.sort_by(|(left, _), (right, _)| {
+        left.loader()
+            .cmp(right.loader())
+            .then_with(|| left.id().cmp(right.id()))
+    });
+    let nodes = nodes
+        .into_iter()
+        .map(|(identifier, node)| Node {
+            identifier: identifier.into(),
+            candidates: node
+                .candidates()
+                .iter()
+                .map(|candidate| match candidate.as_ref() {
+                    DependencyCandidate::External(candidate) => Candidate::External {
+                        version: candidate.version.as_deref(),
+                    },
+                    DependencyCandidate::PrimaryMod(candidate) => Candidate::PrimaryMod {
+                        modinfo: candidate.modinfo.as_ref().into(),
+                        outgoing: candidate
+                            .outgoing()
+                            .iter()
+                            .map(|edge| Edge::new(&edge.target, &edge.dependency))
+                            .collect(),
+                    },
+                    DependencyCandidate::NestedMod(candidate) => Candidate::NestedMod {
+                        modinfo: candidate.modinfo.as_ref().into(),
+                        outgoing: candidate
+                            .outgoing()
+                            .iter()
+                            .map(|edge| Edge::new(&edge.target, &edge.dependency))
+                            .collect(),
+                    },
+                })
+                .collect(),
+        })
+        .collect();
+    serde_json::to_writer_pretty(
+        &mut output,
+        &Snapshot {
+            format_version: super::FORMAT_VERSION,
+            identification_failures: graph.identification_failures(),
+            nodes,
+        },
+    )
+    .context("failed to serialize dependency graph")?;
+    writeln!(output).context("failed to finish dependency graph JSON")?;
+    Ok(())
+}
+
 #[derive(Serialize, Debug)]
 struct Snapshot<'a> {
     format_version: u64,
@@ -90,57 +147,4 @@ impl<'a> Edge<'a> {
     }
 }
 
-/// Writes a deterministic, formatted JSON snapshot followed by a newline.
-/// Complete declarations are stored directly on edges without positional indices.
-/// Edge and declaration collection order has no semantic meaning.
-/// Candidate selection, environment checks and version evaluation are not performed.
-pub fn write_json(graph: &DependencyGraph, mut output: impl Write) -> Result<()> {
-    let mut nodes: Vec<_> = graph.nodes.iter().collect();
-    nodes.sort_by(|(left, _), (right, _)| {
-        left.loader()
-            .cmp(right.loader())
-            .then_with(|| left.id().cmp(right.id()))
-    });
-    let nodes = nodes
-        .into_iter()
-        .map(|(identifier, node)| Node {
-            identifier: identifier.into(),
-            candidates: node
-                .candidates()
-                .iter()
-                .map(|candidate| match candidate.as_ref() {
-                    DependencyCandidate::External(candidate) => Candidate::External {
-                        version: candidate.version.as_deref(),
-                    },
-                    DependencyCandidate::PrimaryMod(candidate) => Candidate::PrimaryMod {
-                        modinfo: candidate.modinfo.as_ref().into(),
-                        outgoing: candidate
-                            .outgoing()
-                            .iter()
-                            .map(|edge| Edge::new(&edge.target, &edge.dependency))
-                            .collect(),
-                    },
-                    DependencyCandidate::NestedMod(candidate) => Candidate::NestedMod {
-                        modinfo: candidate.modinfo.as_ref().into(),
-                        outgoing: candidate
-                            .outgoing()
-                            .iter()
-                            .map(|edge| Edge::new(&edge.target, &edge.dependency))
-                            .collect(),
-                    },
-                })
-                .collect(),
-        })
-        .collect();
-    serde_json::to_writer_pretty(
-        &mut output,
-        &Snapshot {
-            format_version: super::FORMAT_VERSION,
-            identification_failures: graph.identification_failures(),
-            nodes,
-        },
-    )
-    .context("failed to serialize dependency graph")?;
-    writeln!(output).context("failed to finish dependency graph JSON")?;
-    Ok(())
-}
+// endregion

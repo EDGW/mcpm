@@ -14,6 +14,13 @@ use std::path::{Path, PathBuf};
 ///
 /// Hard links share content protection with their sources and exported names.
 /// Replace linked files instead of modifying their bytes in place.
+///
+/// # Implementations
+/// - [`Self::new`]: cache root access, verified content and generic metadata operations.
+/// - [`Self::entry`]: inventory, inspection and removal (`inventory.rs`).
+/// - [`Self::find_content`]: read-only content lookup (`lookup.rs`).
+/// - [`Self::find_file`]: key lookup and index rebuilding (`lookup.rs`).
+/// - [`Self::import`]: content import and export (`transfer.rs`).
 #[derive(Debug, Clone)]
 pub struct CacheDir {
     pub(super) path: PathBuf,

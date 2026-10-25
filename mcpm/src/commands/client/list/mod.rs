@@ -56,7 +56,7 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
         client_output::write_inferred_root(
             &mut io::stderr().lock(),
             directory.path(),
-            "mcpm client list .",
+            &crate::program::roots().client.command("list ."),
         )
         .context("failed to write Minecraft root hint")?;
     }

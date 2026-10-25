@@ -3,9 +3,9 @@
 搜索远端项目、浏览发布文件，或根据本地文件内容反查来源：
 
 ```sh
-mcpm server mods source search create --server ./my-server --source modrinth
-mcpm server mods source files create --server ./my-server --source curseforge
-mcpm server mods source identify --server ./my-server --source modrinth --all
+mcpm mods source search create --server ./my-server --source modrinth
+mcpm mods source files create --server ./my-server --source curseforge
+mcpm mods source identify --server ./my-server --source modrinth --all
 ```
 
 三个命令均支持 `--server PATH`，默认当前目录，要求服务端已注册且声明了受支持的
@@ -26,10 +26,10 @@ Files 接受远端 project ID 或精确
 slug，也会追加读取 stdin，每行一个项目。这些参数不是本地 modid。
 
 ```sh
-mcpm server mods source search "Steam 'n' Rails" --source modrinth
-mcpm server mods source files 688231 --source curseforge --all-versions
-mcpm server mods source files create --source modrinth --game-version 1.21.1
-printf '%s\n' create ZzjhlDgM | mcpm server mods source files --source modrinth
+mcpm mods source search "Steam 'n' Rails" --source modrinth
+mcpm mods source files 688231 --source curseforge --all-versions
+mcpm mods source files create --source modrinth --game-version 1.21.1
+printf '%s\n' create ZzjhlDgM | mcpm mods source files --source modrinth
 ```
 
 终端中 search 和单项目 files 默认使用 TUI。搜索界面顶部始终显示搜索框，按 `/`
@@ -46,7 +46,7 @@ CurseForge / Modrinth 色，ID 使用 dimmed。Details 复用共享字段列表�
 c 复制字段完整值；Enter 展开/收起详情，Esc 先收起完整详情再退出。支持鼠标点击与滚轮导航。
 选中结果时按 Enter 进入项目的 files，保留兼容性过滤；Esc 返回搜索。
 多项目、`-N/--no-ui`、指定列或流重定向时使用列表。
-排序、翻页和发布类型过滤沿用 `mcpm mod source`。
+排序、翻页和发布类型过滤沿用 `mcpm-tools mod source`。
 
 Search 同样支持[字段值补全](../mod/source-search.md)：Loader 使用 Forge、NeoForge、Fabric，
 Version 从当前来源 API 获取并在会话内缓存。↑↓ 选择、Enter/Tab 填入，Esc 关闭候选框。
@@ -64,11 +64,11 @@ Esc 先收起完整详情，再返回上一级；q 直接返回。支持鼠标�
 不受当前页和兼容性过滤限制。`--loader`（别名 `--loaders`）支持逗号分隔和重复指定，匹配任意一个 loader。翻页时保持显示。TUI 列表保留同一发布文件的原始位置，其 Name 与置顶文件一样使用 primary，
 其他文件的 Name 使用 secondary；未传入 selected 时 Name 仍使用 primary。Console 和 Raw 输出继续去重。
 分页和总数仍对应原始筛选结果，置顶文件不占用每页数量；文件不存在或不属于指定项目时
-报错。独立的 `mcpm mod source files` 同样支持此选项。
+报错。独立的 `mcpm-tools mod source files` 同样支持此选项。
 
 ```sh
-mcpm mod source files sodium --source modrinth --selected yaoBL9D9
-mcpm --raw mod source files sodium --source modrinth --selected yaoBL9D9 --columns selected,id,filename
+mcpm-tools mod source files sodium --source modrinth --selected yaoBL9D9
+mcpm-tools --raw mod source files sodium --source modrinth --selected yaoBL9D9 --columns selected,id,filename
 ```
 
 Raw 输出先列出选中文件，默认 TSV 列不变。可用 `--columns selected`（或 `-C S`）
@@ -79,12 +79,12 @@ Raw 输出先列出选中文件，默认 TSV 列不变。可用 `--columns selec
 沿用现有服务端 Mod 选择规则：依次匹配文件名、精确 modid、精确显示名称。
 `--file`、`--modid`、`--name` 可以明确指定解释方式。
 路径相对于服务端 mods 目录，也接受 `mods/` 前缀；不接受绝对路径或向上跳转。
-识别任意本地路径请使用独立的 `mcpm mod source identify`。
+识别任意本地路径请使用独立的 `mcpm-tools mod source identify`。
 
 ```sh
-mcpm server mods source identify create.jar --source curseforge
-mcpm server mods source identify --modid create --source modrinth
-printf '%s\n' create | mcpm server mods source identify --source modrinth --input modid
+mcpm mods source identify create.jar --source curseforge
+mcpm mods source identify --modid create --source modrinth
+printf '%s\n' create | mcpm mods source identify --source modrinth --input modid
 ```
 
 `--all` 选择 mods 目录内全部 `.jar` 和 `.jar.disabled` 文件。
@@ -106,16 +106,16 @@ stdin 每行追加一个选择条件，`--input` 控制其解释方式；同一�
 Raw 或 stdout 重定向时输出转义后的 TSV，不含表头；`--raw` 同时关闭进度提示。
 
 ```sh
-mcpm server mods source search create --source modrinth -N --columns name,id,url
-mcpm server mods source files create --source modrinth --columns id,filename,size
-mcpm --raw server mods source identify --source modrinth --all --columns path,project,id,status
+mcpm mods source search create --source modrinth -N --columns name,id,url
+mcpm mods source files create --source modrinth --columns id,filename,size
+mcpm --raw mods source identify --source modrinth --all --columns path,project,id,status
 ```
 
 ## SSH
 
 ```sh
-mcpm --ssh 'ssh user@host' server mods source search create --server /srv/minecraft --source modrinth
-mcpm --ssh 'ssh user@host' server mods source identify --server /srv/minecraft --source modrinth --all
+mcpm --ssh 'ssh user@host' mods source search create --server /srv/minecraft --source modrinth
+mcpm --ssh 'ssh user@host' mods source identify --server /srv/minecraft --source modrinth --all
 ```
 
 全部 source 子命令支持 SSH。服务器目录和 Mod 选择在远端解析，来源服务请求、API 凭据、TUI 和输出均在本地处理。identify 复用同一会话完成选择和文件摘要；索引时回传进度及诊断，输入部分失败时仍处理有效选择。其 `--parallelism` 分别约束远端索引扫描、文件摘要及本地服务查询。协议不传输归档内容和服务凭据。

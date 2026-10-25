@@ -1,22 +1,22 @@
 # Mod file backups
 
-`mcpm mod backup` creates, verifies, applies and deletes a complete directory's file backup. It recursively
+`mcpm-tools mod backup` creates, verifies, applies and deletes a complete directory's file backup. It recursively
 includes every regular file, including disabled mods and extensions other than `.jar`.
 Archives are not unpacked and empty directories are not recorded. Operations are local only.
 
 ## Usage
 
 ```sh
-mcpm mod backup create ./mods ./backups/before-update
-mcpm mod backup create ./mods ./backups/before-update --mode copy
-mcpm mod backup create ./mods ./backups/before-update --mode prefer-hard-link --parallelism 4
-mcpm mod backup apply ./backups/before-update ./mods
-mcpm mod backup apply ./backups/before-update ./mods --force
-mcpm mod backup apply ./backups/before-update ./mods --mode hard-link
-mcpm mod backup verify ./backups/before-update ./backups/another
-printf '%s\n' './backups/before-update' './backups/another' | mcpm mod backup verify
-mcpm mod backup delete ./backups/before-update ./backups/another
-printf '%s\n' './backups/before-update' | mcpm mod backup delete
+mcpm-tools mod backup create ./mods ./backups/before-update
+mcpm-tools mod backup create ./mods ./backups/before-update --mode copy
+mcpm-tools mod backup create ./mods ./backups/before-update --mode prefer-hard-link --parallelism 4
+mcpm-tools mod backup apply ./backups/before-update ./mods
+mcpm-tools mod backup apply ./backups/before-update ./mods --force
+mcpm-tools mod backup apply ./backups/before-update ./mods --mode hard-link
+mcpm-tools mod backup verify ./backups/before-update ./backups/another
+printf '%s\n' './backups/before-update' './backups/another' | mcpm-tools mod backup verify
+mcpm-tools mod backup delete ./backups/before-update ./backups/another
+printf '%s\n' './backups/before-update' | mcpm-tools mod backup delete
 ```
 
 The backup destination's parent must exist; the destination must be absent or empty.
@@ -52,7 +52,7 @@ The apply target's parent must exist; the target must be absent or empty unless 
 4. Verify generated files, protect file contents and the `data/` directory tree, then write and protect the manifest contents before publishing the backup.
 
 Both `manifest.mcbackup` and data files are protected against in-place writes. After successful
-creation, Console prompts you to delete the backup with `mcpm mod backup delete <BACKUP>`;
+creation, Console prompts you to delete the backup with `mcpm-tools mod backup delete <BACKUP>`;
 default directory permissions prevent ordinary recursive deletion on Unix.
 
 Source-to-cache imports always copy; `--mode` controls cache-to-backup transfer only.
@@ -82,7 +82,7 @@ names or conflicting paths fail the operation.
 ## Standalone verification
 
 ```text
-mcpm mod backup verify [OPTIONS] [BACKUP]...
+mcpm-tools mod backup verify [OPTIONS] [BACKUP]...
 ```
 
 - Accepts multiple directory arguments and one backup directory per stdin line; arguments are processed before stdin paths.
@@ -109,7 +109,7 @@ Successful `backup` paths are resolved absolute directories; failed paths retain
 ## Deleting backups
 
 ```text
-mcpm mod backup delete [OPTIONS] [BACKUP]...
+mcpm-tools mod backup delete [OPTIONS] [BACKUP]...
 ```
 
 - Accepts multiple directory arguments and one directory per stdin line, with the same ordering, blank-line, whitespace and deduplication rules as `verify`. At least one path is required.

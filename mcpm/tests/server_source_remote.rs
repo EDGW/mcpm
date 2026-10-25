@@ -31,7 +31,7 @@ fn jar(root: &Path, filename: &str) {
 }
 
 fn remote(root: &Path, command: &str, contents: Value, cancel: bool) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .arg("remote")
         .current_dir(root)
         .env("HOME", root.join("home"))
@@ -198,7 +198,7 @@ fn ssh_reads_remote_bytes_but_keeps_provider_options_and_failures_local() {
     .unwrap();
     fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
     let connection = shlex::try_join([ssh.to_str().unwrap(), "test@host"]).unwrap();
-    let output: Output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let output: Output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .current_dir(client.path())
         .env("HOME", root.path().join("home"))
         .env("USERPROFILE", root.path().join("home"))
@@ -219,7 +219,7 @@ fn ssh_reads_remote_bytes_but_keeps_provider_options_and_failures_local() {
             "--ssh",
             &connection,
             "--ssh-mcpm",
-            env!("CARGO_BIN_EXE_mcpm"),
+            env!("CARGO_BIN_EXE_mcpm-tools"),
         ])
         .stdin(Stdio::null())
         .output()

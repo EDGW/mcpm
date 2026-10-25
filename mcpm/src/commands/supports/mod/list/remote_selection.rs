@@ -1,7 +1,9 @@
 //! Transport adapter for ordered list selections, reusing list records and local presentation.
 
+use crate::commands::supports::mods::reuse::HostEnvironment;
 use anyhow::{Context, Result, ensure};
 use mcpm_backend::local::modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta};
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -26,6 +28,7 @@ use crate::{
 enum Event {
     Scope {
         loaders: Vec<String>,
+        environment: HostEnvironment,
     },
     Scan {
         completed: usize,
@@ -51,17 +54,20 @@ pub(in crate::commands) fn serve(
     selection: Selection,
     scope: Scope,
     loaders: HashMap<LoaderId, ModLoaderMeta>,
+    environment: &RuntimeEnvironment,
     loading: impl Into<scan::Options>,
     output: &Output,
 ) -> Result<()> {
     output.send(Event::Scope {
         loaders: super::source_loaders(&loaders, true),
+        environment: HostEnvironment::capture(environment)?,
     })?;
     let mut files = 0;
     let counts = selection::load(
         selection,
         scope,
         loaders,
+        environment,
         loading,
         || output.checkpoint(),
         |event| {
@@ -103,13 +109,20 @@ pub(in crate::commands) fn run_ssh(
     let mut files = Vec::new();
     let mut source_loaders = Vec::new();
     let mut counts = None;
+    let mut environment = None;
     session.submit(command, contents)?.collect(|reply| {
         let event: Event = reply
             .decode()
             .context("invalid remote server mod list contents")?;
         validator.accept(&event)?;
         match event {
-            Event::Scope { loaders } => source_loaders = loaders,
+            Event::Scope {
+                loaders,
+                environment: host,
+            } => {
+                source_loaders = loaders;
+                environment = Some(host.into_runtime());
+            }
             Event::Scan { completed, total } => {
                 output.event(scan::Event::Progress { completed, total })?
             }
@@ -135,6 +148,7 @@ pub(in crate::commands) fn run_ssh(
     drop(output);
     let (input_errors, failed, cache) =
         counts.context("missing remote server mod list completion")?;
+    let environment = environment.context("missing remote list environment")?;
     let result = super::present(
         files,
         true,
@@ -145,7 +159,7 @@ pub(in crate::commands) fn run_ssh(
             cache,
         },
         source_loaders,
-        Location::Remote(&session),
+        Location::Remote(&session, &environment),
     );
     session.close()?;
     result
@@ -162,7 +176,7 @@ struct Validator {
 impl Validator {
     fn accept(&mut self, event: &Event) -> Result<()> {
         ensure!(!self.done, "remote list data after completion");
-        if let Event::Scope { loaders } = event {
+        if let Event::Scope { loaders, .. } = event {
             ensure!(
                 !self.scope && !loaders.is_empty(),
                 "invalid remote list scope"
@@ -229,6 +243,7 @@ mod tests {
     fn scope() -> Event {
         Event::Scope {
             loaders: vec!["fabric".into()],
+            environment: HostEnvironment { cache: None },
         }
     }
     fn done(files: usize, failed: usize) -> Event {

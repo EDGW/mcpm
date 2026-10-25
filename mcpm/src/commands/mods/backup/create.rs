@@ -1,5 +1,6 @@
 //! CLI policy for creating a content-only Mod backup through the library workflow.
 
+use mcpm_backend::local::runtime::RuntimeEnvironment;
 use std::{io, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result};
@@ -42,7 +43,7 @@ pub(super) fn run(args: CreateArgs) -> Result<()> {
         .cache_dir
         .map(|path| ModsCacheSelection::Directory { path })
         .unwrap_or(ModsCacheSelection::Default);
-    let cache = selection.open()?;
+    let environment = RuntimeEnvironment::new().with_backup_cache(selection);
     let mut display = Presentation::new(
         io::stdout().lock(),
         args.display.details,
@@ -51,7 +52,7 @@ pub(super) fn run(args: CreateArgs) -> Result<()> {
     let outcome = backup::create(
         &args.source,
         &args.backup,
-        &cache,
+        &environment,
         CreateOptions {
             mode: args.mode.into(),
             parallelism: args.parallelism,
