@@ -1,6 +1,7 @@
 # Mod file backups
 
-`mcpm-tools mod backup` creates, verifies, applies and deletes a complete directory's file backup. It recursively
+`mcpm-tools mod backup` creates, verifies, applies and deletes a complete directory's file backup,
+and computes directory checksums for comparison with backups. It recursively
 includes every regular file, including disabled mods and extensions other than `.jar`.
 Archives are not unpacked and empty directories are not recorded. Operations are local only.
 
@@ -15,6 +16,10 @@ mcpm-tools mod backup apply ./backups/before-update ./mods --force
 mcpm-tools mod backup apply ./backups/before-update ./mods --mode hard-link
 mcpm-tools mod backup verify ./backups/before-update ./backups/another
 printf '%s\n' './backups/before-update' './backups/another' | mcpm-tools mod backup verify
+mcpm-tools mod backup checksum ./mods ./another-mods
+printf '%s\n' './mods' './another-mods' | mcpm-tools mod backup checksum
+mcpm-tools mod backup verify-with ./mods --backup ./backups/before-update
+mcpm-tools mod backup verify-with ./mods --checksum <CHECKSUM>
 mcpm-tools mod backup delete ./backups/before-update ./backups/another
 printf '%s\n' './backups/before-update' | mcpm-tools mod backup delete
 ```
@@ -105,6 +110,75 @@ backup  status  files  size  checksum
 `status` is `valid` or `invalid`; the last three fields are empty on failure.
 Successful `backup` paths are resolved absolute directories; failed paths retain their input spelling.
 `size` is an integer byte count.
+
+## Directory checksums
+
+```text
+mcpm-tools mod backup checksum [OPTIONS] [DIRECTORY]...
+```
+
+- Compute an independent checksum for each directory using the v1 backup checksum protocol; directories are not merged.
+- Multiple directory arguments and newline-delimited stdin follow `verify`'s ordering, blank-line, literal-path and deduplication rules.
+  At least one directory is required.
+- Recursively include every regular file, including disabled mods and other extensions. Do not unpack or identify mods.
+  Empty directories do not contribute to the checksum.
+- Split relative paths into components and join them with `/` on every OS. Matching names and contents use the same encoding.
+  Case and Unicode representations are preserved; literal backslashes in filenames are rejected.
+- Read complete file contents for BLAKE3 without trusting cached hashes. Do not write files, create backups, open caches or change permissions.
+- Reject symbolic-link roots or entries, special files and invalid paths. Fail on file changes detected during reading
+  or file-set changes detected at completion. This is not an atomic directory snapshot; keep directories stable during calculation.
+- Process directories sequentially and continue after individual failures. `--parallelism COUNT` limits concurrent files per directory; default `10`.
+- Return `0` only if all calculations succeed. Report errors through chained stderr diagnostics.
+- Support Console and Raw; `--details` adds file records in Console and `--headers` adds Raw headers.
+
+Raw emits only the checksum of each successful directory, one per line, without paths, statuses, file counts or sizes:
+
+```text
+<checksum>
+```
+
+Failed directories emit no stdout line; diagnostics go to stderr and subsequent directories are still processed.
+Any failure returns a nonzero exit code. There is no default header; `--headers` adds a single `checksum` header line.
+Console additionally shows the directory, status, file count and size. Size counts file-content bytes only, without a manifest.
+
+## Comparing a directory
+
+```text
+mcpm-tools mod backup verify-with [OPTIONS] <MODS_DIR>
+```
+
+```sh
+mcpm-tools mod backup verify-with ./mods --backup ./backups/before-update
+mcpm-tools mod backup verify-with ./mods --checksum <CHECKSUM>
+mcpm-tools mod backup verify-with ./mods --backups ./backups/a,./backups/b --checksum <CHECKSUM>
+printf '%s\n' './backups/a' './backups/b' | mcpm-tools mod backup verify-with ./mods --input backup
+mcpm-tools mod backup checksum ./mods | mcpm-tools mod backup verify-with ./another-mods --input checksum
+```
+
+- Calculate `<MODS_DIR>` once using the complete `checksum` rules and reuse its records for every target.
+- Repeat `--backup BACKUP` or supply comma-separated `--backups BACKUPS`. Commas in a singular `--backup` are literal path characters.
+- Repeat `--checksum CHECKSUM` or supply comma-separated `--checksums CHECKSUMS`.
+  Checksums must be 64 lowercase hexadecimal characters and use the current v1 protocol.
+- Both target types can be combined. Nonblank stdin lines append targets and require `--input backup|checksum`; types are not inferred.
+  Spaces and quotes are preserved; blank lines are ignored.
+- Process `--backup`, `--backups`, `--checksum`, `--checksums`, then stdin, preserving order within each group.
+  Identical targets of the same type are compared once. At least one target is required.
+- Backup targets read and validate only the manifest, without inspecting `data/`. A backup directory containing only a manifest is sufficient.
+  Use `backup verify` to check the backup's own integrity.
+- Console shows the result and expected/actual checksums. Manifest mismatches list all missing, unexpected and size/content-changed files.
+  Bare checksums cannot describe file differences. `--details` additionally lists the computed directory's files.
+- No directory, backup or cache is written. Parallelism, change detection and stable-directory requirements match `checksum`.
+- Continue after individual target read or parse failures. Return `0` only if every target matches; mismatches and operational failures return nonzero.
+
+Console and Raw are supported. Raw emits one TSV row per target; `--headers` includes the header:
+
+```text
+target_type  target  directory  status  expected_checksum  actual_checksum
+```
+
+`target_type` is `backup` or `checksum`; `target` retains its input value. `status` is `match`, `mismatch` or `failed`.
+Unavailable checksums are empty. The directory is absolute after a successful calculation and otherwise retains its input path.
+Mismatches are comparison results; read, format and calculation errors use the existing chained stderr diagnostics.
 
 ## Deleting backups
 

@@ -9,8 +9,8 @@ use anyhow::Result;
 use mcpm_backend::local::{
     cache::TransferMethod,
     mcmod::backup::{
-        ChecksumMismatch, Event, FileRecord, Operation, Outcome, Stage, VerificationError,
-        VerifiedBackup,
+        ChecksumMismatch, Comparison, DirectoryChecksum, Event, FileRecord, Manifest, Operation,
+        Outcome, Stage, VerificationError, VerifiedBackup,
     },
 };
 
@@ -20,6 +20,8 @@ use super::{
     style::{OutputStyle, text, tsv},
 };
 use crate::{progress::Progress, terminal};
+
+mod checksum;
 
 pub(crate) struct Presentation<W: Write> {
     output: W,
@@ -51,6 +53,7 @@ impl<W: Write> Presentation<W> {
                     self.progress = None;
                     if terminal::stderr_is_tty() {
                         let label = match stage {
+                            Stage::Checksum => "Computing file checksums",
                             Stage::Cache => "Caching source files",
                             Stage::Verify => "Verifying file contents",
                             Stage::Transfer => "Transferring files",
@@ -68,6 +71,7 @@ impl<W: Write> Presentation<W> {
                 self.progress = None;
                 if terminal::stdout_is_tty() {
                     let message = match stage {
+                        Stage::Checksum => "All file checksums were computed successfully.",
                         Stage::Cache => "All source files were cached successfully.",
                         Stage::Verify => "All files passed content verification.",
                         Stage::Transfer => "All files were transferred and verified successfully.",
@@ -110,16 +114,62 @@ impl<W: Write> Presentation<W> {
             self.headers && !self.printed_result,
         )?;
         self.printed_result = true;
-        if terminal::stdout_is_tty() && self.details {
-            if let Some(verified) = verified {
-                let mut console = ConsoleWriter::new(&mut self.output);
-                for record in verified.manifest().files() {
-                    writeln!(console)?;
-                    file(&mut console, record, None)?;
-                }
+        self.file_details(verified.map(VerifiedBackup::manifest))?;
+        self.output.flush()?;
+        Ok(())
+    }
+
+    pub(crate) fn checksummed(
+        &mut self,
+        path: &Path,
+        computed: Option<&DirectoryChecksum>,
+    ) -> Result<()> {
+        self.progress = None;
+        checksum::summary(
+            &mut self.output,
+            path,
+            computed,
+            self.headers && !self.printed_result,
+        )?;
+        self.printed_result = true;
+        self.file_details(computed.map(DirectoryChecksum::manifest))?;
+        self.output.flush()?;
+        Ok(())
+    }
+
+    pub(crate) fn compared(
+        &mut self,
+        target: (&str, &str),
+        path: &Path,
+        computed: Option<&DirectoryChecksum>,
+        comparison: Option<&Comparison>,
+    ) -> Result<()> {
+        self.progress = None;
+        checksum::comparison(
+            &mut self.output,
+            target,
+            path,
+            computed,
+            comparison,
+            self.headers && !self.printed_result,
+        )?;
+        self.printed_result = true;
+        self.file_details(computed.map(DirectoryChecksum::manifest))?;
+        self.output.flush()?;
+        Ok(())
+    }
+
+    fn file_details(&mut self, manifest: Option<&Manifest>) -> Result<()> {
+        if terminal::stdout_is_tty()
+            && self.details
+            && let Some(manifest) = manifest
+        {
+            let mut console = ConsoleWriter::new(&mut self.output);
+            for record in manifest.files() {
+                writeln!(console)?;
+                file(&mut console, record, None)?;
             }
         }
-        self.output.flush()?;
         Ok(())
     }
 }

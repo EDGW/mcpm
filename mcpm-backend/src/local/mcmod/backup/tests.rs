@@ -309,6 +309,13 @@ fn empty_backups_and_invalid_manifest_structures_are_handled_without_directory_r
     fs::remove_file(fixture.source.join("nested/second.jar.disabled")).unwrap();
     let outcome = fixture.create(CacheLinkPreference::PreferHardLink);
     assert!(outcome.manifest().files().is_empty());
+    assert_eq!(
+        checksum(&fixture.source, NonZeroUsize::new(1).unwrap(), |_| Ok(()))
+            .unwrap()
+            .manifest()
+            .checksum(),
+        outcome.manifest().checksum()
+    );
     fixture.apply(false, CacheLinkPreference::Copy).unwrap();
     assert_eq!(fs::read_dir(&fixture.target).unwrap().count(), 0);
     let key = crate::local::files::hash::blake3(b"x").unwrap();
@@ -333,6 +340,7 @@ fn empty_backups_and_invalid_manifest_structures_are_handled_without_directory_r
 fn links_and_overlapping_paths_are_rejected_before_publication() {
     let fixture = Fixture::new();
     std::os::unix::fs::symlink("first.jar", fixture.source.join("linked.jar")).unwrap();
+    assert!(checksum(&fixture.source, NonZeroUsize::new(1).unwrap(), |_| Ok(())).is_err());
     let options = CreateOptions {
         mode: CacheLinkPreference::Copy,
         parallelism: NonZeroUsize::new(1).unwrap(),
@@ -362,6 +370,103 @@ fn links_and_overlapping_paths_are_rejected_before_publication() {
             |_| Ok(())
         )
         .is_err()
+    );
+}
+
+#[test]
+fn directory_checksum_matches_backup_after_relocation_without_cache_or_backup_data() {
+    let fixture = Fixture::new();
+    let created = fixture.create(CacheLinkPreference::Copy);
+    for record in created.manifest().files() {
+        fixture.cache.remove(&record.blake3()).unwrap();
+    }
+    files::remove_protected_tree(&fixture.backup.join("data")).unwrap();
+    fs::rename(&fixture.source, &fixture.target).unwrap();
+    fs::create_dir(fixture.target.join("another-empty-directory")).unwrap();
+    let before = tree::scan(fixture.root.path()).unwrap().files;
+    let computed = checksum(&fixture.target, NonZeroUsize::new(2).unwrap(), |_| Ok(())).unwrap();
+    assert_eq!(
+        computed.manifest().checksum(),
+        created.manifest().checksum()
+    );
+    assert_eq!(
+        computed.manifest().files()[1].path(),
+        "nested/second.jar.disabled"
+    );
+    assert!(
+        computed
+            .compare_with_backup(&fixture.backup)
+            .unwrap()
+            .matches()
+    );
+    assert!(
+        computed
+            .compare_checksum(created.manifest().checksum())
+            .matches()
+    );
+    assert!(verify(&fixture.backup, NonZeroUsize::new(1).unwrap(), |_| Ok(())).is_err());
+    assert_eq!(tree::scan(fixture.root.path()).unwrap().files, before);
+}
+
+#[test]
+fn directory_comparison_reports_all_path_and_content_differences_in_order() {
+    let fixture = Fixture::new();
+    let created = fixture.create(CacheLinkPreference::Copy);
+    fs::remove_file(fixture.source.join("first.jar")).unwrap();
+    fs::write(
+        fixture.source.join("nested/second.jar.disabled"),
+        b"changed bytes!",
+    )
+    .unwrap();
+    fs::write(fixture.source.join("a.txt"), b"additional").unwrap();
+    fs::write(fixture.source.join("z.txt"), b"additional").unwrap();
+    let computed = checksum(&fixture.source, NonZeroUsize::new(2).unwrap(), |_| Ok(())).unwrap();
+    let compared = computed.compare_with_backup(&fixture.backup).unwrap();
+    assert!(!compared.matches());
+    assert_eq!(compared.expected(), created.manifest().checksum());
+    assert_eq!(compared.actual(), computed.manifest().checksum());
+    assert!(matches!(compared.differences(), [
+        FileDifference::Unexpected { actual: a },
+        FileDifference::Missing { expected: missing },
+        FileDifference::Changed { expected, actual },
+        FileDifference::Unexpected { actual: z },
+    ] if a.path() == "a.txt" && missing.path() == "first.jar"
+        && expected.path() == "nested/second.jar.disabled" && expected.size() == actual.size()
+        && expected.blake3() != actual.blake3() && z.path() == "z.txt"));
+    assert!(
+        computed
+            .compare_checksum(created.manifest().checksum())
+            .differences()
+            .is_empty()
+    );
+
+    fs::write(fixture.source.join("nested/second.jar.disabled"), b"short").unwrap();
+    let computed = checksum(&fixture.source, NonZeroUsize::new(1).unwrap(), |_| Ok(())).unwrap();
+    let compared = computed.compare_manifest(created.manifest());
+    assert!(matches!(&compared.differences()[2],
+        FileDifference::Changed { expected, actual } if expected.size() != actual.size()));
+}
+
+#[test]
+fn directory_checksum_rejects_inventory_changes_before_completion() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("original"), b"content").unwrap();
+    let result = checksum(root.path(), NonZeroUsize::new(1).unwrap(), |event| {
+        if matches!(
+            event,
+            Event::Progress {
+                stage: Stage::Checksum,
+                completed: 1,
+                ..
+            }
+        ) {
+            fs::write(root.path().join("added-during-hashing"), b"new")?;
+        }
+        Ok(())
+    });
+    assert!(
+        matches!(result.unwrap_err().downcast_ref::<VerificationError>(),
+        Some(VerificationError::FileSet { unexpected, .. }) if unexpected == &["added-during-hashing"])
     );
 }
 

@@ -20,7 +20,7 @@ pub(crate) struct ModArgs {
 
 #[derive(Subcommand, Debug)]
 enum ModCommand {
-    /// Create, verify, apply and delete Mod file backups (Console, Raw).
+    /// Create, verify, compare, checksum, apply and delete Mod file backups (Console, Raw).
     Backup(backup::BackupArgs),
     /// Store selected mod files and identification metadata (Console, Raw).
     Cache(cache::CacheArgs),

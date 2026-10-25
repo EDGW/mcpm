@@ -17,6 +17,8 @@ use crate::{
     },
 };
 
+mod checksum;
+pub use checksum::{Comparison, DirectoryChecksum, FileDifference, checksum};
 mod delete;
 pub use delete::delete;
 mod manifest;
@@ -246,6 +248,7 @@ pub enum Operation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
+    Checksum,
     Cache,
     Verify,
     Transfer,

@@ -1,6 +1,6 @@
 # Mod 文件备份
 
-`mcpm-tools mod backup` 创建、校验、应用和删除完整文件夹的文件备份。备份递归包含全部普通文件，
+`mcpm-tools mod backup` 创建、校验、应用和删除完整文件夹的文件备份，也可以计算目录摘要并与备份比较。备份递归包含全部普通文件，
 不限于 `.jar`，也包含禁用的 Mod；不解包归档、不记录空目录。操作仅支持本地。
 
 ## 用法
@@ -14,6 +14,10 @@ mcpm-tools mod backup apply ./backups/before-update ./mods --force
 mcpm-tools mod backup apply ./backups/before-update ./mods --mode hard-link
 mcpm-tools mod backup verify ./backups/before-update ./backups/another
 printf '%s\n' './backups/before-update' './backups/another' | mcpm-tools mod backup verify
+mcpm-tools mod backup checksum ./mods ./another-mods
+printf '%s\n' './mods' './another-mods' | mcpm-tools mod backup checksum
+mcpm-tools mod backup verify-with ./mods --backup ./backups/before-update
+mcpm-tools mod backup verify-with ./mods --checksum <CHECKSUM>
 mcpm-tools mod backup delete ./backups/before-update ./backups/another
 printf '%s\n' './backups/before-update' | mcpm-tools mod backup delete
 ```
@@ -97,6 +101,74 @@ backup  status  files  size  checksum
 
 `status` 为 `valid` 或 `invalid`；校验失败时后三列为空。
 成功时 `backup` 为解析后的绝对目录，失败时保留输入路径；`size` 为整数字节数。
+
+## 计算目录摘要
+
+```text
+mcpm-tools mod backup checksum [OPTIONS] [DIRECTORY]...
+```
+
+- 每个目录独立计算一个与 v1 backup checksum 相同规则的摘要，不合并多个目录。
+- 多个目录参数和 stdin 逐行输入的合并、空行、空格、去重及处理顺序与 `verify` 相同，至少提供一个目录。
+- 递归包含全部普通文件，包括禁用 Mod 和其他扩展名；不解包、不识别 Mod。空目录不参与摘要。
+- 相对路径按组件拆分并统一使用 `/`，因此相同名称和内容在不同操作系统下使用相同编码。
+  不折叠大小写，不进行 Unicode 归一化；文件名本身包含反斜杠时拒绝处理。
+- 读取完整内容计算 BLAKE3，不使用缓存中的摘要；不写入文件、不创建备份、不打开缓存或改变权限。
+- 根目录或子项为符号链接、特殊文件、不合法路径时失败。读取期间检测到文件变化，或结束时检测到文件集合变化，也会失败。
+  这不提供整个目录的原子快照，计算期间应保持目录稳定。
+- 目录依次处理，单个失败后继续处理其余目录。`--parallelism COUNT` 限制每个目录内并发文件数，默认 `10`。
+- 全部计算成功返回 `0`，任何失败返回非零退出码；错误通过 stderr 逐级展示。
+- 支持 Console 和 Raw。`--details` 在 Console 展示逐文件记录；`--headers` 添加 Raw 表头。
+
+Raw 每个成功目录只输出一个 checksum，每行一个，不附带路径、状态、文件数量或大小：
+
+```text
+<checksum>
+```
+
+失败目录不输出 stdout 行，错误写入 stderr，继续计算后续目录；任何失败仍返回非零退出码。
+默认无表头，`--headers` 添加一行 `checksum` 表头。
+Console 另外展示目录、状态、文件数量和大小；大小只统计文件内容字节，不包含 manifest。
+
+## 与目录比较
+
+```text
+mcpm-tools mod backup verify-with [OPTIONS] <MODS_DIR>
+```
+
+```sh
+mcpm-tools mod backup verify-with ./mods --backup ./backups/before-update
+mcpm-tools mod backup verify-with ./mods --checksum <CHECKSUM>
+mcpm-tools mod backup verify-with ./mods --backups ./backups/a,./backups/b --checksum <CHECKSUM>
+printf '%s\n' './backups/a' './backups/b' | mcpm-tools mod backup verify-with ./mods --input backup
+mcpm-tools mod backup checksum ./mods | mcpm-tools mod backup verify-with ./another-mods --input checksum
+```
+
+- `<MODS_DIR>` 使用 `checksum` 的完整目录计算规则，只计算一次，复用于全部比较目标。
+- `--backup BACKUP` 指定一个备份，允许重复；`--backups BACKUPS` 指定逗号分隔的备份列表。
+  单个 `--backup` 中的逗号按路径内容处理。
+- `--checksum CHECKSUM` 指定一个预期摘要，允许重复；`--checksums CHECKSUMS` 指定逗号分隔的摘要列表。
+  摘要必须为 64 位小写十六进制，按当前 v1 协议解释。
+- 两类目标可以混合。stdin 每个非空行是一个目标，有输入时必须用 `--input backup|checksum` 指明类型，不自动猜测。
+  路径空格和引号保留，空行忽略。
+- 顺序依次为 `--backup`、`--backups`、`--checksum`、`--checksums`、stdin，各组内保留输入顺序。
+  同一类型的相同目标只比较一次；合并后至少需要一个目标。
+- 备份目标只读取并验证 manifest，不检查 `data/`，因此只有 manifest 的备份目录也可以用于比较。
+  检查备份自身完整性仍使用 `backup verify`。
+- Console 显示匹配结果、预期和实际摘要；manifest 不匹配时列出全部缺少、多出、大小或内容变化的文件。
+  只有摘要时无法列出文件差异。`--details` 增加实际目录的逐文件记录。
+- 不写入目录、备份或缓存。`--parallelism`、文件变化检测和稳定目录要求与 `checksum` 相同。
+- 单个目标读取或解析失败后继续比较其余目标。全部匹配返回 `0`，任一不匹配或执行失败返回非零。
+
+支持 Console 和 Raw；Raw 每个目标输出一行 TSV，`--headers` 添加表头：
+
+```text
+target_type  target  directory  status  expected_checksum  actual_checksum
+```
+
+`target_type` 为 `backup` 或 `checksum`；`target` 保留输入值。`status` 为 `match`、`mismatch` 或 `failed`。
+不可获得的摘要留空；目录计算成功后使用其绝对路径，否则保留输入路径。
+不匹配属于比较结果；读取、格式和目录计算错误通过现有逐级诊断输出到 stderr。
 
 ## 删除备份
 
