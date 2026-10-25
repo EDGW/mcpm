@@ -45,11 +45,15 @@ jobs:
             asset: mcpm-macos-arm64
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
-            asset: mcpm-windows-x86_64.exe
+            asset: mcpm-windows-x86_64
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -79,7 +83,7 @@ jobs:
         working-directory: mcpm
         env:
           ZIG_TARGET: ${{ matrix.zig_target }}
-        run: cargo zigbuild --release --locked --target "$ZIG_TARGET"
+        run: cargo zigbuild --release --bins --locked --target "$ZIG_TARGET"
 
       - name: Test Windows environment names
         if: runner.os == 'Windows'
@@ -91,36 +95,34 @@ jobs:
         working-directory: mcpm
         env:
           TARGET: ${{ matrix.target }}
-        run: cargo build --release --locked --target "$TARGET"
+        run: cargo build --release --bins --locked --target "$TARGET"
 
-      - name: Verify and stage binary
+      - name: Package and verify suite
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
           ASSET: ${{ matrix.asset }}
         run: |
-          binary="mcpm/target/$TARGET/release/mcpm"
-          if [[ "$RUNNER_OS" == Windows ]]; then
-            binary="$binary.exe"
-          else
-            file "$binary"
+          args=(--binary-dir "mcpm/target/$TARGET/release" --target "$TARGET" --asset "$ASSET")
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            args+=(--tag "$GITHUB_REF_NAME")
           fi
-          "$binary" --version
-          "$binary" --help
-          if [[ "$TARGET" == *-linux-musl ]]; then
-            if readelf -l "$binary" | grep -q INTERP; then
-              echo 'Expected a statically linked musl binary' >&2
-              exit 1
-            fi
-          fi
-          mkdir -p dist
-          cp "$binary" "dist/$ASSET"
+          python scripts/package.py "${args[@]}"
 
-      - name: Upload binary
+      - name: Test Unix installer lifecycle
+        if: runner.os != 'Windows'
+        run: python3 scripts/tests/test_install.py
+
+      - name: Test Windows installer lifecycle
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/tests/install.Tests.ps1 -BinaryDir "mcpm/target/${{ matrix.target }}/release"
+
+      - name: Upload suite and checksum
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
-          path: dist/${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}.*
           if-no-files-found: error
 
   release:
