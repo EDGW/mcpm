@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use crate::{
     blocking,
     local::{
-        cache::{CacheLinkPreference, TransferMethod},
+        cache::{CacheLinkPreference, TransferMethod, mods::ModsCacheDir},
         files::{self, Content, DirectoryProtection},
         runtime::RuntimeEnvironment,
     },
@@ -78,9 +78,20 @@ pub fn create(
     destination: &Path,
     environment: &RuntimeEnvironment,
     options: CreateOptions,
-    mut emit: impl FnMut(Event) -> Result<()>,
+    emit: impl FnMut(Event) -> Result<()>,
 ) -> Result<Outcome> {
     let cache = environment.cache.backup.open()?;
+    create_with_cache(source, destination, cache, options, emit)
+}
+
+/// Creates a backup using an explicitly selected content resource, without choosing a runtime role.
+pub fn create_with_cache(
+    source: &Path,
+    destination: &Path,
+    cache: &ModsCacheDir,
+    options: CreateOptions,
+    mut emit: impl FnMut(Event) -> Result<()>,
+) -> Result<Outcome> {
     let source = tree::root(source)?;
     let destination = tree::Destination::inspect(destination, false)?;
     tree::disjoint(&source, &destination.path)?;

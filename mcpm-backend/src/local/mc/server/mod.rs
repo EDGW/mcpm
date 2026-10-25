@@ -16,6 +16,7 @@ use crate::local::{
 
 pub mod identify;
 mod launch;
+pub mod stash;
 
 pub use launch::{ServerLaunch, ServerOptionError};
 mod metadata;
@@ -71,12 +72,13 @@ impl MinecraftServer {
         }
         validate_start_script(&path, &metadata)?;
         let mods = mod_container(&path, &metadata, create_mods)?;
+        let runtime = server_runtime(&path);
         Ok(Self {
             path,
             name,
             metadata,
             mods,
-            runtime: RuntimeEnvironment::new(),
+            runtime,
         })
     }
 
@@ -140,16 +142,17 @@ impl MinecraftServer {
             path: manifest,
             source,
         })?;
+        let runtime = server_runtime(&path);
         Ok(Self {
             path,
             name,
             metadata,
             mods,
-            runtime: RuntimeEnvironment::new(),
+            runtime,
         })
     }
 
-    /// Default global resources until Server-specific settings are implemented.
+    /// Global resources except for the server-local stash content cache.
     /// Accessing the environment does not open any cache.
     pub fn runtime(&self) -> &RuntimeEnvironment {
         &self.runtime
@@ -193,6 +196,14 @@ impl MinecraftServer {
     pub fn mods(&self) -> Option<&ModContainer> {
         self.mods.as_ref()
     }
+}
+
+fn server_runtime(path: &Path) -> RuntimeEnvironment {
+    RuntimeEnvironment::new().with_stash_cache(
+        crate::local::cache::mods::ModsCacheSelection::Directory {
+            path: path.join(".mcpm/stash/blob"),
+        },
+    )
 }
 
 fn validate_start_script(
