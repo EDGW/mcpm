@@ -71,7 +71,7 @@
 
 查询类命令语义上应该支持多个输入，并且应该支持从 `stdin` 按行输入项目。
 
-比如说 `mcpm-tools cache mods info <KEYS>`，应该支持从 `<KEYS>` 和 `stdin` 接收多个参数。
+比如说 `mcpm-tools cache info <KEYS>`，应该支持从 `<KEYS>` 和 `stdin` 接收多个参数。
 
 #### 2.1.1. 主参数类型
 
@@ -107,7 +107,7 @@
 
 注意，有时候参数是一个**选择**而非列表，此时就不适用于这些规定。
 
-比如说在 `mcpm-tools mods source search --source` 里，`--source` 是一个选择，只能有一个值；但是在 `cache mods refresh <KEYS> ident --source --sources` 里，`source` 就是一个列表，适用于本节规定。
+比如说在 `mcpm-tools mods source search --source` 里，`--source` 是一个选择，只能有一个值；但是在 `cache refresh <KEYS> ident --source --sources` 里，`source` 就是一个列表，适用于本节规定。
 
 **标准示例：**
 
@@ -190,7 +190,7 @@
 
 `Raw` 模式一般仅仅输出本职数据。
 
-比如说 `mcpm-tools cache mods list`，这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，可以输出为这种形式：
+比如说 `mcpm-tools cache list`，这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，可以输出为这种形式：
 
 ```plaintext
 <blake3>\t<filename>\t<sha256>\tident,meta
@@ -204,7 +204,7 @@
 
 `Console` 模式可以列出附加数据，来避免用户执行更多命令。
 
-还是比如说 `mcpm-tools cache mods list`，虽然这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，但是建议这么输出：
+还是比如说 `mcpm-tools cache list`，虽然这个命令的本职数据就只包含 `cache` 的 `BLAKE3 HASH`、`FileName`、`Size`、`Sha256`、`Metadata Names` 等数据，但是建议这么输出：
 
 ```plaintext
 <BLAKE3>  available

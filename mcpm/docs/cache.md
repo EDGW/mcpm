@@ -1,6 +1,6 @@
 # Mod cache management
 
-`mcpm-tools cache mods` explicitly manages content and named metadata in `~/.mcpm/cache/mods`.
+`mcpm-tools cache` explicitly manages content and named metadata in `~/.mcpm/cache/mods`.
 
 - Each entry is identified by a complete 64-character lowercase hexadecimal BLAKE3. Identical content is stored once.
 - `meta` and `ident` are metadata names, containing Loader declarations and source matches respectively.
@@ -13,31 +13,31 @@
 ## Commands
 
 ```sh
-mcpm-tools cache mods init --directory /path/to/cache
-mcpm-tools cache mods import example.jar another.jar
-mcpm-tools cache mods import example.jar --mode hard-link
-mcpm-tools cache mods list
-mcpm-tools cache mods list --columns blake3,size,metadatas
-mcpm-tools cache mods list --details
-mcpm-tools cache mods info HASH1 HASH2 --columns blake3,status,metadatas
-mcpm-tools cache mods info --all
-printf '%s\n' HASH1 HASH2 | mcpm-tools cache mods info
-mcpm-tools cache mods refresh HASH1 HASH2 meta --loaders fabric,forge
-mcpm-tools cache mods refresh HASH1 ident --source modrinth --source curseforge
-mcpm-tools cache mods refresh --all meta
-mcpm-tools cache mods refresh --all meta --parallelism 4
-mcpm-tools cache mods refresh --all ident --details
-mcpm-tools cache mods refresh HASH1 meta --short
-printf '%s\n' HASH1 HASH2 | mcpm-tools cache mods refresh ident
-mcpm-tools cache mods verify HASH1 HASH2
-mcpm-tools cache mods verify --all
-mcpm-tools cache mods verify --all --parallelism 4
-mcpm-tools cache mods verify --all --details
-mcpm-tools cache mods verify --all --autoremove
-mcpm-tools cache mods export HASH1 restored.jar another-copy.jar
-mcpm-tools cache mods remove HASH1
-mcpm-tools cache mods remove --all
-mcpm-tools cache mods rebuild-index
+mcpm-tools cache init --directory /path/to/cache
+mcpm-tools cache import example.jar another.jar
+mcpm-tools cache import example.jar --mode hard-link
+mcpm-tools cache list
+mcpm-tools cache list --columns blake3,size,metadatas
+mcpm-tools cache list --details
+mcpm-tools cache info HASH1 HASH2 --columns blake3,status,metadatas
+mcpm-tools cache info --all
+printf '%s\n' HASH1 HASH2 | mcpm-tools cache info
+mcpm-tools cache refresh HASH1 HASH2 meta --loaders fabric,forge
+mcpm-tools cache refresh HASH1 ident --source modrinth --source curseforge
+mcpm-tools cache refresh --all meta
+mcpm-tools cache refresh --all meta --parallelism 4
+mcpm-tools cache refresh --all ident --details
+mcpm-tools cache refresh HASH1 meta --short
+printf '%s\n' HASH1 HASH2 | mcpm-tools cache refresh ident
+mcpm-tools cache verify HASH1 HASH2
+mcpm-tools cache verify --all
+mcpm-tools cache verify --all --parallelism 4
+mcpm-tools cache verify --all --details
+mcpm-tools cache verify --all --autoremove
+mcpm-tools cache export HASH1 restored.jar another-copy.jar
+mcpm-tools cache remove HASH1
+mcpm-tools cache remove --all
+mcpm-tools cache rebuild-index
 ```
 
 | Command | Behavior |
@@ -53,7 +53,7 @@ mcpm-tools cache mods rebuild-index
 | `remove [HASH]...` | Remove selected content and all owned metadata names; `--all` selects the complete inventory |
 | `rebuild-index` | Rebuild the optional imohash index from verified content |
 
-`--directory PATH` can appear before or after a mods subcommand. Explicit roots must already be initialized;
+`--directory PATH` can appear before or after a cache subcommand. Explicit roots must already be initialized;
 the default root initializes when absent/empty. Directory format is version 3. Nonempty unmarked roots,
 malformed manifests and incompatible versions are rejected. No automatic migration.
 

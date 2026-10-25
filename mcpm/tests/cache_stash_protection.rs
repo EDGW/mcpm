@@ -46,7 +46,7 @@ impl Fixture {
         let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
         command
             .current_dir(self.root.path())
-            .args(["--raw", "--log-level", "off", "cache", "mods"])
+            .args(["--raw", "--log-level", "off", "cache"])
             .stdin(Stdio::null());
         command
     }

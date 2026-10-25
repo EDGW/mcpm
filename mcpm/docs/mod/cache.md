@@ -55,7 +55,7 @@ A positional directory is not a file input; use `--directory PATH --all`.
 
 The default target is `~/.mcpm/cache/mods`, initialized when absent or empty.
 Explicit targets must already be valid; initialize them with
-`mcpm-tools cache mods init --directory PATH`. Version 1 caches are not migrated.
+`mcpm-tools cache init --directory PATH`. Version 1 caches are not migrated.
 
 Existing content is reused without replacing its identity or linking another
 source to it. Import mode applies when creating an object. Hard links share bytes
@@ -70,13 +70,13 @@ Selecting by ID/name can require a discovery scan before cached-byte
 identification; scan metadata is not directly persisted.
 
 ```sh
-mcpm-tools cache mods init --directory /path/to/cache
+mcpm-tools cache init --directory /path/to/cache
 mcpm-tools mods cache example.jar --cache-dir /path/to/cache --loader fabric
 mcpm-tools mods cache example.jar --mode hard-link
 mcpm-tools mods cache example.jar --force
 ```
 
-[cache mods import](../cache.md) remains a lower-level path-based import without
+[cache import](../cache.md) remains a lower-level path-based import without
 identification. `mods info/list` reuse existing metadata by default (`--no-cache` disables this); they do not
 store files or identification results.
 

@@ -48,7 +48,7 @@ printf '%s\n' example.jar another.jar | mcpm-tools mods cache --input file
 | `--parallelism COUNT` | 名称／ID 扫描和导入／识别阶段的最大并发文件数，默认 10 |
 
 默认目标为 `~/.mcpm/cache/mods`，不存在或为空时初始化。
-指定目录必须已经合法，可先运行 `mcpm-tools cache mods init --directory PATH`。不自动迁移 version 1 缓存。
+指定目录必须已经合法，可先运行 `mcpm-tools cache init --directory PATH`。不自动迁移 version 1 缓存。
 
 内容已经存在时直接复用，不替换缓存 identity，也不把另一个源文件连接到它。
 导入模式只用于新增对象。硬链接共享内容和权限，修改时应替换文件名，不可原地覆盖、
@@ -59,13 +59,13 @@ printf '%s\n' example.jar another.jar | mcpm-tools mods cache --input file
 ID／名称选择可能先进行目录识别；选择扫描得到的 metadata 不直接写入缓存。
 
 ```sh
-mcpm-tools cache mods init --directory /path/to/cache
+mcpm-tools cache init --directory /path/to/cache
 mcpm-tools mods cache example.jar --cache-dir /path/to/cache --loader fabric
 mcpm-tools mods cache example.jar --mode hard-link
 mcpm-tools mods cache example.jar --force
 ```
 
-[cache mods import](../cache.md) 保留按路径导入、不识别的底层语义。
+[cache import](../cache.md) 保留按路径导入、不识别的底层语义。
 `mods info/list` 默认只读取已有缓存，`--no-cache` 可关闭；不保存文件或识别结果。
 
 两类结果均依赖同一 缓存内容文件：Loader 使用 `meta`，来源匹配使用 `ident`，

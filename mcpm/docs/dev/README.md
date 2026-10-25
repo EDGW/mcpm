@@ -80,7 +80,7 @@ Arguments can be complex. Each command usually has a primary argument.
 ### 2.1. Primary arguments
 
 Query commands should generally accept multiple inputs and one input per line
-from `stdin`. For example, `mcpm-tools cache mods info <KEYS>` should accept multiple
+from `stdin`. For example, `mcpm-tools cache info <KEYS>` should accept multiple
 keys from both `<KEYS>` and `stdin`.
 
 #### 2.1.1. Primary argument types
@@ -123,7 +123,7 @@ such as `--<singular> A --<singular> B`.
 
 Some arguments are a **single choice**, not a list, and do not follow this rule.
 For example, `--source` in `mcpm-tools mods source search` selects one source. In
-`cache mods refresh <KEYS> ident`, `--source` and `--sources` form a list and
+`cache refresh <KEYS> ident`, `--source` and `--sources` form a list and
 follow this section.
 
 **Standard example:**
@@ -207,7 +207,7 @@ as a simple table. An AI must discuss that choice with the developer first.
 Raw omits headers by default. `--headers` enables them only in Raw. Raw should
 usually emit only the command's primary data.
 
-For example, the primary data of `mcpm-tools cache mods list` includes a cache BLAKE3
+For example, the primary data of `mcpm-tools cache list` includes a cache BLAKE3
 hash, filename, size, SHA-256, and metadata names. A row could look like:
 
 ```plaintext
@@ -219,7 +219,7 @@ hash, filename, size, SHA-256, and metadata names. A row could look like:
 Console uses the Primary and Secondary colors to make output easy to read.
 It does not need TSV and may show extra data so users need fewer commands.
 
-For example, `mcpm-tools cache mods list` can show metadata details even though its
+For example, `mcpm-tools cache list` can show metadata details even though its
 primary data consists of BLAKE3, filename, size, SHA-256, and metadata names:
 
 ```plaintext
