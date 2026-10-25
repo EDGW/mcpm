@@ -37,7 +37,7 @@ pub(super) fn run(
     });
     let cache = selection.open()?;
     let entries = cache.scan()?;
-    if !super::confirm::reading(entries.len())? {
+    if !crate::commands::confirm::reading(entries.len(), "cache entries")? {
         return Ok(());
     }
     if terminal::stdout_is_tty() && columns.len() == 1 {

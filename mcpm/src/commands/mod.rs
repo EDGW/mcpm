@@ -3,6 +3,7 @@
 pub(crate) mod cache;
 mod cache_support;
 pub(crate) mod client;
+mod confirm;
 pub(crate) mod customize;
 pub(crate) mod debug;
 mod execution;

@@ -11,7 +11,6 @@ use mcpm_backend::local::cache::mods::ModsCacheSelection;
 
 mod batch;
 mod columns;
-mod confirm;
 mod entry;
 mod export;
 mod import;

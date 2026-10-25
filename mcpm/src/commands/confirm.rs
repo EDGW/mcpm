@@ -1,10 +1,10 @@
-//! Console confirmation before displaying an unusually large cache inventory.
+//! Console confirmation before displaying an unusually large command inventory.
 
 use anyhow::{Context, Result};
 
 use crate::{display::style::OutputStyle, terminal};
 
-pub(super) fn reading(count: usize) -> Result<bool> {
+pub(in crate::commands) fn reading(count: usize, noun: &str) -> Result<bool> {
     if count <= 80 || !terminal::stdout_is_tty() {
         return Ok(true);
     }
@@ -15,11 +15,11 @@ pub(super) fn reading(count: usize) -> Result<bool> {
         term.write_str(&format!(
             "{} [Y/n] ",
             style.warning(format!(
-                "There are {count} cache entries. Do you want to read all of them?"
+                "There are {count} {noun}. Do you want to read all of them?"
             ))
         ))
-        .context("failed to write cache list confirmation")?;
-        let answer = read_answer(&term).context("failed to read cache list confirmation")?;
+        .context("failed to write list confirmation")?;
+        let answer = read_answer(&term).context("failed to read list confirmation")?;
         match answer.trim().to_ascii_lowercase().as_str() {
             "" | "y" | "yes" => return Ok(true),
             "n" | "no" => return Ok(false),

@@ -142,7 +142,10 @@ pub(super) fn comparison(
     Ok(())
 }
 
-fn file_difference(out: &mut ConsoleWriter<'_>, difference: &FileDifference) -> Result<()> {
+pub(crate) fn file_difference(
+    out: &mut ConsoleWriter<'_>,
+    difference: &FileDifference,
+) -> Result<()> {
     let style = OutputStyle::new();
     match difference {
         FileDifference::Missing { expected } => {

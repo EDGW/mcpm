@@ -19,15 +19,18 @@ use super::{
     size::{binary, size},
     style::{OutputStyle, text, tsv},
 };
-use crate::{progress::Progress, terminal};
+use crate::terminal;
 
 mod checksum;
+pub(crate) use checksum::file_difference;
+mod progress;
+pub(crate) use progress::FileProgress;
 
 pub(crate) struct Presentation<W: Write> {
     output: W,
     details: bool,
     headers: bool,
-    progress: Option<(Stage, Progress)>,
+    progress: FileProgress,
     printed_result: bool,
 }
 
@@ -37,38 +40,16 @@ impl<W: Write> Presentation<W> {
             output,
             details,
             headers,
-            progress: None,
+            progress: FileProgress::default(),
             printed_result: false,
         }
     }
 
     pub(crate) fn event(&mut self, event: Event) -> Result<()> {
+        self.progress.event(event);
         match event {
-            Event::Progress {
-                stage,
-                completed,
-                total,
-            } => {
-                if self.progress.as_ref().map(|(current, _)| *current) != Some(stage) {
-                    self.progress = None;
-                    if terminal::stderr_is_tty() {
-                        let label = match stage {
-                            Stage::Checksum => "Computing file checksums",
-                            Stage::Cache => "Caching source files",
-                            Stage::Verify => "Verifying file contents",
-                            Stage::Transfer => "Transferring files",
-                        };
-                        let progress = Progress::new(label, label);
-                        progress.set_total(total);
-                        self.progress = Some((stage, progress));
-                    }
-                }
-                if let Some((_, progress)) = &self.progress {
-                    progress.set_position(completed);
-                }
-            }
+            Event::Progress { .. } => {}
             Event::StageDone(stage) => {
-                self.progress = None;
                 if terminal::stdout_is_tty() {
                     let message = match stage {
                         Stage::Checksum => "All file checksums were computed successfully.",
@@ -88,7 +69,7 @@ impl<W: Write> Presentation<W> {
     }
 
     pub(crate) fn finish(mut self, outcome: &Outcome) -> Result<()> {
-        self.progress = None;
+        self.progress.clear();
         summary(&mut self.output, outcome, self.headers)?;
         if terminal::stdout_is_tty() && self.details {
             let mut console = ConsoleWriter::new(&mut self.output);
@@ -106,7 +87,7 @@ impl<W: Write> Presentation<W> {
         path: &Path,
         verified: Option<&VerifiedBackup>,
     ) -> Result<()> {
-        self.progress = None;
+        self.progress.clear();
         verification_result(
             &mut self.output,
             path,
@@ -124,7 +105,7 @@ impl<W: Write> Presentation<W> {
         path: &Path,
         computed: Option<&DirectoryChecksum>,
     ) -> Result<()> {
-        self.progress = None;
+        self.progress.clear();
         checksum::summary(
             &mut self.output,
             path,
@@ -144,7 +125,7 @@ impl<W: Write> Presentation<W> {
         computed: Option<&DirectoryChecksum>,
         comparison: Option<&Comparison>,
     ) -> Result<()> {
-        self.progress = None;
+        self.progress.clear();
         checksum::comparison(
             &mut self.output,
             target,
