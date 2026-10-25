@@ -1,10 +1,10 @@
 # Remote 会话与分发
 
-`mcpm remote` 使用一个进程承载整个会话。调用方可通过一个非 PTY 的 SSH 连接持续发送、并行执行多条请求。Remote 只负责会话、GUID 路由、并发限制、取消和全局错误；每个命令自己定义、编码和解码业务 contents，不依赖命令行参数解析。
+`mcpm-tools remote` 使用一个进程承载整个会话。调用方可通过一个非 PTY 的 SSH 连接持续发送、并行执行多条请求。Remote 只负责会话、GUID 路由、并发限制、取消和全局错误；每个命令自己定义、编码和解码业务 contents，不依赖命令行参数解析。
 
 ```sh
-ssh -T user@host mcpm remote
-ssh -T user@windows C:/mcpm.exe remote
+ssh -T user@host mcpm-tools remote
+ssh -T user@windows C:/mcpm-tools.exe remote
 ```
 
 双向使用 UTF-8 NDJSON，每条消息是一个单行 JSON 加换行，写完立即刷新。字符串内换行由 JSON 转义。stdout 仅包含协议，正常运行时日志通过独立日志会话传输；stderr 仅保留启动或连接失败诊断，无颜色或终端界面。
@@ -48,7 +48,7 @@ ssh -T user@windows C:/mcpm.exe remote
 
 可以连续提交请求，无需等待前一条结束。同一请求内的回复保持顺序，不同请求的回复允许交错；调用方按 request GUID 路由。远端持续读 stdin，独立执行命令，由一个写入器向 stdout 写完整消息。本地同样由一个读取器按 GUID 分发给各请求句柄。
 
-`mcpm remote --max-concurrency 8` 设置并发上限，默认 8。超出上限的新调用返回 `busy` 全局错误，稍后可以用新的 request GUID 重试。
+`mcpm-tools remote --max-concurrency 8` 设置并发上限，默认 8。超出上限的新调用返回 `busy` 全局错误，稍后可以用新的 request GUID 重试。
 
 关闭 stdin 表示不再提交请求。服务端先完成所有已接收任务，再发送全零 GUID 的 closed 回复并成功退出，即使此前有调用失败。丢弃本地 Session 会关闭并回收子进程。 Session 关闭时以 info 日志报告 `stdin_bytes`（本地发送）、`stdout_bytes`（本地接收）和 `total_bytes`。统计包含握手、命令、日志、控制帧和换行的实际 UTF-8 字节，不含 SSH 协议开销或 stderr；异常退出也会报告一次。
 
@@ -222,7 +222,7 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 元数据要求非空的 Minecraft/Loader 版本及显式 `loader`（原版为 `null`）。可选 `start` 为上面的完整启动快照；脚本、目录和可执行文件不能为空，可执行文件及参数不能含 NUL。初始化不重读脚本，也不要求引用文件仍存在。为兼容既有客户端，wire v4 仍输出 metadata version 1；Local 磁盘持久化写为 version 2。初始化依次回传 `stage {phase: "validating"}`、`stage {phase: "writing"}`、`initialized {server}`，最后一个使用 `server.info` 结构。成功由通用 `finished` 结束，失败以 `error` 结束；客户端校验阶段顺序和唯一结果。需要候选选择时，识别与初始化共用同一 SSH 会话。
 
-所有 server 端点（包括识别）都要求 Local 工作目录类型。Remote 引用仅由前端解析，`mcpm remote` 不跟随引用。初始化可以创建 Local 登记，但即使带 `force` 也不能替换 Remote 工作目录。识别继续作为独立的脚本读取操作，不跟随工作目录引用。
+所有 server 端点（包括识别）都要求 Local 工作目录类型。Remote 引用仅由前端解析，`mcpm-tools remote` 不跟随引用。初始化可以创建 Local 登记，但即使带 `force` 也不能替换 Remote 工作目录。识别继续作为独立的脚本读取操作，不跟随工作目录引用。
 
 元数据文件分别原子写入，不构成双文件事务。mcpm 登记写入持有工作目录锁，并在写入前重新检查类型。新 Remote 登记先写 `server.json`，再发布 `mcpm.json`；发布类型失败则删除刚创建的服务端文件。进程突然终止仍可能留下无法加载的未完成登记。Local 初始化可能先保存 `server.json` 再发布 Local 标记；标记失败会明确报告部分成功，缺失标记仍按 Local 处理。原子写入完成后，取消或连接中断不回滚配置；结果不确定时先通过 `server info` 检查。
 
@@ -232,11 +232,11 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；支持 `mod list/info/deps/source identify`、`server init/info` 和 `server mods list/info/cache/deps/source search/files/identify`。列表和来源浏览的 TUI 在本地运行，检查命令支持 Console/Raw。`server mods check` 和 `dep-graph` 明确拒绝 SSH。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
 
-SSH 默认 shell 直接启动 `mcpm remote`。Windows 连接要求默认 shell 为 cmd；可执行文件路径自动加双引号，不能包含双引号、换行、NUL、`%` 或 `!`。POSIX 可执行文件使用 shell 引号转义。业务参数通过 JSON 传输，不依赖 shell 语法。
+SSH 默认 shell 直接启动 `mcpm-tools remote`。Windows 连接要求默认 shell 为 cmd；可执行文件路径自动加双引号，不能包含双引号、换行、NUL、`%` 或 `!`。POSIX 可执行文件使用 shell 引号转义。业务参数通过 JSON 传输，不依赖 shell 语法。
 
 ```sh
-mcpm --ssh 'ssh -i key user@host' mod list mods/ --no-ui
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw mod list 'C:\mods'
+mcpm-tools --ssh 'ssh -i key user@host' mod list mods/ --no-ui
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw mod list 'C:\mods'
 ```
 
 [命令参考](README.md) · [列表命令](mod/list.md) · [English](../docs/remote.md)

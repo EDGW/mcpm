@@ -2,6 +2,27 @@
 name = "mcpm"
 version = "0.1.0-dev.26w43b"
 edition = "2024"
+default-run = "mcpm"
+
+[[bin]]
+name = "mcpm"
+path = "src/bin/mcpm.rs"
+
+[[bin]]
+name = "mcpm-server"
+path = "src/bin/mcpm-server.rs"
+
+[[bin]]
+name = "mcpmc"
+path = "src/bin/mcpmc.rs"
+
+[[bin]]
+name = "mcpm-client"
+path = "src/bin/mcpm-client.rs"
+
+[[bin]]
+name = "mcpm-tools"
+path = "src/bin/mcpm-tools.rs"
 
 [dependencies]
 anyhow = "1"

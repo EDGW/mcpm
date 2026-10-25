@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use serde_json::Value;
 
 fn run(root: &Path, args: Value, count: usize, success: bool) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .current_dir(root)
         .arg("remote")
         .stdin(Stdio::piped())

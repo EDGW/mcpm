@@ -37,7 +37,9 @@ pub(super) fn run(args: LaunchArgs) -> Result<()> {
         client_output::write_inferred_root(
             &mut io::stderr().lock(),
             directory.path(),
-            "mcpm client launch --directory .",
+            &crate::program::roots()
+                .client
+                .command("launch --directory ."),
         )
         .context("failed to write Minecraft root hint")?;
     }

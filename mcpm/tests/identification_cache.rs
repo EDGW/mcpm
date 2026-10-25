@@ -51,7 +51,7 @@ fn seed(cache: &ModsCacheDir, source: &Path) -> Blake3Hash {
 }
 fn run(root: &Path, cache: &Path, args: &[&str]) -> Output {
     fs::create_dir_all(root.join("home")).unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
     command
         .env("HOME", root.join("home"))
         .args(["--raw", "--log-level", "off"])
@@ -192,7 +192,7 @@ fn ssh_server_cache_enriches_on_the_client_and_uses_the_file_hosts_snapshots() {
             "--ssh",
             &connection,
             "--ssh-mcpm",
-            env!("CARGO_BIN_EXE_mcpm"),
+            env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "mods",
             "cache",
@@ -213,7 +213,7 @@ fn ssh_server_cache_enriches_on_the_client_and_uses_the_file_hosts_snapshots() {
             "--ssh",
             &connection,
             "--ssh-mcpm",
-            env!("CARGO_BIN_EXE_mcpm"),
+            env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "mods",
             "source",
@@ -254,7 +254,7 @@ fn remote_publication_acknowledges_verified_data_and_rejects_incorrect_content()
         role: MatchedFileRole::Additional,
     };
     let request = |file: &FileMatch| {
-        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
             .args(["--log-level", "off", "remote"])
             .current_dir(root.path())
             .stdin(Stdio::piped())

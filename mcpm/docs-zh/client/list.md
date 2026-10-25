@@ -1,14 +1,14 @@
-# mcpm client list
+# mcpmc list
 
 列出本地 Minecraft 客户端版本和声明的 ModLoader 版本。
 
 ```sh
-mcpm client list [PATH]
-mcpm client list "$HOME/Downloads/.minecraft"
-mcpm --raw client list .minecraft > clients.tsv
+mcpmc list [PATH]
+mcpmc list "$HOME/Downloads/.minecraft"
+mcpmc --raw list .minecraft > clients.tsv
 ```
 
-`PATH` 是包含 `versions/` 的 Minecraft 根目录。未传参数时，选取当前路径中最后一个目录名恰好为 `.minecraft` 的祖先目录；不存在时使用当前目录。自动选择根目录时，会在标准错误输出提示所选路径，并提醒使用 `mcpm client list .` 强制列出当前目录。显式传入路径时不自动选择；`--raw` 隐藏该提示。按目录名排序加载每个版本子目录。缺少版本 JSON、JSON 损坏、继承父版本缺失或继承循环均显示为 `broken`，并保留完整错误原因，不影响其他版本列出。命令不修改文件。
+`PATH` 是包含 `versions/` 的 Minecraft 根目录。未传参数时，选取当前路径中最后一个目录名恰好为 `.minecraft` 的祖先目录；不存在时使用当前目录。自动选择根目录时，会在标准错误输出提示所选路径，并提醒使用 `mcpmc list .` 强制列出当前目录。显式传入路径时不自动选择；`--raw` 隐藏该提示。按目录名排序加载每个版本子目录。缺少版本 JSON、JSON 损坏、继承父版本缺失或继承循环均显示为 `broken`，并保留完整错误原因，不影响其他版本列出。命令不修改文件。
 
 `normal` 表示版本元数据成功加载。支持按 HMCL 的库、启动参数和 patches 规则识别 Fabric、Forge、NeoForge。未识别到支持的 Loader 时，根据 mainClass 判断显示 `vanilla` 或 `unrecognized`；这些标签不代表已验证版本能够启动或依赖库已下载。
 

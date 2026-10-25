@@ -1,16 +1,16 @@
-# mcpm client check
+# mcpmc check
 
 Check declared client client JARs, libraries, native archives, assets, and logging configuration files without changing files.
 
 ```sh
-mcpm client check [VERSION ...] [--directory PATH] [--all]
-mcpm client check 1.18.1 "My Modpack" --directory "$HOME/Downloads/.minecraft"
-mcpm client check --directory "$HOME/Downloads/.minecraft"
-mcpm client check --all --directory "$HOME/Downloads/.minecraft"
-mcpm --raw client check --all --libraries hash --assets skip --asset-index skip --version-jar skip --logging skip > checks.tsv
+mcpmc check [VERSION ...] [--directory PATH] [--all]
+mcpmc check 1.18.1 "My Modpack" --directory "$HOME/Downloads/.minecraft"
+mcpmc check --directory "$HOME/Downloads/.minecraft"
+mcpmc check --all --directory "$HOME/Downloads/.minecraft"
+mcpmc --raw check --all --libraries hash --assets skip --asset-index skip --version-jar skip --logging skip > checks.tsv
 ```
 
-Version IDs are directory names shown by `client list`. Multiple IDs are processed
+Version IDs are directory names shown by `mcpmc list`. Multiple IDs are processed
 in argument order, with duplicates removed. `--all` checks all discovered versions,
 including broken ones, and conflicts with explicit IDs.
 

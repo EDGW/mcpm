@@ -64,7 +64,7 @@ fn init_identifies_loaders_and_retains_flattened_command() {
         } else {
             "run.sh"
         };
-        let output = run(temp.path(), &["server", "init", "--start-script", script]);
+        let output = run(temp.path(), &["init", "--start-script", script]);
         assert!(
             output.status.success(),
             "{case}: {}",
@@ -192,7 +192,7 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
     ] {
         let temp = TempDir::new().unwrap();
         copy(&fixture(case), temp.path());
-        let output = run(temp.path(), &["server", "init", "--start-script", script]);
+        let output = run(temp.path(), &["init", "--start-script", script]);
         assert_eq!(output.status.code(), Some(1), "{case}");
         assert!(output.stdout.is_empty(), "{case}");
         let error = String::from_utf8(output.stderr).unwrap();
@@ -209,10 +209,7 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
         fs::create_dir(&metadata_dir).unwrap();
         let old = b"existing configuration, even invalid JSON, must survive failure\n";
         fs::write(metadata_dir.join("server.json"), old).unwrap();
-        let output = run(
-            temp.path(),
-            &["server", "init", "--force", "--start-script", script],
-        );
+        let output = run(temp.path(), &["init", "--force", "--start-script", script]);
         assert!(!output.status.success(), "{case}");
         assert_eq!(
             fs::read(metadata_dir.join("server.json")).unwrap(),
@@ -229,8 +226,8 @@ fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identif
     let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
     assert_eq!(candidates.len(), 2);
     for args in [
-        vec!["server", "init", "--start-script", "run.sh"],
-        vec!["--raw", "server", "init", "--start-script", "run.sh"],
+        vec!["init", "--start-script", "run.sh"],
+        vec!["--raw", "init", "--start-script", "run.sh"],
     ] {
         let output = run(temp.path(), &args);
         assert!(!output.status.success());
@@ -239,10 +236,7 @@ fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identif
         );
         assert!(!temp.path().join(".mcpm").exists());
     }
-    let output = run(
-        temp.path(),
-        &["server", "init", "--minecraft-version", "1.21.1"],
-    );
+    let output = run(temp.path(), &["init", "--minecraft-version", "1.21.1"]);
     assert!(
         output.status.success(),
         "{}",

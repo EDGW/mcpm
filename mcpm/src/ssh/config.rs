@@ -13,6 +13,12 @@ pub(crate) struct Connection {
 }
 
 impl Connection {
+    pub(crate) fn executable(&self) -> &str {
+        self.ssh_mcpm
+            .as_deref()
+            .unwrap_or(crate::program::Program::McpmTools.name())
+    }
+
     #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
     pub(crate) fn command(&self) -> Result<Command> {
         Ok(self.prepare()?.0)
@@ -23,7 +29,7 @@ impl Connection {
     }
 
     pub(super) fn prepare(&self) -> Result<(Command, Option<String>)> {
-        let executable = self.ssh_mcpm.as_deref().unwrap_or("mcpm");
+        let executable = self.executable();
         ensure!(
             !executable.trim().is_empty(),
             "remote mcpm executable must not be empty"

@@ -1,6 +1,6 @@
 # Remote sessions and dispatch
 
-One `mcpm remote` process serves the entire caller-owned session over non-PTY
+One `mcpm-tools remote` process serves the entire caller-owned session over non-PTY
 SSH stdin/stdout. Requests can run concurrently. Remote handles session routing,
 cancellation, concurrency and global errors. Each command owns its contents codec;
 remote never parses command-line arguments or business payloads.
@@ -255,7 +255,7 @@ Malformed requests and server metadata loading failures use the terminal global 
 
 Metadata requires nonempty Minecraft/loader versions and explicit `loader` (`null` for vanilla). Optional `start` is the complete startup snapshot shown above; script/directory/executable must be nonempty, and executable/arguments cannot contain NUL. Initialization never rereads the script or requires its referenced files to exist. Wire v4 continues to emit metadata version 1 for compatibility; Local persistence writes disk version 2. Initialization emits `stage` with `validating`, then `writing`, then `initialized {server}` using the `server.info` schema. Successful operations finish with the common `finished` status; failures end with `error`. Clients validate phase order and exactly one result. Recognition and initialization share one SSH session when candidate selection is needed.
 
-All server endpoints, including recognition, require a Local workspace type. Remote references are resolved only by the frontend, never by `mcpm remote`. Initialization can create a new Local registration but cannot replace a Remote workspace, even with `force`. Recognition remains an independent script-only operation and does not follow workspace references.
+All server endpoints, including recognition, require a Local workspace type. Remote references are resolved only by the frontend, never by `mcpm-tools remote`. Initialization can create a new Local registration but cannot replace a Remote workspace, even with `force`. Recognition remains an independent script-only operation and does not follow workspace references.
 
 Metadata files are individually atomic, not a two-file transaction. mcpm registration writers hold a workspace lock and recheck its type before writing. A new Remote registration publishes `server.json` before `mcpm.json`; if publishing the type fails, it removes its new server file. An abrupt process termination may still leave an incomplete registration, which fails to load. Local initialization can persist `server.json` before publishing the Local marker; a marker failure reports that partial success, and a missing marker still defaults to Local. A completed atomic write is not rolled back after cancellation or connection loss; inspect `server info` before retrying an uncertain result.
 
@@ -271,16 +271,16 @@ interprets business fields. Handlers use checkpoint for cancellation.
 
 SSH lives in shared `src/ssh/`. `--ssh` and `--ssh-mcpm` are top-level global options,
 accepted before/after subcommands. Supported commands are mod list/info/deps/source identify, server init/info, and server mods list/info/cache/deps/source search/files/identify. List and source browsing keep their TUI local; inspection supports Console/Raw. Server mods check and dep-graph reject SSH. ssh-mcpm requires ssh and defaults
-to mcpm on the remote PATH. There is no legacy mod list --remote entry point.
+to mcpm-tools on the remote PATH. There is no legacy mod list --remote entry point.
 
-The SSH server's default shell directly starts `mcpm remote`. Windows connections
+The SSH server's default shell directly starts `mcpm-tools remote`. Windows connections
 require cmd as the default shell; executable paths are double-quoted and must not
 contain double quotes, line breaks, NUL, `%` or `!`. POSIX executables use shell
 quoting. Business arguments are sent as JSON, independently of shell syntax.
 
 ```sh
-mcpm --ssh 'ssh -i key user@host' mod list mods/ --no-ui
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw mod list 'C:\mods'
+mcpm-tools --ssh 'ssh -i key user@host' mod list mods/ --no-ui
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw mod list 'C:\mods'
 ```
 
 [Command reference](README.md) · [简体中文](../docs-zh/remote.md)

@@ -1,25 +1,25 @@
-## `mcpm server init`
+## `mcpm init`
 
 Register an existing Local Server, or create a local Remote workspace that points to an existing remote Local Server. This command neither installs server software nor starts Minecraft.
 
 ```sh
 # Recognize and register a server on this machine
-mcpm server init ./server
-mcpm server init ./server --start-script run.bat
+mcpm init ./server
+mcpm init ./server --start-script run.bat
 
 # Register directly using complete metadata
-mcpm server init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
-mcpm server init ./server --minecraft-version 1.21.1 --loader vanilla
+mcpm init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
+mcpm init ./server --minecraft-version 1.21.1 --loader vanilla
 
 # Initialize a Local Server on the SSH host; the positional path is remote
-mcpm --ssh 'ssh user@host' server init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
+mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
 
 # Create a Remote workspace here; the positional path is local, --remote is remote
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' server init ./workspace --remote 'D:\EDGW-26Summer'
+mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' init ./workspace --remote 'D:\EDGW-26Summer'
 
 # Subsequent commands use the saved connection automatically
-mcpm server info ./workspace
-mcpm server mods list --server ./workspace
+mcpm info ./workspace
+mcpm mods list --server ./workspace
 ```
 
 ## Arguments
@@ -63,8 +63,8 @@ Registration saves the selected startup snapshot and prints the same information
 These commands share the same global SSH options but perform different operations:
 
 ```text
-mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <REMOTE_PATH>
-mcpm --ssh COMMAND [--ssh-mcpm EXE] server init <PATH> --remote <REMOTE_PATH>
+mcpm --ssh COMMAND [--ssh-mcpm EXE] init <REMOTE_PATH>
+mcpm --ssh COMMAND [--ssh-mcpm EXE] init <PATH> --remote <REMOTE_PATH>
 ```
 
 | Invocation | Positional path | `--remote` value | Registration destination |
@@ -85,8 +85,8 @@ With `--remote`, mcpm validates the existing remote Local Server and saves its c
 }
 ```
 
-Omitted or null `ssh_mcpm` uses `mcpm` from the remote PATH. Relative SSH option paths, such as `-i keys/key`, resolve from the local workspace. The remote directory retains its remote-platform interpretation.
+Omitted or null `ssh_mcpm` uses `mcpm-tools` from the remote PATH. Relative SSH option paths, such as `-i keys/key`, resolve from the local workspace. The remote directory retains its remote-platform interpretation.
 
 Later `server init/info` and supported `server mods list/info/deps/source` commands use the saved connection when no global SSH options are supplied. Thus `server init ./workspace --force ...` reinitializes the remote Local Server. To replace the connection saved locally, use the complete `--ssh ... server init ./workspace --remote ... --force` invocation again. Explicit `--ssh` takes precedence and makes the positional path remote; `--ssh-mcpm` alone remains invalid.
 
-`mcpm remote` only opens Local Servers and rejects Remote workspaces, preventing chained Remote references. `server mods check/dep-graph` do not yet support Remote workspaces. Invalid configuration or connection failure reports an error without falling back to local execution.
+`mcpm-tools remote` only opens Local Servers and rejects Remote workspaces, preventing chained Remote references. `server mods check/dep-graph` do not yet support Remote workspaces. Invalid configuration or connection failure reports an error without falling back to local execution.

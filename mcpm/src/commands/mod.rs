@@ -14,12 +14,43 @@ mod supports;
 
 use anyhow::Result;
 
-use crate::cli::Command;
+use clap::Subcommand;
+
+use self::{client::ClientArgs, debug::DebugArgs, mods::ModArgs, server::ServerArgs};
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum Command {
+    /// Manage explicitly stored cache objects (Console, Raw).
+    Cache(crate::commands::cache::CacheArgs),
+    /// Serve concurrent commands over one persistent stdin/stdout JSON session (Raw).
+    Remote(RemoteArgs),
+    /// Customize terminal themes and loader colors (TUI, Console, Raw).
+    Customize(crate::commands::customize::CustomizeArgs),
+    /// Inspect mcpm's terminal presentation and diagnostics.
+    Debug(DebugArgs),
+    /// Inspect and launch local Minecraft clients.
+    Client(ClientArgs),
+    /// Inspect local Minecraft servers.
+    Server(ServerArgs),
+    /// Inspect local mod files and search remote sources.
+    #[command(name = "mod")]
+    Mod(ModArgs),
+}
+
+/// Process startup options are CLI concerns; request arguments use command-owned schemas.
+#[derive(clap::Args, Debug)]
+pub(crate) struct RemoteArgs {
+    /// Maximum concurrent remote commands; excess requests return busy.
+    #[arg(long, default_value = "8")]
+    pub(crate) max_concurrency: std::num::NonZeroUsize,
+}
 
 pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<()> {
     if ssh.is_requested() && !matches!(command, Command::Mod(_) | Command::Server(_)) {
         anyhow::bail!(
-            "--ssh and --ssh-mcpm are currently supported only by mcpm mod list, mod info, mod deps, mod source identify, server init/info and server mods list/info/deps/source"
+            "--ssh and --ssh-mcpm are currently supported only by {} mod list/info/deps/source identify and {} init/info/mods list/info/cache/deps/source",
+            crate::program::roots().tools,
+            crate::program::roots().server
         );
     }
     match command {

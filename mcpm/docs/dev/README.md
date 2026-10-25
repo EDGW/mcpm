@@ -1,30 +1,37 @@
 # Development principles
 
+## Executable entry points
+
+- `src/bin/` contains five thin entry points: `mcpm`, `mcpm-server`, `mcpmc`, `mcpm-client`, and `mcpm-tools`.
+- `program.rs` owns executable names and the immutable server/client/tools command roots. Use these roots for command hints and examples.
+- `cli/` composes common options with each family’s existing argument schema. Client entry points omit SSH and remote-log options.
+- `app.rs` owns shared process initialization and dispatch. The binary passes its identity explicitly; renaming a file does not change its command family.
+- SSH starts `mcpm-tools remote` by default. Remote executable overrides belong to connection settings, independently of local command roots.
+
 ## 1. Commands
 
 Commands are classified by reuse as **single entry point commands** or **shared commands**.
 
 ### 1.1. Single entry point commands
 
-A single entry point command is called from only one command path. For example,
-`mcpm server init` exists only under `server`, so its implementation and entry
-point belong in `src/commands/server/init.rs`. The source path should reflect the
-command path.
+A command owned by one command family keeps its implementation and CLI schema in that family.
+For example, `mcpm init`, `mcpm-server init`, and `mcpm-tools server init` all reuse
+`src/commands/server/init/mod.rs`. Executable roots do not duplicate command definitions.
 
 If the command also supports Remote execution, place its Remote entry point and
 definition next to the command entry point.
 
 ### 1.2. Shared commands
 
-A shared command has multiple entry points. For example, `mcpm mod list` can be
-called directly or through `mcpm server mods list`, with some differences in
-behavior. The `mod` command family corresponds to both `mcpm mod` and
-`mcpm server mods`; its shared implementation belongs in
+A shared command has multiple entry points. For example, `mcpm-tools mod list` can be
+called directly or through `mcpm mods list`, with some differences in
+behavior. The `mod` command family corresponds to both `mcpm-tools mod` and
+`mcpm mods`; its shared implementation belongs in
 `src/commands/supports/mod/`, with internal paths that reflect the command path.
 Place its Remote entry point alongside the shared implementation.
 
 The Remote interface differs from the CLI interface. Remote generally exposes
-the underlying operation: both `mcpm mod list` and `mcpm server mods list` use
+the underlying operation: both `mcpm-tools mod list` and `mcpm mods list` use
 one `mod.list` Remote command, passing different arguments to it.
 
 Therefore, the Remote entry point belongs at the common `supports` entry point,
@@ -38,12 +45,12 @@ Arguments can be complex. Each command usually has a primary argument.
 ### 2.1. Primary arguments
 
 Query commands should generally accept multiple inputs and one input per line
-from `stdin`. For example, `mcpm cache mods info <KEYS>` should accept multiple
+from `stdin`. For example, `mcpm-tools cache mods info <KEYS>` should accept multiple
 keys from both `<KEYS>` and `stdin`.
 
 #### 2.1.1. Primary argument types
 
-When a key can have several types, as with `mcpm mod info` accepting a mod ID,
+When a key can have several types, as with `mcpm-tools mod info` accepting a mod ID,
 filename, or name:
 
 - Use `--input <type>` to interpret `stdin`.
@@ -60,7 +67,7 @@ filename, or name:
 **Example with automatic type inference:**
 
 ```plaintext
-> mcpm mod info --help
+> mcpm-tools mod info --help
 ...
       --file <FILE>          Inspect a file without falling back to modid or name; repeat to select more
       --modid <MODID>        Match an exact modid; repeat to select more
@@ -80,7 +87,7 @@ Represent a list with both `--<plural> A,B,C` and repeated singular options,
 such as `--<singular> A --<singular> B`.
 
 Some arguments are a **single choice**, not a list, and do not follow this rule.
-For example, `--source` in `mcpm mod source search` selects one source. In
+For example, `--source` in `mcpm-tools mod source search` selects one source. In
 `cache mods refresh <KEYS> ident`, `--source` and `--sources` form a list and
 follow this section.
 
@@ -165,7 +172,7 @@ as a simple table. An AI must discuss that choice with the developer first.
 Raw omits headers by default. `--headers` enables them only in Raw. Raw should
 usually emit only the command's primary data.
 
-For example, the primary data of `mcpm cache mods list` includes a cache BLAKE3
+For example, the primary data of `mcpm-tools cache mods list` includes a cache BLAKE3
 hash, filename, size, SHA-256, and metadata names. A row could look like:
 
 ```plaintext
@@ -177,7 +184,7 @@ hash, filename, size, SHA-256, and metadata names. A row could look like:
 Console uses the Primary and Secondary colors to make output easy to read.
 It does not need TSV and may show extra data so users need fewer commands.
 
-For example, `mcpm cache mods list` can show metadata details even though its
+For example, `mcpm-tools cache mods list` can show metadata details even though its
 primary data consists of BLAKE3, filename, size, SHA-256, and metadata names:
 
 ```plaintext

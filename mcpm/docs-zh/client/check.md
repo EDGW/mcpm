@@ -1,16 +1,16 @@
-# mcpm client check
+# mcpmc check
 
 检查版本声明的游戏 JAR、库、natives、资源和日志配置文件完整性，不修改文件。
 
 ```sh
-mcpm client check [VERSION ...] [--directory PATH] [--all]
-mcpm client check 1.18.1 "My Modpack" --directory "$HOME/Downloads/.minecraft"
-mcpm client check --directory "$HOME/Downloads/.minecraft"
-mcpm client check --all --directory "$HOME/Downloads/.minecraft"
-mcpm --raw client check --all --libraries hash --assets skip --asset-index skip --version-jar skip --logging skip > checks.tsv
+mcpmc check [VERSION ...] [--directory PATH] [--all]
+mcpmc check 1.18.1 "My Modpack" --directory "$HOME/Downloads/.minecraft"
+mcpmc check --directory "$HOME/Downloads/.minecraft"
+mcpmc check --all --directory "$HOME/Downloads/.minecraft"
+mcpmc --raw check --all --libraries hash --assets skip --asset-index skip --version-jar skip --logging skip > checks.tsv
 ```
 
-版本 ID 是 `client list` 中显示的版本目录名。支持多个 ID，按传入顺序检查并去重。`--all` 检查全部版本，包括 BrokenVersion，不能与显式 ID 同时使用。
+版本 ID 是 `mcpmc list` 中显示的版本目录名。支持多个 ID，按传入顺序检查并去重。`--all` 检查全部版本，包括 BrokenVersion，不能与显式 ID 同时使用。
 
 不传 ID 和 `--all` 时，在标准错误终端中打开选择界面：上下键选择一个版本，Enter 确认，Esc 或 Ctrl-C 取消。取消返回成功。交互界面需要标准输入、标准输出和标准错误均连接终端，`--raw` 会禁用交互；非交互环境需显式指定 ID 或 `--all`。
 

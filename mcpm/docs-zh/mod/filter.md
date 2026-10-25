@@ -1,6 +1,6 @@
 # Filter 类型
 
-`mcpm mod list` 和 `mcpm server mods list` 均支持 `-F/--filter <FILTER>`，适用于 TUI、Console、Raw。TUI Filter 卡片可编辑同一表达式。
+`mcpm-tools mod list` 和 `mcpm mods list` 均支持 `-F/--filter <FILTER>`，适用于 TUI、Console、Raw。TUI Filter 卡片可编辑同一表达式。
 
 | 语法 | 含义 |
 | --- | --- |
@@ -39,9 +39,9 @@
 命令行中需要用 shell 引号包住完整表达式：
 
 ```sh
-mcpm mod list mods/ -F "@modid 'Fabric'"
-mcpm server mods list --all -F "@loaders (=Forge | =Fabric)"
-mcpm --raw server mods list --file example.jar -F "@name ~'API$'" --expanded
+mcpm-tools mod list mods/ -F "@modid 'Fabric'"
+mcpm mods list --all -F "@loaders (=Forge | =Fabric)"
+mcpm --raw mods list --file example.jar -F "@name ~'API$'" --expanded
 ```
 
 服务器的 `--file`、`--modid`、`--name`、`--all` 先解析输入文件，Filter 只在这些输入中筛选；两者独立，`--all` 可以与 `-F` 同用。Console 和 Raw 搜索全部声明并输出匹配行，未指定 `--expanded` 时每个输入文件只输出首个匹配。TUI 保留祖先行作为上下文，清空或修改初始 Filter 不会丢失输入选择。

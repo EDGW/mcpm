@@ -32,7 +32,7 @@ fn fixture(root: &Path) -> Value {
 }
 
 fn remote(root: &Path, contents: Value) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .arg("remote")
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -130,7 +130,7 @@ fn ssh_owns_relative_paths_preserves_startup_platform_and_propagates_load_failur
     fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
     let connection = shlex::try_join([ssh.to_str().unwrap(), "test@host"]).unwrap();
     let run = |path: &str, over_ssh: bool| -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
         command.args([
             "--raw",
             "--log-level",
@@ -145,7 +145,7 @@ fn ssh_owns_relative_paths_preserves_startup_platform_and_propagates_load_failur
                 "--ssh",
                 &connection,
                 "--ssh-mcpm",
-                env!("CARGO_BIN_EXE_mcpm"),
+                env!("CARGO_BIN_EXE_mcpm-tools"),
             ]);
         } else {
             command.current_dir(source.path());

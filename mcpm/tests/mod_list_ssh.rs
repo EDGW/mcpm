@@ -33,10 +33,10 @@ mod transport {
             .tempdir()
             .unwrap();
         let connection = setup(root.path());
-        let executable = root.path().join("mcpm");
-        symlink(env!("CARGO_BIN_EXE_mcpm"), &executable).unwrap();
-        let windows_executable = root.path().join("mcpm.exe");
-        symlink(env!("CARGO_BIN_EXE_mcpm"), &windows_executable).unwrap();
+        let executable = root.path().join("mcpm-tools");
+        symlink(env!("CARGO_BIN_EXE_mcpm-tools"), &executable).unwrap();
+        let windows_executable = root.path().join("mcpm-tools.exe");
+        symlink(env!("CARGO_BIN_EXE_mcpm-tools"), &windows_executable).unwrap();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex-mod.jar");
         let quick = root.path().join("quick.jar.disabled");
         fs::copy(
@@ -65,7 +65,7 @@ mod transport {
             "--identify-parallelism",
             "2",
         ];
-        let local = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+        let local = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
             .args(["--raw", "mod", "list"])
             .arg(&fixture)
             .arg(&quick)
@@ -79,7 +79,7 @@ mod transport {
             .into_iter()
             .enumerate()
         {
-            let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+            let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
             command
                 .args(["--raw", "--ssh", &connection, "mod", "list", "--no-ui"])
                 .args(options)
@@ -146,7 +146,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
                 shlex::try_quote(&ready).unwrap()
             )).unwrap();
             fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
-            let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+            let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
                 .args(["--raw", "mod", "list", "--no-cache", "--ssh", &connection, "--ssh-mcpm"])
                 .arg(&remote)
                 .stdin(Stdio::null())
@@ -245,7 +245,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             );
             fs::write(&remote, body).unwrap();
             fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
-            let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+            let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
                 .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
                 .arg(&remote)
                 .args([

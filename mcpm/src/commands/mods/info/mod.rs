@@ -9,7 +9,7 @@ use crate::commands::supports::mods::{inspect, loaders::LoaderArgs};
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Modes: Console (default in a terminal), Raw (--raw or redirected stdout). Remote: supported through mcpm remote (command ID: mod.info) and --ssh.\n\nAdditional inputs are read from redirected stdin, one per line; --input sets their interpretation (default: filename, modid, then name matching)."
+    after_help = format!("Modes: Console (default in a terminal), Raw (--raw or redirected stdout). Remote: supported through {tools} remote (command ID: mod.info) and --ssh.\n\nAdditional inputs are read from redirected stdin, one per line; --input sets their interpretation (default: filename, modid, then name matching).", tools = crate::program::roots().tools)
 )]
 pub(super) struct InfoArgs {
     #[command(flatten)]

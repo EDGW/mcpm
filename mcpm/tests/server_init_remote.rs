@@ -38,7 +38,7 @@ fn fixture(name: &str, target: &Path) {
 }
 
 fn remote(root: &Path, requests: &[(&str, Value)]) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .arg("remote")
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -360,7 +360,7 @@ impl SshFixture {
     }
 
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_mcpm"))
+        Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
             .current_dir(self.client.path())
             .args([
                 "--raw",
@@ -370,7 +370,7 @@ impl SshFixture {
                 "--ssh",
                 &self.connection,
                 "--ssh-mcpm",
-                env!("CARGO_BIN_EXE_mcpm"),
+                env!("CARGO_BIN_EXE_mcpm-tools"),
                 "server",
                 "init",
             ])

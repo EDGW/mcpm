@@ -12,9 +12,9 @@
 ## Info 与依赖
 
 ```sh
-mcpm server mods info --server /srv/minecraft --all --parallelism 4
-mcpm --ssh 'ssh user@host' server mods info --server /srv/minecraft --modid create
-mcpm server mods deps --server /srv/minecraft --modid create
+mcpm mods info --server /srv/minecraft --all --parallelism 4
+mcpm --ssh 'ssh user@host' mods info --server /srv/minecraft --modid create
+mcpm mods deps --server /srv/minecraft --modid create
 ```
 
 两个命令均支持 Console 和 Raw。`--parallelism` 默认 10，约束完整扫描和 modid/name 延迟索引；多个独立文件输入仍顺序处理。
@@ -30,9 +30,9 @@ Deps 保持直接识别，不查询持久缓存。
 ## 列表
 
 ```sh
-mcpm --ssh 'ssh user@host' server mods list --server /srv/minecraft --parallelism 4
-mcpm server mods list --server /srv/minecraft --modid create --expanded
-mcpm server mods list --server /srv/minecraft --no-cache --no-ui
+mcpm --ssh 'ssh user@host' mods list --server /srv/minecraft --parallelism 4
+mcpm mods list --server /srv/minecraft --modid create --expanded
+mcpm mods list --server /srv/minecraft --no-cache --no-ui
 ```
 
 - 支持 TUI、Console（`--no-ui`）和 Raw。
@@ -44,10 +44,10 @@ mcpm server mods list --server /srv/minecraft --no-cache --no-ui
 ## 缓存
 
 ```sh
-mcpm server mods cache --server /srv/minecraft --all
-mcpm server mods cache --server /srv/minecraft --modid create --metas meta
-mcpm --ssh 'ssh user@host' server mods cache --server /srv/minecraft --file example.jar --mode hard-link
-printf '%s\n' create jei | mcpm server mods cache --server /srv/minecraft --input modid
+mcpm mods cache --server /srv/minecraft --all
+mcpm mods cache --server /srv/minecraft --modid create --metas meta
+mcpm --ssh 'ssh user@host' mods cache --server /srv/minecraft --file example.jar --mode hard-link
+printf '%s\n' create jei | mcpm mods cache --server /srv/minecraft --input modid
 ```
 
 - Console 默认仅显示进度条和最终汇总，`--details` 显示逐文件详情；错误始终显示。Raw 仍逐文件输出结构化记录，两者复用 [`mod cache`](../mod/cache.md) 的逐文件结果。空输入提示选择项目；完整缓存需显式传 `--all`。

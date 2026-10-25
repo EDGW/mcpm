@@ -1,9 +1,9 @@
-# `mcpm mod`
+# `mcpm-tools mod`
 
 Inspect local Minecraft mod archives, explicitly cache files, and search mod sources.
 
 ```text
-mcpm mod [OPTIONS] <COMMAND>
+mcpm-tools mod [OPTIONS] <COMMAND>
 ```
 
 | Command | Description |
@@ -22,11 +22,11 @@ mcpm mod [OPTIONS] <COMMAND>
 `--ssh <COMMAND>` and `--ssh-mcpm <PATH>` are top-level global options, so they
 can appear before or after its subcommands. `list` supports TUI, Console and Raw; `info` and `deps` support Console and Raw;
 `source identify` also supports SSH. Other commands explicitly reject them. `--ssh-mcpm` requires `--ssh` and names one remote
-executable, defaulting to `mcpm` on the remote PATH.
+executable, defaulting to `mcpm-tools` on the remote PATH.
 
 ```sh
-mcpm mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
-mcpm mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw
+mcpm-tools mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
+mcpm-tools mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw
 ```
 
 See [SSH listing](list.md#ssh-listing) for transport and presentation behavior.
@@ -46,8 +46,8 @@ as a union, with duplicates removed. Loader records are displayed in built-in
 order: Forge, NeoForge, then Fabric.
 
 ```sh
-mcpm mod list mods/ --loader fabric --loader neoforge
-mcpm mod info example.jar --loader forge --loaders neoforge,fabric
+mcpm-tools mod list mods/ --loader fabric --loader neoforge
+mcpm-tools mod info example.jar --loader forge --loaders neoforge,fabric
 ```
 
 A single archive can be recognized by multiple loaders. Their records remain
@@ -74,9 +74,9 @@ paths. For an outer declaration in `deps`, `full` retains the supplied file path
 `mod info` has no archive source field and does not accept this option.
 
 ```sh
-mcpm mod list mods/ --expanded --path-style inner
-mcpm mod list mods/ --expanded --path-style full
-mcpm mod deps example.jar --path-style outer
+mcpm-tools mod list mods/ --expanded --path-style inner
+mcpm-tools mod list mods/ --expanded --path-style full
+mcpm-tools mod deps example.jar --path-style outer
 ```
 
 In colored terminal output, each archive separator (`!`) uses bright white,

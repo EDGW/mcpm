@@ -17,7 +17,7 @@ mod tui;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = "Modes:\n  TUI (default): select a Color Scheme, preview, create and manage schemes.\n  Console (--no-ui): scheme list/use/create/rename/delete, list, get, set.\n  Raw (--raw or redirected stdout): tab-separated names and values.\n\nExamples:\n  mcpm customize scheme create ocean --name Ocean\n  mcpm customize scheme use ocean\n  mcpm customize scheme rename ocean 'Ocean Blue'\n  mcpm customize scheme delete ocean\n  mcpm customize scheme use ocean\n  mcpm customize set 'TUI Dark Primary Color' Cyan\n\nConfiguration: ~/.mcpm; missing values use bundled defaults.\nNO_COLOR disables styling without preventing configuration changes."
+    after_help = format!("Modes:\n  TUI (default): select a Color Scheme, preview, create and manage schemes.\n  Console (--no-ui): scheme list/use/create/rename/delete, list, get, set.\n  Raw (--raw or redirected stdout): tab-separated names and values.\n\nExamples:\n  {tools} customize scheme create ocean --name Ocean\n  {tools} customize scheme use ocean\n  {tools} customize scheme rename ocean 'Ocean Blue'\n  {tools} customize scheme delete ocean\n  {tools} customize scheme use ocean\n  {tools} customize set 'TUI Dark Primary Color' Cyan\n\nConfiguration: ~/.mcpm; missing values use bundled defaults.\nNO_COLOR disables styling without preventing configuration changes.", tools = crate::program::roots().tools)
 )]
 pub(crate) struct CustomizeArgs {
     /// Use command-based configuration instead of the interactive editor.

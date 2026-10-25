@@ -12,9 +12,9 @@ Server mod commands use the registered server's loader and mods directory. Local
 ## Info and dependencies
 
 ```sh
-mcpm server mods info --server /srv/minecraft --all --parallelism 4
-mcpm --ssh 'ssh user@host' server mods info --server /srv/minecraft --modid create
-mcpm server mods deps --server /srv/minecraft --modid create
+mcpm mods info --server /srv/minecraft --all --parallelism 4
+mcpm --ssh 'ssh user@host' mods info --server /srv/minecraft --modid create
+mcpm mods deps --server /srv/minecraft --modid create
 ```
 
 Both commands support Console and Raw output. `--parallelism` defaults to 10 and bounds full scans and lazy modid/name indexing. Multiple independent file inputs remain sequential.
@@ -30,9 +30,9 @@ Deps retains direct identification without persistent cache lookup.
 ## List
 
 ```sh
-mcpm --ssh 'ssh user@host' server mods list --server /srv/minecraft --parallelism 4
-mcpm server mods list --server /srv/minecraft --modid create --expanded
-mcpm server mods list --server /srv/minecraft --no-cache --no-ui
+mcpm --ssh 'ssh user@host' mods list --server /srv/minecraft --parallelism 4
+mcpm mods list --server /srv/minecraft --modid create --expanded
+mcpm mods list --server /srv/minecraft --no-cache --no-ui
 ```
 
 - Modes: TUI, Console (`--no-ui`) and Raw.
@@ -44,10 +44,10 @@ mcpm server mods list --server /srv/minecraft --no-cache --no-ui
 ## Cache
 
 ```sh
-mcpm server mods cache --server /srv/minecraft --all
-mcpm server mods cache --server /srv/minecraft --modid create --metas meta
-mcpm --ssh 'ssh user@host' server mods cache --server /srv/minecraft --file example.jar --mode hard-link
-printf '%s\n' create jei | mcpm server mods cache --server /srv/minecraft --input modid
+mcpm mods cache --server /srv/minecraft --all
+mcpm mods cache --server /srv/minecraft --modid create --metas meta
+mcpm --ssh 'ssh user@host' mods cache --server /srv/minecraft --file example.jar --mode hard-link
+printf '%s\n' create jei | mcpm mods cache --server /srv/minecraft --input modid
 ```
 
 - Console shows progress and a final summary by default; `--details` adds per-file details. Errors always appear. Raw retains one structured record per selected file. Both reuse [`mod cache`](../mod/cache.md). Empty input prompts for a selection; use `--all` for the complete mods directory.

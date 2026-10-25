@@ -33,7 +33,7 @@ fn fixture(server: &Path, loader: &str) {
 
 fn remote(root: &Path, command: &str, contents: Value) -> Vec<Value> {
     fs::create_dir_all(root.join("home")).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .env("HOME", root.join("home"))
         .arg("remote")
         .current_dir(root)
@@ -248,7 +248,7 @@ fn ssh_resolves_server_and_stdin_on_source_and_matches_local_output() {
     fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
     let connection = shlex::try_join([ssh.to_str().unwrap(), "test@host"]).unwrap();
     let run = |command: &str, options: &[&str], over_ssh: bool, stdin: &str| {
-        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
         process
             .args([
                 "--raw",
@@ -270,7 +270,7 @@ fn ssh_resolves_server_and_stdin_on_source_and_matches_local_output() {
                 "--ssh",
                 &connection,
                 "--ssh-mcpm",
-                env!("CARGO_BIN_EXE_mcpm"),
+                env!("CARGO_BIN_EXE_mcpm-tools"),
             ]);
         } else {
             process.current_dir(source.path());

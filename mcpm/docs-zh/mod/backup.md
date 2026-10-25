@@ -1,21 +1,21 @@
 # Mod 文件备份
 
-`mcpm mod backup` 创建、校验、应用和删除完整文件夹的文件备份。备份递归包含全部普通文件，
+`mcpm-tools mod backup` 创建、校验、应用和删除完整文件夹的文件备份。备份递归包含全部普通文件，
 不限于 `.jar`，也包含禁用的 Mod；不解包归档、不记录空目录。操作仅支持本地。
 
 ## 用法
 
 ```sh
-mcpm mod backup create ./mods ./backups/before-update
-mcpm mod backup create ./mods ./backups/before-update --mode copy
-mcpm mod backup create ./mods ./backups/before-update --mode prefer-hard-link --parallelism 4
-mcpm mod backup apply ./backups/before-update ./mods
-mcpm mod backup apply ./backups/before-update ./mods --force
-mcpm mod backup apply ./backups/before-update ./mods --mode hard-link
-mcpm mod backup verify ./backups/before-update ./backups/another
-printf '%s\n' './backups/before-update' './backups/another' | mcpm mod backup verify
-mcpm mod backup delete ./backups/before-update ./backups/another
-printf '%s\n' './backups/before-update' | mcpm mod backup delete
+mcpm-tools mod backup create ./mods ./backups/before-update
+mcpm-tools mod backup create ./mods ./backups/before-update --mode copy
+mcpm-tools mod backup create ./mods ./backups/before-update --mode prefer-hard-link --parallelism 4
+mcpm-tools mod backup apply ./backups/before-update ./mods
+mcpm-tools mod backup apply ./backups/before-update ./mods --force
+mcpm-tools mod backup apply ./backups/before-update ./mods --mode hard-link
+mcpm-tools mod backup verify ./backups/before-update ./backups/another
+printf '%s\n' './backups/before-update' './backups/another' | mcpm-tools mod backup verify
+mcpm-tools mod backup delete ./backups/before-update ./backups/another
+printf '%s\n' './backups/before-update' | mcpm-tools mod backup delete
 ```
 
 创建前，备份目录的父目录必须存在；备份目录本身必须不存在或为空。
@@ -49,7 +49,7 @@ printf '%s\n' './backups/before-update' | mcpm mod backup delete
 4. 校验生成结果，保护文件内容和 `data/` 目录树，最后写入并保护 manifest 内容后发布备份。
 
 `manifest.mcbackup` 与数据文件均不可原地写入。创建成功后的 Console 提示使用
-`mcpm mod backup delete <BACKUP>` 删除备份；Unix 默认目录权限会阻止普通递归删除。
+`mcpm-tools mod backup delete <BACKUP>` 删除备份；Unix 默认目录权限会阻止普通递归删除。
 
 源文件导入缓存固定使用复制，`--mode` 只决定缓存到备份的传输方式。
 因此创建操作不会将原本独立的源文件变成只读文件；原先就与缓存硬链接的文件仍共享原有保护。
@@ -75,7 +75,7 @@ printf '%s\n' './backups/before-update' | mcpm mod backup delete
 ## 单独校验
 
 ```text
-mcpm mod backup verify [OPTIONS] [BACKUP]...
+mcpm-tools mod backup verify [OPTIONS] [BACKUP]...
 ```
 
 - 位置参数接受多个备份目录，也可以从 stdin 每行读取一个目录；两者合并，先处理命令行参数。
@@ -101,7 +101,7 @@ backup  status  files  size  checksum
 ## 删除备份
 
 ```text
-mcpm mod backup delete [OPTIONS] [BACKUP]...
+mcpm-tools mod backup delete [OPTIONS] [BACKUP]...
 ```
 
 - 支持多个目录参数和 stdin 每行一个目录；合并顺序、空行、空格和去重规则与 `verify` 相同，至少提供一个路径。

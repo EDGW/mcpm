@@ -1,8 +1,8 @@
-# `mcpm server info`
+# `mcpm info`
 
 ```sh
-mcpm server info [PATH] [--full-command]
-mcpm server info /Users/edgwu/Downloads/Server/Server
+mcpm info [PATH] [--full-command]
+mcpm info /Users/edgwu/Downloads/Server/Server
 ```
 
 默认读取当前目录。未显式提供全局 SSH 参数时，Remote 工作目录自动使用保存的连接。Local 加载要求存在可读且有效的 `.mcpm/server.json`，否则命令失败。
@@ -20,13 +20,13 @@ Forge 亮黄、NeoForge 亮红、Fabric 亮青。`NO_COLOR` 关闭颜色。
 
 - 远端服务器路径。
 - SSH 命令：只显示首尾各三个字符，中间用 `***` 隐藏；短命令会减少可见字符，确保中间始终被隐藏。
-- 远端 mcpm 可执行文件路径；未配置时显示默认值 `mcpm`。
+- 远端 mcpm 可执行文件路径；未配置时显示默认值 `mcpm-tools`。
 
 Console 模式先显示本地 Remote 配置，再用短分界线分隔下方的服务器信息。
 Raw 模式按以上顺序先输出 Remote 配置的三列，再输出服务器信息的六列 TSV，共九列，不输出分界线。
 `--full-command` 不会解除 SSH 命令脱敏。显式指定 `--ssh` 时，PATH 直接指向远端，不读取本地 Remote 配置。
 
-完整命令和工作目录来自 [`server init`](init.md) 保存的快照，不会重新读取脚本。
+完整命令和工作目录来自 [`mcpm init`](init.md) 保存的快照，不会重新读取脚本。
 旧配置或完整手动注册没有保存启动信息时显示 `unavailable`。
 非 raw 模式默认只显示一行命令，超出的部分用 `(+N)` 表示省略的字符数；
 传入 `--full-command` 可显示完整内容。raw 模式始终输出完整命令。
@@ -34,7 +34,7 @@ Raw 模式按以上顺序先输出 Remote 配置的三列，再输出服务器�
 ## SSH
 
 ```sh
-mcpm --ssh 'ssh user@host' server info /path/to/server --full-command
+mcpm --ssh 'ssh user@host' info /path/to/server --full-command
 ```
 
 服务器目录和 `.mcpm/server.json` 在 SSH 主机读取；启动参数按来源系统的规则引用。Console/Raw 输出在本地渲染，协议命令 ID 为 `server.info`。

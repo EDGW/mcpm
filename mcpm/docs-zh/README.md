@@ -1,6 +1,16 @@
 # mcpm 命令参考
 
-`mcpm` 用于检查和启动本地 Minecraft 客户端、检查服务端信息和 Mod 归档。可用命令包括 `client list`、`client check`、`client launch`、`server init`、`server info`、`mod list`、`mod info`、`mod cache`、`mod deps` 和 `mod dep-graph build`。检查命令只读取 Mod 归档；`mod cache` 显式存储文件与摘要，可选择硬链接保护。依赖图可另存为文件。
+所有入口共享同一套实现和配置：
+
+| 可执行文件 | 命令 |
+| --- | --- |
+| `mcpm`、`mcpm-server` | `init`、`info`、`mods` |
+| `mcpmc`、`mcpm-client` | `list`、`check`、`launch` |
+| `mcpm-tools` | `cache`、`remote`、`customize`、`debug`、`mod`、`server`、`client` |
+
+长短名称的行为相同，帮助和命令提示使用所选名称。Tools 也保留 `mcpm-tools server info`、`mcpm-tools client list`。服务端和客户端入口只接受各自命令族；远程会话使用 `mcpm-tools remote`。
+
+检查命令只读取 Mod 归档；`mcpm-tools mod cache` 显式存储文件与摘要，可选择硬链接保护。依赖图可另存为文件。
 
 [客户端列表](client/list.md) · [完整性检查](client/check.md) · [启动客户端](client/launch.md)
 
@@ -19,23 +29,30 @@
 ## 快速开始
 
 ```sh
-mcpm client list "$HOME/Downloads/.minecraft"
-mcpm client launch 1.18.1 --directory "$HOME/Downloads/.minecraft" --java /path/to/java
-mcpm mod list
-mcpm mod list mods/ example.jar other-mods/
-mcpm mod info example.jar another.jar.disabled
-mcpm mod deps example.jar --loader fabric
-mcpm --raw mod list mods/ -C MF > mods.tsv
+mcpmc list "$HOME/Downloads/.minecraft"
+mcpmc launch 1.18.1 --directory "$HOME/Downloads/.minecraft" --java /path/to/java
+mcpm-tools mod list
+mcpm-tools mod list mods/ example.jar other-mods/
+mcpm-tools mod info example.jar another.jar.disabled
+mcpm-tools mod deps example.jar --loader fabric
+mcpm-tools --raw mod list mods/ -C MF > mods.tsv
 ```
 
-在仓库中直接运行时，将 `mcpm` 替换为 `cargo run --manifest-path mcpm/Cargo.toml --`。
+使用 `cargo build --manifest-path mcpm/Cargo.toml --release --bins` 构建全部五个程序。
+`cargo run --manifest-path mcpm/Cargo.toml -- info` 默认启动 `mcpm`。
+其他入口使用 `--bin` 选择：
+
+```sh
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpmc -- list
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod list
+```
 
 ## 全局选项
 
-`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，`mod list`、`mod info`、`mod deps`、`mod source identify`、`server init`、`server info` 和 `server mods list/info/cache/deps/source search/files/identify` 支持使用。详见 [Remote 会话](remote.md)。
+`--ssh`、`--ssh-mcpm`、`--remote-logs` 仅在服务端和 Tools 入口提供。SSH 默认调用远端的 `mcpm-tools`；显式配置的 `--ssh-mcpm` 路径保持原样。`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，`mod list`、`mod info`、`mod deps`、`mod source identify`、`server init`、`server info` 和 `server mods list/info/cache/deps/source search/files/identify` 支持使用。详见 [Remote 会话](remote.md)。
 
 ```text
-mcpm [OPTIONS] <COMMAND>
+mcpm-tools [OPTIONS] <COMMAND>
 ```
 
 | 选项 | 说明 |
@@ -49,29 +66,29 @@ mcpm [OPTIONS] <COMMAND>
 `--raw` 是全局参数，可以放在子命令之前或之后：
 
 ```sh
-mcpm --raw mod info example.jar
-mcpm mod list mods/ --raw
+mcpm-tools --raw mod info example.jar
+mcpm-tools mod list mods/ --raw
 ```
 
 使用各命令的帮助查看可用参数：
 
 ```sh
 mcpm --help
-mcpm client list --help
-mcpm client check --help
-mcpm client launch --help
-mcpm mod list --help
-mcpm mod info --help
-mcpm mod cache --help
-mcpm mod deps --help
-mcpm mod dep-graph build --help
-mcpm mod dep-graph test --help
-mcpm mod dep-graph view --help
+mcpmc list --help
+mcpmc check --help
+mcpmc launch --help
+mcpm-tools mod list --help
+mcpm-tools mod info --help
+mcpm-tools mod cache --help
+mcpm-tools mod deps --help
+mcpm-tools mod dep-graph build --help
+mcpm-tools mod dep-graph test --help
+mcpm-tools mod dep-graph view --help
 ```
 
 ## 终端输出
 
-当标准输出连接到终端时，`list` 根据终端宽度对齐列并换行。Mod 名等关键内容使用主色加粗，二级信息使用附色，路径和补充说明使用白色弱化；警告、成功、错误分别使用亮黄、亮绿、亮红。Loader 使用配置中的专属颜色。通过 [`mcpm customize`](customize.md) 调整主题。依赖类型 `required` 使用白色加粗，`recommended` 使用附色，`suggested` 使用普通白色，`optional` 使用弱化文字，`breaks` 使用错误色，`conflicts` 使用警告色。
+当标准输出连接到终端时，`list` 根据终端宽度对齐列并换行。Mod 名等关键内容使用主色加粗，二级信息使用附色，路径和补充说明使用白色弱化；警告、成功、错误分别使用亮黄、亮绿、亮红。Loader 使用配置中的专属颜色。通过 [`mcpm-tools customize`](customize.md) 调整主题。依赖类型 `required` 使用白色加粗，`recommended` 使用附色，`suggested` 使用普通白色，`optional` 使用弱化文字，`breaks` 使用错误色，`conflicts` 使用警告色。
 
 当 Loader 筛选跳过文件时，`list` 和 `info` 会在输出结束后空一行显示忽略文件的提示。`list --expanded` 还会列出被跳过的文件名。这些提示仅在标准输出连接到终端时显示，使用 `--raw` 时隐藏。
 
@@ -80,7 +97,7 @@ mcpm mod dep-graph view --help
 设置 `NO_COLOR` 可禁用颜色，同时保留终端排版和提示：
 
 ```sh
-NO_COLOR=1 mcpm mod list mods/
+NO_COLOR=1 mcpm-tools mod list mods/
 ```
 
 ## 退出状态
@@ -99,8 +116,8 @@ NO_COLOR=1 mcpm mod list mods/
 `trace` 增加每个 native 条目和必需文件检查的详情。
 
 ```sh
-mcpm --log-level info client launch 1.18.1 --no-logging-config
-mcpm client launch 1.18.1 --no-logging-config --log-level debug
+mcpmc --log-level info launch 1.18.1 --no-logging-config
+mcpmc launch 1.18.1 --no-logging-config --log-level debug
 ```
 
 日志写入 stderr，并与进度条协调显示。颜色遵循终端状态、`NO_COLOR` 和 `--raw`。

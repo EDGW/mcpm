@@ -1,17 +1,17 @@
-# mcpm client launch
+# mcpmc launch
 
 Prepare and launch one or more installed client versions. There is no `--all`.
 
 ```sh
-mcpm client launch [VERSION ...] [--directory PATH] [OPTIONS]
-mcpm client launch 1.18.1 --directory "$HOME/Downloads/.minecraft" --java /path/to/java
-mcpm client launch "Pack A" "Pack B" --directory "$HOME/Downloads/.minecraft" --username Player
-mcpm client launch --directory "$HOME/Downloads/.minecraft"
-mcpm client launch 1.21.1 --max-memory 4096 --width 1280 --height 720
-mcpm client launch 1.21.1 --jvm-arg=-XX:+UseG1GC --game-arg=--fullscreen
+mcpmc launch [VERSION ...] [--directory PATH] [OPTIONS]
+mcpmc launch 1.18.1 --directory "$HOME/Downloads/.minecraft" --java /path/to/java
+mcpmc launch "Pack A" "Pack B" --directory "$HOME/Downloads/.minecraft" --username Player
+mcpmc launch --directory "$HOME/Downloads/.minecraft"
+mcpmc launch 1.21.1 --max-memory 4096 --width 1280 --height 720
+mcpmc launch 1.21.1 --jvm-arg=-XX:+UseG1GC --game-arg=--fullscreen
 ```
 
-IDs are the version directory names shown by `client list`. Duplicate IDs are
+IDs are the version directory names shown by `mcpmc list`. Duplicate IDs are
 removed, preserving argument order. Every selected version gets a preparation
 and launch attempt before waiting for any child to exit. A failed version does
 not prevent the others from launching. The command stays running until every
@@ -25,7 +25,7 @@ IDs; launch never accepts `--all`.
 
 `--directory` / `-d` selects the Minecraft root. The default is the last directory
 named exactly `.minecraft` in pwd, or pwd itself. An inferred-root hint suggests
-`mcpm client launch --directory .`; raw mode hides the hint.
+`mcpmc launch --directory .`; raw mode hides the hint.
 
 Each version uses its own version directory as the default game and working
 directory. Libraries/assets remain shared under the Minecraft root.
@@ -49,7 +49,7 @@ Tokens are not printed in launch status or help environment values. Login and
 refresh are not performed. Use an existing token from the environment with:
 
 ```sh
-mcpm client launch 1.21.1 --username Player --uuid ACCOUNT_UUID
+mcpmc launch 1.21.1 --username Player --uuid ACCOUNT_UUID
 # MCPM_ACCESS_TOKEN must already be set for online identity.
 ```
 
@@ -99,7 +99,7 @@ directory and replace matching files.
 
 Exit status is `0` when all selected processes exit successfully or selection is
 cancelled, `1` for preparation/start/wait/output errors or unsuccessful child
-exits, and `2` for invalid arguments. Check `mcpm client launch --help` for all flags.
+exits, and `2` for invalid arguments. Check `mcpmc launch --help` for all flags.
 
 ## Diagnostic launch logs
 
@@ -113,5 +113,5 @@ Logs are written to stderr; game stdout/stderr retain `--game-output` behavior.
 Tokens and common credential arguments are redacted; environment values are omitted.
 
 ```sh
-mcpm client launch 1.18.1 --no-logging-config --log-level debug
+mcpmc launch 1.18.1 --no-logging-config --log-level debug
 ```

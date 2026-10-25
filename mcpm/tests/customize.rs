@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 fn run(home: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .env("HOME", home)
         .env("USERPROFILE", home)
         .args(args)

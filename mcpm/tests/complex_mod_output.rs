@@ -81,7 +81,7 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
             include_str!("fixtures/complex-mod.list.tree.neoforge.txt"),
         ),
     ] {
-        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+        let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
         process.current_dir(&fixtures);
         process.arg("--raw");
         let output = process

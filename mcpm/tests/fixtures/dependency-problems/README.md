@@ -41,21 +41,21 @@ and matched targets without dependencies provide additional isolated roots.
 From the repository root:
 
 ```sh
-cargo run --manifest-path mcpm/Cargo.toml -- mod dep-graph build \
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod dep-graph build \
   mcpm/tests/fixtures/dependency-problems/mods -o /tmp/mcpm-dependency-problems.json
 
 # All six categories, including types that are disabled by default.
-cargo run --manifest-path mcpm/Cargo.toml -- mod dep-graph view \
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod dep-graph view \
   -i /tmp/mcpm-dependency-problems.json \
   --types required,optional,recommended,suggested,breaks,conflicts \
   --ignore-isolated-root
 
 # Default problem rules: required mismatches/unknowns and matched/unknown incompatibilities.
-cargo run --manifest-path mcpm/Cargo.toml -- mod dep-graph view \
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod dep-graph view \
   -i /tmp/mcpm-dependency-problems.json --problem
 
 # One category and loader, with ancestor retention and explicit rule selection.
-cargo run --manifest-path mcpm/Cargo.toml -- mod dep-graph view \
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod dep-graph view \
   -i /tmp/mcpm-dependency-problems.json neoforge:case_optional_neoforge \
   --type optional --rule optional:unmatched,unknown
 ```
@@ -65,7 +65,7 @@ No graph JSON snapshots are checked in: generate them from these archives.
 External components can be supplied with or without a version. For example:
 
 ```sh
-cargo run --manifest-path mcpm/Cargo.toml -- mod dep-graph build \
+cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mod dep-graph build \
   mcpm/tests/fixtures/dependency-problems/mods \
   --external fabric:required_missing:0.5 \
   --external forge:required_missing \
@@ -84,9 +84,9 @@ For a registered server, the same graph commands are available under
 `server mods dep-graph`:
 
 ```sh
-mcpm server mods dep-graph build --server /path/to/server -o /tmp/server-graph.json
-mcpm server mods dep-graph view -i /tmp/server-graph.json --problem
-mcpm server mods dep-graph test /tmp/server-graph.json
+mcpm mods dep-graph build --server /path/to/server -o /tmp/server-graph.json
+mcpm mods dep-graph view -i /tmp/server-graph.json --problem
+mcpm mods dep-graph test /tmp/server-graph.json
 ```
 
 The server build scans its `mods/` directory with its registered loader and adds
@@ -97,7 +97,7 @@ NeoForge use `forge:minecraft` / `forge:forge` and
 the current directory. Additional `--external` options remain available;
 `view` and `test` operate on saved graphs without requiring a server directory.
 
-Run the default problem view directly with `mcpm server mods check --server /path/to/server`.
+Run the default problem view directly with `mcpm mods check --server /path/to/server`.
 This builds and inspects the graph in memory. When no trees remain under the
 `--problem` filters, it prints `Check passed. No problems found.` in green
 (plain text in raw mode).

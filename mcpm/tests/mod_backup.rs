@@ -14,7 +14,7 @@ use mcpm_backend::local::{
 };
 
 fn run(root: &Path, operation: &str, paths: &[&str], input: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .args([
             "--raw",
             "--log-level",

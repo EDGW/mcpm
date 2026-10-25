@@ -1,9 +1,9 @@
-# `mcpm mod cache`
+# `mcpm-tools mod cache`
 
 Explicitly store selected mod archives and their identification metadata.
 
 ```text
-mcpm mod cache [OPTIONS] [INPUT]...
+mcpm-tools mod cache [OPTIONS] [INPUT]...
 ```
 
 Supports Console and Raw. Redirected stdout or `--raw` emits one JSON object per
@@ -29,11 +29,11 @@ Use the same input rules as [mod info](info.md):
   BLAKE3 cache object.
 
 ```sh
-mcpm mod cache example.jar another.jar.disabled
-mcpm mod cache --directory ./mods --modid zeta
-mcpm mod cache --directory ./mods --name 'Example Mod'
-mcpm mod cache --directory ./mods --all --parallelism 4
-printf '%s\n' example.jar another.jar | mcpm mod cache --input file
+mcpm-tools mod cache example.jar another.jar.disabled
+mcpm-tools mod cache --directory ./mods --modid zeta
+mcpm-tools mod cache --directory ./mods --name 'Example Mod'
+mcpm-tools mod cache --directory ./mods --all --parallelism 4
+printf '%s\n' example.jar another.jar | mcpm-tools mod cache --input file
 ```
 
 A positional directory is not a file input; use `--directory PATH --all`.
@@ -55,7 +55,7 @@ A positional directory is not a file input; use `--directory PATH --all`.
 
 The default target is `~/.mcpm/cache/mods`, initialized when absent or empty.
 Explicit targets must already be valid; initialize them with
-`mcpm cache mods init --directory PATH`. Version 1 caches are not migrated.
+`mcpm-tools cache mods init --directory PATH`. Version 1 caches are not migrated.
 
 Existing content is reused without replacing its identity or linking another
 source to it. Import mode applies when creating an object. Hard links share bytes
@@ -70,10 +70,10 @@ Selecting by ID/name can require a discovery scan before cached-byte
 identification; scan metadata is not directly persisted.
 
 ```sh
-mcpm cache mods init --directory /path/to/cache
-mcpm mod cache example.jar --cache-dir /path/to/cache --loader fabric
-mcpm mod cache example.jar --mode hard-link
-mcpm mod cache example.jar --force
+mcpm-tools cache mods init --directory /path/to/cache
+mcpm-tools mod cache example.jar --cache-dir /path/to/cache --loader fabric
+mcpm-tools mod cache example.jar --mode hard-link
+mcpm-tools mod cache example.jar --force
 ```
 
 [cache mods import](../cache.md) remains a lower-level path-based import without
@@ -87,9 +87,9 @@ All CurseForge configurations share one cache namespace, without keys/endpoints.
 requests use one client runtime for the complete batch.
 
 ```sh
-mcpm mod cache --directory ./mods --all --metas meta
-mcpm mod cache example.jar --meta ident --source modrinth
-mcpm mod cache example.jar --no-metas
+mcpm-tools mod cache --directory ./mods --all --metas meta
+mcpm-tools mod cache example.jar --meta ident --source modrinth
+mcpm-tools mod cache example.jar --no-metas
 ```
 
 ## Results and failures

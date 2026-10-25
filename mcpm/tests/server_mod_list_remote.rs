@@ -29,7 +29,7 @@ fn fixture(root: &Path) {
 
 fn remote(root: &Path, selection: Value) -> Vec<Value> {
     fs::create_dir_all(root.join("home")).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .env("HOME", root.join("home"))
         .arg("remote")
         .current_dir(root)
@@ -158,7 +158,7 @@ fn ssh_keeps_nested_selection_filtering_and_paths_equivalent_to_local_lists() {
         vec![],
     ] {
         let run = |remote: bool| {
-            let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+            let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
             process
                 .args([
                     "--raw",
@@ -178,7 +178,7 @@ fn ssh_keeps_nested_selection_filtering_and_paths_equivalent_to_local_lists() {
                     "--ssh",
                     &connection,
                     "--ssh-mcpm",
-                    env!("CARGO_BIN_EXE_mcpm"),
+                    env!("CARGO_BIN_EXE_mcpm-tools"),
                 ]);
             } else {
                 process.current_dir(root.path());

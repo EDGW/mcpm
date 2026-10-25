@@ -21,7 +21,7 @@ fn event(reader: &mut impl BufRead) -> Value {
 fn concurrent_typed_requests_and_failures_share_one_process() {
     let empty = tempfile::tempdir().unwrap();
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex-mod.jar");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .args(["remote", "--max-concurrency", "16"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -179,7 +179,7 @@ fn duplicate_ids_and_broken_frames_fail_the_session_instead_of_aliasing_requests
     let request = json!({"guid":Uuid::from_u128(1),"command":LIST,"contents":{}}).to_string();
     for text in [format!("{request}\n{request}\n"), request] {
         let root = tempfile::tempdir().unwrap();
-        let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
             .current_dir(root.path())
             .arg("remote")
             .stdin(Stdio::piped())

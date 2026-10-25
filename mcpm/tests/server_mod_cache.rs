@@ -36,7 +36,7 @@ fn server(root: &Path, loader: &str) {
 
 fn run(root: &Path, args: &[&str], input: &str) -> Output {
     fs::create_dir_all(root.join("home")).unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
     command
         .env("HOME", root.join("home"))
         .args(["--raw", "--log-level", "off"])
@@ -239,7 +239,7 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
             "--ssh",
             &connection,
             "--ssh-mcpm",
-            env!("CARGO_BIN_EXE_mcpm"),
+            env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "mods",
             "cache",
@@ -261,7 +261,7 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
         br#"{"version":1,"type":"remote"}"#,
     )
     .unwrap();
-    fs::write(workspace.join(".mcpm/server.json"), serde_json::to_vec(&json!({"version":2,"ssh":connection,"ssh_mcpm":env!("CARGO_BIN_EXE_mcpm"),"path":"server"})).unwrap()).unwrap();
+    fs::write(workspace.join(".mcpm/server.json"), serde_json::to_vec(&json!({"version":2,"ssh":connection,"ssh_mcpm":env!("CARGO_BIN_EXE_mcpm-tools"),"path":"server"})).unwrap()).unwrap();
     let repeated = run(
         &client,
         &[
@@ -326,7 +326,7 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
             "--ssh",
             &connection,
             "--ssh-mcpm",
-            env!("CARGO_BIN_EXE_mcpm"),
+            env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "mods",
             "info",

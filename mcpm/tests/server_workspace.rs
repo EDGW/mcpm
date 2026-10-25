@@ -28,7 +28,7 @@ fn local(root: &Path) {
 }
 
 fn run(root: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_mcpm"))
+    Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .current_dir(root)
         .args(["--raw", "--remote-logs", "--log-level", "off"])
         .args(args)
@@ -86,7 +86,7 @@ fn all_server_endpoints_reject_remote_targets_without_following_their_connection
             json!({"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":true}),
         ),
     ] {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
             .arg("remote")
             .current_dir(root.path())
             .stdin(Stdio::piped())
@@ -178,7 +178,7 @@ impl Fixture {
             "--ssh",
             &self.connection,
             "--ssh-mcpm",
-            env!("CARGO_BIN_EXE_mcpm"),
+            env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "init",
             workspace.to_str().unwrap(),
@@ -208,7 +208,7 @@ fn remote_registration_is_read_only_then_routes_commands_from_any_client_directo
         serde_json::from_slice(&fs::read(workspace.join(".mcpm/server.json")).unwrap()).unwrap();
     assert_eq!(
         settings,
-        json!({"version":2,"ssh":fixture.connection,"ssh_mcpm":env!("CARGO_BIN_EXE_mcpm"),"path":"server ' 中文"})
+        json!({"version":2,"ssh":fixture.connection,"ssh_mcpm":env!("CARGO_BIN_EXE_mcpm-tools"),"path":"server ' 中文"})
     );
     // The caller's cwd lacks keys/key; the saved connection must run in workspace.
     let info = run(
@@ -259,7 +259,7 @@ fn remote_registration_is_read_only_then_routes_commands_from_any_client_directo
             "--ssh",
             fixture.connection.as_str(),
             "--ssh-mcpm",
-            env!("CARGO_BIN_EXE_mcpm"),
+            env!("CARGO_BIN_EXE_mcpm-tools"),
         ];
         explicit.extend(tail);
         let manual = run(&workspace, &explicit);
@@ -361,7 +361,7 @@ fn explicit_ssh_initializes_on_host_and_never_reads_local_marker_or_converts_typ
         "--ssh",
         &fixture.connection,
         "--ssh-mcpm",
-        env!("CARGO_BIN_EXE_mcpm"),
+        env!("CARGO_BIN_EXE_mcpm-tools"),
         "server",
         "init",
         "new",

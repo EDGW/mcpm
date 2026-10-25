@@ -1,9 +1,9 @@
-# `mcpm mod`
+# `mcpm-tools mod`
 
 检查本地 Minecraft Mod 归档、显式缓存文件，并查询 Mod 来源。
 
 ```text
-mcpm mod [OPTIONS] <COMMAND>
+mcpm-tools mod [OPTIONS] <COMMAND>
 ```
 
 | 命令 | 说明 |
@@ -19,11 +19,11 @@ mcpm mod [OPTIONS] <COMMAND>
 
 ## SSH 连接
 
-`--ssh <COMMAND>` 和 `--ssh-mcpm <PATH>` 在最外层全局有效，可以放在子命令前后。`list` 的 TUI、Console 和 Raw，`info`、`deps` 的 Console 和 Raw，以及 `source identify` 支持；其他命令会明确拒绝。`--ssh-mcpm` 需要配合 `--ssh`，用于指定远端可执行文件，默认使用远端 PATH 中的 `mcpm`。
+`--ssh <COMMAND>` 和 `--ssh-mcpm <PATH>` 在最外层全局有效，可以放在子命令前后。`list` 的 TUI、Console 和 Raw，`info`、`deps` 的 Console 和 Raw，以及 `source identify` 支持；其他命令会明确拒绝。`--ssh-mcpm` 需要配合 `--ssh`，用于指定远端可执行文件，默认使用远端 PATH 中的 `mcpm-tools`。
 
 ```sh
-mcpm mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
-mcpm mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw
+mcpm-tools mod --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
+mcpm-tools mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw
 ```
 
 传输与本地展示行为见 [SSH 列表](list.md#ssh-列表)。
@@ -40,8 +40,8 @@ mcpm mod list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm.exe' --raw
 可用值为 `forge`、`neoforge` 和 `fabric`。不指定时尝试全部三个 Loader。多个选择取并集并去重，记录按内置顺序显示：Forge、NeoForge、Fabric。
 
 ```sh
-mcpm mod list mods/ --loader fabric --loader neoforge
-mcpm mod info example.jar --loader forge --loaders neoforge,fabric
+mcpm-tools mod list mods/ --loader fabric --loader neoforge
+mcpm-tools mod info example.jar --loader forge --loaders neoforge,fabric
 ```
 
 同一个归档可以被多个 Loader 识别。即使 Mod ID 相同，各 Loader 的记录仍分别保留。识别成功表示能够读取元数据，并不保证该 Mod 能在对应 Loader 中运行。
@@ -61,9 +61,9 @@ mcpm mod info example.jar --loader forge --loaders neoforge,fabric
 对于嵌套声明，最外层仅显示 JAR 文件名，不包含文件系统目录；内部各层保留归档成员路径。对于 `deps` 中的外层声明，`full` 保留传入的文件路径。`mod info` 没有归档来源字段，不支持此选项。
 
 ```sh
-mcpm mod list mods/ --expanded --path-style inner
-mcpm mod list mods/ --expanded --path-style full
-mcpm mod deps example.jar --path-style outer
+mcpm-tools mod list mods/ --expanded --path-style inner
+mcpm-tools mod list mods/ --expanded --path-style full
+mcpm-tools mod deps example.jar --path-style outer
 ```
 
 彩色终端输出中，归档分隔符 `!` 使用亮白色，路径使用灰色。`--raw` 和重定向输出保留相同的路径文本，不显示颜色。

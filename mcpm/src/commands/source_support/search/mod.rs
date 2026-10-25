@@ -15,7 +15,7 @@ mod tui;
 mod versions;
 
 #[derive(Args, Debug)]
-#[command(after_help = format!("{}\n\n{}", expression::HELP, UI_HELP))]
+#[command(after_help = format!("{}\n\n{}", expression::HELP, ui_help()))]
 pub(in crate::commands) struct SearchArgs {
     /// Keywords followed by optional @version/@loader filters; quote the expression.
     #[arg(value_name = "QUERY")]
@@ -116,7 +116,9 @@ impl From<Sort> for SearchSort {
     }
 }
 
-const UI_HELP: &str = r#"Modes: TUI (default in terminals), Console (--no-ui), Raw (--raw or redirected stdout).
+fn ui_help() -> String {
+    format!(
+        r#"Modes: TUI (default in terminals), Console (--no-ui), Raw (--raw or redirected stdout).
 
 Quote the whole expression as one shell argument. Omit QUERY to browse.
 Use --game-version and --loader for default compatibility filters.
@@ -130,13 +132,16 @@ Syntax errors show a column and keep previous results.
 Details: Up/Down selects a field, c copies its full value, Enter expands/collapses.
 
 Examples:
-  mcpm mod source search create --source modrinth
-  mcpm mod source search 'create @version 1.20.1 @loader fabric' --source modrinth
-  mcpm mod source search 'create @loader (forge | neoforge)' --source curseforge
-  mcpm mod source search '@version * @loader *' --source modrinth
-  mcpm mod source search create --source 'curseforge@KEY'
-  mcpm mod source search create --source modrinth --game-version 1.20.1 --loader fabric
-  mcpm mod source search --source modrinth --sort default
-  mcpm mod source search create --source modrinth -N -C INP
-  mcpm mod source search create --source curseforge --no-ui --columns name,slug,id,url
-  mcpm --raw mod source search create --source modrinth --limit 10"#;
+  {tools} mod source search create --source modrinth
+  {tools} mod source search 'create @version 1.20.1 @loader fabric' --source modrinth
+  {tools} mod source search 'create @loader (forge | neoforge)' --source curseforge
+  {tools} mod source search '@version * @loader *' --source modrinth
+  {tools} mod source search create --source 'curseforge@KEY'
+  {tools} mod source search create --source modrinth --game-version 1.20.1 --loader fabric
+  {tools} mod source search --source modrinth --sort default
+  {tools} mod source search create --source modrinth -N -C INP
+  {tools} mod source search create --source curseforge --no-ui --columns name,slug,id,url
+  {tools} --raw mod source search create --source modrinth --limit 10"#,
+        tools = crate::program::roots().tools
+    )
+}

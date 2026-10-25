@@ -7,7 +7,7 @@ use std::{
 };
 
 fn run(args: &[&str]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
     command
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"))
         .args(args);
