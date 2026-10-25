@@ -62,7 +62,13 @@ mcpm-tools [OPTIONS] <COMMAND>
 | `--remote-logs` | Show remote logs on stderr, filtered by `--log-level`; hidden by default. Remote errors are always shown. |
 | `-h`, `--help` | Show help for the current command. |
 | `-V` | Show the executable version at the top level. |
-| `--version` | Show the version and build-time contributors (commit counts, names, and email addresses); mark contributors as unavailable if Git history could not be read. |
+| `--version` | Show the version, build identity (`official` / `unofficial`), build profile, Git commit ID, and build-time contributors (commit counts, names, and email addresses); mark the relevant information as unavailable if Git metadata could not be read. |
+
+The detailed output shows the full commit ID. Staged or unstaged changes to tracked files append ` + modified`; untracked files do not count. This information is captured at build time and does not depend on the runtime directory.
+
+Unofficial versions append `.<first six commit characters>`, or `.<first six commit characters>.modified` when tracked files have changes. If Git metadata is unavailable, they append `.unknown`. Both `-V` and `--version` use this version; official builds retain the Cargo package version.
+
+Unofficial release-profile builds print a startup warning on stderr when executing commands: the program may be a third-party build or contain changes that have not been officially released. The warning does not change command results or exit status and remains visible with `--raw` or `--log-level off`. Debug builds omit the startup warning; `-V` prints only the executable name and version.
 
 `--raw` is global and can appear before or after subcommands:
 

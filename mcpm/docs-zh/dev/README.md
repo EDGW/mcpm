@@ -8,6 +8,16 @@
 - `app.rs` 负责公共初始化和分发。二进制显式传入程序身份，文件改名不改变命令族。
 - SSH 默认启动 `mcpm-tools remote`；远端可执行文件覆盖配置属于连接设置，与本地命令根独立。
 
+## 构建身份
+
+- `build.rs` 统一生成编译期构建身份；`build_info.rs` 提供版本元数据，`display/build_info.rs` 渲染启动提示。
+- Commit ID 和工作区状态在构建时从 Git 读取，仅受跟踪文件的已暂存或未暂存变更计为 `modified`；监视仓库受跟踪文件及 Git 索引、引用以刷新构建缓存。
+- 非正式版本号由 `build.rs` 在 Cargo 包版本后追加六位 commit ID 和可选的 `.modified`；无 Git 信息时使用 `.unknown`。打包脚本校验整套二进制版本一致，并将实际版本写入清单；提供 Tag 时必须与实际版本一致。
+- 正式构建要求同时满足：release 配置、`MCPM_OFFICIAL_RELEASE=1`、`GITHUB_ACTIONS=true`、仓库为 `EDGW/mcpm`、事件为 `push` 或 `workflow_dispatch`、引用类型为 Tag，且 Tag 为 `v<Cargo 包版本>`。
+- 发布工作流在 Tag 构建中注入标记；分支、PR、本地和 Fork 构建默认非正式。环境变量改变时 Cargo 重新生成身份。
+- `official` 表示正式发布流程构建，也包含官方预发布版本，不表示稳定版。该标记不是来源签名。
+- 五个入口共享版本详情和非正式 release 启动提示；提示仅写 stderr，不受日志级别影响。
+
 ## 1. 命令
 
 命令主要按照可复用性分为 **单一命令** 和 **通用命令**。

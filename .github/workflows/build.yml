@@ -17,6 +17,8 @@ jobs:
   build:
     name: Build ${{ matrix.asset }}
     runs-on: ${{ matrix.runner }}
+    env:
+      MCPM_OFFICIAL_RELEASE: ${{ github.ref_type == 'tag' && '1' || '0' }}
     strategy:
       fail-fast: false
       matrix:

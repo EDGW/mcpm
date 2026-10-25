@@ -1,6 +1,7 @@
 //! Shared CLI implementation for the server, client and tools executables.
 
 mod app;
+mod build_info;
 mod cli;
 mod commands;
 mod diagnostics;

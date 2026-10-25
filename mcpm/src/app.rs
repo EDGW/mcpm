@@ -5,7 +5,7 @@ use std::{process::ExitCode, time::SystemTime};
 use clap::ColorChoice;
 
 use crate::{
-    cli, commands, diagnostics, initcall, logging,
+    build_info, cli, commands, diagnostics, display, initcall, logging,
     program::{CommandRoots, Program},
     terminal, theme,
 };
@@ -33,6 +33,12 @@ pub fn run(program: Program) -> ExitCode {
     let result = (|| {
         logging::init(cli.common.log_level, started, remote, cli.remote_logs)?;
         theme::init()?;
+        if build_info::is_unofficial_release() {
+            let mut stderr = std::io::stderr().lock();
+            let _ = display::build_info::unofficial_warning(
+                &mut display::console::ConsoleWriter::new(&mut stderr),
+            );
+        }
         initcall::run()?;
         commands::run(cli.command, cli.ssh)
     })();

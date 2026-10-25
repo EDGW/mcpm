@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tarfile
@@ -20,11 +21,10 @@ def package(binary_dir, output_dir, asset, target, tag=None):
     ]))
     crate = next(item for item in metadata['packages'] if item['name'] == 'mcpm')
     version = crate['version']
-    if tag is not None and tag != f'v{version}':
-        raise ValueError(f'release tag {tag!r} does not match Cargo version v{version}')
     names = sorted(item['name'] for item in crate['targets'] if item['kind'] == ['bin'])
     windows = 'windows' in target
     filenames = [name + ('.exe' if windows else '') for name in names]
+    build_version = None
     output_dir.mkdir(parents=True, exist_ok=True)
     archive = output_dir / (asset + ('.zip' if windows else '.tar.gz'))
     with tempfile.TemporaryDirectory(prefix='mcpm-package-') as temporary:
@@ -33,7 +33,17 @@ def package(binary_dir, output_dir, asset, target, tag=None):
         for name, filename in zip(names, filenames):
             binary = binary_dir / filename
             actual = subprocess.check_output([str(binary), '-V'], text=True).strip()
-            if actual != f'{name} {version}':
+            if build_version is None:
+                match = re.fullmatch(
+                    rf'{re.escape(name)} ({re.escape(version)}(?:\.(?:[0-9a-f]{{6}}(?:\.modified)?|unknown))?)',
+                    actual,
+                )
+                if match is None:
+                    raise ValueError(f'{filename}: unexpected version {actual!r}')
+                build_version = match[1]
+                if tag is not None and tag != f'v{build_version}':
+                    raise ValueError(f'release tag {tag!r} does not match binary version v{build_version}')
+            if actual != f'{name} {build_version}':
                 raise ValueError(f'{filename}: unexpected version {actual!r}')
             subprocess.run([str(binary), '--help'], check=True, stdout=subprocess.DEVNULL)
             if 'linux-musl' in target:
@@ -42,7 +52,7 @@ def package(binary_dir, output_dir, asset, target, tag=None):
                     raise ValueError(f'{filename}: musl executable is not static')
             shutil.copy2(binary, staging / 'bin' / filename)
         # Installers interpret this format through their manifest readers; never source/eval it.
-        manifest = ['format=1', f'version=v{version}', f'asset={asset}']
+        manifest = ['format=1', f'version=v{build_version}', f'asset={asset}']
         manifest.extend(f'file={filename}' for filename in filenames)
         (staging / 'manifest').write_text('\n'.join(manifest) + '\n', encoding='utf-8')
         files = [staging / 'manifest', *(staging / 'bin' / name for name in filenames)]

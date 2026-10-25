@@ -26,7 +26,7 @@ GUID. Nil UUID is reserved for connection control messages and cannot identify a
 | `closed` | Remote | Session ended normally; contents null. |
 
 Both directions use UTF-8 NDJSON, one JSON object plus newline per frame, flushed
-immediately. Stdout is protocol-only; normal logs use a dedicated subscription. Stderr is reserved for startup/connection diagnostics, with colors/UI disabled.
+immediately. Stdout is protocol-only; normal logs use a dedicated subscription. Stderr carries the unofficial release build startup warning and startup/connection diagnostics, with colors/UI disabled.
 Wait for ready before submitting:
 
 ```json

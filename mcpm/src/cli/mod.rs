@@ -35,14 +35,7 @@ fn parse_root<R: Root>(program: Program, args: Vec<OsString>, color: ColorChoice
 }
 
 #[derive(Parser, Debug)]
-#[command(
-    version,
-    long_version = concat!(
-        env!("CARGO_PKG_VERSION"),
-        "\n\nContributors:\n",
-        include_str!(concat!(env!("OUT_DIR"), "/contributors.txt"))
-    )
-)]
+#[command(version = crate::build_info::VERSION, long_version = crate::build_info::LONG_VERSION)]
 struct Cli<R: Args> {
     #[command(flatten)]
     common: CommonArgs,

@@ -51,7 +51,7 @@ pub(crate) fn init(
     subscriber(level, writer::WriterFactory, file, remote)
         .try_init()
         .map_err(|error| anyhow::anyhow!("failed to initialize diagnostic logging: {error}"))?;
-    tracing::debug!(version = env!("CARGO_PKG_VERSION"), pid = std::process::id(), log_file = %path.display(), "mcpm started");
+    tracing::debug!(version = crate::build_info::VERSION, pid = std::process::id(), log_file = %path.display(), "mcpm started");
     Ok(())
 }
 

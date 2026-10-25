@@ -8,6 +8,16 @@
 - `app.rs` owns shared process initialization and dispatch. The binary passes its identity explicitly; renaming a file does not change its command family.
 - SSH starts `mcpm-tools remote` by default. Remote executable overrides belong to connection settings, independently of local command roots.
 
+## Build identity
+
+- `build.rs` is the authority for compile-time build identity; `build_info.rs` exposes version metadata and `display/build_info.rs` renders the startup warning.
+- The commit ID and worktree state are captured from Git at build time. Only staged or unstaged changes to tracked files count as `modified`; tracked repository files, the Git index, and references are watched to refresh cached metadata.
+- `build.rs` appends six commit characters and an optional `.modified` to unofficial Cargo package versions, using `.unknown` without Git metadata. Packaging verifies that all executable versions agree and writes their actual version to the manifest; a supplied tag must match that version.
+- Official builds require all of: the release profile, `MCPM_OFFICIAL_RELEASE=1`, `GITHUB_ACTIONS=true`, repository `EDGW/mcpm`, event `push` or `workflow_dispatch`, a tag reference, and a tag equal to `v<Cargo package version>`.
+- The release workflow injects the marker for tag builds. Branch, PR, local, and fork builds default to unofficial. Changes to the input environment variables make Cargo regenerate the identity.
+- `official` includes official prereleases; it does not mean stable. This marker is not a source signature.
+- All five executables share version details and the unofficial release startup warning. The warning goes only to stderr and is independent of log filtering.
+
 ## 1. Commands
 
 Commands are classified by reuse as **single entry point commands** or **shared commands**.

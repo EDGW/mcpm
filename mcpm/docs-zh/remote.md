@@ -7,7 +7,7 @@ ssh -T user@host mcpm-tools remote
 ssh -T user@windows C:/mcpm-tools.exe remote
 ```
 
-双向使用 UTF-8 NDJSON，每条消息是一个单行 JSON 加换行，写完立即刷新。字符串内换行由 JSON 转义。stdout 仅包含协议，正常运行时日志通过独立日志会话传输；stderr 仅保留启动或连接失败诊断，无颜色或终端界面。
+双向使用 UTF-8 NDJSON，每条消息是一个单行 JSON 加换行，写完立即刷新。字符串内换行由 JSON 转义。stdout 仅包含协议，正常运行时日志通过独立日志会话传输；stderr 保留非正式 release 构建的启动提示，以及启动或连接失败诊断，无颜色或终端界面。
 
 ## Command ID、调用会话 GUID 与统一回复
 
