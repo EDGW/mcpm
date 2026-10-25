@@ -34,7 +34,7 @@ pub(super) struct InitArgs {
     /// Register PATH locally as a Remote workspace pointing to this existing remote Local Server.
     #[arg(long, value_name = "REMOTE_PATH", conflicts_with_all = ["start_script", "minecraft_version", "loader", "loader_version"])]
     remote: Option<String>,
-    /// Statically inspect this script; conflicts with manual version/loader options.
+    /// Statically inspect a script inside the server directory, using a relative path; conflicts with manual version/loader options.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["minecraft_version", "loader", "loader_version"])]
     start_script: Option<PathBuf>,
     /// Minecraft version. Omitted fields are inferred from the data-source host's default start script.

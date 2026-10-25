@@ -26,7 +26,7 @@ mcpm mods list --server ./workspace
 
 - `[PATH]`: An existing directory, default `.`. Normally the server directory; with global `--ssh`, the remote server directory; with `--remote`, a local workspace directory.
 - `--remote <REMOTE_PATH>`: Register local `PATH` as a Remote workspace pointing to this remote directory. Requires global `--ssh`; global `--ssh-mcpm` is optional. The target must already be a loadable Local Server. Conflicts with `--start-script`, `--minecraft-version`, `--loader`, and `--loader-version`.
-- `--start-script <FILE>`: Statically recognize this startup script. Relative paths resolve from the actual server directory; absolute paths are accepted. Conflicts with all manual version and loader arguments.
+- `--start-script <FILE>`: Statically recognize this startup script. The path must be relative to and contained within the actual server directory; absolute paths are rejected. Conflicts with all manual version and loader arguments.
 - `--minecraft-version <VERSION>`: Minecraft version; alias `--mc-version`. Complete manual metadata registers directly; otherwise this filters recognized candidates. Whitespace-only values are rejected.
 - `--loader <LOADER>`: One of `forge`, `neoforge`, `fabric`, or `vanilla`. Known vanilla servers require explicit `vanilla`; missing loader evidence does not imply vanilla.
 - `--loader-version <VERSION>`: Loader version, distinct from Minecraft and FML versions. Required for complete manual modded-server registration; prohibited with `vanilla`. Whitespace-only values are rejected.
@@ -60,6 +60,10 @@ Recognition reads scripts and identity evidence without running scripts, Java, i
 A unique candidate registers immediately. Multiple candidates open the TUI: Up/Down selects, Enter confirms, and Esc/Ctrl-C cancels. Selection requires local terminal stdout/stderr without `--raw` or `--no-ui`. Console and Raw require an unambiguous candidate; redirected stdout automatically selects Raw.
 
 Registration saves the selected startup snapshot and prints the same information as [`server info`](info.md). Existing registration is protected by default; failed recognition or cancelled selection preserves it.
+
+- `start.script` stores the script location relative to the Server directory, so moving the whole directory retains that relationship.
+- `server.json` does not store a startup working `directory`; the directory supplied when opening the Server is used instead.
+- Initialization and loading reject absolute script paths, paths escaping through `..`, and symlinks pointing outside the Server directory. Absolute script paths in existing metadata also fail loading.
 
 ### Remote behavior
 

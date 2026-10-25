@@ -28,8 +28,9 @@ Console output shows the saved Remote configuration first, then a short separato
 Raw output places these three TSV fields first in that order, followed by the six server fields, for nine fields total; no separator is emitted.
 `--full-command` never disables SSH masking. Explicit `--ssh` uses the remote PATH directly and does not load a local Remote registration.
 
-The command and its working directory come from the snapshot saved by
-[`mcpm init`](init.md); scripts are not reread. Older/manual configurations
+The command comes from the snapshot saved by [`mcpm init`](init.md); scripts are not reread.
+The working directory is the directory supplied when opening the Server, rather than a value stored in `server.json`.
+The saved `start.script` must be relative to and contained within the Server directory; absolute paths and escapes through `..` or symlinks fail loading. Older/manual configurations
 without a saved command display `unavailable`. In non-raw mode the command fits
 one terminal line with `(+N)` showing the number of omitted characters.
 `--full-command` disables truncation; raw output always includes the full command.

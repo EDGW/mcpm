@@ -25,8 +25,8 @@ pub struct MinecraftServerMetadata {
 /// A flattened Java command, stored as arguments rather than executable shell text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerStartCommand {
+    /// Script location relative to the server root supplied when opening the server.
     pub script: std::path::PathBuf,
-    pub directory: std::path::PathBuf,
     pub executable: String,
     pub arguments: Vec<String>,
     pub windows: bool,

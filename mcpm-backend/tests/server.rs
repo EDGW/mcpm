@@ -4,6 +4,128 @@ use std::fs;
 use tempfile::TempDir;
 
 #[test]
+fn relative_start_script_survives_server_relocation_and_drops_legacy_directory() {
+    use mcpm_backend::local::mc::server::MinecraftServer;
+
+    let parent = TempDir::new().unwrap();
+    let original = parent.path().join("original");
+    fs::create_dir_all(original.join("scripts")).unwrap();
+    fs::write(original.join("scripts/run.sh"), "java -jar server.jar\n").unwrap();
+    let mut value = serde_json::to_value(metadata_with_script("scripts/run.sh")).unwrap();
+    value["start"]["directory"] = original.to_str().unwrap().into();
+    let server =
+        MinecraftServer::create(&original, serde_json::from_value(value).unwrap()).unwrap();
+    let bytes = fs::read(server.metadata_path()).unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(saved["start"].get("directory").is_none());
+    let moved = parent.path().join("moved");
+    fs::rename(&original, &moved).unwrap();
+    let loaded = MinecraftServer::load(&moved).unwrap();
+    assert_eq!(loaded.path(), moved);
+    assert_eq!(loaded.metadata(), server.metadata());
+    let script = &loaded.metadata().start.as_ref().unwrap().script;
+    assert_eq!(script, std::path::Path::new("scripts/run.sh"));
+    assert!(loaded.path().join(script).is_file());
+    assert_eq!(fs::read(loaded.metadata_path()).unwrap(), bytes);
+}
+
+#[test]
+fn invalid_start_scripts_fail_all_persistence_entry_points_before_side_effects() {
+    use mcpm_backend::local::mc::server::{MinecraftServer, MinecraftServerError};
+
+    for script in [
+        "",
+        ".",
+        "/server/run.sh",
+        "../run.sh",
+        "sub/../../run.sh",
+        "../server/run.sh",
+        r"C:\server\run.bat",
+        r"C:run.bat",
+        r"\server\run.bat",
+        r"\\host\share\run.bat",
+        r"sub\..\..\run.bat",
+    ] {
+        let root = TempDir::new().unwrap();
+        let metadata = metadata_with_script(script);
+        let error = MinecraftServer::create(root.path(), metadata.clone()).unwrap_err();
+        assert!(
+            matches!(error, MinecraftServerError::InvalidStartScript { .. }),
+            "{script}: {error:#}"
+        );
+        assert!(!root.path().join(".mcpm").exists(), "{script}");
+        assert!(!root.path().join("mods").exists(), "{script}");
+
+        fs::create_dir(root.path().join(".mcpm")).unwrap();
+        let manifest = root.path().join(".mcpm/server.json");
+        let old = b"old registration\n";
+        fs::write(&manifest, old).unwrap();
+        assert!(
+            MinecraftServer::replace(root.path(), metadata.clone()).is_err(),
+            "{script}"
+        );
+        assert_eq!(fs::read(&manifest).unwrap(), old, "{script}");
+
+        fs::write(&manifest, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        assert!(MinecraftServer::load(root.path()).is_err(), "{script}");
+        assert!(MinecraftServer::inspect(root.path()).is_err(), "{script}");
+        assert!(!root.path().join("mods").exists(), "{script}");
+    }
+    for script in [
+        "run.sh",
+        "scripts/run.sh",
+        "scripts/../run.sh",
+        r"scripts\run.bat",
+    ] {
+        let root = TempDir::new().unwrap();
+        MinecraftServer::create(root.path(), metadata_with_script(script)).unwrap();
+        MinecraftServer::load(root.path()).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn script_symlinks_cannot_escape_at_initialization_or_after_registration() {
+    use mcpm_backend::local::{
+        mc::server::{MinecraftServer, identify},
+        modloader::BUILTIN_LOADERS,
+    };
+    use std::os::unix::fs::symlink;
+
+    let parent = TempDir::new().unwrap();
+    let root = parent.path().join("server");
+    let outside = parent.path().join("outside");
+    fs::create_dir(&root).unwrap();
+    fs::create_dir(&outside).unwrap();
+    symlink(&outside, root.join("external")).unwrap();
+    // Even a missing script cannot hide an existing parent symlink that points outside.
+    assert!(MinecraftServer::create(&root, metadata_with_script("external/missing.sh")).is_err());
+    assert!(identify::identify(&root, "external/missing.sh", &BUILTIN_LOADERS).is_err());
+    assert!(!root.join(".mcpm").exists());
+
+    MinecraftServer::create(&root, metadata_with_script("scripts/run.sh")).unwrap();
+    symlink(&outside, root.join("scripts")).unwrap();
+    assert!(MinecraftServer::load(&root).is_err());
+    assert!(MinecraftServer::inspect(&root).is_err());
+    fs::remove_file(root.join("scripts")).unwrap();
+    fs::create_dir(root.join("internal")).unwrap();
+    symlink(root.join("internal"), root.join("scripts")).unwrap();
+    MinecraftServer::load(&root).unwrap();
+    fs::remove_file(root.join("scripts")).unwrap();
+    symlink(outside.join("missing"), root.join("scripts")).unwrap();
+    assert!(MinecraftServer::load(&root).is_err());
+}
+
+fn metadata_with_script(script: &str) -> mcpm_backend::local::mc::server::MinecraftServerMetadata {
+    serde_json::from_value(serde_json::json!({
+        "version": 2, "minecraft_version": "1.21.1",
+        "loader": {"type": "fabric", "version": "0.16.10"},
+        "start": {"script": script, "executable": "java", "arguments": [], "windows": false}
+    }))
+    .unwrap()
+}
+
+#[test]
 fn legacy_metadata_is_read_without_rewriting_and_only_migrates_on_explicit_persistence() {
     use mcpm_backend::local::mc::server::{MinecraftServer, SERVER_METADATA_VERSION};
 

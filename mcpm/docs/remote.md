@@ -244,7 +244,7 @@ Malformed requests and server metadata loading failures use the terminal global 
 
 ```json
 {"event":"stage","phase":"recognizing"}
-{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"/srv/server/run.sh","directory":"/srv/server","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
+{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"run.sh","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
 ```
 
 `server.init` accepts complete `metadata`, `path` (default `.`), and `force` (default false). No recognition token or cached candidate is required:
@@ -253,7 +253,14 @@ Malformed requests and server metadata loading failures use the terminal global 
 {"path":"/srv/server","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
 ```
 
-Metadata requires nonempty Minecraft/loader versions and explicit `loader` (`null` for vanilla). Optional `start` is the complete startup snapshot shown above; script/directory/executable must be nonempty, and executable/arguments cannot contain NUL. Initialization never rereads the script or requires its referenced files to exist. Wire v4 continues to emit metadata version 1 for compatibility; Local persistence writes disk version 2. Initialization emits `stage` with `validating`, then `writing`, then `initialized {server}` using the `server.info` schema. Successful operations finish with the common `finished` status; failures end with `error`. Clients validate phase order and exactly one result. Recognition and initialization share one SSH session when candidate selection is needed.
+Metadata requires nonempty Minecraft/loader versions and explicit `loader` (`null` for vanilla). Optional `start` is the complete startup snapshot shown above:
+
+- `script` must be a nonempty path relative to the Server directory. Absolute paths and escapes through `..` or existing symlinks are rejected during initialization and loading. Recognition requires the same containment for `start_script`.
+- `directory` is not stored in metadata. The `server.info` snapshot derives its working directory from the path supplied when opening the Server.
+- `executable` must be nonempty; executable/arguments cannot contain NUL.
+- Initialization never rereads the script or requires its referenced files to exist, but inspects existing script path components to validate containment.
+
+Wire v4 continues to emit metadata version 1; Local persistence writes disk version 2. Initialization emits `stage` with `validating`, then `writing`, then `initialized {server}` using the `server.info` schema. Successful operations finish with the common `finished` status; failures end with `error`. Clients validate phase order and exactly one result. Recognition and initialization share one SSH session when candidate selection is needed.
 
 All server endpoints, including recognition, require a Local workspace type. Remote references are resolved only by the frontend, never by `mcpm-tools remote`. Initialization can create a new Local registration but cannot replace a Remote workspace, even with `force`. Recognition remains an independent script-only operation and does not follow workspace references.
 

@@ -28,7 +28,7 @@ pub struct ServerCandidate {
     pub launch: ServerLaunch,
 }
 
-/// `script` is relative to `root` unless absolute. All script/file paths are resolved
+/// `script` must be relative to and contained within `root`. All script/file paths are resolved
 /// without executing anything. This extracts identity evidence, not command validity.
 /// Unavailable commands are diagnosed independently; recognized candidates survive
 /// failures elsewhere. When no candidate is found, an extraction diagnostic is returned.
@@ -59,6 +59,7 @@ fn identify_inner(
     let root = std::fs::canonicalize(root)
         .with_context(|| format!("failed to resolve server directory {root:?}"))?;
     anyhow::ensure!(root.is_dir(), "server root is not a directory: {root:?}");
+    super::script_path::validate(&root, script)?;
     let path = root.join(script);
     let evidence = script::read(&root, &path);
     let mut diagnostics = evidence.diagnostics;
@@ -85,9 +86,15 @@ fn identify_inner(
                 continue;
             }
         };
+        let script = launch.script.strip_prefix(&root).with_context(|| {
+            format!(
+                "identified start script {:?} escapes Server directory {root:?}",
+                launch.script
+            )
+        })?;
+        super::script_path::validate(&root, script)?;
         metadata.start = Some(ServerStartCommand {
-            script: launch.script.clone(),
-            directory: launch.directory.clone(),
+            script: script.to_owned(),
             executable: launch.executable.clone(),
             arguments: launch.arguments.clone(),
             windows: launch.path_separator == ';',

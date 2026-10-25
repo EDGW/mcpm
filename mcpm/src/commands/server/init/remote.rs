@@ -220,7 +220,7 @@ mod tests {
     fn candidates() -> Event {
         Event::Candidates { candidates: vec![serde_json::from_value(serde_json::json!({
             "metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{
-                "script":"C:\\server\\run.bat", "directory":"C:\\server", "executable":"java", "arguments":["-jar","server.jar"], "windows":true
+                "script":"run.bat", "executable":"java", "arguments":["-jar","server.jar"], "windows":true
             }}, "line":1, "main_class":"-jar"
         })).unwrap()] }
     }

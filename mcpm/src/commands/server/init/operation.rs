@@ -149,9 +149,7 @@ fn validate_metadata(metadata: &MinecraftServerMetadata) -> Result<()> {
     }
     if let Some(start) = &metadata.start {
         ensure!(
-            !start.script.as_os_str().is_empty()
-                && !start.directory.as_os_str().is_empty()
-                && !start.executable.trim().is_empty()
+            !start.executable.trim().is_empty()
                 && !start.executable.contains('\0')
                 && start.arguments.iter().all(|arg| !arg.contains('\0')),
             InitializationError::InvalidStart
@@ -175,7 +173,7 @@ enum InitializationError {
     #[error("vanilla does not have a loader version")]
     VanillaLoaderVersion,
     #[error(
-        "invalid server start snapshot: script, directory and executable must be nonempty, and executable/arguments must not contain NUL"
+        "invalid server start snapshot: executable must be nonempty, and executable/arguments must not contain NUL"
     )]
     InvalidStart,
 }

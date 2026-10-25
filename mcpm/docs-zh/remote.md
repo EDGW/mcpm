@@ -211,7 +211,7 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 ```json
 {"event":"stage","phase":"recognizing"}
-{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"/srv/server/run.sh","directory":"/srv/server","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
+{"event":"candidates","candidates":[{"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null,"start":{"script":"run.sh","executable":"java","arguments":["-jar","server.jar"],"windows":false}},"line":1,"main_class":"-jar"}]}
 ```
 
 `server.init` 接受完整 `metadata`、`path`（默认 `.`）和 `force`（默认 false），不要求识别 token 或缓存候选：
@@ -220,7 +220,14 @@ SSH mod list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 {"path":"/srv/server","metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":false}
 ```
 
-元数据要求非空的 Minecraft/Loader 版本及显式 `loader`（原版为 `null`）。可选 `start` 为上面的完整启动快照；脚本、目录和可执行文件不能为空，可执行文件及参数不能含 NUL。初始化不重读脚本，也不要求引用文件仍存在。为兼容既有客户端，wire v4 仍输出 metadata version 1；Local 磁盘持久化写为 version 2。初始化依次回传 `stage {phase: "validating"}`、`stage {phase: "writing"}`、`initialized {server}`，最后一个使用 `server.info` 结构。成功由通用 `finished` 结束，失败以 `error` 结束；客户端校验阶段顺序和唯一结果。需要候选选择时，识别与初始化共用同一 SSH 会话。
+元数据要求非空的 Minecraft/Loader 版本及显式 `loader`（原版为 `null`）。可选 `start` 为上面的完整启动快照：
+
+- `script` 必须是相对于 Server 目录的非空路径；初始化和加载都拒绝绝对路径、`..` 越界及已有符号链接越界。识别入口的 `start_script` 同样受此约束。
+- 元数据不保存 `directory`；`server.info` 快照的工作目录来自打开 Server 时传入的路径。
+- 可执行文件不能为空，可执行文件及参数不能含 NUL。
+- 初始化不重读脚本，也不要求引用文件仍存在，但会检查已有脚本路径组件以确认未越界。
+
+wire v4 仍输出 metadata version 1；Local 磁盘持久化写为 version 2。初始化依次回传 `stage {phase: "validating"}`、`stage {phase: "writing"}`、`initialized {server}`，最后一个使用 `server.info` 结构。成功由通用 `finished` 结束，失败以 `error` 结束；客户端校验阶段顺序和唯一结果。需要候选选择时，识别与初始化共用同一 SSH 会话。
 
 所有 server 端点（包括识别）都要求 Local 工作目录类型。Remote 引用仅由前端解析，`mcpm-tools remote` 不跟随引用。初始化可以创建 Local 登记，但即使带 `force` 也不能替换 Remote 工作目录。识别继续作为独立的脚本读取操作，不跟随工作目录引用。
 

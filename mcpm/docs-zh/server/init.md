@@ -26,7 +26,7 @@ mcpm mods list --server ./workspace
 
 - `[PATH]`：已存在的目录，默认 `.`。普通初始化时是服务端目录；使用全局 `--ssh` 时是远端服务端目录；同时指定 `--remote` 时则是本地工作目录。
 - `--remote <REMOTE_PATH>`：在本地 `PATH` 创建 Remote 工作目录，指向指定的远端目录。必须配合全局 `--ssh`；全局 `--ssh-mcpm` 可选。目标必须已经是可打开的 Local Server。此选项与 `--start-script`、`--minecraft-version`、`--loader`、`--loader-version` 互斥。
-- `--start-script <FILE>`：静态识别指定启动脚本。相对路径以实际服务端目录为基准，也接受绝对路径。与所有手动版本及 Loader 参数互斥。
+- `--start-script <FILE>`：静态识别指定启动脚本。必须使用相对于实际服务端目录的路径，不接受绝对路径或越界路径。与所有手动版本及 Loader 参数互斥。
 - `--minecraft-version <VERSION>`：Minecraft 版本，别名 `--mc-version`。信息完整时直接登记；不完整时作为自动识别候选的筛选条件。不能为空白。
 - `--loader <LOADER>`：服务端加载器，支持 `forge`、`neoforge`、`fabric`、`vanilla`。已知原版必须显式填写 `vanilla`，不能通过缺少 Loader 证据推断原版。
 - `--loader-version <VERSION>`：Loader 版本，与 Minecraft/FML 版本区分。模组加载器的完整手动登记需要此参数；`vanilla` 禁止指定此参数。不能为空白。
@@ -60,6 +60,10 @@ SSH 连接和远端 mcpm 程序均复用[全局参数](../README.md#全局选项
 唯一候选直接登记；多个候选在 TUI 中使用上下键选择、Enter 确认、Esc/Ctrl-C 取消。TUI 要求本地 stdout/stderr 为终端且未指定 `--raw`/`--no-ui`；Console 和 Raw 模式要求唯一候选。stdout 重定向时自动使用 Raw。
 
 登记保存所选启动项的快照，成功后输出与 [`server info`](info.md) 相同的信息。默认不覆盖已有登记；识别失败或取消选择保留旧登记。
+
+- `start.script` 保存相对于 Server 目录的脚本位置，移动整个目录后仍以新位置解析。
+- `server.json` 不保存启动工作目录 `directory`；工作目录使用打开 Server 时传入的目录。
+- 初始化和加载都拒绝绝对脚本路径、通过 `..` 越界的路径，以及指向 Server 目录之外的符号链接。已有配置中的绝对脚本路径同样会报错。
 
 ### 远程行为
 

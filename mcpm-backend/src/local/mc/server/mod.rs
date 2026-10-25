@@ -19,6 +19,9 @@ mod launch;
 
 pub use launch::{ServerLaunch, ServerOptionError};
 mod metadata;
+mod script_path;
+
+pub use script_path::ServerScriptError;
 
 pub use metadata::{
     MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader, ServerStartCommand,
@@ -66,6 +69,7 @@ impl MinecraftServer {
         if metadata.version == 1 {
             tracing::warn!(path = %manifest.display(), "Loading legacy server.json version 1; reinitialize explicitly to write version 2");
         }
+        validate_start_script(&path, &metadata)?;
         let mods = mod_container(&path, &metadata, create_mods)?;
         Ok(Self {
             path,
@@ -112,6 +116,7 @@ impl MinecraftServer {
                 }
             })?;
         metadata.version = SERVER_METADATA_VERSION;
+        validate_start_script(&path, &metadata)?;
         bytes = serde_json::to_vec_pretty(&metadata)
             .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
         // Validate the optional mod directory before changing registration metadata.
@@ -190,6 +195,17 @@ impl MinecraftServer {
     }
 }
 
+fn validate_start_script(
+    root: &Path,
+    metadata: &MinecraftServerMetadata,
+) -> Result<(), MinecraftServerError> {
+    if let Some(start) = &metadata.start {
+        script_path::validate(root, &start.script)
+            .map_err(|source| MinecraftServerError::InvalidStartScript { source })?;
+    }
+    Ok(())
+}
+
 fn mod_container(
     root: &Path,
     metadata: &MinecraftServerMetadata,
@@ -261,6 +277,11 @@ fn directory_name(path: &Path) -> Result<String, MinecraftServerError> {
 
 #[derive(Debug, Error)]
 pub enum MinecraftServerError {
+    #[error("invalid Minecraft server start script")]
+    InvalidStartScript {
+        #[source]
+        source: ServerScriptError,
+    },
     #[error("failed to create Minecraft server mod directory {path:?}")]
     CreateModDirectory {
         path: PathBuf,

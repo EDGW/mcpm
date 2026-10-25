@@ -85,7 +85,7 @@ fn init_identifies_loaders_and_retains_flattened_command() {
             assert_eq!(info.version, version);
         }
         let start = server.metadata().start.as_ref().unwrap();
-        assert!(start.directory.is_absolute());
+        assert!(start.script.is_relative());
         assert!(start.arguments.iter().all(|arg| !arg.starts_with('@')));
     }
 }
