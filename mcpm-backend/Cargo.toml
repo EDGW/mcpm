@@ -24,7 +24,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 thiserror = "2.0.21"
 tracing = "0.1"
 uuid = { version = "1", features = ["serde", "v4"] }
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "fs", "io-util", "time"] }
 url = { version = "2", features = ["serde"] }
 toml = "1.1.8"
 zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
