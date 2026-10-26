@@ -26,6 +26,7 @@ pub use super::ServerLaunch;
 pub struct ServerCandidate {
     pub metadata: MinecraftServerMetadata,
     pub launch: ServerLaunch,
+    pub configuration: super::config::ConfigurationDraft,
 }
 
 /// `script` must be relative to and contained within `root`. All script/file paths are resolved
@@ -67,7 +68,7 @@ fn identify_inner(
     ordered.sort_by(|a, b| a.id().cmp(b.id()));
     let mut candidates: Vec<ServerCandidate> = Vec::new();
     for launch in evidence.launches {
-        tracing::debug!(script = ?launch.script, line = launch.line, main_class = %launch.main_class, "inspecting Java server entry");
+        tracing::debug!(script = ?launch.script, line = launch.line, main_class = %launch.main_class(), "inspecting Java server entry");
         let mut metadata = match identify_launch(&launch, &ordered) {
             Ok(Some(metadata)) => metadata,
             Ok(None) => {
@@ -96,15 +97,30 @@ fn identify_inner(
         metadata.start = Some(ServerStartCommand {
             script: script.to_owned(),
             executable: launch.executable.clone(),
-            arguments: launch.arguments.clone(),
+            arguments: launch.command.arguments(),
             windows: launch.path_separator == ';',
         });
         if !candidates.iter().any(|existing| {
             existing.metadata == metadata
                 && existing.launch.directory == launch.directory
-                && existing.launch.arguments == launch.arguments
+                && existing.launch.command == launch.command
+                && existing.launch.environment == launch.environment
         }) {
-            candidates.push(ServerCandidate { metadata, launch });
+            let configuration = match super::config::draft(&root, &launch) {
+                Ok(draft) => draft,
+                Err(error) => {
+                    diagnostics.push(error.context(format!(
+                        "cannot convert {:?}:{} to launch configuration",
+                        launch.script, launch.line
+                    )));
+                    continue;
+                }
+            };
+            candidates.push(ServerCandidate {
+                metadata,
+                launch,
+                configuration,
+            });
         }
     }
     if candidates.is_empty() {

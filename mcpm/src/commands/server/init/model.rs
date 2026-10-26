@@ -3,7 +3,9 @@
 use std::path::PathBuf;
 
 use mcpm_backend::local::mc::server::{
-    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader, identify::ServerCandidate,
+    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader,
+    config::{ConfigurationDraft, Published},
+    identify::ServerCandidate,
 };
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +26,15 @@ pub(super) struct Initialize {
     pub no_git: bool,
     #[serde(default)]
     pub git: bool,
+    /// Local configuration import is deliberately excluded from the existing Remote protocol.
+    #[serde(skip)]
+    pub local: Option<LocalImport>,
+}
+
+#[derive(Debug)]
+pub(super) struct LocalImport {
+    pub configuration: Option<ConfigurationDraft>,
+    pub replace_conf: bool,
 }
 
 /// Registration result and optional Git setup outcome, without changing server info metadata.
@@ -33,6 +44,8 @@ pub(super) struct Initialized {
     pub server: ServerInfo,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git: Option<git::Outcome>,
+    #[serde(skip)]
+    pub publication: Option<Published>,
 }
 
 /// Partial fields restrict recognized candidates rather than inventing missing metadata.
@@ -67,7 +80,7 @@ impl Recognize {
     }
 }
 
-/// Metadata carries the sole launch snapshot; provenance adds only selection context.
+/// Local candidates carry complete drafts; the legacy wire schema still carries its snapshot.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Candidate {
@@ -75,13 +88,16 @@ pub(super) struct Candidate {
     pub metadata: MinecraftServerMetadata,
     pub line: usize,
     pub main_class: String,
+    #[serde(skip)]
+    pub configuration: Option<ConfigurationDraft>,
 }
 impl From<ServerCandidate> for Candidate {
     fn from(candidate: ServerCandidate) -> Self {
         Self {
             metadata: candidate.metadata,
             line: candidate.launch.line,
-            main_class: candidate.launch.main_class,
+            main_class: candidate.launch.main_class().to_owned(),
+            configuration: Some(candidate.configuration),
         }
     }
 }

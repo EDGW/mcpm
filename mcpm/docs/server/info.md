@@ -9,7 +9,7 @@ Defaults to the current directory. A Remote workspace automatically supplies its
 missing or invalid metadata fails the command. Reports the directory name, path,
 Minecraft version, loader and loader version. Absent or unknown
 loaders appear as `vanilla or unrecognized`.
-New Local metadata uses numeric `version: 2`; version 1 is accepted with a warning and is never rewritten merely by reading it. `minecraft_version` stores the Minecraft version; unsupported format versions fail loading.
+New Local metadata uses numeric `version: 3`; versions 1 and 2 remain readable and are never rewritten merely by reading them. `minecraft_version` stores the Minecraft version; unsupported format versions fail loading.
 
 Terminal output uses bright cyan headings, bright white names and versions,
 plain path/working-directory values, and gray labels and full command. Loader colors follow the shared convention: Forge bright
@@ -28,12 +28,9 @@ Console output shows the saved Remote configuration first, then a short separato
 Raw output places these three TSV fields first in that order, followed by the six server fields, for nine fields total; no separator is emitted.
 `--full-command` never disables SSH masking. Explicit `--ssh` uses the remote PATH directly and does not load a local Remote registration.
 
-The command comes from the snapshot saved by [`mcpm init`](init.md); scripts are not reread.
-The working directory is the directory supplied when opening the Server, rather than a value stored in `server.json`.
-The saved `start.script` must be relative to and contained within the Server directory; absolute paths and escapes through `..` or symlinks fail loading. Older/manual configurations
-without a saved command display `unavailable`. In non-raw mode the command fits
-one terminal line with `(+N)` showing the number of omitted characters.
-`--full-command` disables truncation; raw output always includes the full command.
+Local Console output also reports whether `launch.toml` and `conf.toml` exist, without probing Java or preparing a complete execution command.
+
+Legacy `start` is displayed only as a historical snapshot and is never used by `launch`. Its actual working directory cannot be reliably reconstructed; explicitly reimport the script. `--full-command` only disables snapshot truncation. The last Raw field remains the legacy snapshot or `unavailable`. Legacy `start.script` continues to use metadata path validation.
 
 ## SSH
 

@@ -12,6 +12,9 @@ pub(crate) struct ServerInfo {
     pub minecraft_version: String,
     pub loader: Option<LoaderInfo>,
     pub start: Option<StartCommand>,
+    /// Local information only; the existing Remote info protocol does not imply config transfer.
+    #[serde(skip)]
+    pub configuration: Option<mcpm_backend::local::mc::server::config::ConfigurationFiles>,
 }
 
 impl ServerInfo {
@@ -32,6 +35,7 @@ impl ServerInfo {
                 arguments: start.arguments.clone(),
                 windows: start.windows,
             }),
+            configuration: None,
         }
     }
 }

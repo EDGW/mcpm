@@ -18,7 +18,7 @@ pub(super) fn identify(
 ) -> Result<Option<ServerLoaderIdentity>> {
     // Handle only known ordinary FML entry points.
     if !matches!(
-        launch.main_class.as_str(),
+        launch.main_class(),
         "cpw.mods.bootstraplauncher.BootstrapLauncher"
             | "cpw.mods.modlauncher.Launcher"
             | "net.neoforged.fml.startup.Server"
@@ -30,7 +30,7 @@ pub(super) fn identify(
     // Any NeoForge-specific evidence selects the NeoForge family.
     let neo = neo_version.is_some()
         || group == Some("net.neoforged")
-        || launch.main_class.starts_with("net.neoforged.");
+        || launch.main_class().starts_with("net.neoforged.");
     if neo != (family == Family::NeoForge) {
         // Leave recognition to the detector for the matching family.
         return Ok(None);
@@ -66,7 +66,7 @@ pub(super) fn identify(
     // Record the sufficient identity evidence without inspecting dependency JARs.
     tracing::debug!(
         ?family,
-        main_class = %launch.main_class,
+        main_class = %launch.main_class(),
         ?group,
         ?neo_version,
         minecraft_version = mc,

@@ -5,11 +5,11 @@ use anyhow::{Context, Result};
 use crate::local::mc::server::ServerLaunch;
 
 pub(super) fn vanilla(launch: &ServerLaunch) -> Result<Option<String>> {
-    let Some(jar) = &launch.jar else {
+    let Some(jar) = &launch.jar() else {
         return Ok(None);
     };
     if !matches!(
-        launch.main_class.as_str(),
+        launch.main_class(),
         "net.minecraft.bundler.Main"
             | "net.minecraft.server.Main"
             | "net.minecraft.server.MinecraftServer"

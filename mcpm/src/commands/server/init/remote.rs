@@ -24,7 +24,7 @@ impl Command for Init {
             || output.checkpoint(),
             |phase| output.send(Event::Stage { phase }),
         )?;
-        output.send(Event::Initialized(result))
+        output.send(Event::Initialized(Box::new(result)))
     }
 }
 
@@ -51,7 +51,7 @@ impl Command for Recognition {
 enum Event {
     Stage { phase: Phase },
     Candidates { candidates: Vec<Candidate> },
-    Initialized(Initialized),
+    Initialized(Box<Initialized>),
 }
 
 pub(super) fn recognize(
@@ -83,7 +83,7 @@ pub(super) fn initialize(
         Kind::Initialization,
         phase,
     )? {
-        Event::Initialized(result) => Ok(result),
+        Event::Initialized(result) => Ok(*result),
         _ => unreachable!("validated initialization result"),
     }
 }
@@ -208,9 +208,9 @@ mod tests {
         Event::Stage { phase }
     }
     fn initialized() -> Event {
-        Event::Initialized(Initialized { server: serde_json::from_value(serde_json::json!({
+        Event::Initialized(Box::new(Initialized { server: serde_json::from_value(serde_json::json!({
             "name":"server", "path":"C:\\server", "minecraft_version":"1.21.1", "loader":null, "start":null
-        })).unwrap(), git: None })
+        })).unwrap(), git: None, publication: None }))
     }
     fn candidates() -> Event {
         Event::Candidates { candidates: vec![serde_json::from_value(serde_json::json!({

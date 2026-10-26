@@ -54,5 +54,11 @@ unicode-segmentation = "1"
 tempfile = "3"
 textwrap = { version = "0.16", features = ["terminal_size"] }
 
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+ctrlc = "3.5"
+
 [build-dependencies]
 anyhow = "1"

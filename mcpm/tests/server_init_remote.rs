@@ -1,4 +1,4 @@
-//! Remote initialization semantics: independent recognition, complete snapshots and atomic writes.
+//! Remote legacy-wire compatibility, read-only recognition and identity-only registration writes.
 
 use std::{
     fs,
@@ -7,7 +7,19 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
+use mcpm_backend::local::mc::server::SERVER_METADATA_VERSION;
 use serde_json::{Value, json};
+
+fn persisted(mut metadata: Value) -> Value {
+    metadata["version"] = SERVER_METADATA_VERSION.into();
+    metadata.as_object_mut().unwrap().remove("start");
+    metadata
+}
+
+fn no_local_configuration(root: &Path) {
+    assert!(!root.join("launch.toml").exists());
+    assert!(!root.join("conf.toml").exists());
+}
 
 fn metadata(version: &str) -> Value {
     json!({"version":2,"minecraft_version":version,"loader":null})
@@ -120,8 +132,9 @@ fn complete_metadata_initializes_without_script_and_requires_explicit_vanilla() 
     assert_eq!(
         serde_json::from_slice::<Value>(&fs::read(root.path().join(".mcpm/server.json")).unwrap())
             .unwrap(),
-        expected
+        persisted(expected)
     );
+    no_local_configuration(root.path());
     let events = data(&replies);
     assert!(!events.iter().any(|event| event["phase"] == "recognizing"));
 
@@ -140,7 +153,7 @@ fn complete_metadata_initializes_without_script_and_requires_explicit_vanilla() 
 }
 
 #[test]
-fn initialization_preserves_foreign_windows_start_snapshot_without_opening_its_paths() {
+fn initialization_accepts_foreign_legacy_snapshot_without_opening_or_persisting_its_paths() {
     let root = tempfile::tempdir().unwrap();
     let mut expected = metadata("1.21.1");
     expected["start"] = json!({
@@ -156,7 +169,8 @@ fn initialization_preserves_foreign_windows_start_snapshot_without_opening_its_p
     succeeded(&replies);
     let written: Value =
         serde_json::from_slice(&fs::read(root.path().join(".mcpm/server.json")).unwrap()).unwrap();
-    assert_eq!(written, expected);
+    assert_eq!(written, persisted(expected.clone()));
+    no_local_configuration(root.path());
     let events = data(&replies);
     assert!(!events.iter().any(|event| event["phase"] == "recognizing"));
     let initialized = &events.last().unwrap()["server"];
@@ -165,10 +179,7 @@ fn initialization_preserves_foreign_windows_start_snapshot_without_opening_its_p
     let events = data(&replies);
     let info = events.last().unwrap();
     assert_eq!(info, &initialized);
-    assert_eq!(info["start"]["directory"], ".");
-    for field in ["executable", "arguments", "windows"] {
-        assert_eq!(info["start"][field], expected["start"][field]);
-    }
+    assert!(info["start"].is_null());
     assert!(!root.path().join("escaped").exists());
 }
 
@@ -231,8 +242,9 @@ fn recognition_ignores_existing_configuration_and_selected_snapshot_is_independe
         &[("server.init", json!({"metadata":selected,"force":true}))],
     );
     succeeded(&replies);
-    // Wire v4 retains version 1, while persistence normalizes to disk version 2.
-    selected["version"] = 2.into();
+    // The legacy wire envelope remains readable; new disk writes store identity only.
+    selected = persisted(selected);
+    no_local_configuration(root.path());
     assert_eq!(
         serde_json::from_slice::<Value>(&fs::read(root.path().join(".mcpm/server.json")).unwrap())
             .unwrap(),

@@ -11,7 +11,7 @@ use crate::{
     terminal,
 };
 
-const COMMAND_LABEL: &str = "Full command: ";
+const COMMAND_LABEL: &str = "Legacy command snapshot (not used by launch): ";
 
 pub(crate) fn write_snapshot(
     output: &mut impl Write,
@@ -87,13 +87,21 @@ pub(crate) fn write_snapshot(
         write!(output, " {}", style.secondary(loader_version))?;
     }
     writeln!(output)?;
-    if let Some(start) = &server.start {
-        writeln!(
-            output,
-            "{}{}",
-            style.muted("Working directory: "),
-            style.muted(text(&start.directory))
-        )?;
+    if let Some(configuration) = &server.configuration {
+        for (label, present) in [
+            ("launch.toml", configuration.launch),
+            ("conf.toml", configuration.conf),
+        ] {
+            writeln!(
+                output,
+                "{} {}",
+                style.muted(label),
+                style.muted(if present { "configured" } else { "missing" })
+            )?;
+        }
+        if server.start.is_none() {
+            return Ok(());
+        }
     }
     writeln!(
         output,

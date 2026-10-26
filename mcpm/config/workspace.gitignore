@@ -3,3 +3,5 @@
 /cache
 /data
 /registration.lock
+/launch.lock
+/launch-publication.json

@@ -7,7 +7,6 @@ use std::{collections::HashMap, path::Path};
 pub(super) enum Syntax {
     Shell,
     Batch,
-    Java,
 }
 
 /// A deliberately restricted lexer. Expansion never becomes executable syntax.
@@ -135,8 +134,7 @@ pub(super) fn split(
             bail!("delayed batch expansion is unsupported");
         }
         let escape = (syntax == Syntax::Shell && !literal && ch == '\\')
-            || (syntax == Syntax::Batch && quote.is_none() && ch == '^')
-            || (syntax == Syntax::Java && quote.is_some() && ch == '\\');
+            || (syntax == Syntax::Batch && quote.is_none() && ch == '^');
         if escape {
             let next = *chars
                 .get(i + 1)
@@ -147,18 +145,7 @@ pub(super) fn split(
                 active = true;
                 continue;
             }
-            if syntax == Syntax::Java {
-                token.push(match next {
-                    'n' => '\n',
-                    'r' => '\r',
-                    't' => '\t',
-                    'f' => '\u{c}',
-                    '\\' | '\'' | '"' => next,
-                    _ => bail!("unsupported Java argument escape"),
-                });
-            } else {
-                token.push(next);
-            }
+            token.push(next);
             active = true;
             i += 2;
             continue;
@@ -166,7 +153,7 @@ pub(super) fn split(
         if syntax == Syntax::Shell && !literal && ch == '`' {
             bail!("command substitution is unsupported");
         }
-        if quote.is_none() && syntax != Syntax::Java {
+        if quote.is_none() {
             ensure!(
                 !";&|<>()".contains(ch),
                 "shell operators and control flow are unsupported"

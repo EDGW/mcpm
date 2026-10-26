@@ -41,7 +41,7 @@ fn run(root: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
-fn init_identifies_loaders_and_retains_flattened_command() {
+fn init_identifies_loaders_and_publishes_configuration_without_legacy_command() {
     for (case, loader, mc, version) in [
         ("forge", Some("forge"), "1.20.1", "47.3.12"),
         ("neoforge", Some("neoforge"), "1.21.1", "21.1.77"),
@@ -52,7 +52,6 @@ fn init_identifies_loaders_and_retains_flattened_command() {
         ("vanilla", None, "1.20.1", ""),
         ("fake-vanilla", None, "1.20.1", ""),
         ("partial-unknown", None, "1.20.1", ""),
-        ("unknown-jvm-options", None, "1.20.1", ""),
         ("bundled-vanilla", None, "1.21.1", ""),
         ("nested-shell", None, "1.20.1", ""),
         ("nested-batch", None, "1.20.1", ""),
@@ -84,9 +83,22 @@ fn init_identifies_loaders_and_retains_flattened_command() {
         if let Some(info) = server.loader() {
             assert_eq!(info.version, version);
         }
-        let start = server.metadata().start.as_ref().unwrap();
-        assert!(start.script.is_relative());
-        assert!(start.arguments.iter().all(|arg| !arg.starts_with('@')));
+        assert!(server.metadata().start.is_none());
+        let launch = mcpm_backend::local::mc::server::config::decode_launch(
+            &fs::read_to_string(temp.path().join("launch.toml")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            launch
+                .jvm
+                .extra_arguments
+                .iter()
+                .all(|arg| !arg.starts_with('@'))
+        );
+        mcpm_backend::local::mc::server::config::decode_conf(
+            &fs::read_to_string(temp.path().join("conf.toml")).unwrap(),
+        )
+        .unwrap();
     }
 }
 
@@ -175,7 +187,8 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
         ("undefined-variable", "run.sh", "unresolved shell variable"),
         ("unquoted-variable", "run.sh", "word splitting"),
         ("cycle", "run.sh", "recursive"),
-        ("argument-cycle", "run.sh", "nested Java"),
+        ("argument-cycle", "run.sh", "cannot accurately identify"),
+        ("unknown-jvm-options", "run.sh", "unknown Java option"),
         ("unknown-main", "run.sh", "cannot accurately identify"),
         ("missing-jar", "run.sh", "failed to open"),
         ("corrupt-jar", "run.sh", "invalid JAR"),
@@ -244,14 +257,15 @@ fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identif
     );
     let server = MinecraftServer::load(temp.path()).unwrap();
     assert_eq!(server.metadata().minecraft_version, "1.21.1");
-    assert!(
-        server
-            .metadata()
-            .start
-            .as_ref()
-            .unwrap()
-            .arguments
-            .contains(&"other.jar".into())
+    let launch = mcpm_backend::local::mc::server::config::decode_launch(
+        &fs::read_to_string(temp.path().join("launch.toml")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        launch.entry,
+        mcpm_backend::local::mc::server::launch::JavaEntry::Jar {
+            path: "other.jar".into()
+        }
     );
 }
 

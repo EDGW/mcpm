@@ -18,10 +18,10 @@ use anyhow::{Context, Result, ensure};
 /// * Invalid required evidence: return an error.
 pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdentity>> {
     // Expand shim metadata because its versions reside in the launch JAR.
-    if launch.main_class == "net.minecraftforge.bootstrap.shim.Main" {
+    if launch.main_class() == "net.minecraftforge.bootstrap.shim.Main" {
         return identify_shim(launch)
             .map(Some)
-            .with_context(|| format!("failed to identify Forge shim JAR {:?}", launch.jar));
+            .with_context(|| format!("failed to identify Forge shim JAR {:?}", launch.jar()));
     }
     // Check ordinary launch evidence using the Forge family rules.
     server::identify(launch, Family::Forge)
@@ -32,21 +32,18 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
 /// Dependency existence, entry class presence and command validity are not checked.
 fn identify_shim(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
     // Read shim metadata from the explicitly selected launch JAR.
-    let jar = launch
-        .jar
-        .as_ref()
-        .context("Forge shim must be a JAR entry")?;
+    let jar = launch.jar().context("Forge shim must be a JAR entry")?;
     tracing::debug!(
         ?jar,
         "expanding Forge shim metadata because launch arguments lack versions"
     );
     let props = properties::parse(
-        &jar::read(jar, "bootstrap-shim.properties")?
+        &jar::read(&jar, "bootstrap-shim.properties")?
             .context("Forge shim properties are missing")?,
     )
     .with_context(|| format!("failed to parse bootstrap-shim.properties in {jar:?}"))?;
     let mut defaults = launch.clone();
-    defaults.game_arguments = props
+    defaults.command.application = props
         .get("Arguments")
         .map(|value| shlex::split(value).context("cannot extract Forge shim Arguments"))
         .transpose()?
@@ -80,7 +77,7 @@ fn identify_shim(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
     }
     // Read version evidence from the embedded list without opening its dependencies.
     let list =
-        jar::read(jar, "bootstrap-shim.list")?.context("Forge shim dependency list is missing")?;
+        jar::read(&jar, "bootstrap-shim.list")?.context("Forge shim dependency list is missing")?;
     let mut mc = None;
     let mut loader = None;
     for (index, line) in std::str::from_utf8(&list)

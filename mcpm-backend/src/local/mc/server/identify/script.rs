@@ -72,7 +72,7 @@ fn visit(
         _ => bail!("unsupported script extension: {path:?}; expected .sh, .bat, or .cmd"),
     };
     let input =
-        fs::read_to_string(&path).with_context(|| format!("failed to read script {path:?}"))?;
+        fs::read_to_string(path).with_context(|| format!("failed to read script {path:?}"))?;
     let mut joined = String::new();
     let mut first_line = 1;
     let mut terminated = false;
@@ -92,7 +92,7 @@ fn visit(
             continue;
         }
         joined.push_str(line);
-        let stop = match statement(&joined, &path, first_line, syntax, state, stack, evidence) {
+        let stop = match statement(&joined, path, first_line, syntax, state, stack, evidence) {
             Ok(stop) => stop,
             Err(source) => {
                 let stop = invalidate(&joined, syntax, state);
@@ -233,6 +233,15 @@ fn statement(
         }
         return Ok(false);
     }
+    if syntax == Syntax::Shell && line.starts_with("export ") {
+        let names = tokens::split(&line[7..], syntax, &state.vars, expansion_script)?;
+        ensure!(
+            !names.is_empty() && names.iter().all(|name| valid_name(name)),
+            "unsupported export declaration"
+        );
+        state.exported.extend(names);
+        return Ok(false);
+    }
     let raw_head = line.split_whitespace().next().unwrap_or("");
     let binary = raw_head.rsplit(['/', '\\']).next().unwrap_or(raw_head);
     let extension = Path::new(raw_head)
@@ -353,6 +362,12 @@ fn statement(
             syntax,
             words[0].clone(),
             words[1..].to_vec(),
+            state
+                .vars
+                .iter()
+                .filter(|(name, _)| syntax == Syntax::Batch || state.exported.contains(*name))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
         )?);
         return Ok(exec);
     }
@@ -453,16 +468,16 @@ fn invalidate(line: &str, syntax: Syntax, state: &mut State) -> bool {
     } else {
         Some(line.strip_prefix("export ").unwrap_or(line))
     };
-    if let Some((name, _)) = assignment.and_then(|value| value.trim_matches('"').split_once('=')) {
-        if valid_name(name) {
-            let name = if syntax == Syntax::Batch {
-                name.to_ascii_uppercase()
-            } else {
-                name.to_owned()
-            };
-            state.vars.remove(&name);
-            return false;
-        }
+    if let Some((name, _)) = assignment.and_then(|value| value.trim_matches('"').split_once('='))
+        && valid_name(name)
+    {
+        let name = if syntax == Syntax::Batch {
+            name.to_ascii_uppercase()
+        } else {
+            name.to_owned()
+        };
+        state.vars.remove(&name);
+        return false;
     }
     if matches!(
         head,

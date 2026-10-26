@@ -36,5 +36,9 @@ pub(super) fn create(
         Some(git::ensure_repository(&path, local_git)?)
     };
     writer.remote(&remote, force)?;
-    Ok(Initialized { server: info, git })
+    Ok(Initialized {
+        server: info,
+        git,
+        publication: None,
+    })
 }

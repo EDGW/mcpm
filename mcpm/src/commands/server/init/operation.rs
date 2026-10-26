@@ -4,7 +4,11 @@ use std::{fs, io, path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use mcpm_backend::local::{
-    mc::server::{MinecraftServer, MinecraftServerMetadata, identify},
+    mc::server::{
+        MinecraftServer, MinecraftServerMetadata,
+        config::{self, OverwritePolicy},
+        identify,
+    },
     modloader::BUILTIN_LOADERS,
 };
 use thiserror::Error;
@@ -107,20 +111,41 @@ pub(super) fn initialize(
     } else {
         Some(git::ensure_repository(&args.path, args.git)?)
     };
-    let server = if args.force {
+    let publication = if let Some(local) = args.local {
+        let result = config::publish(
+            &args.path,
+            &args.metadata,
+            local.configuration.as_ref(),
+            OverwritePolicy {
+                replace_registration: args.force,
+                replace_conf: local.replace_conf,
+            },
+        );
+        Some(result?)
+    } else {
+        None
+    };
+    let server = if let Some(publication) = &publication {
+        publication.server.clone()
+    } else if args.force {
         MinecraftServer::replace(args.path, args.metadata)?
     } else {
         MinecraftServer::create(args.path, args.metadata)?
     };
-    writer.mark_local().context("Local server.json was written, but publishing mcpm.json failed; inspect the workspace before retrying")?;
+    writer.mark_local().context("Local server registration/configuration was written, but publishing mcpm.json failed; inspect the completed files before retrying")?;
     tracing::info!(path = %server.path().display(), "Server registration written");
     tracing::debug!(
         elapsed_ms = started.elapsed().as_millis(),
         "Server initialization completed"
     );
+    let mut info = ServerInfo::from_server(&server);
+    if publication.is_some() {
+        info.configuration = Some(config::configuration_files(server.path())?);
+    }
     Ok(Initialized {
-        server: ServerInfo::from_server(&server),
+        server: info,
         git,
+        publication,
     })
 }
 
@@ -212,6 +237,7 @@ mod tests {
             force,
             no_git: false,
             git: false,
+            local: None,
         }
     }
 

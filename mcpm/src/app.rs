@@ -43,7 +43,15 @@ pub fn run(program: Program) -> ExitCode {
         commands::run(cli.command, cli.ssh)
     })();
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(commands::CommandOutcome::Completed) => ExitCode::SUCCESS,
+        Ok(commands::CommandOutcome::Exited(code)) => {
+            #[cfg(windows)]
+            std::process::exit(code as i32);
+            #[cfg(not(windows))]
+            {
+                ExitCode::from(code as u8)
+            }
+        }
         Err(error) => {
             diagnostics::error(&error);
             ExitCode::FAILURE

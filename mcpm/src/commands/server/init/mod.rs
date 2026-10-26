@@ -11,7 +11,7 @@ use clap::Args;
 
 use super::target::{self, Target};
 use crate::{progress::Progress, ssh::SshArgs};
-use model::{Initialize, Initialized, Phase, Recognize};
+use model::{Initialize, Initialized, LocalImport, Phase, Recognize};
 
 mod git;
 mod model;
@@ -44,9 +44,12 @@ pub(super) struct InitArgs {
     /// Loader version, independent of Minecraft and FML versions.
     #[arg(long, value_name = "VERSION")]
     loader_version: Option<String>,
-    /// Replace existing registration within the same Local/Remote workspace type.
+    /// Replace local registration and launch.toml; preserve existing conf.toml unless --foverride-conf is also set.
     #[arg(long)]
     force: bool,
+    /// Regenerate conf.toml, including active settings and comments; requires --force (local only).
+    #[arg(long, requires = "force", conflicts_with = "remote")]
+    foverride_conf: bool,
     /// Skip Git repository detection and automatic initialization.
     #[arg(long)]
     no_git: bool,
@@ -56,7 +59,7 @@ pub(super) struct InitArgs {
     /// Disable the local TUI; multiple candidates require more specific manual filters.
     #[arg(long)]
     no_ui: bool,
-    /// Show the entire flattened command in the initialization result.
+    /// Show an entire legacy command snapshot when one is available.
     #[arg(long)]
     full_command: bool,
 }
@@ -75,6 +78,10 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
         return write_info(&info, args.full_command);
     }
     let Target { path, ssh, .. } = target::resolve(args.path, ssh)?;
+    anyhow::ensure!(
+        !args.foverride_conf || !ssh.is_requested(),
+        "--foverride-conf is supported only for local configuration import"
+    );
     let recognition = Recognize {
         path,
         start_script: args.start_script,
@@ -103,8 +110,8 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
         *progress.borrow_mut() = Some(Progress::new(description, "Initializing server"));
         Ok(())
     };
-    let metadata = match manual {
-        Some(metadata) => metadata,
+    let (metadata, configuration) = match manual {
+        Some(metadata) => (metadata, None),
         None => {
             let mut candidates = match session.as_ref() {
                 Some(session) => remote::recognize(session, recognition, phase)?,
@@ -128,7 +135,8 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
                 candidates = candidates.len(),
                 "Selected server launch snapshot"
             );
-            candidates.swap_remove(index).metadata
+            let candidate = candidates.swap_remove(index);
+            (candidate.metadata, candidate.configuration)
         }
     };
     let initialization = Initialize {
@@ -137,6 +145,10 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
         force: args.force,
         no_git: args.no_git,
         git: args.git,
+        local: session.is_none().then_some(LocalImport {
+            configuration,
+            replace_conf: args.foverride_conf,
+        }),
     };
     let info = match session.as_ref() {
         Some(session) => remote::initialize(session, initialization, phase)?,
@@ -150,6 +162,9 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
 }
 
 fn write_info(info: &Initialized, full_command: bool) -> Result<()> {
+    if let Some(publication) = &info.publication {
+        output::write_publication(&mut io::stderr().lock(), publication)?;
+    }
     let mut stdout = io::stdout().lock();
     output::write_git(&mut stdout, info.git.as_ref())
         .context("failed to write Git initialization result")?;

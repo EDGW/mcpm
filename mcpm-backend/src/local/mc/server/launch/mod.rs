@@ -2,7 +2,14 @@
 
 use std::{collections::HashMap, path::PathBuf};
 
+pub use crate::local::java::command::{JavaCommand, JavaEntry};
+use crate::local::java::jar;
 use thiserror::Error;
+
+mod plan;
+pub use plan::{LaunchPlan, prepare, prepare_with_overrides};
+mod process;
+pub use process::{ForegroundStreams, LaunchExit, StopRequest, execute};
 
 /// A Java launch parsed without executing the script. Paths are absolute and resolved
 /// against the statically known JVM working directory. Application and JVM arguments
@@ -13,18 +20,72 @@ pub struct ServerLaunch {
     pub script: PathBuf,
     pub line: usize,
     pub directory: PathBuf,
-    pub arguments: Vec<String>,
+    pub command: JavaCommand,
+    /// Explicit exported variables only; inherited environment is not snapshotted.
+    pub environment: HashMap<String, String>,
     pub argument_files: Vec<PathBuf>,
-    pub main_class: String,
-    pub jar: Option<PathBuf>,
-    pub classpath: Vec<PathBuf>,
-    pub properties: HashMap<String, String>,
-    pub game_arguments: Vec<String>,
+    pub(crate) jar_manifest: HashMap<String, String>,
     /// Separator used by the script's target Java platform, including offline inspection.
     pub path_separator: char,
 }
 
 impl ServerLaunch {
+    /// Entry class evidence; JAR manifest data never changes the configured entry kind.
+    pub fn main_class(&self) -> &str {
+        match &self.command.entry {
+            JavaEntry::Class { main_class } => main_class,
+            JavaEntry::Jar { .. } => self
+                .jar_manifest
+                .get("main-class")
+                .map(String::as_str)
+                .unwrap_or(""),
+            JavaEntry::Module { main_class, .. } => main_class.as_deref().unwrap_or(""),
+        }
+    }
+
+    pub fn jar(&self) -> Option<PathBuf> {
+        match &self.command.entry {
+            JavaEntry::Jar { path } => Some(self.resolve(path)),
+            _ => None,
+        }
+    }
+
+    pub fn classpath(&self) -> Vec<PathBuf> {
+        if let Some(path) = self.jar() {
+            jar::manifest_paths(&path, &self.jar_manifest)
+        } else {
+            self.paths(&["-cp", "-classpath", "--class-path"])
+        }
+    }
+
+    pub fn modulepath(&self) -> Vec<PathBuf> {
+        self.paths(&["-p", "--module-path"])
+    }
+
+    fn paths(&self, names: &[&str]) -> Vec<PathBuf> {
+        self.command
+            .options()
+            .filter(|(name, _)| names.contains(name))
+            .last()
+            .and_then(|(_, value)| value)
+            .map(|value| {
+                value
+                    .split(self.path_separator)
+                    .map(|path| self.resolve(path))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn property(&self, key: &str) -> Option<&str> {
+        self.command
+            .options()
+            .filter_map(|(name, value)| {
+                (name.strip_prefix("-D") == Some(key)).then_some(value.unwrap_or(""))
+            })
+            .last()
+    }
+
     pub fn resolve(&self, path: &str) -> PathBuf {
         self.directory.join(if self.path_separator == ';' {
             path.replace('\\', "/")
@@ -42,10 +103,11 @@ impl ServerLaunch {
     /// or when repeated declarations contain conflicting values.
     pub fn option(&self, name: &str) -> Result<Option<&str>, ServerOptionError> {
         let mut found: Option<&str> = None;
-        for (index, arg) in self.game_arguments.iter().enumerate() {
+        for (index, arg) in self.command.application.iter().enumerate() {
             let value = if arg == name {
                 Some(
-                    self.game_arguments
+                    self.command
+                        .application
                         .get(index + 1)
                         .ok_or_else(|| ServerOptionError::MissingValue {
                             name: name.to_owned(),

@@ -20,14 +20,14 @@ use std::path::Path;
 /// 4. Log and return the identity; missing or conflicting evidence returns an error.
 pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdentity>> {
     // Installer launchers keep their version declarations inside the launch JAR.
-    if launch.main_class == "net.fabricmc.installer.ServerLauncher" {
-        return automatic(launch)
-            .map(Some)
-            .with_context(|| format!("failed to identify Fabric installer JAR {:?}", launch.jar));
+    if launch.main_class() == "net.fabricmc.installer.ServerLauncher" {
+        return automatic(launch).map(Some).with_context(|| {
+            format!("failed to identify Fabric installer JAR {:?}", launch.jar())
+        });
     }
     // Ordinary Fabric server entry classes are sufficient loader identity evidence.
     if !matches!(
-        launch.main_class.as_str(),
+        launch.main_class(),
         "net.fabricmc.loader.impl.launch.server.FabricServerLauncher"
             | "net.fabricmc.loader.launch.server.FabricServerLauncher"
             | "net.fabricmc.loader.impl.launch.knot.KnotServer"
@@ -38,14 +38,14 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
     let explicit_game = game_override(launch);
     let mut loader = None;
     let mut mc = None;
-    let mut paths = launch.classpath.clone();
+    let mut paths = launch.classpath();
     // Coordinates provide version evidence without opening dependency JARs.
-    if let Some(jar) = &launch.jar {
+    if let Some(jar) = &launch.jar() {
         paths.push(jar.clone());
     }
     for path in &paths {
         if let Some(version) = coordinate(path, "net.fabricmc", "fabric-loader")
-            && !launch.properties.contains_key("fabric.customLoaderPath")
+            && launch.property("fabric.customLoaderPath").is_none()
         {
             tracing::debug!(?path, %version, "found Fabric loader coordinate");
             agree(&mut loader, &version, "Fabric loader version")?;
@@ -58,13 +58,12 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
     }
     // A selected custom loader replaces classpath loader evidence.
     let custom_loader = launch
-        .properties
-        .get("fabric.customLoaderPath")
+        .property("fabric.customLoaderPath")
         .map(|value| launch.resolve(value));
     if let Some(path) = &custom_loader {
         loader = loader_version(path)?;
     } else if loader.is_none()
-        && let Some(jar) = &launch.jar
+        && let Some(jar) = &launch.jar()
     {
         loader = loader_version(jar)?;
     }
@@ -113,17 +112,16 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
 /// 3. Log and return the identity; missing or empty versions return an error.
 fn automatic(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
     let jar = launch
-        .jar
-        .as_ref()
+        .jar()
         .context("Fabric automatic launcher must be a JAR entry")?;
     // Only read installer defaults for identity fields that have no explicit override.
-    let custom_loader = launch.properties.get("fabric.customLoaderPath");
+    let custom_loader = launch.property("fabric.customLoaderPath");
     let explicit_game = game_override(launch);
     let props = if custom_loader.is_some() && explicit_game.is_some() {
         Default::default()
     } else {
         properties::parse(
-            &jar::read(jar, "install.properties")?
+            &jar::read(&jar, "install.properties")?
                 .context("Fabric install.properties is missing")?,
         )
         .with_context(|| format!("failed to parse install.properties in {jar:?}"))?
@@ -158,10 +156,8 @@ fn automatic(launch: &ServerLaunch) -> Result<ServerLoaderIdentity> {
 /// A server-specific game path takes precedence over the common game path.
 fn game_override(launch: &ServerLaunch) -> Option<&str> {
     launch
-        .properties
-        .get("fabric.gameJarPath.server")
-        .or_else(|| launch.properties.get("fabric.gameJarPath"))
-        .map(String::as_str)
+        .property("fabric.gameJarPath.server")
+        .or_else(|| launch.property("fabric.gameJarPath"))
 }
 
 /// Reads version evidence from the selected loader without validating its launchability.

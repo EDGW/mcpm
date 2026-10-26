@@ -14,8 +14,9 @@ use crate::local::{
     runtime::RuntimeEnvironment,
 };
 
+pub mod config;
 pub mod identify;
-mod launch;
+pub mod launch;
 pub mod stash;
 
 pub use launch::{ServerLaunch, ServerOptionError};
@@ -40,6 +41,23 @@ pub struct MinecraftServer {
 }
 
 impl MinecraftServer {
+    /// Validates a prospective registration without creating directories or reading old metadata.
+    fn registration_snapshot(
+        path: PathBuf,
+        metadata: MinecraftServerMetadata,
+    ) -> Result<Self, MinecraftServerError> {
+        let name = directory_name(&path)?;
+        let mods = mod_container(&path, &metadata, false)?;
+        let runtime = server_runtime(&path);
+        Ok(Self {
+            path,
+            name,
+            metadata,
+            mods,
+            runtime,
+        })
+    }
+
     /// Reads and validates metadata, then creates a missing `mods` directory for
     /// a recognized built-in loader. Vanilla and unknown loaders create no directory.
     /// Paths are retained as supplied; `~` is not expanded.
@@ -60,16 +78,7 @@ impl MinecraftServer {
             path: manifest.clone(),
             source,
         })?;
-        let metadata: MinecraftServerMetadata =
-            serde_json::from_slice(&bytes).map_err(|source| {
-                MinecraftServerError::ParseMetadata {
-                    path: manifest.clone(),
-                    source,
-                }
-            })?;
-        if metadata.version == 1 {
-            tracing::warn!(path = %manifest.display(), "Loading legacy server.json version 1; reinitialize explicitly to write version 2");
-        }
+        let metadata = metadata::decode(&manifest, &bytes)?;
         validate_start_script(&path, &metadata)?;
         let mods = mod_container(&path, &metadata, create_mods)?;
         let runtime = server_runtime(&path);
@@ -107,23 +116,13 @@ impl MinecraftServer {
     ) -> Result<Self, MinecraftServerError> {
         let name = directory_name(&path)?;
         let manifest = path.join(".mcpm/server.json");
-        let mut bytes = serde_json::to_vec_pretty(&metadata)
-            .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
-        // Validate public, caller-constructed metadata before writing anything.
-        let mut metadata: MinecraftServerMetadata =
-            serde_json::from_slice(&bytes).map_err(|source| {
-                MinecraftServerError::ParseMetadata {
-                    path: manifest.clone(),
-                    source,
-                }
-            })?;
-        metadata.version = SERVER_METADATA_VERSION;
-        validate_start_script(&path, &metadata)?;
-        bytes = serde_json::to_vec_pretty(&metadata)
-            .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
+        let (metadata, bytes) = metadata::encode(&path, &metadata)?;
+        let _lock = config::ConfigurationLock::acquire(&path, true)
+            .map_err(|source| MinecraftServerError::Configuration { source })?;
+        config::ConfigurationLock::require_clean(&path)
+            .map_err(|source| MinecraftServerError::Configuration { source })?;
         // Validate the optional mod directory before changing registration metadata.
         let mods = mod_container(&path, &metadata, true)?;
-        bytes.push(b'\n');
         let write = || -> io::Result<()> {
             let directory = path.join(".mcpm");
             fs::create_dir_all(&directory)?;
@@ -288,6 +287,11 @@ fn directory_name(path: &Path) -> Result<String, MinecraftServerError> {
 
 #[derive(Debug, Error)]
 pub enum MinecraftServerError {
+    #[error("server configuration cannot be changed")]
+    Configuration {
+        #[source]
+        source: anyhow::Error,
+    },
     #[error("invalid Minecraft server start script")]
     InvalidStartScript {
         #[source]

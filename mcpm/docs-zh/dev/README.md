@@ -18,11 +18,23 @@
 - `official` 表示正式发布流程构建，也包含官方预发布版本，不表示稳定版。该标记不是来源签名。
 - 五个入口共享版本详情和非正式 release 启动提示；提示仅写 stderr，不受日志级别影响。
 
+## 服务端配置导入与前台启动
+
+- 后端 `local/java/command.rs` 是 Java 参数区、入口边界和参数文件的唯一解析入口；识别模型中的类路径、模块路径和属性均由命令模型派生。
+- 后端 `local/mc/server/config` 拥有 TOML 类型、模板、分类、校验和发布；导入值生效，缺失值保持注释。前端不拼 TOML、不重复解释字段。
+- 本地初始化输入显式携带配置草稿；旧 Remote 协议保留自己的登记契约，不由未传输的数据推断配置。
+- `config/publication.rs` 持有配置锁和恢复日志，统一协调登记及两份 TOML；`--force` 与 `--foverride-conf` 是独立覆盖意图。跨文件发布可恢复，工作区类型标记仍是前端后续步骤。
+- 后端 `launch/plan.rs` 生成不可由前端修改的执行计划；`launch/process.rs` 持有子进程及临时参数文件，标准流直接继承。能力探测不执行 Minecraft 入口或环境注入的 agent。
+- 前端 `commands/server/launch` 检查本地路由、接入停止通知并传递类型化退出状态。Console/Raw 不转换游戏输出，不占用游戏 stdin。
+- v3 登记只存身份，旧 v1/v2 `start` 经原编解码入口兼容读取，仅用于历史展示，不自动迁移成启动配置。
+- 显式 `auto` 暂不受支持；不从模板示例、宿主机状态或旧快照推导隐式默认策略。
+- `config/overrides.rs` 拥有本次启动覆盖操作，字段及类型复用配置 schema；标量唯一，列表按序追加或清空重设。前端只将便捷参数转换为同一覆盖输入，最终配置经原 codec 和校验入口生成计划，不回写 TOML。
+
 ## 服务端 stash
 
 - `mcpm-backend::local::mc::server::stash` 负责快照业务、索引、HEAD 和锁；前端 `commands/server/stash` 只负责参数、路由和展示协调，`display/stash` 统一呈现。
 - 前端每个子命令独立拥有 Clap 参数、输入校验与执行入口，并显式选择共享或独占会话；命令族仅负责路由和公共设置。list/info 分别声明可选列，列合并与校验逻辑共用。
-- 后端 `stash/create.rs` 负责快照发布；发布失败且清理失败时，专用错误保留发布错误主链、独立清理错误链和残留备份路径。前端通过既有诊断入口分别报告两条错误链。
+- 后端 `stash/create.rs` 负责快照发布；发布失败且清理失败时，专用错误保留残留备份路径，并以 `CombinedError` 保存发布与清理错误。前端结束进度后经统一诊断入口递归展示分支。
 - 每个 `.mcpm/stash/index/<UUID>.json` 保存 version=1、id、name、created_at（UTC）和 backup UUID；`.mcpm/stash/HEAD` 保存 version=1 与 stash UUID。两者的 JSON 编解码与验证只在 stash/index.rs 实现。
 - backup 引用解析为 `.mcpm/data/<backup-UUID>`，每条记录独立拥有 backup 清单；新建 stash 使用 CacheOnly，文件内容位于服务器 stash blob；文件清单和摘要仅由现有 backup manifest 提供。数据损坏不按缓存派生索引的规则静默重建。
 - 服务器 RuntimeEnvironment 的 stash 角色延迟指向 `.mcpm/stash/blob`。backup 的显式缓存创建入口共享原有创建实现，不知道 stash 概念。
@@ -232,9 +244,13 @@ TODO.
 
 这种统一格式的输出代码统一放到 `src/display/xxx` 下，这样才能保持各种输出的一致性。
 
+项目异步执行默认使用 Tokio；运行时包装只承担必要的生命周期管理，不提供执行器选择抽象。
+
 错误统一经 `diagnostics::error` 报告；有进度条时使用 `Progress::report`。诊断入口负责日志记录、
 远端错误标记和进度协调，`src/display/error.rs` 负责 `error:` / `remote error:` 与逐层
 `caused by:` 的显示。保留错误上下文，不要直接打印错误或将错误链拼成单行。
+独立失败使用后端公共 `error::CombinedError`，通过统一 `ErrorReport` 捕获保留递归分支；
+显示、日志和远端传输复用这一结构。命令不为第二条错误链提前单独输出。
 
 Console 渲染使用 `src/display/console` 的 `ConsoleWriter`：
 

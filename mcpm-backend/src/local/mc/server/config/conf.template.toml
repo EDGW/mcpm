@@ -1,0 +1,73 @@
+# Optional. Configuration format version; omitted means 1. Only version 1 is supported.
+# version = 1
+
+[java]                                # Required table. It may be empty.
+# executable = "java"                  # Optional string. Omit to find java through PATH.
+                                      # A bare name uses PATH. A relative executable path is resolved from the server root.
+
+# [jvm.heap]                          # Optional table. Size values use JVM binary units, such as 512M or 8G.
+# initial = "512M"                     # Optional size or "auto". Emits -Xms; "auto" is currently unsupported.
+# maximum = "8G"                     # Optional size or "auto". Emits -Xmx; "auto" is currently unsupported.
+# young = "512M"                       # Optional size. Emits -Xmn; requires a compatible collector.
+# maximumRAM = "16G"                   # Optional size. Emits -XX:MaxRAM; this does not cap total process memory.
+# initialPercentage = 10.0             # Optional number. Emits InitialRAMPercentage; Java interprets the value.
+# minimumPercentage = 50.0             # Optional number. MinRAMPercentage; controls maximum heap sizing on small-memory systems.
+# maximumPercentage = 70.0             # Optional number. Emits MaxRAMPercentage; Java interprets the value.
+
+# [server]                            # Optional table. Arguments are passed to the target server for interpretation.
+# nogui = true                        # Optional boolean. true adds nogui; false adds nothing.
+# port = 25565                        # Optional integer, 0..65535. Emits --port and overrides server-port for this launch.
+# world = "world"                     # Optional string. Emits --world and overrides level-name for world directory selection.
+                                      # These fields do not modify server.properties. There is no generic bindAddress field.
+
+# [application]                       # Optional table.
+# extraArguments = []                 # Optional argv array. Appended after fixed application arguments and generated server options.
+
+# [jvm]                               # Optional table. Omitted settings emit no JVM arguments.
+# threadStack = "1M"                   # Optional size. Emits -Xss; this is thread stack memory, not heap memory.
+# extraArguments = [                   # Optional argv array. Appended after launch.toml JVM arguments and generated JVM settings.
+#     "-Dfile.encoding=UTF-8",         # Each string is one argument. No shell expansion is performed.
+# ]
+
+
+# Advanced JVM options:
+                         # Put memory and GC tuning without dedicated fields in jvm.memory.extraArguments.
+
+# [jvm.metaspace]                     # Optional table.
+# initial = "128M"                     # Optional size. MetaspaceSize: initial metadata GC threshold, not preallocated memory.
+# maximum = "512M"                     # Optional size. MaxMetaspaceSize: maximum metaspace size.
+# compressedClassSpace = "256M"        # Optional size. CompressedClassSpaceSize; requires compatible JVM capabilities.
+
+# [jvm.direct]                        # Optional table.
+# maximum = "1G"                       # Optional size. MaxDirectMemorySize: direct buffer memory limit.
+
+# [jvm.codeCache]                     # Optional table.
+# initial = "32M"                      # Optional size. InitialCodeCacheSize: initial code cache size.
+# maximum = "256M"                     # Optional size. ReservedCodeCacheSize: reserved code cache limit.
+
+# [jvm.gc]                            # Optional table. Omit collector to keep the JVM's default selection.
+# collector = "g1"                   # Optional: serial, parallel, g1, zgc, shenandoah, or epsilon.
+# maxPauseMillis = 200                 # Optional integer. MaxGCPauseMillis is a target, not a pause-time guarantee.
+# parallelThreads = 4                  # Optional integer. ParallelGCThreads; requires collector support.
+# concurrentThreads = 2                # Optional integer. ConcGCThreads; requires collector support.
+# disableExplicit = true               # Optional boolean. Emits +/-DisableExplicitGC.
+# explicitConcurrent = true            # Optional boolean. Emits +/-ExplicitGCInvokesConcurrent.
+# stringDeduplication = true           # Optional boolean. Emits +/-UseStringDeduplication; requires collector support.
+
+# [jvm.gc.g1]                         # Optional table. Requires G1; this table does not select the collector.
+# regionSize = "8M"                    # Optional size. G1HeapRegionSize; interpreted by the selected JVM.
+# reservePercentage = 10               # Optional integer percentage. G1ReservePercent; JVM-specific limits apply.
+# initiatingOccupancyPercentage = 45   # Optional integer percentage. InitiatingHeapOccupancyPercent; JVM-specific limits apply.
+
+# [jvm.memory]                        # Optional table. All remaining recognized memory and GC settings belong here.
+# preTouch = true                      # Optional boolean. Emits +/-AlwaysPreTouch.
+# largePages = true                    # Optional boolean. Emits +/-UseLargePages; operating system support is required.
+# extraArguments = [                   # Optional argv array. Preserves remaining memory/GC options in their original order.
+#     "-XX:NewRatio=2",                # Example: old-to-young generation ratio; collector-specific behavior applies.
+#     "-XX:SurvivorRatio=8",           # Example: Eden-to-survivor ratio; collector-specific behavior applies.
+# ]                         # Must not duplicate settings already managed by structured fields.
+
+# [jvm.memory.auto]                   # Reserved table. Automatic settings are currently unsupported.
+# heapFraction = 0.70                  # Reserved heap budget fraction; specifying it currently fails.
+# reserve = "1G"                       # Reserved non-heap memory budget; specifying it currently fails.
+                                      # Automatic values are currently unsupported and fail explicitly.

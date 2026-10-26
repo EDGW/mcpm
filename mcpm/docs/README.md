@@ -4,7 +4,7 @@ The executables share one implementation and configuration:
 
 | Executable | Commands |
 | --- | --- |
-| `mcpm`, `mcpm-server` | `init`, `info`, `mods`, `stash` |
+| `mcpm`, `mcpm-server` | `init`, `info`, `launch`, `mods`, `stash` |
 | `mcpmc`, `mcpm-client` | `list`, `check`, `launch` |
 | `mcpm-tools` | `cache`, `remote`, `customize`, `debug`, `mods`, `server`, `client` |
 
@@ -14,7 +14,7 @@ Inspection commands read mod archives without modifying them. `mcpm-tools mods c
 
 [Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
 
-[Server init](server/init.md) · [server info](server/info.md) · [server mods](server/mods.md) · [server mod sources](server/source.md)
+[Server init](server/init.md) · [server info](server/info.md) · [server launch](server/launch.md) · [server mods](server/mods.md) · [server mod sources](server/source.md)
 
 [Server Mod snapshots and switching](server/stash.md)
 

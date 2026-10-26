@@ -695,6 +695,7 @@ dependencies = [
  "dirs",
  "imohash",
  "lazy_static",
+ "libc",
  "md-5",
  "murmur3",
  "regex",

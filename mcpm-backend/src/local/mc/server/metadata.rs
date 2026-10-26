@@ -1,14 +1,16 @@
 //! Local server metadata schemas, including read compatibility with format version 1.
 
+use super::MinecraftServerError;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::path::Path;
 
 /// Format emitted for newly persisted local server metadata.
-pub const SERVER_METADATA_VERSION: u32 = 2;
+pub const SERVER_METADATA_VERSION: u32 = 3;
 
 /// Contents of a server root's `.mcpm/server.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MinecraftServerMetadata {
-    /// Configuration format version. Versions 1 and 2 are accepted; writes use version 2.
+    /// Versions 1 and 2 remain readable. Version 3 stores registration identity only.
     #[serde(deserialize_with = "format_version")]
     pub version: u32,
     /// Minecraft version, rather than the loader version.
@@ -17,7 +19,7 @@ pub struct MinecraftServerMetadata {
     /// Required in JSON; use `null` for servers without a mod loader.
     #[serde(deserialize_with = "Option::deserialize")]
     pub loader: Option<ServerModLoader>,
-    /// Selected static launch snapshot, absent in manually registered/older configurations.
+    /// Legacy snapshot, read for compatibility; new registration writes remove it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start: Option<ServerStartCommand>,
 }
@@ -34,12 +36,39 @@ pub struct ServerStartCommand {
 
 fn format_version<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
     let version = u32::deserialize(deserializer)?;
-    if version != 1 && version != SERVER_METADATA_VERSION {
+    if !matches!(version, 1 | 2 | SERVER_METADATA_VERSION) {
         return Err(serde::de::Error::custom(format!(
-            "unsupported server metadata version {version}; expected 1 or {SERVER_METADATA_VERSION}"
+            "unsupported server metadata version {version}; expected 1, 2 or {SERVER_METADATA_VERSION}"
         )));
     }
     Ok(version)
+}
+
+pub(super) fn decode(
+    path: &Path,
+    bytes: &[u8],
+) -> Result<MinecraftServerMetadata, MinecraftServerError> {
+    serde_json::from_slice(bytes).map_err(|source| MinecraftServerError::ParseMetadata {
+        path: path.to_owned(),
+        source,
+    })
+}
+
+/// Validates public inputs through the same schema, then emits identity-only registration.
+pub(super) fn encode(
+    root: &Path,
+    metadata: &MinecraftServerMetadata,
+) -> Result<(MinecraftServerMetadata, Vec<u8>), MinecraftServerError> {
+    let bytes = serde_json::to_vec(metadata)
+        .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
+    let mut metadata = decode(&root.join(".mcpm/server.json"), &bytes)?;
+    super::validate_start_script(root, &metadata)?;
+    metadata.version = SERVER_METADATA_VERSION;
+    metadata.start = None;
+    let mut bytes = serde_json::to_vec_pretty(&metadata)
+        .map_err(|source| MinecraftServerError::SerializeMetadata { source })?;
+    bytes.push(b'\n');
+    Ok((metadata, bytes))
 }
 
 /// A declared loader identity and version; no implementation is instantiated.

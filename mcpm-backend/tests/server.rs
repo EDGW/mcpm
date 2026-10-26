@@ -4,7 +4,7 @@ use std::fs;
 use tempfile::TempDir;
 
 #[test]
-fn relative_start_script_survives_server_relocation_and_drops_legacy_directory() {
+fn new_registration_removes_legacy_start_snapshot_and_survives_relocation() {
     use mcpm_backend::local::mc::server::MinecraftServer;
 
     let parent = TempDir::new().unwrap();
@@ -17,15 +17,14 @@ fn relative_start_script_survives_server_relocation_and_drops_legacy_directory()
         MinecraftServer::create(&original, serde_json::from_value(value).unwrap()).unwrap();
     let bytes = fs::read(server.metadata_path()).unwrap();
     let saved: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(saved["start"].get("directory").is_none());
+    assert!(saved.get("start").is_none());
     let moved = parent.path().join("moved");
     fs::rename(&original, &moved).unwrap();
     let loaded = MinecraftServer::load(&moved).unwrap();
     assert_eq!(loaded.path(), moved);
     assert_eq!(loaded.metadata(), server.metadata());
-    let script = &loaded.metadata().start.as_ref().unwrap().script;
-    assert_eq!(script, std::path::Path::new("scripts/run.sh"));
-    assert!(loaded.path().join(script).is_file());
+    assert!(loaded.metadata().start.is_none());
+    assert!(loaded.path().join("scripts/run.sh").is_file());
     assert_eq!(fs::read(loaded.metadata_path()).unwrap(), bytes);
 }
 
@@ -103,7 +102,13 @@ fn script_symlinks_cannot_escape_at_initialization_or_after_registration() {
     assert!(identify::identify(&root, "external/missing.sh", &BUILTIN_LOADERS).is_err());
     assert!(!root.join(".mcpm").exists());
 
-    MinecraftServer::create(&root, metadata_with_script("scripts/run.sh")).unwrap();
+    // Legacy snapshots still use the original validation path when read from disk.
+    fs::create_dir_all(root.join(".mcpm")).unwrap();
+    fs::write(
+        root.join(".mcpm/server.json"),
+        serde_json::to_vec(&metadata_with_script("scripts/run.sh")).unwrap(),
+    )
+    .unwrap();
     symlink(&outside, root.join("scripts")).unwrap();
     assert!(MinecraftServer::load(&root).is_err());
     assert!(MinecraftServer::inspect(&root).is_err());
@@ -218,7 +223,7 @@ fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments(
             .chain(expected)
             .map(str::to_owned)
             .collect();
-        assert_eq!(candidate.launch.arguments, expected, "{suffix:?}");
+        assert_eq!(candidate.launch.command.arguments(), expected, "{suffix:?}");
         assert_eq!(
             candidate.metadata.start.as_ref().unwrap().arguments,
             expected,
@@ -276,7 +281,7 @@ fn identification_errors_retain_script_archive_member_and_parser_cause() {
         }
     }
     fs::write(root.path().join("run.sh"), "java @broken.args\n").unwrap();
-    fs::write(root.path().join("broken.args"), "\"unterminated").unwrap();
+    fs::write(root.path().join("broken.args"), "\"unfinished\\").unwrap();
     let error = identify(root.path(), "run.sh", &BUILTIN_LOADERS).unwrap_err();
     let message = format!("{error:#}");
     assert!(message.contains("broken.args"), "{message}");

@@ -17,13 +17,13 @@ use crate::ssh::SshArgs;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = format!("Modes: Console (default in a terminal), Raw (--raw or redirected stdout). Remote: supported through {tools} remote (command ID: server.info) and --ssh.\n\nRemote workspaces also show their saved remote path, masked SSH command and remote mcpm executable. SSH commands remain masked with --full-command. With --ssh, PATH is resolved on the remote machine; output is formatted locally. Startup commands retain the source server’s Windows or Unix argument quoting.", tools = crate::program::roots().tools)
+    after_help = format!("Modes: Console (default in a terminal), Raw (--raw or redirected stdout). Remote: supported through {tools} remote (command ID: server.info) and --ssh.\n\nRemote workspaces also show their saved remote path, masked SSH command and remote mcpm executable. SSH commands remain masked with --full-command. With --ssh, PATH is resolved on the remote machine; output is formatted locally. Legacy command snapshots retain source Windows/Unix quoting. Local Console output reports launch.toml and conf.toml presence; info does not prepare or run a launch.", tools = crate::program::roots().tools)
 )]
 pub(super) struct InfoArgs {
     /// Server directory on the data-source machine; defaults to its current directory.
     #[arg(value_name = "PATH", default_value = ".")]
     path: PathBuf,
-    /// Show the entire flattened command instead of truncating it to one terminal line.
+    /// Show the entire legacy command snapshot when present; launch uses the TOML files.
     #[arg(long)]
     full_command: bool,
 }
@@ -36,7 +36,10 @@ pub(super) fn run(args: InfoArgs, ssh: SshArgs) -> Result<()> {
     } else {
         tracing::info!(path = %path.display(), "Reading server metadata");
         let server = workspace::inspect_local(path)?;
-        ServerInfo::from_server(&server)
+        let mut info = ServerInfo::from_server(&server);
+        info.configuration =
+            Some(mcpm_backend::local::mc::server::config::configuration_files(server.path())?);
+        info
     };
     let mut stdout = io::stdout().lock();
     let remote = remote.as_ref().map(metadata::remote_view);
