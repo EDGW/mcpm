@@ -15,7 +15,7 @@ use std::collections::HashSet;
 
 use anyhow::{Result, bail};
 
-use crate::local::java::jar::{DuplicateHeaders, attributes};
+use crate::local::java::jar::attributes;
 
 /// Loader-specific substitution namespaces; file properties share one implementation.
 #[derive(Clone, Copy)]
@@ -59,7 +59,7 @@ pub(super) fn resolve(
         if key == "jarVersion" {
             if manifest_version.is_none() {
                 let contents = read_manifest()?.unwrap_or_default();
-                let attributes = attributes(&contents, DuplicateHeaders::LastWins)?;
+                let attributes = attributes(&contents)?;
                 manifest_version = Some(
                     attributes
                         .get("implementation-version")

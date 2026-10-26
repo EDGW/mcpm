@@ -239,7 +239,7 @@ fn identification_errors_retain_script_archive_member_and_parser_cause() {
         (
             "net.fabricmc.installer.ServerLauncher",
             "install.properties",
-            b"malformed".as_slice(),
+            br"malformed=\u12xz".as_slice(),
         ),
     ] {
         let mut archive = ZipWriter::new(Cursor::new(Vec::new()));

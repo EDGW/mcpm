@@ -5,18 +5,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 
 use crate::local::archive::zip::{Archive, ArchiveError};
 
 pub(crate) const MAX_DOCUMENT: u64 = 4 * 1024 * 1024;
-
-/// Server evidence rejects duplicates; FML version substitution keeps the last header.
-#[derive(Clone, Copy)]
-pub(crate) enum DuplicateHeaders {
-    Reject,
-    LastWins,
-}
 
 pub(crate) fn open(path: &Path) -> Result<Archive> {
     Archive::open(path).map_err(|source| {
@@ -50,15 +43,12 @@ pub(crate) fn read_text(archive: &mut Archive, member: &str) -> Result<Option<St
 pub(crate) fn manifest(path: &Path) -> Result<HashMap<String, String>> {
     let bytes = read(path, "META-INF/MANIFEST.MF")?
         .with_context(|| format!("JAR {path:?} has no manifest"))?;
-    (|| attributes(std::str::from_utf8(&bytes)?, DuplicateHeaders::Reject))()
+    (|| attributes(std::str::from_utf8(&bytes)?))()
         .with_context(|| format!("failed to parse META-INF/MANIFEST.MF in {path:?}"))
 }
 
-/// Main section only; continuation lines belong to their preceding attribute.
-pub(crate) fn attributes(
-    text: &str,
-    duplicates: DuplicateHeaders,
-) -> Result<HashMap<String, String>> {
+/// Main section only; continuations are unfolded and repeated names keep the last value.
+pub(crate) fn attributes(text: &str) -> Result<HashMap<String, String>> {
     let mut unfolded = Vec::<String>::new();
     for line in text.lines() {
         if line.is_empty() {
@@ -78,11 +68,7 @@ pub(crate) fn attributes(
         let (key, value) = line
             .split_once(": ")
             .context("invalid manifest attribute")?;
-        let previous = values.insert(key.to_ascii_lowercase(), value.to_owned());
-        ensure!(
-            matches!(duplicates, DuplicateHeaders::LastWins) || previous.is_none(),
-            "duplicate manifest attribute {key}"
-        );
+        values.insert(key.to_ascii_lowercase(), value.to_owned());
     }
     Ok(values)
 }
