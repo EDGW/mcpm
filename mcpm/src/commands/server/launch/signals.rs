@@ -4,6 +4,16 @@ use anyhow::{Context, Result};
 use mcpm_backend::local::mc::server::launch::StopRequest;
 use std::sync::mpsc::Sender;
 
+/// Adapts the existing synchronous process channel while asynchronous preparation is pending.
+pub(super) async fn wait(stop: &std::sync::mpsc::Receiver<StopRequest>) -> StopRequest {
+    loop {
+        if let Ok(request) = stop.try_recv() {
+            return request;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
 #[cfg(unix)]
 pub(super) struct Handler {
     handle: signal_hook::iterator::Handle,

@@ -14,6 +14,7 @@ use crate::local::{
     runtime::RuntimeEnvironment,
 };
 
+pub mod authlib_injector;
 pub mod config;
 pub mod identify;
 pub mod launch;

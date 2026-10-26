@@ -1,5 +1,7 @@
 //! Console and Raw presentation for server output.
 
+pub(crate) mod launch;
+
 use std::io::{self, Write};
 
 use crate::{

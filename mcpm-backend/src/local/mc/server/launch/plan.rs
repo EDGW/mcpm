@@ -1,9 +1,11 @@
 //! Creates the single validated local Java execution plan from server-root configuration.
 
+use crate::download::Downloader;
 use crate::local::{
     java::{capabilities, command},
     mc::server::{
         MinecraftServer,
+        authlib_injector::{self, JarPolicy},
         config::{self, Platform},
     },
 };
@@ -13,6 +15,8 @@ use std::{
     ffi::{OsStr, OsString},
     path::{Path, PathBuf},
 };
+
+use super::{Event, Stage};
 
 /// Immutable execution input; only backend preparation can construct it.
 #[derive(Debug)]
@@ -41,15 +45,38 @@ impl LaunchPlan {
 
 /// Reads configuration under a short shared lock, then resolves the Java executable.
 /// No source scripts, legacy start snapshots or server.properties are consulted.
-pub fn prepare(root: &Path) -> Result<LaunchPlan> {
-    prepare_with_overrides(root, &config::ConfigurationOverrides::default())
+pub async fn prepare(
+    root: &Path,
+    downloader: impl FnOnce() -> Result<Downloader>,
+) -> Result<LaunchPlan> {
+    prepare_with_overrides(
+        root,
+        &config::ConfigurationOverrides::default(),
+        None,
+        downloader,
+    )
+    .await
 }
 
 /// Builds a plan from the effective launch-only configuration without rewriting either file.
-pub fn prepare_with_overrides(
+pub async fn prepare_with_overrides(
     root: &Path,
     overrides: &config::ConfigurationOverrides,
+    auth_policy: Option<JarPolicy>,
+    downloader: impl FnOnce() -> Result<Downloader>,
 ) -> Result<LaunchPlan> {
+    prepare_with_progress(root, overrides, auth_policy, downloader, &|_| Ok(())).await
+}
+
+/// Observes preparation through a caller-owned callback without changing plan ownership.
+pub async fn prepare_with_progress(
+    root: &Path,
+    overrides: &config::ConfigurationOverrides,
+    auth_policy: Option<JarPolicy>,
+    downloader: impl FnOnce() -> Result<Downloader>,
+    progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
+) -> Result<LaunchPlan> {
+    progress(Event::Stage(Stage::Configuration))?;
     let root = std::fs::canonicalize(root).context("failed to resolve local server root")?;
     let (launch, conf) = {
         let _lock = config::ConfigurationLock::acquire(&root, false)?;
@@ -57,6 +84,7 @@ pub fn prepare_with_overrides(
         let (launch, conf) = config::read(&root, overrides)?;
         (launch, conf)
     };
+    progress(Event::Stage(Stage::LocalChecks))?;
     ensure!(
         launch
             .platform
@@ -84,6 +112,27 @@ pub fn prepare_with_overrides(
     )?;
     let mut jvm = launch.jvm.extra_arguments.clone();
     jvm.extend(conf.jvm_arguments()?);
+    let managed = conf
+        .authlib_injector
+        .as_ref()
+        .is_some_and(|auth| auth.manual_jar().is_none());
+    ensure!(
+        auth_policy.is_none() || managed,
+        "--auth-jar-policy requires an enabled authlib-injector configuration with a managed JAR"
+    );
+    if let Some(auth) = &conf.authlib_injector {
+        let path = match auth.manual_jar() {
+            Some(path) => {
+                progress(Event::Authentication(authlib_injector::Event::Checking))?;
+                let path = authlib_injector::manual(&root, path)?;
+                progress(Event::Authentication(authlib_injector::Event::Ready))?;
+                path
+            }
+            None => authlib_injector::managed_path(&root),
+        };
+        validate_agents(&jvm, &directory, &path)?;
+        jvm.extend(auth.arguments(&path)?);
+    }
     let arguments: Vec<_> = jvm
         .into_iter()
         .chain(launch.entry.arguments())
@@ -104,6 +153,7 @@ pub fn prepare_with_overrides(
     let argument_file = estimated_length > if cfg!(windows) { 24_000 } else { 96_000 }
         || arguments.iter().any(|argument| argument.len() > 64_000);
     if argument_file {
+        progress(Event::Stage(Stage::JavaCapabilities))?;
         if let Some(value) = environment_value(&environment, "JDK_JAVA_OPTIONS") {
             let value = value
                 .to_str()
@@ -119,6 +169,17 @@ pub fn prepare_with_overrides(
             "long commands require Java 9+ argument-file support"
         );
     }
+    // Local validation and capability probes precede any installation or network request.
+    if managed {
+        authlib_injector::prepare_with_progress(
+            &root,
+            auth_policy.unwrap_or_default(),
+            downloader,
+            &|event| progress(Event::Authentication(event)),
+        )
+        .await?;
+    }
+    progress(Event::Stage(Stage::Ready))?;
     Ok(LaunchPlan {
         executable,
         directory,
@@ -126,6 +187,50 @@ pub fn prepare_with_overrides(
         arguments,
         argument_file,
     })
+}
+
+fn validate_agents(arguments: &[String], directory: &Path, configured: &Path) -> Result<()> {
+    let configured = agent_location(configured);
+    let mut probe = arguments.to_vec();
+    probe.push("mcpm.validation.Main".into());
+    for (name, _) in command::JavaCommand::parse(&probe)?.options() {
+        if let Some(path) = name.strip_prefix("-javaagent:") {
+            let path = directory.join(path);
+            let location = agent_location(&path);
+            let same = location == configured;
+            #[cfg(windows)]
+            let same = same
+                || location
+                    .as_os_str()
+                    .as_encoded_bytes()
+                    .eq_ignore_ascii_case(configured.as_os_str().as_encoded_bytes());
+            ensure!(
+                !same && !authlib_injector::is_agent(&path),
+                "authlib-injector agent is configured both as a structured table and a raw JVM argument: {path:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Resolves existing prefixes while retaining a missing installation tail for duplicate checks.
+fn agent_location(path: &Path) -> PathBuf {
+    let mut result = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                result.pop();
+            }
+            _ => {
+                result.push(component.as_os_str());
+                if let Ok(resolved) = std::fs::canonicalize(&result) {
+                    result = resolved;
+                }
+            }
+        }
+    }
+    result
 }
 
 fn executable(

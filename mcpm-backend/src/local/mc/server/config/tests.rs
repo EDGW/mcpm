@@ -6,6 +6,88 @@ use crate::local::{
     modloader::BUILTIN_LOADERS,
 };
 
+#[test]
+fn authentication_import_uses_manifest_identity_and_preserves_foreign_operands() {
+    use std::io::Write;
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("agents")).unwrap();
+    let mut archive =
+        zip::ZipWriter::new(fs::File::create(root.path().join("agents/renamed.jar")).unwrap());
+    archive
+        .start_file(
+            "META-INF/MANIFEST.MF",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+    archive
+        .write_all(
+            b"Manifest-Version: 1.0\r\nPremain-Class: moe.yushi.authlibinjector.Premain\r\n\r\n",
+        )
+        .unwrap();
+    archive.finish().unwrap();
+    fs::write(root.path().join("agents/foreign.jar"), b"foreign agent").unwrap();
+    fs::write(root.path().join("run.sh"), "cd agents\njava '-javaagent:renamed.jar=https://example.com/api/?a=b' -Dauthlibinjector.debug -Dauthlibinjector.noLogFile=false -Dauthlibinjector.future=x -Dauthlibinjector.httpdPort=invalid -javaagent:foreign.jar=opaque -cp '-Dauthlibinjector.profileKey=disabled' cpw.mods.bootstraplauncher.BootstrapLauncher --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1\n").unwrap();
+    let candidate = identify::identify(root.path(), "run.sh", &BUILTIN_LOADERS)
+        .unwrap()
+        .remove(0);
+    let conf = decode_conf(&candidate.configuration.template().unwrap()).unwrap();
+    let auth = conf.authlib_injector.unwrap();
+    assert_eq!(auth.jar.as_deref(), Some("agents/renamed.jar"));
+    assert_eq!(auth.api_url, "https://example.com/api/?a=b");
+    assert_eq!(auth.debug, ["verbose", "authlib"]);
+    assert_eq!(auth.no_log_file, Some(true));
+    assert!(auth.profile_key.is_none());
+    assert_eq!(
+        candidate.configuration.launch.jvm.extra_arguments,
+        [
+            "-Dauthlibinjector.future=x",
+            "-Dauthlibinjector.httpdPort=invalid",
+            "-javaagent:foreign.jar=opaque",
+            "-cp",
+            "-Dauthlibinjector.profileKey=disabled"
+        ]
+    );
+
+    let mut duplicate = candidate.launch.clone();
+    duplicate
+        .command
+        .jvm
+        .push("-javaagent:renamed.jar=https://other.example/".into());
+    assert!(draft(root.path(), &duplicate).is_err());
+
+    // A missing agent cannot silently survive initialization as an unrecognized raw option.
+    fs::remove_file(root.path().join("agents/renamed.jar")).unwrap();
+    let error = draft(root.path(), &candidate.launch).unwrap_err();
+    assert!(format!("{error:#}").contains("imported Java agent JAR"));
+    for argument in ["-javaagent:missing.jar", "-javaagent:missing.jar=opaque"] {
+        let mut launch = candidate.launch.clone();
+        launch.command.jvm = vec![argument.into()];
+        assert!(draft(root.path(), &launch).is_err());
+    }
+}
+
+#[test]
+fn authentication_overrides_probe_optional_table_without_enabling_defaults() {
+    let mut changes = ConfigurationOverrides::default();
+    for assignment in [
+        "authlib-injector.apiUrl=https://example.com/",
+        "authlib-injector.debug=verbose",
+        "authlib-injector.debug:=",
+        "authlib-injector.debug+=['authlib', 'dumpClass']",
+        "authlib-injector.jar=",
+    ] {
+        changes.parse(assignment).unwrap();
+    }
+    assert!(changes.set("authlib-injector.apiUrl", "other").is_err());
+    let conf = decode_conf_with_overrides("[java]", &changes).unwrap();
+    let auth = conf.authlib_injector.unwrap();
+    assert_eq!(auth.debug, ["authlib", "dumpClass"]);
+    assert!(auth.manual_jar().is_none());
+    assert!(decode_conf("[java]").unwrap().authlib_injector.is_none());
+    assert!(decode_conf("[java]\n[authlib-injector]").is_err());
+    assert!(decode_conf("[java]\n[authlib-injector]\napiUrl='https://example.com/'\nnoLogFile=false\n[jvm]\nextraArguments=['-Dauthlibinjector.noLogFile']").is_err());
+}
+
 fn candidate(root: &Path, options: &str) -> identify::ServerCandidate {
     fs::write(root.join("run.sh"), format!("java {options} cpw.mods.bootstraplauncher.BootstrapLauncher --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1 --launchTarget forge_server nogui\n")).unwrap();
     identify::identify(root, "run.sh", &BUILTIN_LOADERS)

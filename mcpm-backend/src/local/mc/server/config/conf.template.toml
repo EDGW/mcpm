@@ -14,6 +14,24 @@
 # minimumPercentage = 50.0             # Optional number. MinRAMPercentage; controls maximum heap sizing on small-memory systems.
 # maximumPercentage = 70.0             # Optional number. Emits MaxRAMPercentage; Java interprets the value.
 
+# [authlib-injector]                  # Optional table. Enabling it requires apiUrl.
+# apiUrl = "https://example.com/api/yggdrasil/" # Authentication API URL.
+# jar = ""                           # Omit or leave empty for mcpm-managed .mcpm/authlib-injector/authlib-injector.jar.
+                                     # A nonempty path uses your JAR without hash verification or automatic replacement.
+                                     # Relative JAR paths resolve from the server root, regardless of Java working directory.
+# noLogFile = true                    # Console logging only; false or omission emits no property.
+# mojangNamespace = "default"         # default, enabled, disabled; default delegates to the agent.
+# mojangProxy = "socks://127.0.0.1:1080" # Proxy for the Mojang namespace feature only.
+# legacySkinPolyfill = "default"      # default, enabled, disabled.
+# debug = []                          # Options: verbose, authlib, dumpClass, printUntransformed; joined with commas.
+# ignoredPackages = []                # Additional Java package prefixes; joined with commas.
+# disableHttpd = true                 # Disables built-in HTTP; affects Mojang namespace and legacy skin API support.
+# httpdPort = 0                       # Integer, 0..65535; 0 selects a random port.
+# noShowServerName = true             # Hides authentication server name on the Minecraft main screen.
+# mojangAntiFeatures = "default"      # default, enabled, disabled.
+# profileKey = "default"              # default, enabled, disabled; requires authentication server support.
+# usernameCheck = "default"           # default, enabled, disabled; enabled can reject non-English usernames.
+
 # [server]                            # Optional table. Arguments are passed to the target server for interpretation.
 # nogui = true                        # Optional boolean. true adds nogui; false adds nothing.
 # port = 25565                        # Optional integer, 0..65535. Emits --port and overrides server-port for this launch.

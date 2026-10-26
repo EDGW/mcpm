@@ -229,3 +229,79 @@ fn launch_leaves_jvm_and_application_legality_to_the_selected_process() {
     assert!(observed.contains("-Xms3G\n-Xmx0\n-XX:MaxRAMPercentage=200\n"));
     assert!(observed.contains("-Xmxnot-a-size\nexample.Main\nfixed\n--port\n0\n--world\n\n"));
 }
+
+#[test]
+fn authentication_override_resolves_manual_jar_from_root_and_leaves_managed_state_untouched() {
+    let root = tempfile::tempdir().unwrap();
+    initialize(root.path(), "printf '%s\\n' \"$@\" > observation\nexit 29");
+    fs::write(
+        root.path().join("manual agent.jar"),
+        b"user supplied file; no hash validation",
+    )
+    .unwrap();
+    fs::create_dir(root.path().join(".mcpm/authlib-injector")).unwrap();
+    let meta = root.path().join(".mcpm/authlib-injector/meta.json");
+    fs::write(&meta, b"unreadable as metadata").unwrap();
+    let original = fs::read(root.path().join("conf.toml")).unwrap();
+    for flag in ["--auth", "-A"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+            .arg("launch")
+            .arg("--server")
+            .arg(root.path())
+            .args([
+                flag,
+                "https://example.com/api/?a=b",
+                "-Oauthlib-injector.jar=manual agent.jar",
+                "-Oauthlib-injector.noLogFile=true",
+            ])
+            .current_dir("/")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(29), "{output:?}");
+        let observed = fs::read_to_string(root.path().join("work/observation")).unwrap();
+        let agent = format!(
+            "-javaagent:{}=https://example.com/api/?a=b\n",
+            fs::canonicalize(root.path())
+                .unwrap()
+                .join("manual agent.jar")
+                .display()
+        );
+        assert!(observed.contains(&agent), "{observed}");
+        assert!(observed.contains("-Dauthlibinjector.noLogFile\nexample.Main\n"));
+        assert_eq!(fs::read(root.path().join("conf.toml")).unwrap(), original);
+        assert_eq!(fs::read(&meta).unwrap(), b"unreadable as metadata");
+    }
+    fs::remove_file(root.path().join("work/observation")).unwrap();
+    for arguments in [
+        vec![
+            "-A",
+            "https://example.com/",
+            "-Oauthlib-injector.apiUrl=https://other.example/",
+        ],
+        vec!["--auth-jar-policy", "local"],
+        vec!["-A", "https://example.com/", "--auth-jar-policy", "local"],
+        vec![
+            "-A",
+            "https://example.com/",
+            "-Oauthlib-injector.jar=manual agent.jar",
+            "--auth-jar-policy",
+            "auto",
+        ],
+        vec![
+            "-A",
+            "https://example.com/",
+            "-Oauthlib-injector.jar=manual agent.jar",
+            "-E-javaagent:../manual agent.jar=opaque",
+        ],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_mcpm"))
+            .arg("launch")
+            .arg("--server")
+            .arg(root.path())
+            .args(&arguments)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{arguments:?}: {output:?}");
+        assert!(!root.path().join("work/observation").exists());
+    }
+}

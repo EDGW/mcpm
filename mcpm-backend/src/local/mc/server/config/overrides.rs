@@ -47,10 +47,16 @@ impl ConfigurationOverrides {
     fn push(&mut self, key: &str, mut value: Value, mode: Mode, raw: Option<&str>) -> Result<()> {
         ensure!(
             key.split('.').all(|part| !part.is_empty()
-                && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')),
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))),
             "invalid override key {key:?}"
         );
-        let schema = Value::try_from(ServerConfig::default())?;
+        // Include optional tables only in the type probe, never in effective defaults.
+        let schema = Value::try_from(ServerConfig {
+            authlib_injector: Some(super::AuthlibInjector::default()),
+            ..ServerConfig::default()
+        })?;
         let list = lookup(&schema, key).is_some_and(Value::is_array);
         ensure!(
             !lookup(&schema, key).is_some_and(Value::is_table),

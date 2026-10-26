@@ -1,4 +1,4 @@
-//! Pure classification of a parsed launch into fixed structure and effective imported settings.
+//! Classifies parsed launch evidence and agent JAR metadata into fixed structure and user settings.
 
 use super::*;
 use crate::local::mc::server::ServerLaunch;
@@ -56,7 +56,7 @@ impl ImportedValue {
     }
 }
 
-/// Consumes parsed evidence only; never rereads scripts, writes files or runs Java.
+/// Consumes parsed command evidence and agent metadata; never rereads scripts, writes files or runs Java.
 pub fn draft(root: &Path, launch: &ServerLaunch) -> Result<ConfigurationDraft> {
     let root = std::fs::canonicalize(root)
         .context("failed to resolve server root for configuration draft")?;
@@ -86,22 +86,36 @@ pub fn draft(root: &Path, launch: &ServerLaunch) -> Result<ConfigurationDraft> {
         field: "java.executable".into(),
         value: ImportedValue::String(executable),
     }];
+    let (auth_settings, auth_consumed) = authlib_injector::import(root.as_path(), launch)?;
+    imported.extend(auth_settings);
     let mut fixed = Vec::new();
     let mut memory = Vec::new();
     let mut index = 0;
     for (name, operand) in launch.command.options() {
         let raw = &launch.command.jvm[index];
+        if let Some(path) = name.strip_prefix("-javaagent:") {
+            let path = launch.resolve(path);
+            let file = std::fs::File::open(&path)
+                .with_context(|| format!("failed to open imported Java agent JAR {path:?}"))?;
+            ensure!(
+                file.metadata()
+                    .with_context(|| format!("failed to inspect imported Java agent JAR {path:?}"))?
+                    .is_file(),
+                "imported Java agent JAR is not a file: {path:?}"
+            );
+        }
         let count = if raw.contains('=') || operand.is_none() {
             1
         } else {
             2
         };
-        if managed(raw).is_some() {
+        if auth_consumed.contains(&index) {
+            // The structured authentication configuration owns this argument.
+        } else if managed(raw).is_some() {
             memory.push(raw.clone());
         } else {
             fixed.extend_from_slice(&launch.command.jvm[index..index + count]);
         }
-        let _ = name;
         index += count;
     }
     // Preserve complex combinations as one ordered region instead of silently changing precedence.
@@ -197,7 +211,7 @@ pub fn draft(root: &Path, launch: &ServerLaunch) -> Result<ConfigurationDraft> {
     Ok(draft)
 }
 
-fn executable_is_absolute(path: &str, separator: char) -> bool {
+pub(super) fn executable_is_absolute(path: &str, separator: char) -> bool {
     if separator == ';' {
         let bytes = path.as_bytes();
         path.starts_with(['\\', '/'])
@@ -210,7 +224,7 @@ fn executable_is_absolute(path: &str, separator: char) -> bool {
     }
 }
 
-fn relative_directory(root: &Path, directory: &Path) -> Result<String> {
+pub(super) fn relative_directory(root: &Path, directory: &Path) -> Result<String> {
     let mut base: Vec<_> = root.components().collect();
     let target: Vec<_> = directory.components().collect();
     let common = base.iter().zip(&target).take_while(|(a, b)| a == b).count();

@@ -47,6 +47,45 @@ impl Progress {
         );
     }
 
+    /// Changes a task label without inventing an overall percentage.
+    pub(crate) fn set_message(&self, message: &str) {
+        self.bar.set_message(message.to_owned());
+    }
+
+    /// Resets elapsed time and speed when a new download attempt starts.
+    pub(crate) fn start_bytes(&self, message: &str) {
+        self.bar.reset();
+        self.set_message(message);
+        self.bytes(0, None);
+    }
+
+    /// Shows determinate transfer progress only while its total remains usable.
+    pub(crate) fn bytes(&self, received: u64, total: Option<u64>) {
+        let total = total.filter(|total| *total > 0 && received <= *total);
+        let template = if let Some(total) = total {
+            self.bar.set_length(total);
+            "{spinner} {msg} [{wide_bar}] {percent}% {bytes}/{total_bytes} {bytes_per_sec} ETA {eta}"
+        } else {
+            self.bar.unset_length();
+            "{spinner} {msg} {bytes} {bytes_per_sec} {elapsed_precise}"
+        };
+        self.bar.set_style(
+            ProgressStyle::with_template(&crate::theme::progress_template(template))
+                .expect("byte progress template must be valid"),
+        );
+        self.bar.set_position(received);
+    }
+
+    /// Returns to a phase indicator after transfer, with no stale byte percentage.
+    pub(crate) fn phase(&self, message: &str) {
+        self.bar.set_style(
+            ProgressStyle::with_template(&crate::theme::progress_template("{spinner} {msg}"))
+                .expect("phase progress template must be valid"),
+        );
+        self.set_message(message);
+        self.bar.force_draw();
+    }
+
     pub(crate) fn set_position(&self, position: usize) {
         self.bar.set_position(position as u64);
     }

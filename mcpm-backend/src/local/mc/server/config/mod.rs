@@ -7,6 +7,8 @@ use std::{fs, path::Path};
 mod types;
 pub use types::*;
 mod application;
+mod authlib_injector;
+pub use authlib_injector::{AuthlibInjector, FeatureOption};
 pub(crate) mod tuning;
 pub(crate) use tuning::{managed, validate_arguments};
 mod import;
@@ -137,7 +139,12 @@ impl LaunchConfig {
 
 impl ServerConfig {
     pub fn validate(&self) -> Result<()> {
-        tuning::validate(self)
+        tuning::validate(self)?;
+        if let Some(auth) = &self.authlib_injector {
+            auth.validate()?;
+            auth.validate_properties(&self.jvm.extra_arguments)?;
+        }
+        Ok(())
     }
     pub(crate) fn jvm_arguments(&self) -> Result<Vec<String>> {
         tuning::generate(self)
@@ -161,6 +168,9 @@ impl ServerConfig {
 pub(crate) fn validate_pair(launch: &LaunchConfig, conf: &ServerConfig) -> Result<()> {
     launch.validate()?;
     conf.validate()?;
+    if let Some(auth) = &conf.authlib_injector {
+        auth.validate_properties(&launch.jvm.extra_arguments)?;
+    }
     let mut jvm = launch.jvm.extra_arguments.clone();
     jvm.extend(conf.jvm_arguments()?);
     command::validate_jvm(&jvm)

@@ -73,6 +73,8 @@ pub struct ServerConfig {
     pub server: Server,
     #[serde(default)]
     pub application: Arguments,
+    #[serde(default, rename = "authlib-injector")]
+    pub authlib_injector: Option<super::AuthlibInjector>,
 }
 
 impl Default for ServerConfig {
@@ -83,6 +85,7 @@ impl Default for ServerConfig {
             jvm: Jvm::default(),
             server: Server::default(),
             application: Arguments::default(),
+            authlib_injector: None,
         }
     }
 }

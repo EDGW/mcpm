@@ -7,7 +7,9 @@ use crate::local::java::jar;
 use thiserror::Error;
 
 mod plan;
-pub use plan::{LaunchPlan, prepare, prepare_with_overrides};
+pub use plan::{LaunchPlan, prepare, prepare_with_overrides, prepare_with_progress};
+mod progress;
+pub use progress::{Event, Stage};
 mod process;
 pub use process::{ForegroundStreams, LaunchExit, StopRequest, execute};
 
