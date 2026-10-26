@@ -33,7 +33,7 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
     let ready = event(&mut output);
     assert_eq!(ready["guid"], Uuid::nil().to_string());
     assert_eq!(ready["status"], "ready");
-    assert_eq!(ready["contents"]["version"], 4);
+    assert_eq!(ready["contents"]["version"], 5);
     assert_eq!(ready["contents"]["max_concurrency"], 16);
     let commands = ready["contents"]["commands"].as_array().unwrap();
     assert!(commands.iter().any(|id| id == LIST));

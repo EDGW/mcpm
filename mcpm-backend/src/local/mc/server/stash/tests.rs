@@ -237,7 +237,9 @@ fn failed_publication_and_cleanup_retain_independent_causes_and_backup_location(
         .downcast_ref::<CreateCleanupError>()
         .expect("both errors must be retained");
     assert!(
-        error
+        crate::error::ErrorReport::capture(&error).branches[0]
+            .clone()
+            .into_error()
             .chain()
             .any(|cause| cause.to_string().contains("expected a directory"))
     );

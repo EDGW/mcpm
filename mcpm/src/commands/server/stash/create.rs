@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use anyhow::Result;
-use mcpm_backend::local::mc::server::stash::{CreateCleanupError, StashStore};
+use mcpm_backend::local::mc::server::stash::StashStore;
 
 use super::{Context, options::WorkArgs};
 use crate::display::{backup::FileProgress, stash};
@@ -18,11 +18,6 @@ pub(super) fn run(create: CreateArgs, context: &Context, mut out: &mut impl Writ
     };
     let result = store.create(create.name, create.work.parallelism, &mut emit);
     progress.clear();
-    if let Err(error) = &result
-        && let Some(failure) = error.downcast_ref::<CreateCleanupError>()
-    {
-        crate::diagnostics::error(failure.cleanup());
-    }
     let stash = result?;
     drop(store);
     stash::operation(

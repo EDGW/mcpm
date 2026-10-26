@@ -346,9 +346,9 @@ impl Shared {
     fn fail(&self, error: &anyhow::Error) {
         let message = Failure {
             report: crate::diagnostics::ErrorReport::capture(error),
-            remote: error
-                .chain()
-                .any(|cause| cause.is::<crate::diagnostics::RemoteError>()),
+            remote: mcpm_backend::error::contains::<crate::diagnostics::RemoteError>(
+                error.as_ref(),
+            ),
         };
         let mut routes = self.routes.lock().unwrap();
         warn!(error = %message.report.message, pending = routes.pending.len(), "Remote connection failed; notifying pending commands");

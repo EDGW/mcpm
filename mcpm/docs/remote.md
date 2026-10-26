@@ -30,7 +30,7 @@ immediately. Stdout is protocol-only; normal logs use a dedicated subscription. 
 Wait for ready before submitting:
 
 ```json
-{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":4,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.init","server.init.recognize","server.mods.cache","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
+{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{"version":5,"commands":["mod.deps","mod.info","mod.list","mod.source.identify","server.info","server.init","server.init.recognize","server.mods.cache","server.mods.deps","server.mods.info","server.mods.list","server.mods.source.files","server.mods.source.identify","server.mods.source.search"],"max_concurrency":8}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"count","count":0}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"data","contents":{"event":"done","success":true}}
 {"guid":"9b6dc7aa-a81c-4f39-81bd-0776b6524381","status":"finished","contents":null}
@@ -66,7 +66,7 @@ The last 256 startup records are buffered before subscription; expired records
 produce a count warning. After stdin EOF, commands drain, logs drain, the log
 GUID receives finished, then the connection receives closed. Console logs wait
 until a full-screen TUI closes; file logging continues immediately. Protocol
-version 4 requires updating both client and server.
+version 5 requires updating both client and server.
 
 Remote decodes global errors rather than delivering them as command data:
 
@@ -195,7 +195,7 @@ done or finished. Cancellation uses the global cancelled status and can leave
 partial results. Cancellation is checked between queries,
 selected files and directory scan completions. The client validates indices,
 completion counts, diagnostics/failure agreement and lifecycle before final success.
-Protocol version 4 requires updating both endpoints.
+Protocol version 5 requires updating both endpoints.
 
 ## mod.source.identify contents
 
@@ -227,7 +227,7 @@ Logs distinguish execution=local/remote and phase=summary/provider, including re
 
 ## Server command contents
 
-Protocol version 4 requires both endpoints to be upgraded together. Clients validate the handshake version and required command IDs. Server cache targets come from the remote Server runtime; requests cannot override the directory.
+Protocol version 5 requires both endpoints to be upgraded together. Clients validate the handshake version and required command IDs. Server cache targets come from the remote Server runtime; requests cannot override the directory.
 
 - [`server.init` and `server.init.recognize`](server/init.md#remote-behavior): independent complete-data initialization and read-only recognition; candidate selection stays local.
 - [`server.info`](server/info.md#ssh): one source-host metadata snapshot, rendered locally.
@@ -264,7 +264,7 @@ Metadata requires nonempty Minecraft/loader versions and explicit `loader` (`nul
 - `executable` must be nonempty; executable/arguments cannot contain NUL.
 - Initialization never rereads the script or requires its referenced files to exist, but inspects existing script path components to validate containment.
 
-Wire v4 continues to emit metadata version 1; Local persistence writes disk version 2. Initialization emits `stage` with `validating`, then `writing`, then `initialized {server}` using the `server.info` schema. Successful operations finish with the common `finished` status; failures end with `error`. Clients validate phase order and exactly one result. Recognition and initialization share one SSH session when candidate selection is needed.
+Wire v5 continues to emit metadata version 1; Local persistence writes disk version 2. Initialization emits `stage` with `validating`, then `writing`, then `initialized {server}` using the `server.info` schema. Successful operations finish with the common `finished` status; failures end with `error`. Clients validate phase order and exactly one result. Recognition and initialization share one SSH session when candidate selection is needed.
 
 All server endpoints, including recognition, require a Local workspace type. Remote references are resolved only by the frontend, never by `mcpm-tools remote`. Initialization can create a new Local registration but cannot replace a Remote workspace, even with `force`. Recognition remains an independent script-only operation and does not follow workspace references.
 
@@ -325,3 +325,9 @@ Server commands use the Server runtime cache. Server list scopes and source-sele
 - Explicit `cache.mods.identification.write` accepts `{cache,id,file}`, where `id` is BLAKE3, `file` is a trusted canonical-source FileMatch, and cache uses the selection above. The host checks cached content file BLAKE3, size and SHA-1, merges through the library codec, and acknowledges with one null data value. Invalid/missing data produces the common command error. Identify never calls this write operation.
 - FileMatch contains `reference {project:{source,id},id}`, `filename`, `size`, `hashes` (`{algorithm,value}`), and `role` (`primary`/`additional`). All CurseForge configurations persist `source:"curseforge"`.
 - Cache records add `metadata_requested`, source-keyed `identification` outcomes (`matched`, `unmatched`, or `failed` with `error` and `remote`), and `error_remote` for the primary error. File failures are counted once even if several sources fail. Console reports each source error with its actual origin.
+
+### Branched diagnostics (protocol 5)
+
+- Errors preserve `message` and ordered `causes`. An optional `branches` array contains further error reports for independent failures, recursively.
+- An aggregate root may have an empty message and contain only branches. The first branch uses the current error/cause label; subsequent branches use `and:`. Causes within each branch indent one additional level.
+- Both endpoints must support protocol 5 so that nested failures are never silently discarded.

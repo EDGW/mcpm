@@ -46,8 +46,10 @@ impl StashStore<'_> {
                 }
                 Err(cleanup) => Err(CreateCleanupError {
                     backup: outcome.destination().to_owned(),
-                    publication: error,
-                    cleanup: cleanup.context("failed to clean up the unpublished stash backup"),
+                    errors: crate::error::CombinedError::new(
+                        error,
+                        cleanup.context("failed to clean up the unpublished stash backup"),
+                    ),
                 }
                 .into()),
             };
@@ -65,8 +67,7 @@ impl StashStore<'_> {
 pub struct CreateCleanupError {
     backup: PathBuf,
     #[source]
-    publication: anyhow::Error,
-    cleanup: anyhow::Error,
+    errors: crate::error::CombinedError,
 }
 
 impl CreateCleanupError {
@@ -77,6 +78,6 @@ impl CreateCleanupError {
 
     /// The primary source chain describes publication; this independent chain describes cleanup.
     pub fn cleanup(&self) -> &anyhow::Error {
-        &self.cleanup
+        &self.errors.errors()[1]
     }
 }

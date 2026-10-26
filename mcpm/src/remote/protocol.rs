@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use uuid::Uuid;
 
-pub(super) const VERSION: u32 = 4;
+pub(super) const VERSION: u32 = 5;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
@@ -129,7 +129,7 @@ impl Reply {
         Self {
             guid,
             status: Status::Error,
-            contents: serde_json::json!({"code":code,"message":error.message,"causes":error.causes}),
+            contents: serde_json::json!({"code":code,"message":error.message,"causes":error.causes,"branches":error.branches}),
         }
     }
 }
@@ -158,22 +158,28 @@ pub(crate) struct GlobalError {
     pub message: String,
     #[serde(default)]
     causes: Vec<String>,
+    #[serde(default)]
+    branches: Vec<crate::diagnostics::ErrorReport>,
+    #[source]
+    #[serde(skip)]
+    source: Option<anyhow::Error>,
 }
 
 impl GlobalError {
     pub(super) fn into_remote(mut self) -> anyhow::Error {
         let causes = std::mem::take(&mut self.causes);
-        let mut causes = causes.into_iter();
-        let error = if let Some(message) = causes.next() {
-            crate::diagnostics::ErrorReport {
-                message,
-                causes: causes.collect(),
-            }
-            .into_error()
-            .context(self)
-        } else {
-            self.into()
-        };
+        let branches = std::mem::take(&mut self.branches);
+        if !causes.is_empty() || !branches.is_empty() {
+            self.source = Some(
+                crate::diagnostics::ErrorReport {
+                    message: String::new(),
+                    causes,
+                    branches,
+                }
+                .into_error(),
+            );
+        }
+        let error = self.into();
         crate::diagnostics::RemoteError::wrap(error)
     }
 }
@@ -202,4 +208,37 @@ pub(super) fn read<T: DeserializeOwned>(reader: &mut impl BufRead) -> Result<Opt
     serde_json::from_str(&line)
         .context("invalid remote JSON message")
         .map(Some)
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    use mcpm_backend::error::{CombinedError, ErrorReport};
+
+    #[test]
+    fn remote_aggregate_preserves_branches_and_global_error_identity() {
+        let error = anyhow::Error::new(CombinedError::new(
+            anyhow::anyhow!("inner").context("first"),
+            anyhow::anyhow!("second"),
+        ))
+        .context("outer");
+        let reply = Reply::failure(Uuid::new_v4(), ErrorCode::Cancelled, &error);
+        let global: GlobalError = reply.decode().unwrap();
+        let remote = global.into_remote();
+        let code = remote
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<GlobalError>())
+            .unwrap()
+            .code;
+        assert_eq!(code, ErrorCode::Cancelled);
+        let report = ErrorReport::capture(&remote);
+        assert_eq!(report.branches.len(), 2);
+        assert_eq!(report.branches[0].causes, ["inner"]);
+        let global: GlobalError = serde_json::from_value(serde_json::json!({
+            "code":"protocol", "message":"outer", "causes":["inner"]
+        }))
+        .unwrap();
+        let report = ErrorReport::capture(&global.into_remote());
+        assert_eq!(report.causes, ["inner"]);
+    }
 }

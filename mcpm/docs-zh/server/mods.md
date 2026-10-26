@@ -61,7 +61,7 @@ printf '%s\n' create jei | mcpm mods cache --server /srv/minecraft --input modid
 
 ## 远程协议
 
-协议版本为 4，客户端与远端必须同步升级。Server 请求拒绝原来的 `cache` 目录覆盖字段和 `writing.cache_dir`。
+协议版本为 5，客户端与远端必须同步升级。Server 请求拒绝原来的 `cache` 目录覆盖字段和 `writing.cache_dir`。
 
 - `server.mods.info`、`server.mods.deps` 接受 `server`（默认 `.`）、`selection`、正整数 `parallelism`（默认 10）及 `no_cache`（默认 false），复用[检查事件流](../remote.md)。
 - `server.mods.list` 接受相同字段，事件为 `scope {loaders,environment}`、`scan {completed,total}`、`error {error}`、有序 `item {index,record}`、`done {files,input_errors,failed,cache}`。记录复用 mod-list 表示，可附带 `records` 选择键，每个键包含 `metadata` 和 `record` 索引。

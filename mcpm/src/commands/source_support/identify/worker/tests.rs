@@ -257,6 +257,7 @@ async fn identify(
             source.clone().map_err(|message| ErrorReport {
                 message,
                 causes: Vec::new(),
+                branches: Vec::new(),
             })
         })
         .collect();
@@ -318,6 +319,7 @@ fn cancellation_interrupts_a_provider_wait_without_finishing_the_batch() {
                 .map_err(|message| ErrorReport {
                     message,
                     causes: Vec::new(),
+                    branches: Vec::new(),
                 }),
         ];
         tokio::time::timeout(
@@ -406,7 +408,7 @@ fn remote_summaries_drive_local_provider_requests_without_reading_remote_paths()
     };
     let script = format!(
         r#"
-printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{{"version":4,"commands":["mod.source.identify"],"max_concurrency":8}}}}'
+printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{{"version":5,"commands":["mod.source.identify"],"max_concurrency":8}}}}'
 IFS= read -r logs
 log_guid=$(printf '%s' "$logs" | cut -d '"' -f6)
 printf {} "$log_guid"
@@ -446,6 +448,7 @@ printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"closed"
                 source.map_err(|message| ErrorReport {
                     message,
                     causes: Vec::new(),
+                    branches: Vec::new(),
                 })
             })
             .collect();
@@ -604,6 +607,7 @@ fn cache_events_preserve_hit_provenance_and_group_duplicate_physical_files() {
                 source.map_err(|message| ErrorReport {
                     message,
                     causes: Vec::new(),
+                    branches: Vec::new(),
                 })
             })
             .collect();

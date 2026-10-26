@@ -208,9 +208,8 @@ impl Completion {
             Ok(())
         })();
         if let Err(error) = operation {
-            let remote = error
-                .chain()
-                .any(|cause| cause.is::<crate::diagnostics::RemoteError>());
+            let remote =
+                mcpm_backend::error::contains::<crate::diagnostics::RemoteError>(error.as_ref());
             fail(&mut record, ErrorReport::capture(&error), remote);
         }
         record

@@ -276,6 +276,7 @@ mod tests {
                 error: ErrorReport {
                     message: "bad archive".into(),
                     causes: Vec::new(),
+                    branches: Vec::new(),
                 },
             },
             Event::Scan {

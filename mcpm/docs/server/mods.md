@@ -61,7 +61,7 @@ printf '%s\n' create jei | mcpm mods cache --server /srv/minecraft --input modid
 
 ## Remote protocol
 
-Protocol version 4 requires matching client and remote binaries. Server requests reject the former `cache` directory override and `writing.cache_dir` fields.
+Protocol version 5 requires matching client and remote binaries. Server requests reject the former `cache` directory override and `writing.cache_dir` fields.
 
 - `server.mods.info` and `server.mods.deps` accept `server` (default `.`), `selection`, positive `parallelism` (default 10), and `no_cache` (default false), using the shared [inspection event stream](../remote.md#mod-info-and-deps-contents).
 - `server.mods.list` accepts the same fields. Events are `scope {loaders,environment}`, `scan {completed,total}`, `error {error}`, ordered `item {index,record}`, and `done {files,input_errors,failed,cache}`. Records reuse mod-list records, with optional selected declaration keys (`records`, each containing `metadata` and `record` indices).

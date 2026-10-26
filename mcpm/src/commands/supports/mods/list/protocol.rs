@@ -105,6 +105,7 @@ impl Record {
                     error: ErrorReport {
                         message: failure.reason.clone(),
                         causes: Vec::new(),
+                        branches: Vec::new(),
                     },
                 })
                 .collect(),

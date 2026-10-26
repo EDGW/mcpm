@@ -71,7 +71,7 @@ independent file inputs are processed sequentially and are unaffected by this
 option. Scan progress is reported after each completion, including failures and
 unrecognized files; stderr TTY detection controls the local progress display.
 
-Both endpoints require protocol version 4. See [Remote](../remote.md) for
+Both endpoints require protocol version 5. See [Remote](../remote.md) for
 structured `mod.deps` requests.
 
 For shared options, see [Loader selection](README.md#loader-selection). For colors, ignored-file hints, and `--raw`, see [Terminal output](../README.md#terminal-output).
