@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Context, Result, ensure};
 
 use super::manifest::validate_path;
-use crate::local::files::FileIdentity;
+use crate::{error::CombinedError, local::files::FileIdentity};
 
 pub(super) struct Inventory {
     pub files: Vec<String>,
@@ -168,12 +168,16 @@ impl Destination {
         if let Err(error) = fs::rename(staged, &self.path) {
             let publication =
                 anyhow::Error::new(error).context("failed to publish backup operation");
-            if self.original.is_some() {
-                if let Err(rollback) = fs::rename(holding, &self.path) {
-                    return Err(publication.context(rollback).context(format!(
-                        "failed to restore destination; previous files remain at {holding:?}"
-                    )));
-                }
+            if self.original.is_some()
+                && let Err(rollback) = fs::rename(holding, &self.path)
+            {
+                let rollback =
+                    anyhow::Error::new(rollback).context("failed to restore previous destination");
+                return Err(
+                    anyhow::Error::new(CombinedError::new(publication, rollback)).context(format!(
+                        "backup operation and rollback failed; previous files remain at {holding:?}"
+                    )),
+                );
             }
             return Err(publication);
         }
