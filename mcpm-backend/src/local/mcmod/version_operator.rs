@@ -1,3 +1,5 @@
+//! Comparison operators used by dependency version constraints.
+
 use serde::{Deserialize, Serialize};
 
 /// A comparison used by a parsed dependency version requirement.

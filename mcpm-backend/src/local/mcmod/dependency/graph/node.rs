@@ -1,3 +1,5 @@
+//! Dependency graph nodes and incoming edges.
+
 use std::sync::{Arc, Weak};
 
 use crate::local::mcmod::dependency::Dependency;

@@ -1,3 +1,5 @@
+//! Dependency graph edge types.
+
 use std::sync::Arc;
 
 use crate::local::{mcmod::dependency::Dependency, modloader::ModLoaderMeta};

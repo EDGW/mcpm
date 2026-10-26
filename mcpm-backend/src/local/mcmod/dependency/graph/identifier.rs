@@ -1,3 +1,5 @@
+//! Loader-qualified dependency graph identifiers.
+
 use std::fmt::Debug;
 
 use crate::local::modloader::{LoaderId, ModLoaderMeta};

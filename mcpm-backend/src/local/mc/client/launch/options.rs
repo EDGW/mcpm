@@ -1,3 +1,5 @@
+//! Typed client launch options.
+
 use std::{collections::BTreeMap, ffi::OsString, path::PathBuf};
 
 use super::{EnvName, Identity};

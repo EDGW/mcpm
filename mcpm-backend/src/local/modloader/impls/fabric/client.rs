@@ -1,3 +1,5 @@
+//! Loader-specific client version identification.
+
 use super::super::utils::coordinate;
 use super::FabricError;
 use crate::local::mc::client::MinecraftVersionManifest;

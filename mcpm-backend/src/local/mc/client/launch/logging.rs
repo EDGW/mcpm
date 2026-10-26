@@ -1,3 +1,5 @@
+//! Client logging configuration handling.
+
 use std::ffi::OsString;
 
 use super::LaunchPlan;

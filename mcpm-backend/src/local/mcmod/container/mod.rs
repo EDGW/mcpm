@@ -1,3 +1,5 @@
+//! Mod archive container interfaces.
+
 use anyhow::Result;
 
 use crate::local::{

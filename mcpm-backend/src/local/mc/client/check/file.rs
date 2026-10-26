@@ -1,3 +1,5 @@
+//! Client file verification operations.
+
 use std::{
     fs::{self, File},
     io::Read,

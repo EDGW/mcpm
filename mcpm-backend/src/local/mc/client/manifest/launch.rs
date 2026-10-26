@@ -1,3 +1,5 @@
+//! Client manifest launch arguments.
+
 use std::collections::BTreeMap;
 
 use serde::Deserialize;

@@ -1,3 +1,5 @@
+//! Loader-specific client version identification.
+
 use super::super::super::utils::coordinate;
 use super::super::client;
 use super::ForgeError;

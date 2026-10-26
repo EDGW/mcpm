@@ -1,3 +1,5 @@
+//! Client file verification reports and issues.
+
 use std::path::PathBuf;
 
 use thiserror::Error;

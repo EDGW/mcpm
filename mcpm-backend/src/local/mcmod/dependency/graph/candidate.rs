@@ -1,3 +1,5 @@
+//! Dependency graph candidate identities and declarations.
+
 use std::sync::Arc;
 
 use crate::local::{

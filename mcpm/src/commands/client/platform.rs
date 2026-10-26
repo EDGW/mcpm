@@ -1,3 +1,5 @@
+//! CLI target-platform selection for client inspection and launch.
+
 use std::process::Command;
 
 use anyhow::{Context, Result};

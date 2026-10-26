@@ -1,3 +1,5 @@
+//! Platform and feature rule matching.
+
 use std::collections::BTreeMap;
 
 use regex::Regex;

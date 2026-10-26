@@ -1,3 +1,5 @@
+//! Typed errors owned by this module.
+
 use std::path::PathBuf;
 
 use thiserror::Error;

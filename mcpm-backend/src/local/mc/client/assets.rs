@@ -1,3 +1,5 @@
+//! Client asset metadata and path resolution.
+
 use std::{
     fs,
     path::{Path, PathBuf},

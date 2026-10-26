@@ -1,3 +1,5 @@
+//! Minecraft client directory discovery and profile access.
+
 use std::{
     fs,
     path::{Path, PathBuf},

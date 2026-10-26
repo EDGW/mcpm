@@ -1,3 +1,5 @@
+//! Client launch authentication and player identity.
+
 use std::fmt;
 
 use md5::{Digest, Md5};

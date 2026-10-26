@@ -1,3 +1,5 @@
+//! Dependency loading order declarations.
+
 use serde::{Deserialize, Serialize};
 
 /// Ordering of the declaring mod relative to a dependency target.

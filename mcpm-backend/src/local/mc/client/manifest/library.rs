@@ -1,3 +1,5 @@
+//! Client manifest library declarations.
+
 use std::{collections::BTreeMap, path::PathBuf, str::FromStr};
 
 use serde::Deserialize;

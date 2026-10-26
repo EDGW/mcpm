@@ -1,3 +1,5 @@
+//! Client logging configuration handling.
+
 use super::{CheckIssue, CheckProblem, CheckReport, CheckStep, CheckTarget, PlannedFile};
 use crate::local::mc::client::{MinecraftDirectory, MinecraftVersionManifest};
 

@@ -1,3 +1,5 @@
+//! Client launch environment variable names.
+
 use std::ffi::{OsStr, OsString};
 
 /// A child environment variable name, uppercased on Windows and preserved elsewhere.

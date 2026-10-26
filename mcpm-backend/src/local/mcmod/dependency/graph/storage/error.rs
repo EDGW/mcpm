@@ -1,3 +1,5 @@
+//! Typed errors owned by this module.
+
 use std::io;
 
 use thiserror::Error;

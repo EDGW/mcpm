@@ -1,3 +1,5 @@
+//! Mod directory enumeration and identification input ownership.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

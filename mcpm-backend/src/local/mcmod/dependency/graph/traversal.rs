@@ -1,3 +1,5 @@
+//! Dependency graph traversal and incoming relations.
+
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,

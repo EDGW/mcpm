@@ -1,3 +1,5 @@
+//! Mod dependency version constraint model.
+
 use serde::{Deserialize, Serialize};
 
 use super::VersionOperator;

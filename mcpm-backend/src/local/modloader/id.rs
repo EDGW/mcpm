@@ -1,3 +1,5 @@
+//! Stable loader identities and registry lookup.
+
 use std::{borrow::Borrow, collections::HashMap, fmt};
 
 use super::ModLoaderMeta;

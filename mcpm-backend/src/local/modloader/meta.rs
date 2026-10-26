@@ -1,3 +1,5 @@
+//! Loader metadata and shared identification capabilities.
+
 use std::{
     hash::{Hash, Hasher},
     sync::Arc,

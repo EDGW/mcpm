@@ -1,3 +1,5 @@
+//! Dependency client and server side declarations.
+
 use serde::{Deserialize, Serialize};
 
 /// Physical side on which a dependency applies.

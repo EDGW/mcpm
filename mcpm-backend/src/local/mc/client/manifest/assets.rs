@@ -1,3 +1,5 @@
+//! Client asset metadata and path resolution.
+
 use std::collections::BTreeMap;
 
 use serde::Deserialize;

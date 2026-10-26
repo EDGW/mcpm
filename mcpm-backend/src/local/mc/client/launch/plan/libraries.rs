@@ -1,3 +1,5 @@
+//! Client launch library and native path resolution.
+
 use super::super::LaunchOptions;
 use super::config::configuration;
 use super::{LaunchPlanError, NativeArchive};

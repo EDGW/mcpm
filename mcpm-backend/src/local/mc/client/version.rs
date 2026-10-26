@@ -1,3 +1,5 @@
+//! Minecraft client version discovery and state.
+
 use std::{
     collections::{HashMap, HashSet},
     fs,

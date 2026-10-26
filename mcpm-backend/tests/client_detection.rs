@@ -1,3 +1,5 @@
+//! Client directory and loader identification integration fixtures.
+
 use std::fs;
 
 use mcpm_backend::local::{
