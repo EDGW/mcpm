@@ -1042,7 +1042,7 @@ fn fallback_rejects_data_symlinks_non_directories_and_permission_errors() {
             }
             _ => {
                 fs::create_dir(&data).unwrap();
-                fs::set_permissions(&data, fs::Permissions::from_mode(0)).unwrap();
+                fs::set_permissions(&data, fs::Permissions::from_mode(0o0)).unwrap();
             }
         }
         // Privileged users may bypass directory read permissions; test only an observable denial.
