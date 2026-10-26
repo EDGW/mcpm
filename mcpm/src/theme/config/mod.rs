@@ -14,6 +14,8 @@ use toml::Value;
 use super::Color;
 
 mod loading;
+mod palette;
+use palette::Palette;
 mod schemes;
 
 const DEFAULTS: [(&str, &str); 4] = [
@@ -51,10 +53,6 @@ impl Config {
             && self.styles == other.styles
             && self.loaders == other.loaders
             && self.sources == other.sources
-            && self
-                .styles
-                .keys()
-                .all(|id| self.palette_name(id) == other.palette_name(id))
     }
 
     pub(crate) fn defaults() -> Self {
@@ -109,10 +107,6 @@ impl Config {
             settings: Settings,
         }
         #[derive(Deserialize, Debug)]
-        struct StylesFile {
-            style: Vec<Palette>,
-        }
-        #[derive(Deserialize, Debug)]
         struct LoadersFile {
             loader_colors: ColorMap,
         }
@@ -134,20 +128,11 @@ impl Config {
             .values()
             .filter(|document| document.get("style").is_some())
         {
-            for palette in document.clone().try_into::<StylesFile>()?.style {
-                ensure!(
-                    palette.version == 1,
-                    "unsupported style version for {}",
-                    palette.id
-                );
-                ensure!(
-                    palette
-                        .types
-                        .iter()
-                        .all(|kind| matches!(kind.as_str(), "console" | "tui")),
-                    "unknown style type for {}",
-                    palette.id
-                );
+            for value in document["style"]
+                .as_array()
+                .context("style must be an array")?
+            {
+                let palette = Palette::decode(value.clone())?;
                 let id = palette.id.clone();
                 ensure!(
                     styles.insert(id.clone(), palette).is_none(),
@@ -315,26 +300,20 @@ impl Config {
                 .with_context(|| format!("unknown style {id:?}"))?;
             if field == "types" {
                 let types: Vec<_> = value.split(',').map(str::trim).collect();
-                ensure!(
-                    !types.is_empty()
-                        && types.iter().all(|kind| matches!(*kind, "tui" | "console")),
-                    "Types must contain TUI, Console, or both"
-                );
-                style[field] = Value::Array(
+                let value = Value::Array(
                     types
                         .iter()
                         .map(|kind| Value::String((*kind).into()))
                         .collect(),
                 );
-                for (_, fallback, kind) in default_selections() {
-                    ensure!(
-                        id != fallback || types.contains(&kind),
-                        "default palette must support {kind}"
-                    );
-                }
+                style
+                    .as_table_mut()
+                    .context("style must be a table")?
+                    .insert(field.into(), value);
+                let palette = Palette::decode(style.clone())?;
                 // Selections must remain compatible when a palette drops a supported type.
                 for (key, fallback, kind) in default_selections() {
-                    if !types.contains(&kind)
+                    if !palette.supports(kind)
                         && documents["settings.toml"]["settings"][key].as_str() == Some(id)
                     {
                         documents.get_mut("settings.toml").unwrap()["settings"][key] =
@@ -342,7 +321,10 @@ impl Config {
                     }
                 }
             } else {
-                style[field] = Value::String(value.into());
+                style
+                    .as_table_mut()
+                    .context("style must be a table")?
+                    .insert(field.into(), Value::String(value.into()));
             }
         } else if let Some(rest) = key.strip_prefix("loader_colors.") {
             let (mode, id) = rest
@@ -416,15 +398,6 @@ struct Settings {
     tui_style_light: String,
 }
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-pub(crate) struct Palette {
-    version: u32,
-    id: String,
-    types: Vec<String>,
-    pub(crate) primary: Color,
-    pub(crate) secondary: Color,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
 struct ColorMap {
     console: BTreeMap<String, Color>,
     tui: BTreeMap<String, Color>,
@@ -489,3 +462,6 @@ fn merge(base: &mut Value, overlay: Value) {
         (base, value) => *base = value,
     }
 }
+
+#[cfg(test)]
+mod tests;

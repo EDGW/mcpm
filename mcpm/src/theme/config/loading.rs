@@ -86,26 +86,7 @@ pub(super) fn styles(documents: &mut BTreeMap<String, Value>, directory: &Path) 
                     .cloned()
                     .unwrap_or_else(|| Value::Table(Default::default()));
                 super::merge(&mut candidate, entry);
-                let palette: Palette = candidate.clone().try_into()?;
-                ensure!(
-                    palette.version == 1,
-                    "unsupported style version {}",
-                    palette.version
-                );
-                ensure!(
-                    !palette.types.is_empty()
-                        && palette
-                            .types
-                            .iter()
-                            .all(|kind| matches!(kind.as_str(), "console" | "tui")),
-                    "invalid style types"
-                );
-                for (_, fallback, kind) in super::default_selections() {
-                    ensure!(
-                        id != fallback || palette.types.iter().any(|value| value == kind),
-                        "default palette must support {kind}"
-                    );
-                }
+                Palette::decode(candidate.clone())?;
                 Ok((id, candidate))
             })();
             match result {
@@ -172,11 +153,8 @@ pub(super) fn repair_selections(documents: &mut BTreeMap<String, Value>) {
             .filter_map(Value::as_array)
             .flatten()
             .any(|style| {
-                style.get("id").and_then(Value::as_str) == Some(&id)
-                    && style
-                        .get("types")
-                        .and_then(Value::as_array)
-                        .is_some_and(|types| types.iter().any(|value| value.as_str() == Some(kind)))
+                Palette::decode(style.clone())
+                    .is_ok_and(|style| style.id == id && style.supports(kind))
             });
         if !compatible {
             tracing::warn!(style = %id, "selected style unavailable; using bundled default");
