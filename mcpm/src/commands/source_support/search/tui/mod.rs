@@ -48,7 +48,7 @@ struct Browser {
     detail_area: Rect,
     row_height: u16,
     clipboard: Option<arboard::Clipboard>,
-    status: Option<(String, Role)>,
+    status: Option<crate::widgets::Status>,
     completion: Completion,
 }
 
@@ -237,7 +237,7 @@ pub(super) fn run(
                 let pending = match browser.prepare(&defaults) {
                     Ok(query) => query,
                     Err(error) => {
-                        browser.status = Some((error.to_string(), Role::Danger));
+                        browser.status = Some(crate::widgets::Status::error(error.into()));
                         continue;
                     }
                 };
@@ -265,9 +265,9 @@ pub(super) fn run(
                         browser.focus = Focus::Results;
                         browser.status = None;
                     }
-                    Ok(None) => browser.status = Some(("Cancelled.".into(), Role::Muted)),
+                    Ok(None) => browser.status = Some(("Cancelled.".into(), Role::Muted).into()),
                     Err(error) if request::is_interrupted(&error) => return Err(error),
-                    Err(error) => browser.status = Some((format!("{error:#}"), Role::Danger)),
+                    Err(error) => browser.status = Some(crate::widgets::Status::error(error)),
                 }
                 None
             }
@@ -316,14 +316,14 @@ pub(super) fn run(
                             if result.as_ref().err().is_some_and(request::is_interrupted) {
                                 return result;
                             }
-                            browser.status = result
-                                .err()
-                                .map(|error| (format!("{error:#}"), Role::Danger));
+                            browser.status = result.err().map(crate::widgets::Status::error);
                             held_page_key = Some(KeyCode::Enter);
                         }
-                        Ok(None) => browser.status = Some(("Cancelled.".into(), Role::Muted)),
+                        Ok(None) => {
+                            browser.status = Some(("Cancelled.".into(), Role::Muted).into())
+                        }
                         Err(error) if request::is_interrupted(&error) => return Err(error),
-                        Err(error) => browser.status = Some((format!("{error:#}"), Role::Danger)),
+                        Err(error) => browser.status = Some(crate::widgets::Status::error(error)),
                     }
                 }
                 None
@@ -366,7 +366,7 @@ pub(super) fn run(
                 Ok(Some(next)) => {
                     if next.projects.is_empty() {
                         query.offset = previous;
-                        browser.status = Some(("No more results.".into(), Role::Muted));
+                        browser.status = Some(("No more results.".into(), Role::Muted).into());
                         continue;
                     }
                     page = next;
@@ -383,12 +383,12 @@ pub(super) fn run(
                 }
                 Ok(None) => {
                     query.offset = previous;
-                    browser.status = Some(("Cancelled.".into(), Role::Muted));
+                    browser.status = Some(("Cancelled.".into(), Role::Muted).into());
                 }
                 Err(error) if request::is_interrupted(&error) => return Err(error),
                 Err(error) => {
                     query.offset = previous;
-                    browser.status = Some((format!("{error:#}"), Role::Danger));
+                    browser.status = Some(crate::widgets::Status::error(error));
                 }
             }
         }

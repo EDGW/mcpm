@@ -23,7 +23,7 @@ pub(super) fn write_list(
             State::Failed => "failed",
         };
         let name = text(&row.name);
-        let detail = text(&row.detail);
+        let detail = text(row.detail.summary());
         if columns.is_explicit() {
             use super::columns::Column;
             let values: Vec<_> = columns

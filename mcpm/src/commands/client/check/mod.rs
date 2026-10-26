@@ -102,6 +102,20 @@ pub(super) fn run(args: CheckArgs) -> Result<()> {
         batch.finish_version();
         failed += usize::from(!report.is_intact());
         batch.suspend(|| -> Result<()> {
+            for issue in &report.issues {
+                let error = crate::diagnostics::ErrorReport::capture_std(&issue.problem)
+                    .into_error()
+                    .context(format!(
+                        "client profile {:?}: {}",
+                        report.version,
+                        output::target_name(&issue.target)
+                    ));
+                let error = match &issue.path {
+                    Some(path) => error.context(format!("resource {path:?}")),
+                    None => error,
+                };
+                crate::diagnostics::error(&error);
+            }
             output::write_report(&mut stdout, &report)
                 .context("failed to write client check report")?;
             stdout

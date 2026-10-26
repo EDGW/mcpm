@@ -176,7 +176,10 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
                 vec![
                     loader_piece(&failure.loader),
                     Piece::new(" [failed]", warning()),
-                    Piece::new(format!(" {}", failure.reason), Paint::Role(Role::Normal)),
+                    Piece::new(
+                        format!(" {}", failure.error.message),
+                        Paint::Role(Role::Normal),
+                    ),
                 ],
                 0,
             ));

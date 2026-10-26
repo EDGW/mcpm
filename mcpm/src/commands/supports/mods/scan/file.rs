@@ -42,11 +42,12 @@ pub(super) fn read(
     let result = ModEntry::new(path.clone()).and_then(|entry| {
         mcmod::open(entry, loaders.clone(), environment, |_, loader, _, error| {
             tracing::debug!(path = %path.display(), loader = %loader.id(), error = %format_args!("{error:#}"), "Mod loader identification failed");
+            let report = ErrorReport::capture(error);
             failures.push(FailedIdentification {
                 loader: loader.clone(),
-                reason: error.root_cause().to_string(),
+                error: report.clone(),
             });
-            errors.push(ScanError { loader: Some(loader.clone()), error: ErrorReport::capture(error) });
+            errors.push(ScanError { loader: Some(loader.clone()), error: report });
             IdentificationErrorAction::Skip
         })
     });

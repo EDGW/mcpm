@@ -12,7 +12,7 @@ use crate::{
 use mcpm_backend::source::{FilePage, FileQuery, ProjectFile, ProjectRef, ReleaseType};
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Span, Text},
     widgets::{Cell, ListItem, Padding, Paragraph, Row},
@@ -116,6 +116,15 @@ pub(super) fn draw(
         );
         return;
     }
+    let extra_status = browser
+        .status
+        .as_ref()
+        .map_or(0, |status| status.lines().len().saturating_sub(1)) as u16;
+    let [area, footer_extension] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(extra_status.min(area.height / 2)),
+    ])
+    .areas(area);
     let layout = BrowserLayout::new(
         area,
         browser.full_details,
@@ -199,8 +208,9 @@ pub(super) fn draw(
     let (status, role) = browser
         .status
         .as_ref()
-        .map(|(message, role)| (text(message), *role))
-        .unwrap_or((context, Role::Muted));
+        .map(|status| (status.lines(), status.role()))
+        .unwrap_or((vec![context], Role::Muted));
+    let footer = layout.footer.union(footer_extension);
     let help = if browser.focus == Focus::Details {
         "↑/↓ Field · c Copy · Enter Full Details · Tab Files"
     } else {
@@ -211,23 +221,21 @@ pub(super) fn draw(
     } else {
         "Tab Switch Card · Enter Details · q / Esc Back"
     };
-    frame.render_widget(
-        Paragraph::new(vec![
-            short_line(
-                vec![Span::styled(status, style(role))],
-                layout.footer.width as usize,
-            ),
-            short_line(
-                vec![Span::styled(help, style(Role::Normal))],
-                layout.footer.width as usize,
-            ),
-            short_line(
-                vec![Span::styled(navigation, style(Role::Muted))],
-                layout.footer.width as usize,
-            ),
-        ]),
-        layout.footer,
-    );
+    let mut lines = status
+        .into_iter()
+        .map(|line| short_line(vec![Span::styled(line, style(role))], footer.width as usize))
+        .collect::<Vec<_>>();
+    lines.extend([
+        short_line(
+            vec![Span::styled(help, style(Role::Normal))],
+            footer.width as usize,
+        ),
+        short_line(
+            vec![Span::styled(navigation, style(Role::Muted))],
+            footer.width as usize,
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(lines), footer);
 }
 
 fn name_style(file: &ProjectFile, pinned: Option<&ProjectFile>) -> Style {

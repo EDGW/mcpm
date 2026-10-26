@@ -32,7 +32,7 @@ pub(in crate::commands) struct ScannedFile {
 #[derive(Debug)]
 pub(in crate::commands) struct FailedIdentification {
     pub loader: ModLoaderMeta,
-    pub reason: String,
+    pub error: ErrorReport,
 }
 
 /// File-host scan configuration; cache interpretation remains inside the library.

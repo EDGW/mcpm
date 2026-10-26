@@ -71,7 +71,7 @@ pub(super) fn run(config: Config, directory: &Path) -> Result<()> {
                     Ok(_) => return Ok(()),
                     Err(error) => {
                         confirming_exit = false;
-                        status = Status::error(format!("Save failed: {error:#}"));
+                        status = Status::error(error.context("save failed"));
                     }
                 },
                 KeyCode::Char('n' | 'N') => return Ok(()),
@@ -135,7 +135,7 @@ pub(super) fn run(config: Config, directory: &Path) -> Result<()> {
                             }
                             status = Status::saved(directory);
                         }
-                        Err(error) => status = Status::error(format!("{error:#}")),
+                        Err(error) => status = Status::error(error),
                     }
                 }
                 _ => prompt = Some(input),
@@ -156,7 +156,7 @@ pub(super) fn run(config: Config, directory: &Path) -> Result<()> {
         if inline_name && matches!(key.code, KeyCode::Up | KeyCode::Down) {
             let edit = editing.as_ref().unwrap();
             if let Err(error) = draft.rename_palette(&edit.id, &edit.name) {
-                status = Status::error(error.to_string());
+                status = Status::error(error);
                 continue;
             }
         }
@@ -225,7 +225,7 @@ pub(super) fn run(config: Config, directory: &Path) -> Result<()> {
                     Ok(()) => {
                         status = Status::warning("Unsaved changes · Preview follows selected types")
                     }
-                    Err(error) => status = Status::error(error.to_string()),
+                    Err(error) => status = Status::error(error),
                 }
             }
             KeyCode::Left | KeyCode::Right if field.label != "Name" => {
@@ -256,7 +256,7 @@ pub(super) fn run(config: Config, directory: &Path) -> Result<()> {
                             field.label
                         ))
                     }
-                    Err(error) => status = Status::error(error.to_string()),
+                    Err(error) => status = Status::error(error),
                 }
             }
             KeyCode::Enter => match save(&mut draft, editing.as_ref(), directory) {
@@ -264,7 +264,7 @@ pub(super) fn run(config: Config, directory: &Path) -> Result<()> {
                     saved = draft.clone();
                     status = message;
                 }
-                Err(error) => status = Status::error(format!("Save failed: {error:#}")),
+                Err(error) => status = Status::error(error.context("save failed")),
             },
             _ => {}
         }
@@ -342,33 +342,34 @@ impl Editor {
 }
 
 #[derive(Debug)]
-struct Status {
-    message: String,
-    role: Role,
-}
+struct Status(crate::widgets::Status);
+
 impl Status {
     fn warning(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            role: Role::Warning,
-        }
+        Self((message.into(), Role::Warning).into())
     }
-    fn error(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            role: Role::Danger,
-        }
+
+    fn error(error: anyhow::Error) -> Self {
+        Self(crate::widgets::Status::error(error))
     }
+
+    fn lines(&self) -> Vec<String> {
+        self.0.lines()
+    }
+
     fn saved(directory: &Path) -> Self {
         let files = if directory.join("styles/custom.toml").exists() {
             "styles/custom.toml, settings.toml, loader_colors.toml"
         } else {
             "settings.toml, loader_colors.toml"
         };
-        Self {
-            message: format!("Saved to {}: {files}", directory.display()),
-            role: Role::Success,
-        }
+        Self(
+            (
+                format!("Saved to {}: {files}", directory.display()),
+                Role::Success,
+            )
+                .into(),
+        )
     }
 }
 
@@ -412,12 +413,14 @@ impl Screen {
         let enabled = policy::stderr_color_enabled();
         self.terminal.draw(|frame| {
             let area = frame.area();
+            let status_height =
+                (status.lines().len().max(3) as u16).min(area.height.saturating_sub(6));
             let visible = usize::from(area.height.saturating_sub(12).clamp(1, 4));
             let [title, fields_area, previews, footer] = Layout::vertical([
                 Constraint::Length(2),
                 Constraint::Length(visible as u16 + 1),
                 Constraint::Min(0),
-                Constraint::Length(6),
+                Constraint::Length(status_height + 3),
             ])
             .areas(area);
             let style = |role| preview::interface_style(role, enabled);
@@ -500,11 +503,17 @@ impl Screen {
                 preview::draw(frame, previews, config, enabled)
             };
             let message = prompt
-                .map(|prompt| format!("{}: {}_", prompt.label(), prompt.value))
-                .unwrap_or_else(|| status.message.clone());
+                .map(|prompt| {
+                    vec![super::text(&format!(
+                        "{}: {}_",
+                        prompt.label(),
+                        prompt.value
+                    ))]
+                })
+                .unwrap_or_else(|| status.lines());
             let [height_hint, message_area, help_area] = Layout::vertical([
                 Constraint::Length(1),
-                Constraint::Length(3),
+                Constraint::Length(status_height),
                 Constraint::Length(2),
             ])
             .areas(footer);
@@ -518,11 +527,11 @@ impl Screen {
                 height_hint,
             );
             frame.render_widget(
-                Paragraph::new(super::text(&message))
+                Paragraph::new(message.into_iter().map(Line::from).collect::<Vec<_>>())
                     .style(style(if prompt.is_some() {
                         Role::Warning
                     } else {
-                        status.role
+                        status.0.role()
                     }))
                     .wrap(Wrap { trim: false }),
                 message_area,

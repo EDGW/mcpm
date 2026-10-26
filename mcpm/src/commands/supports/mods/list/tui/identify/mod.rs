@@ -46,7 +46,10 @@ pub(super) enum State {
     Loading,
     Matched(FileMatch),
     Unmatched,
-    Failed(String),
+    Failed {
+        error: crate::diagnostics::ErrorReport,
+        remote: bool,
+    },
 }
 impl State {
     pub(super) fn details(&self, spinner: &str) -> String {
@@ -54,7 +57,9 @@ impl State {
             Self::Queued => "Waiting".into(),
             Self::Loading => format!("{spinner} Identifying…"),
             Self::Unmatched => "No match".into(),
-            Self::Failed(error) => format!("Failed: {error}"),
+            Self::Failed { error, remote } => {
+                crate::display::error::lines(error, *remote).join("\n")
+            }
             Self::Matched(found) => format!(
                 "✓ Project ID: {} · File ID: {} · {} · {} · {} bytes",
                 found.reference.project.id.0,
@@ -102,22 +107,40 @@ pub(super) fn start(
         parallelism,
         "Starting mod source identification"
     );
-    tokio::spawn(async move {
-        let mut completed = vec![[false; 2]; count];
-        let mut emit = |event| {
-            if let Event::Item { indices, source, .. } = &event {
-                for index in indices { completed[*index][*source] = true; }
-            }
-            send_update(event, &sender)
-        };
-        let result = identification.run(&mut emit).await;
-        if let Err(error) = result {
-            tracing::warn!(error = %format_args!("{error:#}"), "Mod source identification stopped");
-            for platform in Platform::ALL {
-                let _ = sender.send(Update::State { files: (0..count).filter(|index| !completed[*index][platform.index()]).collect(), platform, state: State::Failed(format!("{error:#}")) });
+    tokio::spawn(
+        async move {
+            let mut completed = vec![[false; 2]; count];
+            let mut emit = |event| {
+                if let Event::Item {
+                    indices, source, ..
+                } = &event
+                {
+                    for index in indices {
+                        completed[*index][*source] = true;
+                    }
+                }
+                send_update(event, &sender)
+            };
+            let result = identification.run(&mut emit).await;
+            if let Err(error) = result {
+                crate::logging::record_error(&error);
+                let (report, remote) = crate::diagnostics::capture(&error);
+                for platform in Platform::ALL {
+                    let _ = sender.send(Update::State {
+                        files: (0..count)
+                            .filter(|index| !completed[*index][platform.index()])
+                            .collect(),
+                        platform,
+                        state: State::Failed {
+                            error: report.clone(),
+                            remote,
+                        },
+                    });
+                }
             }
         }
-    }.in_current_span());
+        .in_current_span(),
+    );
     Ok(receiver)
 }
 
@@ -144,10 +167,7 @@ fn send_update(event: Event, sender: &std::sync::mpsc::Sender<Update>) -> Result
             match outcome {
                 Outcome::Matched { file } => State::Matched(file),
                 Outcome::Unmatched => State::Unmatched,
-                Outcome::Failed { error, remote } => {
-                    let prefix = if remote { "remote error: " } else { "" };
-                    State::Failed(format!("{prefix}{:#}", error.into_error()))
-                }
+                Outcome::Failed { error, remote } => State::Failed { error, remote },
             },
         ),
         Event::Done { failed } => {

@@ -35,7 +35,14 @@ pub(super) fn draw(
     let identification_height = if identification.is_some() { 3 } else { 0 };
     let [browser_area, footer_extension] = Layout::vertical([
         Constraint::Min(0),
-        Constraint::Length(1 + u16::from(summary.cache.is_some())),
+        Constraint::Length(
+            1 + u16::from(summary.cache.is_some())
+                + browser
+                    .status
+                    .as_ref()
+                    .map_or(0, |status| status.lines().len().saturating_sub(1) as u16)
+                    .min(frame.area().height / 2),
+        ),
     ])
     .areas(frame.area());
     let layout = BrowserLayout::new(
@@ -92,13 +99,13 @@ pub(super) fn draw(
     let status = browser
         .status
         .as_ref()
-        .map(|(message, role)| (message.clone(), *role))
+        .map(|status| (status.lines(), status.role()))
         .unwrap_or_else(|| {
             (
-                format!(
+                vec![format!(
                     "{} files skipped · {} input errors · {} file errors",
                     summary.ignored, summary.input_errors, summary.failed
-                ),
+                )],
                 if summary.input_errors + summary.failed > 0 {
                     Role::Warning
                 } else {
@@ -117,7 +124,11 @@ pub(super) fn draw(
     } else {
         "↑/↓ Move · ←/→ Collapse/Expand · Space Toggle · e Expand All"
     };
-    let mut lines = vec![(status.0, status.1)];
+    let mut lines = status
+        .0
+        .into_iter()
+        .map(|line| (line, status.1))
+        .collect::<Vec<_>>();
     if let Some(cache) = summary.cache {
         lines.push((
             format!(
@@ -512,12 +523,7 @@ fn source_item(
                 Role::Muted,
                 false,
             ),
-            identify::State::Failed(error) => (
-                "Failed".into(),
-                crate::display::style::text(error),
-                Role::Danger,
-                false,
-            ),
+            identify::State::Failed { .. } => ("Failed".into(), String::new(), Role::Danger, false),
         }
     };
     let status_style = if actionable {
@@ -542,20 +548,27 @@ fn source_item(
             style(Role::Muted),
         ));
     }
-    ListItem::new(Text::from(vec![
-        short_line(heading, width),
+    let explanations = match state {
+        identify::State::Failed { error, remote } if outer => {
+            crate::display::error::lines(error, *remote)
+        }
+        _ => vec![explanation],
+    };
+    let mut lines = vec![short_line(heading, width)];
+    lines.extend(explanations.into_iter().map(|explanation| {
         short_line(
             vec![Span::styled(
                 format!("  {explanation}"),
                 style(if actionable && focused {
                     Role::Primary
                 } else {
-                    Role::Muted
+                    role
                 }),
             )],
             width,
-        ),
-    ]))
+        )
+    }));
+    ListItem::new(Text::from(lines))
 }
 
 fn piece(value: &Piece) -> Span<'_> {

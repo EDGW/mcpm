@@ -9,7 +9,7 @@ use mcpm_backend::local::mc::client::{
     CheckOptionValue, CheckReport, CheckTarget, FileCheckStatus,
 };
 
-use super::super::output::{error_chain, text};
+use super::super::output::text;
 use crate::{display::style::OutputStyle, terminal};
 
 pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io::Result<()> {
@@ -69,7 +69,7 @@ pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io:
     }
     for issue in &report.issues {
         let target = target_name(&issue.target);
-        let reason = text(&error_chain(&issue.problem));
+        let reason = text(&issue.problem.to_string());
         if formatted {
             writeln!(
                 output,
@@ -84,7 +84,6 @@ pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io:
                     style.muted(text(&path.display().to_string()))
                 )?;
             }
-            writeln!(output, "    {}", style.warning(reason))?;
         } else {
             raw_row(
                 output,
@@ -162,7 +161,7 @@ fn raw_row(
     )
 }
 
-fn target_name(target: &CheckTarget) -> String {
+pub(super) fn target_name(target: &CheckTarget) -> String {
     match target {
         CheckTarget::Version => "version".into(),
         CheckTarget::VersionJar => "version JAR".into(),

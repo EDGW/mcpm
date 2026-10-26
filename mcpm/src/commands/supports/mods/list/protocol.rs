@@ -102,11 +102,7 @@ impl Record {
                 .iter()
                 .map(|failure| LoadError {
                     loader: Some(failure.loader.id().as_str().to_owned()),
-                    error: ErrorReport {
-                        message: failure.reason.clone(),
-                        causes: Vec::new(),
-                        branches: Vec::new(),
-                    },
+                    error: failure.error.clone(),
                 })
                 .collect(),
             records: selected.records.clone(),

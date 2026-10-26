@@ -88,7 +88,7 @@ impl Completion {
     pub fn finish_versions(&mut self, result: anyhow::Result<Vec<String>>) {
         self.versions = match result {
             Ok(values) => Versions::Ready(values),
-            Err(error) => Versions::Failed(format!("{error:#}")),
+            Err(error) => Versions::Failed(crate::widgets::Status::error(error)),
         };
     }
 
@@ -161,5 +161,5 @@ enum Versions {
     Unloaded,
     Loading,
     Ready(Vec<String>),
-    Failed(String),
+    Failed(crate::widgets::Status),
 }

@@ -97,7 +97,7 @@ struct Browser {
     detail_area: Rect,
     visible_rows: usize,
     clipboard: Option<arboard::Clipboard>,
-    status: Option<(String, Role)>,
+    status: Option<crate::widgets::Status>,
 }
 
 impl std::fmt::Debug for Browser {
@@ -271,7 +271,7 @@ fn browse(
             source.list_files(reference, &pending),
             "Fetching files...",
             |loading| {
-                browser.status = Some((loading.to_owned(), Role::Muted));
+                browser.status = Some((loading.to_owned(), Role::Muted).into());
                 screen.terminal.draw(|frame| {
                     view::draw(
                         frame,
@@ -307,10 +307,10 @@ fn browse(
                 query = pending;
                 browser.status = None;
             }
-            Ok(Some(_)) => browser.status = Some(("No more files.".into(), Role::Muted)),
-            Ok(None) => browser.status = Some(("Cancelled.".into(), Role::Muted)),
+            Ok(Some(_)) => browser.status = Some(("No more files.".into(), Role::Muted).into()),
+            Ok(None) => browser.status = Some(("Cancelled.".into(), Role::Muted).into()),
             Err(error) if request::is_interrupted(&error) => return Err(error),
-            Err(error) => browser.status = Some((format!("{error:#}"), Role::Danger)),
+            Err(error) => browser.status = Some(crate::widgets::Status::error(error)),
         }
     }
 }

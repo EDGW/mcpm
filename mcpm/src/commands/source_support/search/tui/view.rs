@@ -154,8 +154,20 @@ pub(super) fn draw(
         return;
     }
     // Search is command-specific and stays above the shared browser's title and content.
-    let [search, content] =
-        Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(area);
+    let extra_status = if loading.is_empty() {
+        browser
+            .status
+            .as_ref()
+            .map_or(0, |status| status.lines().len().saturating_sub(1)) as u16
+    } else {
+        0
+    };
+    let [search, content, footer_extension] = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Min(0),
+        Constraint::Length(extra_status.min(area.height / 2)),
+    ])
+    .areas(area);
     browser.search_area = search;
     draw_search(frame, search, browser);
     let layout = BrowserLayout::new(
@@ -215,15 +227,15 @@ pub(super) fn draw(
         text(&query.query)
     );
     let (status, role) = if !loading.is_empty() {
-        (loading, Role::Muted)
+        (vec![text(loading)], Role::Muted)
     } else {
         browser
             .status
             .as_ref()
-            .map_or((context.as_str(), Role::Muted), |(message, role)| {
-                (message.as_str(), *role)
-            })
+            .map(|status| (status.lines(), status.role()))
+            .unwrap_or((vec![context], Role::Muted))
     };
+    let footer = layout.footer.union(footer_extension);
     let help = match browser.focus {
         Focus::Search if browser.completion.open() => {
             "↑↓ Suggestion · Enter/Tab Insert · Esc Close · Ctrl-R Retry Versions"
@@ -232,26 +244,24 @@ pub(super) fn draw(
         Focus::Results => "↑↓ Select / Cross-page · ←→ / n/p Page · Enter Files",
         Focus::Details => "↑↓ Field · c Copy · Enter Full Details · Home/End",
     };
-    frame.render_widget(
-        Paragraph::new(vec![
-            short_line(
-                vec![Span::styled(text(status), style(role))],
-                layout.footer.width as usize,
-            ),
-            short_line(
-                vec![Span::styled(help, style(Role::Normal))],
-                layout.footer.width as usize,
-            ),
-            short_line(
-                vec![Span::styled(
-                    "/ Search · Tab Switch Card · q / Esc Quit",
-                    style(Role::Muted),
-                )],
-                layout.footer.width as usize,
-            ),
-        ]),
-        layout.footer,
-    );
+    let mut lines = status
+        .into_iter()
+        .map(|line| short_line(vec![Span::styled(line, style(role))], footer.width as usize))
+        .collect::<Vec<_>>();
+    lines.extend([
+        short_line(
+            vec![Span::styled(help, style(Role::Normal))],
+            footer.width as usize,
+        ),
+        short_line(
+            vec![Span::styled(
+                "/ Search · Tab Switch Card · q / Esc Quit",
+                style(Role::Muted),
+            )],
+            footer.width as usize,
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(lines), footer);
     browser.completion.draw(frame, browser.search_area);
 }
 

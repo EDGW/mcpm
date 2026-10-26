@@ -49,8 +49,8 @@ pub(in crate::commands::supports::mods::list) fn convert(
         );
         let mut failures = Vec::new();
         for error in std::mem::take(&mut record.errors) {
-            let source = error.error.into_error();
-            let reason = format!("{source:#}");
+            let report = error.error;
+            let source = report.clone().into_error();
             let diagnostic =
                 crate::diagnostics::RemoteError::wrap(source).context(record.path.clone());
             if report_errors {
@@ -64,7 +64,7 @@ pub(in crate::commands::supports::mods::list) fn convert(
                             .as_deref()
                             .context("missing loader ID in remote identification failure")?,
                     )?,
-                    reason,
+                    error: report,
                 });
             }
         }
@@ -140,6 +140,34 @@ mod tests {
     use super::*;
     use mcpm_backend::local::mcmod::MetadataConversionError;
     use serde_json::{Value, json};
+
+    #[test]
+    fn selected_records_preserve_nested_diagnostics_across_transport() {
+        use crate::diagnostics::ErrorReport;
+        use mcpm_backend::error::CombinedError;
+
+        let error = anyhow::Error::new(CombinedError::new(
+            anyhow::anyhow!("archive corrupt").context("cannot read fabric metadata"),
+            anyhow::Error::new(CombinedError::new(
+                anyhow::anyhow!("invalid manifest").context("forge metadata"),
+                anyhow::anyhow!("missing version"),
+            )),
+        ))
+        .context("identification failed");
+        let report = ErrorReport::capture(&error);
+        let record: Record = serde_json::from_value(json!({
+            "path":"mods/example.jar", "name":"example", "enabled":true,
+            "status":"failed", "metadata":[],
+            "errors":[{"loader":"fabric", "message":report.message, "causes":report.causes, "branches":report.branches}]
+        })).unwrap();
+        let loaded = convert(vec![record], false).unwrap();
+        let selected = Record::from_selected(&loaded.files[0]).unwrap();
+        let transported: Record =
+            serde_json::from_value(serde_json::to_value(selected).unwrap()).unwrap();
+        assert_eq!(transported.errors[0].error, report);
+        let loaded = convert(vec![transported], false).unwrap();
+        assert_eq!(loaded.files[0].scanned.failures[0].error, report);
+    }
 
     #[test]
     fn remote_metadata_uses_shared_tree_validation_at_every_depth() {

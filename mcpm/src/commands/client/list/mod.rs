@@ -40,7 +40,23 @@ struct Row {
     name: String,
     state: State,
     loaders: Vec<MinecraftModLoader>,
-    detail: String,
+    detail: Detail,
+}
+
+#[derive(Debug)]
+enum Detail {
+    Description(String),
+    Failure(crate::diagnostics::ErrorReport),
+}
+
+impl Detail {
+    fn summary(&self) -> &str {
+        match self {
+            Self::Description(value) => value,
+            Self::Failure(report) if report.message.is_empty() => "independent failures",
+            Self::Failure(report) => &report.message,
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -80,7 +96,7 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
                         name,
                         state: State::Normal,
                         loaders,
-                        detail: detail.to_owned(),
+                        detail: Detail::Description(detail.to_owned()),
                     }
                 }
                 Err(error) => {
@@ -89,7 +105,7 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
                         name,
                         state: State::Failed,
                         loaders: Vec::new(),
-                        detail: format!("{error:#}"),
+                        detail: Detail::Failure(crate::diagnostics::ErrorReport::capture(&error)),
                     }
                 }
             },
@@ -97,10 +113,22 @@ pub(super) fn run(args: ListArgs) -> Result<()> {
                 name,
                 state: State::Broken,
                 loaders: Vec::new(),
-                detail: client_output::error_chain(broken.error()),
+                detail: Detail::Failure(crate::diagnostics::ErrorReport::capture_std(
+                    broken.error(),
+                )),
             },
         };
         rows.push(row);
+    }
+    for row in &rows {
+        if let Detail::Failure(error) = &row.detail {
+            crate::diagnostics::error(
+                &error
+                    .clone()
+                    .into_error()
+                    .context(format!("failed to inspect client profile {:?}", row.name)),
+            );
+        }
     }
     let mut stdout = io::stdout().lock();
     output::write_list(&mut stdout, &rows, &args.columns).context("failed to write client list")?;
