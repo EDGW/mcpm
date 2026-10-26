@@ -10,7 +10,6 @@ use clap::Args;
 
 use super::{
     metadata::{self, ServerInfo},
-    output,
     target::{self, Target},
     workspace,
 };
@@ -40,7 +39,8 @@ pub(super) fn run(args: InfoArgs, ssh: SshArgs) -> Result<()> {
         ServerInfo::from_server(&server)
     };
     let mut stdout = io::stdout().lock();
-    output::write_snapshot(&mut stdout, &info, args.full_command, remote.as_ref())
+    let remote = remote.as_ref().map(metadata::remote_view);
+    crate::display::server::write_snapshot(&mut stdout, &info, args.full_command, remote.as_ref())
         .context("failed to write server information")?;
     stdout.flush().context("failed to flush server information")
 }

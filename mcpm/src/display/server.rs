@@ -2,22 +2,22 @@
 
 use std::io::{self, Write};
 
-use super::{
-    metadata::{ServerInfo, StartCommand},
-    workspace::Remote,
-};
-
 use crate::{
-    display::style::{OutputStyle, text},
-    ssh::Connection,
+    display::{
+        console::ConsoleWriter,
+        style::{OutputStyle, text},
+    },
+    server::{RemoteInfo, ServerInfo, StartCommand},
     terminal,
 };
 
-pub(super) fn write_snapshot(
+const COMMAND_LABEL: &str = "Full command: ";
+
+pub(crate) fn write_snapshot(
     output: &mut impl Write,
     server: &ServerInfo,
     show_full_command: bool,
-    remote: Option<&Remote>,
+    remote: Option<&RemoteInfo>,
 ) -> io::Result<()> {
     let loader = &server.loader;
     let style = OutputStyle::new();
@@ -35,13 +35,12 @@ pub(super) fn write_snapshot(
     };
     if !terminal::stdout_is_tty() {
         if let Some(remote) = remote {
-            let connection = remote.connection();
             write!(
                 output,
                 "{}\t{}\t{}\t",
                 text(&remote.path),
-                text(&remote_ssh(&connection)),
-                text(connection.executable()),
+                text(&remote_ssh(remote)),
+                text(remote.executable.as_str()),
             )?;
         }
         return writeln!(
@@ -49,12 +48,12 @@ pub(super) fn write_snapshot(
             "{name}\t{path}\t{version}\t{loader_name}\t{loader_version}\t{command}"
         );
     }
+    let mut output = ConsoleWriter::new(output);
     if let Some(remote) = remote {
-        let connection = remote.connection();
         for (label, value) in [
             ("Remote path: ", text(&remote.path)),
-            ("Remote SSH: ", text(&remote_ssh(&connection))),
-            ("Remote mcpm: ", text(connection.executable())),
+            ("Remote SSH: ", text(&remote_ssh(remote))),
+            ("Remote mcpm: ", text(remote.executable.as_str())),
         ] {
             writeln!(output, "{}{}", style.muted(label), style.muted(value))?;
         }
@@ -67,7 +66,7 @@ pub(super) fn write_snapshot(
         truncate_command(
             &command,
             textwrap::termwidth()
-                .saturating_sub("Full command: ".len())
+                .saturating_sub(COMMAND_LABEL.len())
                 .saturating_sub(1),
         )
     };
@@ -99,14 +98,14 @@ pub(super) fn write_snapshot(
     writeln!(
         output,
         "{}{}",
-        style.muted("Full command: "),
+        style.muted(COMMAND_LABEL),
         style.muted(command)
     )
 }
 
-fn remote_ssh(connection: &Connection) -> String {
-    let command = mask_ssh_command(&connection.ssh);
-    match connection.destination() {
+fn remote_ssh(remote: &RemoteInfo) -> String {
+    let command = mask_ssh_command(&remote.ssh);
+    match remote.destination.as_deref() {
         Some(destination) => format!("{destination} (full command: {command})"),
         None => command,
     }

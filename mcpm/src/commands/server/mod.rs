@@ -8,7 +8,6 @@ mod init;
 mod metadata;
 mod mod_source;
 mod mods;
-mod output;
 mod stash;
 mod target;
 mod workspace;
