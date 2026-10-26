@@ -52,7 +52,7 @@ pub fn build_with_progress(
                 graph.identification_failures.push(IdentificationFailure {
                     path: entry.path().to_owned(),
                     loader: loader.id().as_str().to_owned(),
-                    error: format!("{error:#}"),
+                    error: crate::error::ErrorReport::capture(error),
                 });
                 IdentificationErrorAction::Skip
             },

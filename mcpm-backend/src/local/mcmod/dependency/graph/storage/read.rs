@@ -24,7 +24,7 @@ use super::{
 
 // region: read_json
 
-/// Reads a version-1 JSON snapshot and restores the complete declaration graph.
+/// Reads a version-1 or version-2 JSON snapshot and restores the complete declaration graph.
 ///
 /// Mod candidates resolve their loader metadata and shared runtime instances from
 /// `loaders`. Empty nodes and external candidates need no runtime loader instance.
@@ -152,7 +152,7 @@ fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ReadGraphError> {
 }
 
 fn check_version(actual: u64) -> Result<(), ReadGraphError> {
-    if actual != FORMAT_VERSION {
+    if actual != 1 && actual != FORMAT_VERSION {
         return Err(ReadGraphError::UnsupportedFormatVersion {
             actual,
             supported: FORMAT_VERSION,

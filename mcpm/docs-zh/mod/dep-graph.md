@@ -16,7 +16,7 @@ mcpm-tools mods dep-graph build mods/ --loader fabric --external fabric:minecraf
 
 `--external <LOADER:MODID>` 添加一个已知的外部组件，可重复指定多个，冒号两侧均不能为空。相同标识重复传入只添加一个 External 候选。目标节点已经存在时，复用该节点并保留其入边和其他候选；不存在时创建节点。External 没有出边或版本信息。显式 External 独立于 `--loader`／`--loaders` 的识别筛选，也可以使用自定义 Loader 命名空间。不指定参数时不添加 External。
 
-JSON 顶层包含 `format_version: 1`、`identification_failures` 和按 Loader、Mod ID 排序的 `nodes` 数组。识别失败列表记录文件路径、Loader 和错误原因链；非空表示识别不完整。失败也会报告到 stderr，但不使构建返回失败状态。每个节点包含 `identifier`（`loader` 和 `id`）及 `candidates`。候选 `kind` 为 `primary_mod`、`nested_mod` 或 `external`；仅通过显式 `--external LOADER:MODID` 参数添加 external。未找到候选的目标保留为空节点，不推断 Minecraft、Java 或 Loader 的版本。
+JSON 顶层包含 `format_version: 2`、`identification_failures` 和按 Loader、Mod ID 排序的 `nodes` 数组。识别失败列表记录文件路径、Loader 和错误原因链；非空表示识别不完整。失败也会报告到 stderr，但不使构建返回失败状态。每个节点包含 `identifier`（`loader` 和 `id`）及 `candidates`。候选 `kind` 为 `primary_mod`、`nested_mod` 或 `external`；仅通过显式 `--external LOADER:MODID` 参数添加 external。未找到候选的目标保留为空节点，不推断 Minecraft、Java 或 Loader 的版本。
 
 Mod 候选包含 `modinfo`（名称、Mod ID 和版本）及 `outgoing`。每条边直接保存 `target` 和完整的 `dependency`：`kind`、`id`、`version_requirement`、`side`、`ordering` 和 `reason`。版本要求仍保留同一目标版本的 `all` 和 `any_of` 条件。边和依赖均无序，不记录声明序号或条件路径。显式 `ordering` 表示 Loader 的加载顺序约束，与 JSON 数组位置无关。例如：
 
@@ -34,7 +34,7 @@ Mod 候选包含 `modinfo`（名称、Mod ID 和版本）及 `outgoing`。每条
 }
 ```
 
-此格式尚未发布，因此继续使用格式版本 1。
+写入格式版本 2，错误包含 `message`、有序 `causes` 及可选递归 `branches`。读取兼容版本 1；旧错误字符串作为一个完整消息保留，不拆分推测原因层级。
 
 反向索引和运行时 Loader 实例不写入文件。输出表示声明关系，不判断版本是否满足、不选择实际加载候选，也不将依赖环认定为加载顺序错误。已禁用文件仍会产生候选，当前 JSON 不记录文件启用状态或来源路径。读取和校验图文件使用下述 `test` 子命令。
 

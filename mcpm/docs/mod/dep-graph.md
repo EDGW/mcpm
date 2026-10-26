@@ -16,7 +16,7 @@ Writes formatted JSON to stdout by default, without colors or hints. Use `-o <FI
 
 `--external <LOADER:MODID>` adds a known external component; repeat it to add more. Both parts must be nonempty. Repeated identical identifiers add only one external candidate. An existing target node is reused without changing its incoming relations or other candidates; otherwise a new node is created. External candidates have no outgoing edges or version information. Explicit externals are independent of `--loader`/`--loaders` identification filters and may use a custom loader namespace. No externals are added by default.
 
-The JSON contains `format_version: 1`, `identification_failures`, and a `nodes` array sorted by loader and mod ID. Identification failures record the file path, loader and error cause chain; a nonempty list means identification is incomplete. Failures are also reported to stderr but do not make the build return a failure status. Each node has an `identifier` (`loader` and `id`) and `candidates`. Candidate `kind` is `primary_mod`, `nested_mod`, or `external`; external candidates are added only through explicit `--external LOADER:MODID` options. Unresolved targets remain nodes with empty candidate arrays. Minecraft, Java and loader versions are not inferred.
+The JSON contains `format_version: 2`, `identification_failures`, and a `nodes` array sorted by loader and mod ID. Identification failures record the file path, loader and error cause chain; a nonempty list means identification is incomplete. Failures are also reported to stderr but do not make the build return a failure status. Each node has an `identifier` (`loader` and `id`) and `candidates`. Candidate `kind` is `primary_mod`, `nested_mod`, or `external`; external candidates are added only through explicit `--external LOADER:MODID` options. Unresolved targets remain nodes with empty candidate arrays. Minecraft, Java and loader versions are not inferred.
 
 Mod candidates contain `modinfo` (name, mod ID and version) and `outgoing`.
 Each edge stores `target` and the complete `dependency`: `kind`, `id`,
@@ -40,7 +40,7 @@ to JSON array position. For example:
 }
 ```
 
-The snapshot format remains version 1 because this format has not been released.
+Writers emit version 2 with structured error `message`, ordered `causes` and optional recursive `branches`. Readers also accept version 1; legacy error strings remain opaque messages and are never split to guess their causes.
 
 Reverse indices and runtime loader instances are omitted. This is a declaration graph: versions are not evaluated, candidates are not selected for loading, and dependency cycles are not treated as loading-order errors. Disabled files still contribute candidates; the current JSON does not record file enabled state or source paths. Use the `test` subcommand below to read and validate snapshots.
 
