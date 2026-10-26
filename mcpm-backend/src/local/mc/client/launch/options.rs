@@ -107,7 +107,7 @@ pub enum UnknownVariablePolicy {
     Preserve,
 }
 
-/// No implicit heap size or collector selection. Zero and min > max are rejected.
+/// No implicit heap size or collector selection; Java interprets the emitted sizes.
 #[derive(Debug, Clone, Default)]
 pub struct MemoryOptions {
     pub minimum_mib: Option<u64>,

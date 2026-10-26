@@ -1,3 +1,5 @@
+//! Checks launch option structure and assembles configured Java and game arguments.
+
 use super::super::{ArgumentList, LaunchOptions, QuickPlayTarget};
 use super::LaunchPlanError;
 use std::ffi::{OsStr, OsString};
@@ -42,17 +44,6 @@ pub(super) fn validate(options: &LaunchOptions) -> Result<(), LaunchPlanError> {
         return Err(configuration(
             "window",
             "width and height must both be positive or both absent",
-        ));
-    }
-    let memory = &options.memory;
-    if memory.minimum_mib == Some(0)
-        || memory.maximum_mib == Some(0)
-        || memory.stack_kib == Some(0)
-        || matches!((memory.minimum_mib, memory.maximum_mib), (Some(min), Some(max)) if min > max)
-    {
-        return Err(configuration(
-            "memory",
-            "sizes must be positive and minimum cannot exceed maximum",
         ));
     }
     if options.quick_play.is_some() && options.server.is_some() {
