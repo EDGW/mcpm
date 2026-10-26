@@ -14,8 +14,8 @@ use super::{
 /// A remote mod source with its own identifiers.
 ///
 /// Implementations normalize provider responses without exposing transport DTOs.
-/// Returned futures are `Send`. The interface does not prescribe an async
-/// runtime; concrete implementations may have their own runtime requirements.
+/// Returned futures are `Send` and run on Tokio, the project async runtime.
+/// File identification uses its blocking pool for synchronous summary computation.
 /// Supports dynamic dispatch through `Box<dyn Source>`. Implementations must
 /// also use `#[async_trait::async_trait]`.
 #[async_trait]
