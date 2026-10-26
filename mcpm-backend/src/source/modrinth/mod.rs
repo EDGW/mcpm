@@ -18,6 +18,12 @@ mod files;
 mod identify;
 
 /// A configured Modrinth v2 API endpoint and its source identity.
+/// # Implementations
+/// - [`Self::new`], [`Self::with_endpoint`]: configured HTTP source construction.
+/// - [`Self::fetch_game_versions`]: version catalog in `catalog`.
+/// - [`Self::list_project_files`], [`Self::fetch_project_file`]: file lookup in `files`.
+/// - [`Self::identify_summary_file`]: digest identification in `identify`.
+/// - [`Source`]: provider-independent source operations.
 #[derive(Clone, Debug)]
 pub struct ModrinthSource {
     id: SourceId,

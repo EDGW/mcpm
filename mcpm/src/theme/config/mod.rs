@@ -37,6 +37,11 @@ const DEFAULTS: [(&str, &str); 4] = [
     ),
 ];
 
+/// Effective theme values and editable source documents.
+///
+/// # Implementations
+/// - [`Self::load`], [`Self::set`], [`Self::save_key`]: configuration loading, editing and saving.
+/// - [`Self::palette_name`], [`Self::create_palette`], [`Self::save_styles`]: palette management in `schemes`.
 #[derive(Clone, Debug)]
 pub(crate) struct Config {
     documents: BTreeMap<String, Value>,

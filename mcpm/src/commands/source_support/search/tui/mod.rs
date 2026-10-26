@@ -31,6 +31,12 @@ enum Focus {
     Details,
 }
 
+/// Search browser state.
+///
+/// # Implementations
+/// - [`Self::new`], [`Self::complete`]: browser state and completion.
+/// - [`Self::handle`]: keyboard handling in `input`.
+/// - [`std::fmt::Debug::fmt`]: concise state debugging.
 struct Browser {
     draft: String,
     committed: String,

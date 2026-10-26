@@ -11,6 +11,11 @@ mod view;
 #[cfg(test)]
 mod tests;
 
+/// Search completion state and its suggestion view.
+///
+/// # Implementations
+/// - [`Self::refresh`]: candidate selection and completion state.
+/// - [`Self::draw`]: suggestion rendering in `view`.
 #[derive(Default, Debug)]
 pub(super) struct Completion {
     context: Option<CompletionContext>,
