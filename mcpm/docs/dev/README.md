@@ -8,6 +8,26 @@
 - `app.rs` owns shared process initialization and dispatch. The binary passes its identity explicitly; renaming a file does not change its command family.
 - SSH starts `mcpm-tools remote` by default. Remote executable overrides belong to connection settings, independently of local command roots.
 
+## Server configuration and foreground launch
+
+- Backend `local/java/command.rs` owns Java option/operand boundaries and argument-file expansion. Configuration import uses this model without reparsing command strings.
+- `local::mc::server::config` owns TOML types, templates, import classification, validation and publication. Frontends neither generate TOML nor interpret fields independently.
+- `config/publication.rs` owns configuration locks and recovery for registration and both TOML files. Registration replacement and conf replacement remain separate intentions.
+- `launch/plan.rs` asynchronously prepares an immutable plan. Local preflight and argument validation precede managed downloads; `launch/process.rs` owns child lifetime and temporary argument files. Capability probes never run Minecraft or environment-injected agents.
+- Frontend `commands/server/launch` owns local routing, CLI adaptation, Tokio execution and stop notifications. Console/Raw inherit game streams without consuming game stdin.
+- Launch progress composes `launch::Event`, `authlib_injector::Event` and generic `download::Event` without a download-layer dependency on servers. `display/server/launch.rs` owns stage text, stderr policy and transfer presentation; shared `Progress` owns indicatif, themes and log coordination. Commands only connect callbacks. Displays are dropped before preparation errors reach diagnostics and cleared before spawning Java.
+- Explicit `auto` memory/GC tuning remains unsupported. Omitted fields do not infer policy from examples, host state or legacy snapshots.
+- `config/overrides.rs` reuses the configuration schema for typed scalar/list changes. Optional authentication tables are populated only in schema probes, without enabling authentication in actual defaults. Effective configuration passes through the existing codec and validation without rewriting TOML.
+
+## Server authlib-injector
+
+- `local::mc::server::authlib_injector/` owns managed JAR policy, validation, staging, publication and its independent preparation lock. It is server state, outside global resource and cache management.
+- `config` owns authentication TOML, import classification and argument generation. General import requires original agent files to exist and be readable; manifest identity confirms authlib-injector. Imported paths remain manual.
+- `authlib_injector/metadata.rs` is the sole local metadata codec. It consumes typed `download::authlib_injector::Release` fields without decoding upstream JSON again. Local digests reuse the shared download verifier.
+- The frontend maps `--auth` / `-A` to existing configuration overrides and adapts `--auth-jar-policy` to the backend policy. A lazy factory constructs the downloader only when needed, reusing the default BMCLAPI/upstream sources and shared fallback rules.
+- Managed `auto` repairs only missing, corrupt or mismatched pairs; `local` forbids downloads; `refresh` fetches the latest release again. Unknown metadata formats and OS errors are not repairable corruption. Manual paths access no managed state.
+- One exclusive preparation lock fails immediately on contention and is released before returning the plan. Minecraft holds no runtime lease. Dropping preparation cancels downloads and removes staging; the backend installs no signal handlers. JAR and metadata replacement is sequential, so every preparation revalidates their pair rather than assuming atomic publication.
+
 ## Server stash
 
 - `mcpm-backend::local::mc::server::stash` owns snapshot operations, indices, HEAD and locks. `commands/server/stash` owns CLI inputs and local routing; `display/stash` owns presentation.

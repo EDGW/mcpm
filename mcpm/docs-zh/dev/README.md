@@ -24,11 +24,22 @@
 - 后端 `local/mc/server/config` 拥有 TOML 类型、模板、分类、校验和发布；导入值生效，缺失值保持注释。前端不拼 TOML、不重复解释字段。
 - 本地初始化输入显式携带配置草稿；旧 Remote 协议保留自己的登记契约，不由未传输的数据推断配置。
 - `config/publication.rs` 持有配置锁和恢复日志，统一协调登记及两份 TOML；`--force` 与 `--foverride-conf` 是独立覆盖意图。跨文件发布可恢复，工作区类型标记仍是前端后续步骤。
-- 后端 `launch/plan.rs` 生成不可由前端修改的执行计划；`launch/process.rs` 持有子进程及临时参数文件，标准流直接继承。能力探测不执行 Minecraft 入口或环境注入的 agent。
+- 后端 `launch/plan.rs` 异步准备不可由前端修改的执行计划；本地条件及参数检查先于托管下载。`launch/process.rs` 持有子进程及临时参数文件，标准流直接继承。能力探测不执行 Minecraft 入口或环境注入的 agent。
 - 前端 `commands/server/launch` 检查本地路由、接入停止通知并传递类型化退出状态。Console/Raw 不转换游戏输出，不占用游戏 stdin。
+- 启动进度通过 `launch::Event` → `authlib_injector::Event` → `download::Event` 逐层组合，通用下载层不引用服务端类型。`display/server/launch.rs` 负责阶段文案、stderr 模式及下载渲染，通用 `Progress` 负责 indicatif、主题与日志协调；命令只接入回调。准备错误返回前销毁动态显示，启动 Java 前结束进度。
 - v3 登记只存身份，旧 v1/v2 `start` 经原编解码入口兼容读取，仅用于历史展示，不自动迁移成启动配置。
-- 显式 `auto` 暂不受支持；不从模板示例、宿主机状态或旧快照推导隐式默认策略。
+- 内存或 GC 设置中的显式 `auto` 暂不受支持；不从模板示例、宿主机状态或旧快照推导隐式默认策略。
 - `config/overrides.rs` 拥有本次启动覆盖操作，字段及类型复用配置 schema；标量唯一，列表按序追加或清空重设。前端只将便捷参数转换为同一覆盖输入，最终配置经原 codec 和校验入口生成计划，不回写 TOML。
+- 可选认证表的覆盖类型探测复用同一个配置类型，仅在探测值中填充表以识别字段及数组，不为真实配置启用默认认证。
+
+## 服务端 authlib-injector
+
+- `local::mc::server::authlib_injector/` 负责服务端托管 JAR、策略、独立准备锁、验证及暂存发布；不是全局资源模块或 cache，不接入 cache 命令。
+- `config` 独占认证 TOML schema、导入分类及参数生成；通用导入要求原命令中的 agent 文件存在且可读，认证身份由 JAR manifest 确认。导入的 JAR 保持手动模式。
+- `authlib_injector/metadata.rs` 是本地 `meta.json` 的唯一编解码入口。它使用 `download::authlib_injector::Release` 的类型化字段，不重复解释上游 JSON。本地文件摘要复用通用下载校验器。
+- 前端将 `--auth` / `-A` 转为既有配置覆盖，将 `--auth-jar-policy` 转为后端策略；组合下载器的工厂仅在需要下载时调用。网络下载默认复用内置 BMCLAPI、官方源，不从 CLI 层实现回退规则。
+- 托管 `auto` 仅修复缺失、损坏或摘要不匹配的当前组合；`local` 禁止下载；`refresh` 重新获取最新发布。未知 meta 格式或操作系统错误不作为损坏修复。手动路径只检查文件，不访问托管状态。
+- 独占锁覆盖一次准备，竞争立即报 busy；计划返回前释放，运行期间不持锁。取消通过丢弃准备 future 清理暂存文件，后端不注册信号处理器。JAR 和 meta 依次替换，下一次准备重新验证组合，不能假定两文件原子发布。
 
 ## 服务端 stash
 

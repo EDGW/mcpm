@@ -84,6 +84,8 @@ Local imports publish complete configuration for the selected candidate:
 - Imported Java, memory, GC and server settings are enabled in `conf.toml`; unspecified settings remain commented out.
 - Fixed arguments, entry, actual working directory and explicit environment overrides belong to `launch.toml`. Class, JAR and module entries retain their entry kind; source entries and uncertain option boundaries are rejected.
 - Java argument files are flattened during static import. Source changes require an explicit reimport.
+- Every imported `-javaagent` must refer to an existing readable file, resolved against the original Java working directory. Missing agents fail import without downloading.
+- The JAR manifest's `Premain-Class` identifies authlib-injector, including renamed files. Its agent and representable properties move into `[authlib-injector]` in `conf.toml`. The imported `jar` remains a manual path: no copying, download or managed metadata. Foreign agents and unknown or unrepresentable properties retain their raw arguments; multiple authlib-injector agents are ambiguous and fail.
 - Existing `conf.toml` is preserved on first registration and on `--force`; replacing it additionally requires `--foverride-conf`. Invalid preserved settings or conflicts block publication.
 - Backend publication uses a recovery journal. An interrupted import must be recovered through explicit initialization before launch.
 - Workspace type marking remains a separate frontend step. Its failure reports server files already committed.
