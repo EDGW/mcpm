@@ -1,0 +1,206 @@
+<ns0:svg xmlns:ns0="http://www.w3.org/2000/svg" width="1120" height="2396" viewBox="0 0 1120 2396" role="img" aria-labelledby="title desc" xml:lang="zh-CN">
+  <ns0:title id="title">Forge / NeoForge 识别流程</ns0:title>
+  <ns0:desc id="desc">Forge 和 NeoForge 从两个独立入口开始。Forge 单独分流 Shim；其余进入共同的 FML 识别流程，依次确认入口、loader 家族、group、启动目标和版本证据。</ns0:desc>
+  <ns0:defs>
+    <ns0:marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <ns0:path d="M 0 0 L 10 5 L 0 10 z" class="arrow" />
+    </ns0:marker>
+  </ns0:defs>
+  <ns0:style>
+    svg { --bg: #ffffff; --fg: #17212f; --muted: #536174; --surface: #f6f8fb; --line: #a8b4c3; --decision: #edf3fb; --good: #edf7f0; --bad: #fff1ef; --route: #f2effa; background: var(--bg); }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #151b23; --fg: #e6edf5; --muted: #b2bfd1; --surface: #202a37; --line: #738197; --decision: #233449; --good: #203a2d; --bad: #432c2c; --route: #312c45; }
+    }
+    text { fill: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .heading { font-size: 26px; font-weight: 600; }
+    .subtitle { font-size: 18px; fill: var(--muted); }
+    .node-title { font-size: 20px; font-weight: 600; }
+    .body { font-size: 18px; }
+    .code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 17px; }
+    rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+    .decision rect { fill: var(--decision); }
+    .success rect { fill: var(--good); }
+    .error rect { fill: var(--bad); }
+    .route rect { fill: var(--route); }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.6; marker-end: url(#arrow); }
+    .arrow { fill: var(--line); }
+    .edge-label { fill: var(--muted); font-size: 17px; }
+
+    .flow-group &gt; rect { fill: none; stroke: var(--line); stroke-width: 1.3; }
+    .group-title { font-size: 21px; font-weight: 600; }
+    .group-subtitle { font-size: 17px; fill: var(--muted); }
+
+</ns0:style>
+  <ns0:g id="ordinary-fml" class="flow-group">
+    <ns0:rect x="6" y="652.0" width="1108" height="1720" rx="14" />
+    <ns0:text class="group-title" x="26" y="684.0">普通 FML 识别</ns0:text>
+    <ns0:text class="group-subtitle" x="26" y="713.0">共用流程；按各自入口家族识别。</ns0:text>
+  </ns0:g>
+  <ns0:g id="family-checks" class="flow-group">
+    <ns0:rect x="16" y="782.0" width="1088" height="548.0" rx="14" />
+    <ns0:text class="group-title" x="36" y="814.0">确认入口与 loader 家族</ns0:text>
+  </ns0:g>
+  <ns0:g id="declaration-checks" class="flow-group">
+    <ns0:rect x="16" y="1356.0" width="1088" height="354.0" rx="14" />
+    <ns0:text class="group-title" x="36" y="1388.0">检查启动声明</ns0:text>
+  </ns0:g>
+  <ns0:g id="version-evidence" class="flow-group">
+    <ns0:rect x="16" y="1736.0" width="1088" height="492.0" rx="14" />
+    <ns0:text class="group-title" x="36" y="1768.0">取得并核对版本</ns0:text>
+  </ns0:g>
+  <ns0:text class="heading" x="28" y="42">Forge / NeoForge 识别流程</ns0:text>
+  <ns0:text class="subtitle" x="28" y="77">大框表示流程范围；内部节点表示独立步骤；连线表示执行与分支。</ns0:text>
+  <ns0:path class="edge" data-from="forge-entry" data-to="shim-condition" d="M 288 198 L 288 252" />
+  <ns0:path class="edge" data-from="shim-condition" data-to="shim-route" d="M 548 309 L 568 309 L 568 485 L 588 485" />
+  <ns0:text class="edge-label" x="551" y="333">是</ns0:text>
+  <ns0:path class="edge" data-from="main-class" data-to="main-class-exit" d="M 758 909 L 816 909" />
+  <ns0:text class="edge-label" x="768" y="897">否</ns0:text>
+  <ns0:path class="edge" data-from="main-class" data-to="family-evidence" d="M 393 980 L 393 1032" />
+  <ns0:text class="edge-label" x="409" y="1002">是</ns0:text>
+  <ns0:path class="edge" data-from="family-evidence" data-to="family-match" d="M 393 1174 L 393 1226" />
+  <ns0:path class="edge" data-from="family-match" data-to="family-match-exit" d="M 758 1269 L 816 1269" />
+  <ns0:text class="edge-label" x="768" y="1257">否</ns0:text>
+  <ns0:path class="edge" data-from="family-match" data-to="group-check" d="M 393 1312 L 393 1412" />
+  <ns0:text class="edge-label" x="409" y="1334">是</ns0:text>
+  <ns0:path class="edge" data-from="group-check" data-to="group-check-exit" d="M 758 1469 L 816 1469" />
+  <ns0:text class="edge-label" x="768" y="1457">否</ns0:text>
+  <ns0:path class="edge" data-from="group-check" data-to="target-check" d="M 393 1526 L 393 1578" />
+  <ns0:text class="edge-label" x="409" y="1548">是</ns0:text>
+  <ns0:path class="edge" data-from="target-check" data-to="target-check-exit" d="M 758 1635 L 816 1635" />
+  <ns0:text class="edge-label" x="768" y="1623">是</ns0:text>
+  <ns0:path class="edge" data-from="target-check" data-to="mc-version" d="M 393 1692 L 393 1792" />
+  <ns0:text class="edge-label" x="409" y="1714">否</ns0:text>
+  <ns0:path class="edge" data-from="mc-version" data-to="mc-version-exit" d="M 758 1835 L 816 1835" />
+  <ns0:text class="edge-label" x="768" y="1823">缺失</ns0:text>
+  <ns0:path class="edge" data-from="mc-version" data-to="loader-version" d="M 393 1878 L 393 1930" />
+  <ns0:path class="edge" data-from="loader-version" data-to="loader-version-exit" d="M 758 1987 L 816 1987" />
+  <ns0:text class="edge-label" x="768" y="1975">缺失</ns0:text>
+  <ns0:path class="edge" data-from="loader-version" data-to="version-conflict" d="M 393 2044 L 393 2096" />
+  <ns0:path class="edge" data-from="version-conflict" data-to="version-conflict-exit" d="M 758 2153 L 816 2153" />
+  <ns0:text class="edge-label" x="768" y="2141">是</ns0:text>
+  <ns0:path class="edge" data-from="version-conflict" data-to="success" d="M 393 2210 L 393 2262" />
+  <ns0:text class="edge-label" x="409" y="2232">否</ns0:text>
+  <ns0:g id="forge-entry" class="node process">
+    <ns0:rect x="28" y="112" width="520" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="144">Forge 入口</ns0:text>
+    <ns0:text class="body" x="48" y="177">开始识别 Forge 服务端</ns0:text>
+  </ns0:g>
+  <ns0:g id="neo-entry" class="node process">
+    <ns0:rect x="588" y="112" width="504" height="86" rx="10" />
+    <ns0:text class="node-title" x="608" y="144">NeoForge 入口</ns0:text>
+    <ns0:text class="body" x="608" y="177">开始识别 NeoForge 服务端</ns0:text>
+  </ns0:g>
+  <ns0:g id="shim-condition" class="node decision">
+    <ns0:rect x="28" y="252" width="520" height="114" rx="10" />
+    <ns0:text class="node-title" x="48" y="284">是否为 Forge Shim 入口？</ns0:text>
+    <ns0:text class="body" x="48" y="317">Java 主类为：</ns0:text>
+    <ns0:text class="body" x="48" y="345">
+      <ns0:tspan class="code">net.minecraftforge.bootstrap.shim.Main</ns0:tspan>
+    </ns0:text>
+  </ns0:g>
+  <ns0:g id="shim-route" class="node route">
+    <ns0:rect x="588" y="428" width="504" height="114" rx="10" />
+    <ns0:text class="node-title" x="608" y="460">进入 Forge Shim 识别流程</ns0:text>
+    <ns0:text class="body" x="608" y="493">从启动 JAR 的内嵌配置取得版本证据。</ns0:text>
+    <ns0:text class="body" x="608" y="521">具体流程见下一张图。</ns0:text>
+  </ns0:g>
+  <ns0:g id="main-class" class="node decision">
+    <ns0:rect x="28" y="838" width="730" height="142" rx="10" />
+    <ns0:text class="node-title" x="48" y="870">Java 主类是否为支持的普通 FML 入口？</ns0:text>
+    <ns0:text class="body" x="48" y="903">
+      <ns0:tspan class="code">cpw.mods.bootstraplauncher.BootstrapLauncher</ns0:tspan>
+    </ns0:text>
+    <ns0:text class="body" x="48" y="931">
+      <ns0:tspan class="code">cpw.mods.modlauncher.Launcher</ns0:tspan>
+    </ns0:text>
+    <ns0:text class="body" x="48" y="959">
+      <ns0:tspan class="code">net.neoforged.fml.startup.Server</ns0:tspan>
+    </ns0:text>
+  </ns0:g>
+  <ns0:g id="main-class-exit" class="node route">
+    <ns0:rect x="816" y="866" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="898">不属于当前检测器</ns0:text>
+    <ns0:text class="body" x="836" y="931">普通 FML 入口不匹配</ns0:text>
+  </ns0:g>
+  <ns0:g id="family-evidence" class="node process">
+    <ns0:rect x="28" y="1032" width="730" height="142" rx="10" />
+    <ns0:text class="node-title" x="48" y="1064">判断启动声明所属的 loader 家族</ns0:text>
+    <ns0:text class="body" x="48" y="1097">以下任一证据指向 NeoForge：提供 <ns0:tspan class="code">--fml.neoForgeVersion</ns0:tspan>、</ns0:text>
+    <ns0:text class="body" x="48" y="1125">
+      <ns0:tspan class="code">--fml.forgeGroup</ns0:tspan> 为 <ns0:tspan class="code">net.neoforged</ns0:tspan>，或主类以 <ns0:tspan class="code">net.neoforged.</ns0:tspan> 开头。</ns0:text>
+    <ns0:text class="body" x="48" y="1153">都不存在时，判为 Forge。</ns0:text>
+  </ns0:g>
+  <ns0:g id="family-match" class="node decision">
+    <ns0:rect x="28" y="1226" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="1258">声明家族是否匹配当前入口？</ns0:text>
+    <ns0:text class="body" x="48" y="1291">Forge 入口只接受 Forge；NeoForge 入口只接受 NeoForge。</ns0:text>
+  </ns0:g>
+  <ns0:g id="family-match-exit" class="node route">
+    <ns0:rect x="816" y="1226" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="1258">不属于当前检测器</ns0:text>
+    <ns0:text class="body" x="836" y="1291">当前入口不处理此家族</ns0:text>
+  </ns0:g>
+  <ns0:g id="group-check" class="node decision">
+    <ns0:rect x="28" y="1412" width="730" height="114" rx="10" />
+    <ns0:text class="node-title" x="48" y="1444">声明的 loader group 是否与家族一致？</ns0:text>
+    <ns0:text class="body" x="48" y="1477">
+      <ns0:tspan class="code">--fml.forgeGroup</ns0:tspan> 未提供时通过；提供时必须匹配：</ns0:text>
+    <ns0:text class="body" x="48" y="1505">Forge → <ns0:tspan class="code">net.minecraftforge</ns0:tspan>；NeoForge → <ns0:tspan class="code">net.neoforged</ns0:tspan>。</ns0:text>
+  </ns0:g>
+  <ns0:g id="group-check-exit" class="node error">
+    <ns0:rect x="816" y="1426" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="1458">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="1491">loader group 与家族冲突</ns0:text>
+  </ns0:g>
+  <ns0:g id="target-check" class="node decision">
+    <ns0:rect x="28" y="1578" width="730" height="114" rx="10" />
+    <ns0:text class="node-title" x="48" y="1610">是否明确声明了客户端启动目标？</ns0:text>
+    <ns0:text class="body" x="48" y="1643">检查 <ns0:tspan class="code">--launchTarget</ns0:tspan>；命中已知客户端目标时拒绝识别。</ns0:text>
+    <ns0:text class="body" x="48" y="1671">未提供或未知的目标不阻止识别。</ns0:text>
+  </ns0:g>
+  <ns0:g id="target-check-exit" class="node error">
+    <ns0:rect x="816" y="1592" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="1624">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="1657">声明的是客户端目标</ns0:text>
+  </ns0:g>
+  <ns0:g id="mc-version" class="node process">
+    <ns0:rect x="28" y="1792" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="1824">取得 Minecraft 版本</ns0:text>
+    <ns0:text class="body" x="48" y="1857">从 <ns0:tspan class="code">--fml.mcVersion</ns0:tspan> 取得版本；此项必须存在。</ns0:text>
+  </ns0:g>
+  <ns0:g id="mc-version-exit" class="node error">
+    <ns0:rect x="816" y="1792" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="1824">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="1857">缺少 Minecraft 版本</ns0:text>
+  </ns0:g>
+  <ns0:g id="loader-version" class="node process">
+    <ns0:rect x="28" y="1930" width="730" height="114" rx="10" />
+    <ns0:text class="node-title" x="48" y="1962">取得 loader 版本</ns0:text>
+    <ns0:text class="body" x="48" y="1995">优先采用 <ns0:tspan class="code">--fml.neoForgeVersion</ns0:tspan>；</ns0:text>
+    <ns0:text class="body" x="48" y="2023">未提供时采用 <ns0:tspan class="code">--fml.forgeVersion</ns0:tspan>，两项至少存在一项。</ns0:text>
+  </ns0:g>
+  <ns0:g id="loader-version-exit" class="node error">
+    <ns0:rect x="816" y="1944" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="1976">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="2009">缺少 loader 版本</ns0:text>
+  </ns0:g>
+  <ns0:g id="version-conflict" class="node decision">
+    <ns0:rect x="28" y="2096" width="730" height="114" rx="10" />
+    <ns0:text class="node-title" x="48" y="2128">两个 loader 版本声明是否冲突？</ns0:text>
+    <ns0:text class="body" x="48" y="2161">若 <ns0:tspan class="code">--fml.neoForgeVersion</ns0:tspan> 与 <ns0:tspan class="code">--fml.forgeVersion</ns0:tspan> 同时存在，</ns0:text>
+    <ns0:text class="body" x="48" y="2189">要求两者相同；只提供一项时无此冲突。</ns0:text>
+  </ns0:g>
+  <ns0:g id="version-conflict-exit" class="node error">
+    <ns0:rect x="816" y="2110" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="2142">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="2175">两个版本声明不一致</ns0:text>
+  </ns0:g>
+  <ns0:g id="success" class="node success">
+    <ns0:rect x="28" y="2262" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="2294">识别成功</ns0:text>
+    <ns0:text class="body" x="48" y="2327">返回所属 loader 的 Minecraft 版本和 loader 版本。</ns0:text>
+  </ns0:g>
+  <ns0:path class="edge" data-from="shim-condition" data-to="main-class" d="M 288 366 L 288 600 L 393 600 L 393 838" />
+  <ns0:text class="edge-label" x="304" y="400">否</ns0:text>
+  <ns0:path class="edge" data-from="neo-entry" data-to="main-class" d="M 840 198 L 840 224 L 1110 224 L 1110 600 L 393 600 L 393 838" />
+</ns0:svg>
