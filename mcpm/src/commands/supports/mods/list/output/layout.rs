@@ -6,6 +6,7 @@ use textwrap::{Options, WordSeparator, WordSplitter, WrapAlgorithm};
 use unicode_width::UnicodeWidthStr;
 
 use super::{Column, Piece, Row};
+use crate::display::console::ConsoleWriter;
 
 pub(super) fn write(
     output: &mut impl Write,
@@ -125,63 +126,64 @@ fn write_stacked_row(
     width: usize,
     color: bool,
 ) -> io::Result<()> {
+    let mut output = ConsoleWriter::new(output);
     for &column in columns {
         let cell = &row.cells[column.position()];
         if cell.iter().all(|piece| piece.text.is_empty()) {
             continue;
         }
-        let label = match column {
-            Column::Index => "",
-            Column::Name => "name: ",
-            Column::Modid => "modid: ",
-            Column::Filename => "filename: ",
-            Column::Loaders => "loaders: ",
-        };
-        let indentation = if column != Column::Index && width > 3 {
-            "  "
+        if column != Column::Index && width > 3 {
+            let mut details = output.subwriter();
+            write_stacked_cell(&mut details, row, column, width - 2, color)?;
         } else {
-            ""
-        };
-        let prefix = format!("{indentation}{label}");
-        let minimum_content = if column == Column::Loaders { 14 } else { 2 };
-        if width.saturating_sub(prefix.len()) >= minimum_content {
-            for (index, line) in
-                wrap_cell(cell, width - prefix.len(), column, row.indentation(column))
-                    .iter()
-                    .enumerate()
-            {
-                write!(
-                    output,
-                    "{}",
-                    if index == 0 {
-                        prefix.clone()
-                    } else {
-                        " ".repeat(prefix.len())
-                    }
-                )?;
-                write_pieces(output, line, color)?;
-                writeln!(output)?;
-            }
-        } else {
-            // Extremely narrow terminals: put labels on their own wrapped lines.
-            for line in textwrap::wrap(prefix.trim_end(), width.max(1)) {
-                if !line.is_empty() {
-                    writeln!(output, "{line}")?;
-                }
-            }
-            for line in wrap_cell(
-                cell,
-                width.saturating_sub(indentation.len()).max(1),
-                column,
-                row.indentation(column),
-            ) {
-                write!(output, "{indentation}")?;
-                write_pieces(output, &line, color)?;
-                writeln!(output)?;
-            }
+            write_stacked_cell(&mut output, row, column, width, color)?;
         }
     }
     writeln!(output)
+}
+
+fn write_stacked_cell(
+    output: &mut ConsoleWriter<'_>,
+    row: &Row,
+    column: Column,
+    width: usize,
+    color: bool,
+) -> io::Result<()> {
+    let cell = &row.cells[column.position()];
+    let label = match column {
+        Column::Index => "",
+        Column::Name => "name: ",
+        Column::Modid => "modid: ",
+        Column::Filename => "filename: ",
+        Column::Loaders => "loaders: ",
+    };
+    let minimum_content = if column == Column::Loaders { 14 } else { 2 };
+    if width.saturating_sub(label.len()) >= minimum_content {
+        for (index, line) in wrap_cell(cell, width - label.len(), column, row.indentation(column))
+            .iter()
+            .enumerate()
+        {
+            if index == 0 {
+                write!(output, "{label}")?;
+            } else {
+                write!(output, "{}", " ".repeat(label.len()))?;
+            }
+            write_pieces(output, line, color)?;
+            writeln!(output)?;
+        }
+    } else {
+        // Extremely narrow terminals: put labels on their own wrapped lines.
+        for line in textwrap::wrap(label.trim_end(), width.max(1)) {
+            if !line.is_empty() {
+                writeln!(output, "{line}")?;
+            }
+        }
+        for line in wrap_cell(cell, width.max(1), column, row.indentation(column)) {
+            write_pieces(output, &line, color)?;
+            writeln!(output)?;
+        }
+    }
+    Ok(())
 }
 
 fn wrap_cell(

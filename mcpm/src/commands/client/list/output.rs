@@ -2,7 +2,10 @@
 
 use std::io::{self, Write};
 
-use crate::{display::style::OutputStyle, terminal};
+use crate::{
+    display::{console::ConsoleWriter, style::OutputStyle},
+    terminal,
+};
 
 use super::{Row, State};
 
@@ -43,6 +46,7 @@ pub(super) fn write_list(
                 })
                 .collect();
             if formatted {
+                let mut output = ConsoleWriter::new(output);
                 let styled: Vec<_> = columns
                     .selected()
                     .iter()
@@ -100,18 +104,20 @@ pub(super) fn write_list(
             State::Broken => style.danger(badge),
             State::Failed => style.warning(badge),
         };
+        let mut output = ConsoleWriter::new(output);
         writeln!(
             output,
             "{}  {}  {badge}",
             style.muted(index + 1),
             style.primary(name)
         )?;
+        let mut output = output.subwriter();
         if !row.loaders.is_empty() {
             // One loader per line keeps each version legible in narrow terminals.
             for loader in &row.loaders {
                 writeln!(
                     output,
-                    "   {}{} {}",
+                    "{}{} {}",
                     style.muted("Loader: "),
                     style.loader(loader.loader.id().as_str(), &text(loader.loader.name())),
                     style.secondary(text(&loader.version))
@@ -123,10 +129,9 @@ pub(super) fn write_list(
                 State::Broken => "Reason: ",
                 State::Failed => "Error: ",
             };
-            let prefix = format!("   {label}");
-            let indentation = " ".repeat(prefix.len());
-            let options = textwrap::Options::new(width)
-                .initial_indent(&prefix)
+            let indentation = " ".repeat(label.len());
+            let options = textwrap::Options::new(width.saturating_sub(2).max(1))
+                .initial_indent(label)
                 .subsequent_indent(&indentation)
                 .word_splitter(textwrap::WordSplitter::NoHyphenation);
             for line in textwrap::wrap(&detail, options) {

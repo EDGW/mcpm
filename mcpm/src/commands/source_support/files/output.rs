@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use mcpm_backend::source::{FilePage, ProjectFile, ProjectRef, ReleaseType};
 
 use crate::{
+    display::console::ConsoleWriter,
     display::style::{OutputStyle, text},
     terminal,
 };
@@ -22,6 +23,7 @@ pub(super) fn write_files(
     let style = OutputStyle::new();
     let width = textwrap::termwidth().saturating_sub(6).max(1);
     if formatted && !columns.is_explicit() {
+        let mut output = ConsoleWriter::new(output);
         writeln!(
             output,
             "{}",
@@ -105,8 +107,10 @@ pub(super) fn write_files(
                         _ => style.muted(value),
                     })
                     .collect();
+                let mut console = ConsoleWriter::new(output);
+                let mut output = console.subwriter();
                 for line in textwrap::wrap(&values.join("  "), width) {
-                    writeln!(output, "  {line}")?;
+                    writeln!(output, "{line}")?;
                 }
             } else {
                 writeln!(output, "{}", values.join("\t"))?;
@@ -141,14 +145,17 @@ pub(super) fn write_files(
             )?;
             continue;
         }
-        writeln!(output)?;
+        let mut console = ConsoleWriter::new(output);
+        writeln!(console)?;
+        let mut output = console.subwriter();
         let title = match number {
             Some(number) => format!("{number}. {}", text(&file.name)),
             None => format!("Selected · {}", text(&file.name)),
         };
         for line in textwrap::wrap(&title, width) {
-            writeln!(output, "  {}", style.primary(line))?;
+            writeln!(output, "{}", style.primary(line))?;
         }
+        let mut output = output.subwriter();
         let version = file.version.as_deref().unwrap_or("unknown");
         for value in [
             format!("ID {} · Version {version} · {channel}", file.reference.id.0),
@@ -161,11 +168,11 @@ pub(super) fn write_files(
             ),
         ] {
             for line in textwrap::wrap(&text(&value), width) {
-                writeln!(output, "    {}", style.muted(line))?;
+                writeln!(output, "{}", style.muted(line))?;
             }
         }
         for loader in &file.loaders {
-            writeln!(output, "    {}", style.loader(loader, &text(loader)))?;
+            writeln!(output, "{}", style.loader(loader, &text(loader)))?;
         }
         let download = file
             .download_url
@@ -173,7 +180,7 @@ pub(super) fn write_files(
             .map(|url| url.as_str())
             .unwrap_or("No direct download URL available");
         for line in textwrap::wrap(&text(download), width) {
-            writeln!(output, "    {}", style.muted(line))?;
+            writeln!(output, "{}", style.muted(line))?;
         }
     }
     if formatted {

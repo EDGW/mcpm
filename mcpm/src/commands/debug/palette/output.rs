@@ -4,9 +4,10 @@ use std::io::{self, Write};
 
 use owo_colors::Style;
 
-use crate::display::style::OutputStyle;
+use crate::display::{console::ConsoleWriter, style::OutputStyle};
 
 pub(super) fn write(output: &mut impl Write) -> io::Result<()> {
+    let mut output = ConsoleWriter::new(output);
     let policy = OutputStyle::new();
     writeln!(output, "mcpm palette · owo-colors · Normal / Bold / Dim")?;
     writeln!(
@@ -15,6 +16,7 @@ pub(super) fn write(output: &mut impl Write) -> io::Result<()> {
     )?;
     for (expression, style) in samples() {
         writeln!(output)?;
+        let mut output = output.subwriter();
         for (suffix, style) in [
             ("", style),
             (".bold()", style.bold()),
@@ -22,7 +24,7 @@ pub(super) fn write(output: &mut impl Write) -> io::Result<()> {
         ] {
             writeln!(
                 output,
-                "  {}",
+                "{}",
                 policy.paint(format!("{expression}{suffix}"), style)
             )?;
         }
