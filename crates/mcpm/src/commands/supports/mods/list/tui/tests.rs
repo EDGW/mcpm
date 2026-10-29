@@ -53,7 +53,10 @@ fn summary() -> Summary<'static> {
     static ENVIRONMENT: std::sync::LazyLock<RuntimeEnvironment> =
         std::sync::LazyLock::new(|| RuntimeEnvironment::new().with_mods_cache(None));
     Summary {
-        location: Location::Local(&ENVIRONMENT),
+        location: Location::Local {
+            session: crate::commands::execution::local_session().unwrap(),
+            environment: ENVIRONMENT.clone(),
+        },
         ignored: 0,
         ignored_files: &[],
         input_errors: 0,
@@ -379,7 +382,7 @@ fn two_line_items_map_both_rendered_rows_to_the_same_selection() {
 #[test]
 fn two_line_source_entries_map_to_one_field_and_scroll_together() {
     use crossterm::event::{KeyCode, KeyEvent, MouseButton};
-    use kako_mc_lib::source::{
+    use mcpm_backend::source::types::{
         FileId, FileMatch, FileRef, MatchedFileRole, ProjectId, ProjectRef, SourceId,
     };
 

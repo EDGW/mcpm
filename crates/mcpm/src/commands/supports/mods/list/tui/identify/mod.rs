@@ -2,7 +2,7 @@
 
 use crate::commands::source_support::identify::{self as acquisition, Event, Location, Outcome};
 use anyhow::Result;
-use kako_mc_lib::source::{FileMatch, MatchedFileRole};
+use mcpm_backend::source::types::{FileMatch, MatchedFileRole};
 use std::{
     path::PathBuf,
     sync::mpsc::{Receiver, channel},
@@ -92,7 +92,7 @@ pub(super) enum Update {
 pub(super) fn start(
     paths: Vec<PathBuf>,
     parallelism: usize,
-    location: Location<'_>,
+    location: Location,
 ) -> Result<Receiver<Update>> {
     let (sender, receiver) = channel();
     let count = paths.len();

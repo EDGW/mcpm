@@ -264,8 +264,13 @@ fn remote_publication_acknowledges_verified_data_and_rejects_incorrect_content()
             .unwrap();
         let mut input = process.stdin.take().unwrap();
         writeln!(input, "{}", serde_json::json!({
-            "guid":uuid::Uuid::from_u128(1), "operation":"cache.mods.identification.write", "level":"off",
-            "input":{"cache":{"kind":"directory","path":"cache"}, "id":id.to_string(), "file":file}
+            "guid":uuid::Uuid::from_u128(1), "operation":"cache.mods.ident.write", "level":"off",
+            "input":{
+                "cache":{"kind":"directory","path":"cache"},
+                "entries":[{"key":id.to_string(), "file":file}],
+                "force":true,
+                "protect_stash":false
+            }
         })).unwrap();
         // Serve cancels accepted calls when its stdin closes, so keep it open until the call ends.
         let mut output = std::io::BufReader::new(process.stdout.take().unwrap());
@@ -288,16 +293,28 @@ fn remote_publication_acknowledges_verified_data_and_rejects_incorrect_content()
     assert!(
         replies
             .iter()
-            .any(|reply| reply["status"] == "data" && reply["contents"].is_null())
+            .any(|reply| reply["status"] == "data" && reply["contents"]["event"] == "item")
     );
-    assert!(replies.iter().any(|reply| reply["status"] == "finished"));
+    let finished = replies
+        .iter()
+        .find(|reply| reply["status"] == "finished")
+        .unwrap();
+    assert_eq!(finished["contents"]["failed"], 0);
     let saved = fs::read(cache.ident_info(id).path()).unwrap();
     let mut wrong = file.clone();
     wrong.hashes = vec![FileHash::Sha1("0".repeat(40))];
     let replies = request(&wrong);
-    assert!(replies.iter().any(|reply| reply["status"] == "failed"));
+    let finished = replies
+        .iter()
+        .find(|reply| reply["status"] == "finished")
+        .unwrap();
+    assert_eq!(finished["contents"]["failed"], 1);
     assert_eq!(fs::read(cache.ident_info(id).path()).unwrap(), saved);
     fs::remove_file(cache.mod_metadata(id).data_path()).unwrap();
     let replies = request(&file);
-    assert!(replies.iter().any(|reply| reply["status"] == "failed"));
+    let finished = replies
+        .iter()
+        .find(|reply| reply["status"] == "finished")
+        .unwrap();
+    assert_eq!(finished["contents"]["failed"], 1);
 }

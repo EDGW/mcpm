@@ -13,7 +13,7 @@ pub(crate) use mcpm_exec::ssh::Connection;
 
 use crate::{progress::Progress, remote::client::Session};
 
-#[derive(Args, Debug, Default)]
+#[derive(Args, Debug, Default, Clone)]
 pub(crate) struct SshArgs {
     /// SSH connection command, e.g. "ssh -i key -p 2222 user@host".
     #[arg(
@@ -43,6 +43,11 @@ impl SshArgs {
         self.ssh.is_some() || self.ssh_mcpm.is_some()
     }
 
+    /// Working directory supplied by a saved Remote workspace, if any.
+    pub(crate) fn directory(&self) -> Option<&PathBuf> {
+        self.directory.as_ref()
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         if self.ssh_mcpm.is_some() && self.ssh.is_none() {
             bail!("--ssh-mcpm requires --ssh");
@@ -66,7 +71,11 @@ impl SshArgs {
         let (ssh, executable) = self.settings()?;
         let executable =
             executable.unwrap_or_else(|| crate::program::Program::McpmTools.name().to_owned());
-        Ok(Connection::new(ssh, executable))
+        let connection = Connection::new(ssh, executable);
+        Ok(match &self.directory {
+            Some(directory) => connection.with_directory(directory.clone()),
+            None => connection,
+        })
     }
 
     /// Settings of a workspace registration; `directory` becomes the connection's working directory.

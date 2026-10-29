@@ -8,6 +8,8 @@ use std::{
 
 use serde_json::Value;
 
+mod common;
+
 fn run(root: &Path, cache: &Path, arguments: &[&std::ffi::OsStr]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .args(["--raw", "--log-level", "off", "cache", "--directory"])
@@ -18,13 +20,6 @@ fn run(root: &Path, cache: &Path, arguments: &[&std::ffi::OsStr]) -> Output {
         .stdin(Stdio::null())
         .output()
         .unwrap()
-}
-
-fn rows(output: &Output) -> Vec<Value> {
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
 }
 
 fn imports(output: &Output) -> Vec<Value> {
@@ -533,7 +528,6 @@ fn remote_inspection_counts_full_partial_and_uncached_files_before_expanding_row
     use mcpm_backend::data::cache::mods::ModsCacheDir;
     use kako_mc_lib::local::modloader::BUILTIN_LOADERS;
     use serde_json::json;
-    use std::io::Write;
 
     let root = tempfile::tempdir().unwrap();
     let mods = root.path().join("mods");
@@ -587,40 +581,56 @@ fn remote_inspection_counts_full_partial_and_uncached_files_before_expanding_row
 
     for command in ["mod.info", "mod.list"] {
         for enabled in [false, true] {
-            let mut contents = if command == "mod.info" {
-                json!({"directory":mods, "selection":{"queries":[
-                    {"kind":"file", "value":"full.jar.disabled"},
-                    {"kind":"file", "value":"partial.jar"},
-                    {"kind":"file", "value":"copy.jar"},
-                    {"kind":"file", "value":"broken.jar"},
-                    {"kind":"file", "value":"full.jar.disabled"}
-                ]}})
+            let policy = if enabled {
+                json!({"kind":"select", "selection":{"kind":"directory", "path":cache.path()}})
             } else {
-                json!({"paths":[mods, mods.join("full.jar.disabled")]})
+                json!({"kind":"disabled"})
             };
-            if enabled {
-                contents["cache"] = json!({"kind":"directory", "path":cache.path()});
-            }
-            let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-                .args(["--log-level", "off", "remote"])
-                .current_dir(root.path())
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap();
-            writeln!(child.stdin.take().unwrap(), "{}", json!({
-                "guid":"00000000-0000-0000-0000-000000000001", "operation":command, "level":"off", "input":contents
-            })).unwrap();
-            let output = child.wait_with_output().unwrap();
-            assert!(output.status.success(), "{output:?}");
-            let replies = rows(&output);
-            let done = replies
+            let (operation, contents) = if command == "mod.info" {
+                (
+                    "mods.select",
+                    json!({
+                        "scope":{"kind":"paths", "directory":mods, "paths":[]},
+                        "selection":{"queries":[
+                            {"kind":"file", "value":"full.jar.disabled"},
+                            {"kind":"file", "value":"partial.jar"},
+                            {"kind":"file", "value":"copy.jar"},
+                            {"kind":"file", "value":"broken.jar"},
+                            {"kind":"file", "value":"full.jar.disabled"}
+                        ]},
+                        "parallelism":10,
+                        "cache":policy,
+                        "hide_unrecognized":true
+                    }),
+                )
+            } else {
+                (
+                    "mods.jar.read",
+                    json!({
+                        "scope":{"kind":"paths", "directory":".", "paths":[mods, mods.join("full.jar.disabled")]},
+                        "parallelism":10,
+                        "cache":policy
+                    }),
+                )
+            };
+            let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
+            process.args(["--log-level", "off", "remote"]).current_dir(root.path());
+            let mut remote = common::Remote::start(&mut process);
+            remote.send(json!({
+                "guid":"00000000-0000-0000-0000-000000000001", "operation":operation, "level":"off", "input":contents
+            }));
+            let finished = remote.finish();
+            let replies = finished.frames;
+            let terminal = replies
                 .iter()
-                .find(|reply| reply["status"] == "data" && reply["contents"]["event"] == "done")
-                .unwrap();
+                .find(|reply| {
+                    reply["status"] == "finished"
+                        || (reply["status"] == "data" && reply["contents"]["event"] == "done")
+                })
+                .unwrap_or_else(|| panic!("{replies:?}"));
+            let done = terminal["contents"].clone();
             assert_eq!(
-                done["contents"]["cache"],
+                done["cache"],
                 json!({
                     "fully_cached":if enabled { 2 } else { 0 },
                     "partially_cached":usize::from(enabled), "total":4
@@ -628,11 +638,7 @@ fn remote_inspection_counts_full_partial_and_uncached_files_before_expanding_row
                 "{command}, enabled={enabled}: {replies:?}"
             );
             // Broken archives contribute to totals even though no ModMeta can be emitted.
-            if command == "mod.info" {
-                assert_eq!(done["contents"]["failed"], 1);
-            } else {
-                assert_eq!(done["contents"]["success"], false);
-            }
+            assert_eq!(done["failed"], 1, "{command}: {replies:?}");
         }
     }
     assert_eq!(

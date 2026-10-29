@@ -13,7 +13,7 @@ mod source_support;
 mod stdin;
 mod supports;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use clap::Subcommand;
 
@@ -43,6 +43,22 @@ pub(crate) enum CommandOutcome {
     Exited(u32),
 }
 
+/// Serves every registered host operation until stdin closes.
+///
+/// The registry comes from the backend's single registration inventory; only the one
+/// not-yet-migrated command family adds itself here.
+async fn serve() -> Result<()> {
+    let surface = mcpm_backend::SurfaceEnv::new().context("failed to initialize the serve environment")?;
+    let providers = mcpm_backend::Providers::new(surface);
+    let mut registry = mcpm_backend::register_host_operations(providers)?;
+    server::register_legacy(&mut registry)?;
+    tracing::info!(operations = ?registry.ids(), "Serving host operations");
+    mcpm_exec::serve::run(registry, crate::build_info::VERSION)
+        .await
+        .map_err(anyhow::Error::new)
+        .context("remote serve session failed")
+}
+
 pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandOutcome> {
     if ssh.is_requested() && !matches!(command, Command::Mods(_) | Command::Server(_)) {
         anyhow::bail!(
@@ -54,7 +70,7 @@ pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandO
     let result = match command {
         Command::Remote => {
             let runtime = execution::Runtime::new()?;
-            runtime.block_on(crate::remote::registry::serve())
+            runtime.block_on(serve())
         }
         Command::Customize(args) => customize::run(args),
         Command::Debug(args) => debug::run(args),

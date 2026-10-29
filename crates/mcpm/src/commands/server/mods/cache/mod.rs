@@ -37,14 +37,24 @@ pub(super) struct CacheArgs {
     display: DisplayArgs,
 }
 
+/// Installs the still-legacy `server.mods.cache` handler; removed with `flows::mods_cache`.
+pub(crate) fn register_legacy(
+    registry: &mut mcpm_exec::Registry<mcpm_backend::Providers>,
+) -> Result<()> {
+    remote::register(registry)
+}
+
 pub(super) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
     let (path, selection) = args.files.read()?;
     if selection.is_empty() {
         return crate::commands::supports::mods::inspect::prompt_for_input();
     }
-    let Target { path, ssh, .. } = target::resolve(path, ssh)?;
+    let Target {
+        path, ssh, session, ..
+    } = target::resolve(path, ssh)?;
     if ssh.is_requested() {
         return remote::run(
+            &session,
             ssh,
             path,
             selection,
@@ -65,7 +75,10 @@ pub(super) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
         |event| completion.accept(event, &mut |event| output.event(event)),
     )?;
     completion.finish(
-        crate::commands::source_support::identify::Location::Local(server.runtime()),
+        crate::commands::source_support::identify::Location::Local {
+            session: session.clone(),
+            environment: server.runtime().clone(),
+        },
         |event| output.event(event),
     )?;
     output.finish()

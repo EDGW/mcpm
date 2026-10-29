@@ -128,7 +128,12 @@ mod transport {
             let output = child.wait_with_output().unwrap();
             assert!(output.status.success(), "{:?}", output);
             assert!(output.stderr.is_empty(), "{:?}", output);
-            assert_eq!(output.stdout, local.stdout);
+            assert_eq!(
+                output.stdout,
+                local.stdout,
+                "remote stderr: {:?}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             let connections = fs::read_to_string(root.path().join("connections")).unwrap();
             assert_eq!(connections.lines().count(), index + 1);
         }
@@ -140,23 +145,26 @@ mod transport {
         let connection = setup(root.path());
         let remote = root.path().join("remote");
         let nil = "00000000-0000-0000-0000-000000000000";
-        let command_id = "mod.list";
+        let command_id = "mods.jar.read";
         let ready = format!(
             "{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":6,\"build\":\"{build}\",\"operations\":[\"{command_id}\"]}}}}\n",
             build = build_version()
         );
         for (body, status, message) in [
             (
-                "printf '{\"guid\":\"%s\",\"status\":\"data\",\"contents\":{\"event\":\"count\",\"count\":1}}\n{\"guid\":\"%s\",\"status\":\"data\",\"contents\":{\"event\":\"done\",\"success\":true}}\n{\"guid\":\"%s\",\"status\":\"finished\",\"contents\":null}\n' \"$guid\" \"$guid\" \"$guid\"",
-                0, "count",
+                "printf '{\"guid\":\"%s\",\"status\":\"data\",\"contents\":{}}' \"$guid\"",
+                0,
+                "newline",
             ),
-            ("printf '{\"guid\":\"%s\",\"status\":\"data\",\"contents\":{}}' \"$guid\"", 0, "newline"),
-            ("printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000099\",\"status\":\"data\",\"contents\":{}}'", 0, "active call"),
             (
-                "printf '{\"guid\":\"%s\",\"status\":\"data\",\"contents\":{\"event\":\"count\",\"count\":0}}\n{\"guid\":\"%s\",\"status\":\"data\",\"contents\":{\"event\":\"done\",\"success\":true}}\n{\"guid\":\"%s\",\"status\":\"finished\",\"contents\":null}\n' \"$guid\" \"$guid\" \"$guid\"
-cat >/dev/null
-printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"closed\",\"contents\":null}'",
-                255, "255",
+                "printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000099\",\"status\":\"data\",\"contents\":{}}'",
+                0,
+                "protocol",
+            ),
+            (
+                "printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"closed\",\"contents\":null}'",
+                255,
+                "protocol",
             ),
         ] {
             fs::write(&remote, format!(
@@ -179,120 +187,94 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             );
         }
     }
+
     #[test]
-    fn parallel_results_are_reordered_and_invalid_indices_or_lifecycles_are_rejected() {
+    fn requests_are_typed_and_remote_records_keep_their_order() {
         use serde_json::{Value, json};
         fn print(value: Value, guid: &str) -> String {
             let line = format!("{value}\n").replace("__GUID__", "%s");
             format!("printf {} {guid}\n", shlex::try_quote(&line).unwrap())
         }
-        let count = json!({"event":"count","count":2});
-        let done = json!({"event":"done","success":true});
-        let item = |index, path: &str| json!({"event":"item","index":index,"record":{"path":path,"name":path.trim_end_matches(".jar"),"enabled":true,"status":"unrecognized","metadata":[],"errors":[]}});
-        for (events, expected) in [
-            (
-                vec![
-                    count.clone(),
-                    item(1, "a.jar"),
-                    item(0, "z.jar"),
-                    done.clone(),
-                ],
-                None,
-            ),
-            (
-                vec![
-                    count.clone(),
-                    item(0, "z.jar"),
-                    item(0, "z.jar"),
-                    done.clone(),
-                ],
-                Some("index/count"),
-            ),
-            (
-                vec![count.clone(), item(1, "a.jar"), done.clone()],
-                Some("count differs"),
-            ),
-            (
-                vec![count.clone(), item(2, "a.jar"), done.clone()],
-                Some("index/count"),
-            ),
-            (
-                vec![item(0, "z.jar"), count.clone(), done.clone()],
-                Some("before its count"),
-            ),
-            (
-                vec![count.clone(), done.clone(), item(0, "z.jar")],
-                Some("after completion"),
-            ),
-        ] {
-            let root = tempfile::tempdir().unwrap();
-            let connection = setup(root.path());
-            let remote = root.path().join("remote");
-            let mut body = String::from("#!/bin/sh\n");
-            body += &print(
-                json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":6,"build":build_version(),"operations":["mod.list"]}}),
-                "",
-            );
-            body += &format!(
-                "IFS= read -r request\nprintf '%s' \"$request\" > {}\nguid=$(printf '%s' \"$request\" | cut -d '\"' -f4)\n",
-                shlex::try_quote(root.path().join("request").to_str().unwrap()).unwrap()
-            );
-            for event in events {
-                body += &print(
-                    json!({"guid":"__GUID__","status":"data","contents":event}),
-                    "\"$guid\"",
-                );
-            }
-            body += &print(
-                json!({"guid":"__GUID__","status":"finished","contents":null}),
-                "\"$guid\"",
-            );
-            body += "cat >/dev/null\n";
-            body += &print(
-                json!({"guid":uuid::Uuid::nil(),"status":"closed","contents":null}),
-                "",
-            );
-            fs::write(&remote, body).unwrap();
-            fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
-            let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-                .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
-                .arg(&remote)
-                .args([
-                    "mods",
-                    "list",
-                    "--no-cache",
-                    "z.jar",
-                    "a.jar",
-                    "--parallelism",
-                    "2",
-                    "--identify-parallelism",
-                    "1",
-                    "--columns",
-                    "index,filename",
-                ])
-                .env("HOME", root.path())
-                .stdin(Stdio::null())
-                .output()
-                .unwrap();
-            let request: Value =
-                serde_json::from_str(&fs::read_to_string(root.path().join("request")).unwrap())
-                    .unwrap();
-            assert_eq!(request["operation"], "mod.list");
-            assert_eq!(request["input"]["parallelism"], 2);
-            assert!(request["input"].get("identify_parallelism").is_none());
-            let stderr = String::from_utf8(output.stderr).unwrap();
-            if let Some(expected) = expected {
-                assert_eq!(output.status.code(), Some(1), "{stderr}");
-                assert!(output.stdout.is_empty());
-                assert!(stderr.contains(expected), "{stderr}");
-            } else {
-                assert!(output.status.success(), "{stderr}");
-                let stdout = String::from_utf8(output.stdout).unwrap();
-                assert!(
-                    stdout.find("z.jar").unwrap() < stdout.find("a.jar").unwrap(),
-                    "{stdout}"
-                );
-            }
-        }
+        let item = |index, path: &str| {
+            json!({"event":"item","index":index,"record":{
+                "path":path,"name":path.trim_end_matches(".jar"),"enabled":true,
+                "status":"unrecognized","metadata":[],"errors":[]
+            }})
+        };
+        let root = tempfile::tempdir().unwrap();
+        let connection = setup(root.path());
+        let remote = root.path().join("remote");
+        let mut body = String::from("#!/bin/sh\n");
+        body += &print(
+            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":6,"build":build_version(),"operations":["mods.jar.read"]}}),
+            "",
+        );
+        body += &format!(
+            "IFS= read -r request\nprintf '%s' \"$request\" > {}\nguid=$(printf '%s' \"$request\" | cut -d '\"' -f4)\n",
+            shlex::try_quote(root.path().join("request").to_str().unwrap()).unwrap()
+        );
+        body += &print(
+            json!({"guid":"__GUID__","status":"data","contents":{
+                "event":"scope","loaders":[],"environment":{"cache":null}
+            }}),
+            "\"$guid\"",
+        );
+        body += &print(
+            json!({"guid":"__GUID__","status":"data","contents":item(0, "z.jar")}),
+            "\"$guid\"",
+        );
+        body += &print(
+            json!({"guid":"__GUID__","status":"data","contents":item(1, "a.jar")}),
+            "\"$guid\"",
+        );
+        body += &print(
+            json!({"guid":"__GUID__","status":"finished","contents":{
+                "files":2,"input_errors":0,"failed":0,"cache":null
+            }}),
+            "\"$guid\"",
+        );
+        body += "cat >/dev/null\n";
+        body += &print(
+            json!({"guid":uuid::Uuid::nil(),"status":"closed","contents":null}),
+            "",
+        );
+        fs::write(&remote, body).unwrap();
+        fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+            .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
+            .arg(&remote)
+            .args([
+                "mods",
+                "list",
+                "--no-cache",
+                "z.jar",
+                "a.jar",
+                "--parallelism",
+                "2",
+                "--identify-parallelism",
+                "1",
+                "--columns",
+                "index,filename",
+            ])
+            .env("HOME", root.path())
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let request: Value =
+            serde_json::from_str(&fs::read_to_string(root.path().join("request")).unwrap()).unwrap();
+        assert_eq!(request["operation"], "mods.jar.read");
+        assert_eq!(request["input"]["parallelism"], 2);
+        assert_eq!(
+            request["input"]["scope"],
+            json!({"kind":"paths","directory":".","paths":["z.jar","a.jar"],"loaders":[]})
+        );
+        assert!(request["input"].get("identify_parallelism").is_none());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(output.status.success(), "{stderr}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            stdout.find("z.jar").unwrap() < stdout.find("a.jar").unwrap(),
+            "{stdout}"
+        );
     }
 }

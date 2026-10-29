@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, ensure};
-use kako_mc_lib::source::FileMatch;
+use mcpm_backend::source::types::FileMatch;
 
 use super::{
     Event, Record, Stage, Summary,
@@ -17,8 +17,6 @@ use crate::{
     },
     diagnostics::ErrorReport,
 };
-
-mod remote;
 
 /// Captures the storage phase only when source enrichment is requested.
 /// The input protocol is validated before paths or IDs are used for client requests.
@@ -93,7 +91,7 @@ impl Completion {
     /// Files remain bounded in flight; provider lookups run on the client even for SSH files.
     pub fn finish(
         mut self,
-        location: Location<'_>,
+        location: Location,
         mut emit: impl FnMut(Event) -> Result<()>,
     ) -> Result<()> {
         self.validator.finish()?;
@@ -121,7 +119,7 @@ impl Completion {
             blocking::run(
                 self.files.len(),
                 self.parallelism,
-                |index| self.process(self.files[index].clone(), location, handle),
+                |index| self.process(self.files[index].clone(), location.clone(), handle),
                 || Ok(()),
                 |index, file| {
                     completed += 1;
@@ -153,7 +151,7 @@ impl Completion {
     fn process(
         &self,
         mut record: Record,
-        location: Location<'_>,
+        location: Location,
         runtime: &tokio::runtime::Handle,
     ) -> Record {
         let Some(path) = record.data_path.clone() else {
@@ -165,9 +163,15 @@ impl Completion {
             } else {
                 location.environment().clone()
             };
-            let lookup_location = match location {
-                Location::Local(_) => Location::Local(&environment),
-                Location::Remote(session, _) => Location::Remote(session, &environment),
+            let lookup_location = match &location {
+                Location::Local { session, .. } => Location::Local {
+                    session: session.clone(),
+                    environment: environment.clone(),
+                },
+                Location::Remote { session, .. } => Location::Remote {
+                    session: session.clone(),
+                    environment: environment.clone(),
+                },
             };
             let identification =
                 Identification::with_sources(vec![path], self.sources.clone(), 1, lookup_location)?;
@@ -188,7 +192,7 @@ impl Completion {
                             .as_ref()
                             .map_err(|error| error.clone().into_error())
                             .and_then(|source| file.for_cache(source.as_ref()))
-                            .and_then(|file| self.publish(&record, &file, location));
+                            .and_then(|file| self.publish(&record, &file, &location, runtime));
                         match publication {
                             Ok(()) => IdentResult::Matched,
                             Err(error) => IdentResult::Failed {
@@ -215,24 +219,43 @@ impl Completion {
         record
     }
 
-    fn publish(&self, record: &Record, file: &FileMatch, location: Location<'_>) -> Result<()> {
+    fn publish(
+        &self,
+        record: &Record,
+        file: &FileMatch,
+        location: &Location,
+        runtime: &tokio::runtime::Handle,
+    ) -> Result<()> {
         let id = record
             .id
             .as_deref()
             .context("missing cache content ID")?
-            .parse()?;
-        match location {
-            Location::Local(environment) => {
-                let cache = environment.require_mods_cache()?;
-                cache.write_ident_info(id, file)?;
-            }
-            Location::Remote(session, environment) => {
-                let cache = crate::commands::supports::mods::reuse::selection(environment)
-                    .context("Mod cache is disabled")?;
-                remote::publish(session, cache, id, file.clone())?
-            }
-        }
-        Ok(())
+            .to_owned();
+        let cache = crate::commands::supports::mods::reuse::selection(location.environment())
+            .context("Mod cache is disabled")?;
+        let remote = !location.is_local();
+        let request = mcpm_backend::cache::IdentWriteInput {
+            cache,
+            entries: vec![mcpm_backend::cache::IdentEntry {
+                key: id,
+                file: file.clone(),
+            }],
+            force: true,
+            protect_stash: false,
+        };
+        runtime.block_on(async {
+            let mut handle = location
+                .session()
+                .start::<mcpm_backend::cache::IdentWrite>(request)
+                .await
+                .map_err(|failure| crate::commands::execution::failure(failure, remote))?;
+            while let Some(_event) = handle.next().await {}
+            handle
+                .finish()
+                .await
+                .map_err(|failure| crate::commands::execution::failure(failure, remote))?;
+            Ok::<(), anyhow::Error>(())
+        })
     }
 }
 fn fail(record: &mut Record, error: ErrorReport, remote: bool) {

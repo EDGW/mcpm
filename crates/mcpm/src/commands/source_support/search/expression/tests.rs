@@ -1,6 +1,6 @@
 //! Expression regressions for precedence, exact alternatives, quoting and error columns.
 
-use kako_mc_lib::source::{SearchQuery, SearchSort};
+use mcpm_backend::source::types::{SearchQuery, SearchSort};
 
 use super::Expression;
 use super::{CompletionField, completion_context};

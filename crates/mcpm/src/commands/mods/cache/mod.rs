@@ -59,8 +59,12 @@ pub(super) fn run(args: CacheArgs) -> Result<()> {
         || Ok(()),
         |event| completion.accept(event, &mut |event| output.event(event)),
     )?;
+    let session = crate::commands::execution::local_session()?;
     completion.finish(
-        crate::commands::source_support::identify::Location::Local(&environment),
+        crate::commands::source_support::identify::Location::Local {
+            session,
+            environment: environment.clone(),
+        },
         |event| output.event(event),
     )?;
     output.finish()

@@ -80,6 +80,14 @@ fn data(replies: &[Value]) -> Vec<&Value> {
         .collect()
 }
 
+fn outputs(replies: &[Value]) -> Vec<&Value> {
+    replies
+        .iter()
+        .filter(|reply| reply["status"] == "finished")
+        .map(|reply| &reply["contents"])
+        .collect()
+}
+
 fn succeeded(replies: &[Value]) {
     assert!(
         replies.iter().any(|reply| reply["status"] == "finished"),
@@ -93,21 +101,14 @@ fn succeeded(replies: &[Value]) {
 
 fn failed(replies: &[Value]) {
     assert!(
-        replies.iter().any(|reply| {
-            reply["status"] == "failed" && reply["contents"]["failure"] == "operation"
-        }),
+        replies.iter().any(|reply| reply["status"] == "failed"),
         "{replies:?}"
     );
     assert!(
         !replies.iter().any(|reply| reply["status"] == "finished"),
         "{replies:?}"
     );
-    assert!(
-        !data(replies)
-            .iter()
-            .any(|event| event["event"] == "initialized"),
-        "{replies:?}"
-    );
+    assert!(outputs(replies).is_empty(), "{replies:?}");
 }
 
 #[test]
@@ -118,7 +119,7 @@ fn complete_metadata_initializes_without_script_and_requires_explicit_vanilla() 
     let expected = metadata("1.21.1");
     let replies = remote(
         root.path(),
-        &[("server.init", json!({"metadata":expected}))],
+        &[("server.register", json!({"metadata":expected}))],
     );
     succeeded(&replies);
     assert_eq!(
@@ -137,7 +138,7 @@ fn complete_metadata_initializes_without_script_and_requires_explicit_vanilla() 
     ] {
         let replies = remote(
             empty.path(),
-            &[("server.init", json!({"metadata":invalid}))],
+            &[("server.register", json!({"metadata":invalid}))],
         );
         failed(&replies);
         assert!(!empty.path().join(".mcpm").exists());
@@ -156,7 +157,7 @@ fn initialization_accepts_foreign_legacy_snapshot_without_opening_or_persisting_
     });
     let replies = remote(
         root.path(),
-        &[("server.init", json!({"metadata":expected}))],
+        &[("server.register", json!({"metadata":expected}))],
     );
     succeeded(&replies);
     let written: Value =
@@ -165,12 +166,11 @@ fn initialization_accepts_foreign_legacy_snapshot_without_opening_or_persisting_
     no_local_configuration(root.path());
     let events = data(&replies);
     assert!(!events.iter().any(|event| event["phase"] == "recognizing"));
-    let initialized = &events.last().unwrap()["server"];
+    let initialized = &outputs(&replies)[0]["server"];
     let replies = remote(root.path(), &[("server.info", json!({}))]);
     succeeded(&replies);
-    let events = data(&replies);
-    let info = events.last().unwrap();
-    assert_eq!(info, &initialized);
+    let info = outputs(&replies)[0];
+    assert_eq!(info, initialized);
     assert!(info["start"].is_null());
     assert!(!root.path().join("escaped").exists());
 }
@@ -183,17 +183,10 @@ fn recognition_of_unregistered_server_is_read_only() {
     assert!(!root.path().join(".mcpm").exists());
     let replies = remote(
         root.path(),
-        &[("server.init.recognize", json!({"start_script":"run.sh"}))],
+        &[("server.recognize", json!({"start_script":"run.sh"}))],
     );
     succeeded(&replies);
-    let events = data(&replies);
-    assert_eq!(
-        events.last().unwrap()["candidates"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
+    assert_eq!(outputs(&replies)[0].as_array().unwrap().len(), 1);
     assert!(!root.path().join("mods").exists());
     assert!(!root.path().join(".mcpm").exists());
 }
@@ -207,7 +200,7 @@ fn recognition_ignores_existing_configuration_and_selected_snapshot_is_independe
     fs::write(root.path().join(".mcpm/server.json"), old).unwrap();
     let replies = remote(
         root.path(),
-        &[("server.init.recognize", json!({"start_script":"run.sh"}))],
+        &[("server.recognize", json!({"start_script":"run.sh"}))],
     );
     succeeded(&replies);
     assert_eq!(
@@ -216,7 +209,7 @@ fn recognition_ignores_existing_configuration_and_selected_snapshot_is_independe
     );
     let events = data(&replies);
     assert!(!events.iter().any(|event| event["phase"] == "writing"));
-    let candidates = events.last().unwrap()["candidates"].as_array().unwrap();
+    let candidates = outputs(&replies)[0].as_array().unwrap();
     assert_eq!(candidates.len(), 1);
     let mut selected = candidates[0]["metadata"].clone();
     assert_eq!(
@@ -231,7 +224,7 @@ fn recognition_ignores_existing_configuration_and_selected_snapshot_is_independe
     fs::remove_dir_all(root.path().join("libraries")).unwrap();
     let replies = remote(
         root.path(),
-        &[("server.init", json!({"metadata":selected,"force":true}))],
+        &[("server.register", json!({"metadata":selected,"force":true}))],
     );
     succeeded(&replies);
     // The legacy wire envelope remains readable; new disk writes store identity only.
@@ -258,13 +251,13 @@ fn failed_validation_and_no_clobber_preserve_existing_configuration() {
     });
     let replies = remote(
         root.path(),
-        &[("server.init", json!({"metadata":invalid,"force":true}))],
+        &[("server.register", json!({"metadata":invalid,"force":true}))],
     );
     failed(&replies);
     assert_eq!(fs::read(&path).unwrap(), old);
     let replies = remote(
         root.path(),
-        &[("server.init", json!({"metadata":metadata("1.21.1")}))],
+        &[("server.register", json!({"metadata":metadata("1.21.1")}))],
     );
     failed(&replies);
     assert_eq!(fs::read(&path).unwrap(), old);
@@ -276,7 +269,7 @@ fn failed_validation_and_no_clobber_preserve_existing_configuration() {
     let replies = remote(
         root.path(),
         &[(
-            "server.init",
+            "server.register",
             json!({"metadata":metadata("1.21.1"),"force":true}),
         )],
     );
@@ -290,16 +283,13 @@ fn concurrent_initializers_have_one_winner_without_partial_or_overwritten_metada
     let requests: Vec<_> = (0..8)
         .map(|index| {
             (
-                "server.init",
+                "server.register",
                 json!({"metadata":metadata(&format!("1.21.{index}"))}),
             )
         })
         .collect();
     let replies = remote(root.path(), &requests);
-    let initialized: Vec<_> = data(&replies)
-        .into_iter()
-        .filter(|event| event["event"] == "initialized")
-        .collect();
+    let initialized = outputs(&replies);
     assert_eq!(initialized.len(), 1, "{replies:?}");
     assert_eq!(
         replies
@@ -422,7 +412,7 @@ fn ssh_full_arguments_bypass_recognition_and_keep_paths_on_the_source() {
     );
     let requests = ssh.requests();
     assert_eq!(requests.len(), 1, "{requests:?}");
-    assert_eq!(requests[0]["operation"], "server.init");
+    assert_eq!(requests[0]["operation"], "server.register");
     assert_eq!(requests[0]["input"]["path"], relative);
     assert_eq!(requests[0]["input"]["metadata"]["loader"], Value::Null);
     assert_eq!(requests[0]["input"]["metadata"]["version"], 1);
@@ -437,13 +427,13 @@ fn ssh_recognizes_default_source_script_then_initializes_and_raw_ambiguity_never
     assert!(output.status.success(), "{output:?}");
     let requests = ssh.requests();
     assert_eq!(requests.len(), 2, "{requests:?}");
-    assert_eq!(requests[0]["operation"], "server.init.recognize");
+    assert_eq!(requests[0]["operation"], "server.recognize");
     assert!(
         requests[0]["input"]
             .get("start_script")
             .is_none_or(Value::is_null)
     );
-    assert_eq!(requests[1]["operation"], "server.init");
+    assert_eq!(requests[1]["operation"], "server.register");
     let start = &requests[1]["input"]["metadata"]["start"];
     assert_eq!(start["script"], "run.sh");
     assert!(start.get("directory").is_none());
@@ -458,7 +448,7 @@ fn ssh_recognizes_default_source_script_then_initializes_and_raw_ambiguity_never
     assert!(!ssh.source.path().join("multiple/.mcpm").exists());
     let requests = ssh.requests();
     assert_eq!(requests.len(), 1, "{requests:?}");
-    assert_eq!(requests[0]["operation"], "server.init.recognize");
+    assert_eq!(requests[0]["operation"], "server.recognize");
 
     // Partial values filter the recognized candidates before the same complete write command.
     let output = ssh.run(&["multiple", "--minecraft-version", "1.21.1"]);

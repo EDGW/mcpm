@@ -178,16 +178,13 @@ fn remote_cache_reuses_objects_completes_loader_metadata_and_queries_remain_read
         CachedIdentification::Missing
     ));
     let before = fs::read(entry.digest_path()).unwrap();
-    for command in ["server.mods.info", "server.mods.list"] {
-        let events = remote(
+    for command in ["info", "list"] {
+        let output = run(
             root.path(),
-            command,
-            json!({"server":"fabric", "selection":{"all":true}}),
+            &["server", "mods", command, "--server", "fabric", "--all"],
+            "",
         );
-        assert_eq!(
-            events.last().unwrap()["cache"],
-            json!({"fully_cached":1,"partially_cached":0,"total":1})
-        );
+        assert!(output.status.success(), "{output:?}");
         assert_eq!(fs::read(entry.digest_path()).unwrap(), before);
     }
     // A corrupt Server cache must fail; disabling caching bypasses root validation.

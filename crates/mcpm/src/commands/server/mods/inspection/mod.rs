@@ -1,23 +1,20 @@
-//! Server-scoped inspection dispatch; server metadata is resolved on the file-owning host.
+//! Server-scoped inspection through the shared `mods.select` operation.
 
 use anyhow::Result;
+use mcpm_backend::mods::selection::SelectionSpec;
+use mcpm_backend::mods::types::{ModsCachePolicy, ModsScope};
+use mcpm_backend::mods::select::SelectInput;
 
-use super::{
-    super::{
-        mod_source::ServerMods,
-        target::{self, Target},
-    },
-    input::FileArgs,
-};
+use super::input::FileArgs;
+use super::super::target;
 use crate::{
+    commands::execution::Runtime,
     commands::supports::mods::{
         inspect::{self, Display},
         scan,
     },
     ssh::SshArgs,
 };
-
-mod remote;
 
 pub(super) fn run(
     files: FileArgs,
@@ -30,20 +27,23 @@ pub(super) fn run(
     if selection.is_empty() {
         return inspect::prompt_for_input();
     }
-    let Target { path, ssh, .. } = target::resolve(path, ssh)?;
-    if ssh.is_requested() {
-        remote::run(ssh, path, selection, query, loading, display)
-    } else {
-        tracing::info!(path = %path.display(), "Reading server mod scope for inspection");
-        let source = ServerMods::load(path)?;
-        inspect::run(
-            selection,
-            source.scope(),
-            source.loaders(),
-            true,
-            &query.environment(source.runtime()),
-            loading,
-            display,
-        )
-    }
+    let target = target::resolve(path, ssh)?;
+    let dependencies = matches!(display, Display::Dependencies(_));
+    let request = SelectInput {
+        scope: ModsScope::Server {
+            path: target.path.clone(),
+        },
+        selection: SelectionSpec::from_selection(selection)?,
+        parallelism: loading.parallelism,
+        cache: if dependencies || query.no_cache {
+            ModsCachePolicy::Disabled
+        } else {
+            ModsCachePolicy::ScopeDefault
+        },
+        hide_unrecognized: true,
+    };
+    let runtime = Runtime::new()?;
+    let result = inspect::present_operation(&runtime, &target.session, request, display);
+    crate::commands::execution::finish(&runtime, &target.session)?;
+    result
 }

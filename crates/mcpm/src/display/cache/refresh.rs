@@ -3,7 +3,7 @@
 use std::{io::Write, path::Path};
 
 use anyhow::Result;
-use kako_mc_lib::source::{FileMatch, SourceId};
+use mcpm_backend::source::types::{FileMatch, SourceId};
 use mcpm_backend::data::cache::{
     hash::Blake3Hash,
     mods::{

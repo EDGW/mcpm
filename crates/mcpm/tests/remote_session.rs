@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 use uuid::Uuid;
-const LIST: &str = "mod.list";
+const LIST: &str = "mods.jar.read";
 
 fn event(reader: &mut impl BufRead) -> Value {
     let mut line = String::new();
@@ -32,6 +32,10 @@ fn build_version() -> String {
         .nth(1)
         .unwrap()
         .to_owned()
+}
+
+fn scope(paths: Value, loaders: Value) -> Value {
+    json!({"kind":"paths", "directory":".", "paths":paths, "loaders":loaders})
 }
 
 #[test]
@@ -60,40 +64,15 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
             .all(|ids| ids[0].as_str().unwrap() < ids[1].as_str().unwrap())
     );
     let cases = [
-        (
-            LIST,
-            json!({"paths":[fixture],"loaders":["fabric"]}),
-            vec!["count", "item", "done"],
-            true,
-        ),
-        (LIST, json!({"paths":42}), vec!["error", "done"], false),
-        (
-            "mod.unsupported",
-            json!({"path":"missing.jar"}),
-            vec!["unsupported_command"],
-            false,
-        ),
-        (
-            LIST,
-            json!({"paths":["missing.jar"]}),
-            vec!["count", "item", "done"],
-            false,
-        ),
-        (
-            LIST,
-            json!({"paths":[empty.path()]}),
-            vec!["count", "done"],
-            true,
-        ),
-        (
-            LIST,
-            json!({"args":["mods","list"]}),
-            vec!["error", "done"],
-            false,
-        ),
+        (LIST, json!({"scope":scope(json!([fixture]), json!(["fabric"]))})),
+        (LIST, json!({"scope":scope(json!([42]), json!([]))})),
+        ("mod.unsupported", json!({"path":"missing.jar"})),
+        (LIST, json!({"scope":scope(json!(["missing.jar"]), json!([]))})),
+        (LIST, json!({"scope":scope(json!([empty.path()]), json!([]))})),
+        (LIST, json!({"args":["mods","list"]})),
     ];
     // Submit every request before reading any command response.
-    for (index, (command, args, _, _)) in cases.iter().enumerate() {
+    for (index, (command, args)) in cases.iter().enumerate() {
         writeln!(
             input,
             "{}",
@@ -118,13 +97,8 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
         }
         received.entry(id).or_default().push(value);
     }
-    for (index, (_, _, expected, success)) in cases.iter().enumerate() {
+    for index in 0..cases.len() {
         let replies = &received[&(index + 1)];
-        assert!(
-            replies
-                .iter()
-                .all(|reply| reply.as_object().unwrap().len() == 3)
-        );
         if index == 2 {
             assert_eq!(replies.len(), 1);
             assert_eq!(replies[0]["status"], "failed");
@@ -132,36 +106,39 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
             assert_eq!(replies[0]["contents"]["error"]["kind"], "unknown_operation");
             continue;
         }
-        assert_eq!(replies.last().unwrap()["status"], "finished");
+        if index == 1 || index == 5 {
+            assert_eq!(replies.len(), 1, "{replies:?}");
+            assert_eq!(replies[0]["status"], "failed");
+            assert_eq!(replies[0]["contents"]["failure"], "dispatch");
+            continue;
+        }
+        let terminal = replies.last().unwrap();
+        assert_eq!(terminal["status"], "finished", "{replies:?}");
         let events: Vec<_> = replies
             .iter()
             .filter(|reply| reply["status"] == "data")
             .map(|reply| &reply["contents"])
             .collect();
-        assert_eq!(
-            events
-                .iter()
-                .map(|value| value["event"].as_str().unwrap())
-                .collect::<Vec<_>>(),
-            *expected
-        );
-        assert_eq!(events.last().unwrap()["success"], *success);
-        if index == 0 {
-            assert_eq!(
-                events[1]["record"]["metadata"][0]["mods"][0]["modid"],
-                "omnibus"
-            );
-        }
-        if index == 1 || index == 5 {
-            assert!(
-                events[0]["message"]
-                    .as_str()
-                    .unwrap()
-                    .contains("invalid list arguments")
-            );
-        }
-        if index == 3 {
-            assert_eq!(events[1]["record"]["status"], "failed");
+        let items: Vec<_> = events
+            .iter()
+            .filter(|value| value["event"] == "item")
+            .collect();
+        match index {
+            0 => {
+                assert_eq!(items.len(), 1, "{events:?}");
+                assert_eq!(items[0]["record"]["metadata"][0]["mods"][0]["modid"], "omnibus");
+                assert_eq!(terminal["contents"]["files"], 1);
+            }
+            3 => {
+                assert_eq!(items.len(), 1, "{events:?}");
+                assert_eq!(items[0]["record"]["status"], "failed");
+                assert_eq!(terminal["contents"]["input_errors"], 1);
+            }
+            4 => {
+                assert!(items.is_empty(), "{events:?}");
+                assert_eq!(terminal["contents"]["files"], 0);
+            }
+            _ => unreachable!(),
         }
     }
     assert!(child.try_wait().unwrap().is_none());
@@ -169,19 +146,17 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
     writeln!(
         input,
         "{}",
-        json!({"guid":Uuid::from_u128(7),"operation":LIST,"level":"off","input":{"paths":[empty.path()]}})
+        json!({"guid":Uuid::from_u128(7),"operation":LIST,"level":"off","input":{"scope":scope(json!([empty.path()]), json!([]))}})
     )
     .unwrap();
     input.flush().unwrap();
-    assert_eq!(
-        event(&mut output),
-        json!({"guid":Uuid::from_u128(7),"status":"data","contents":{"event":"count","count":0}})
-    );
-    assert_eq!(
-        event(&mut output),
-        json!({"guid":Uuid::from_u128(7),"status":"data","contents":{"event":"done","success":true,"cache":{"fully_cached":0,"partially_cached":0,"total":0}}})
-    );
-    assert_eq!(event(&mut output)["status"], "finished");
+    loop {
+        let value = event(&mut output);
+        if value["status"] == "finished" {
+            assert_eq!(value["contents"]["files"], 0);
+            break;
+        }
+    }
     drop(input);
     assert_eq!(
         event(&mut output),

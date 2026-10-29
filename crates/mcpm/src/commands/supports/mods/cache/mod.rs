@@ -18,7 +18,7 @@ use mcpm_backend::data::runtime::RuntimeEnvironment;
 
 use super::{
     scan,
-    selection::{self, Scope, Selection},
+    selection::{Scope, Selection},
 };
 use crate::{commands::execution::blocking, diagnostics::ErrorReport};
 
@@ -135,7 +135,8 @@ pub(in crate::commands) fn run(
     let cache = environment.require_mods_cache()?;
     let selection_environment = environment.clone().with_mods_cache(None);
     tracing::info!("Selecting files for explicit mod caching");
-    let (paths, selection_failures) = selection::resolve_paths(
+    let (paths, selection_failures) =
+        mcpm_backend::mods::selection::resolve_paths(
         selection,
         scope,
         options.loaders.clone(),

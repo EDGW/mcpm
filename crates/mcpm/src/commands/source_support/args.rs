@@ -1,6 +1,6 @@
 //! Shared source-selection arguments; provider specifications remain on the client.
 
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use clap::Args;
 
 #[derive(Args)]
@@ -15,20 +15,7 @@ pub(in crate::commands) struct SourcesArgs {
 
 impl SourcesArgs {
     pub fn selected(&self) -> Result<Vec<String>> {
-        let mut selected = self.sources.clone().unwrap_or_else(|| {
-            if self.source.is_empty() {
-                vec!["modrinth".into(), "curseforge".into()]
-            } else {
-                Vec::new()
-            }
-        });
-        selected.extend(self.source.iter().cloned());
-        ensure!(!selected.is_empty(), "select at least one source");
-        ensure!(
-            selected.iter().all(|source| !source.is_empty()),
-            "source names cannot be empty"
-        );
-        Ok(selected)
+        mcpm_backend::source::provider::select(self.sources.clone(), self.source.clone())
     }
 }
 

@@ -40,15 +40,6 @@ pub(in crate::commands) struct QueryArgs {
     pub no_cache: bool,
 }
 
-impl QueryArgs {
-    pub fn environment(&self, environment: &RuntimeEnvironment) -> RuntimeEnvironment {
-        if self.no_cache {
-            environment.clone().with_mods_cache(None)
-        } else {
-            environment.clone()
-        }
-    }
-}
 
 /// Common summary text for Console and TUI; Raw output uses structured completion data.
 pub(in crate::commands) fn summary_line(summary: super::scan::CacheSummary) -> String {

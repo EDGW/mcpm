@@ -1,4 +1,4 @@
-//! Read persisted server metadata locally or through a structured SSH data source.
+//! Reads one server snapshot through the `server.info` operation.
 
 use std::{
     io::{self, Write},
@@ -7,12 +7,10 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
+use mcpm_backend::server::{Info, InfoInput};
 
-use super::{
-    metadata::{self, ServerInfo},
-    target::{self, Target},
-    workspace,
-};
+use super::target;
+use crate::commands::execution::{failure as operation_failure, Runtime};
 use crate::ssh::SshArgs;
 
 #[derive(Args, Debug)]
@@ -30,20 +28,27 @@ pub(super) struct InfoArgs {
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(args: InfoArgs, ssh: SshArgs) -> Result<()> {
-    let Target { path, ssh, remote } = target::resolve(args.path, ssh)?;
-    let info = if ssh.is_requested() {
-        metadata::load_ssh(ssh, path)?
-    } else {
-        tracing::info!(path = %path.display(), "Reading server metadata");
-        let server = workspace::inspect_local(path)?;
-        let mut info = ServerInfo::from_server(&server);
-        info.configuration =
-            Some(mcpm_backend::data::server::config::configuration_files(server.path())?);
-        info
+    let target = target::resolve(args.path, ssh)?;
+    let remote_target = target.session.target().is_remote();
+    let runtime = Runtime::new()?;
+    let request = InfoInput {
+        path: target.path,
+        include_configuration: !remote_target,
     };
+    let info = runtime.block_on(async {
+        let handle = target
+            .session
+            .start::<Info>(request)
+            .await
+            .map_err(|error| operation_failure(error, remote_target))?;
+        handle
+            .finish()
+            .await
+            .map_err(|error| operation_failure(error, remote_target))
+    })?;
+    crate::commands::execution::finish(&runtime, &target.session)?;
     let mut stdout = io::stdout().lock();
-    let remote = remote.as_ref().map(metadata::remote_view);
-    crate::display::server::write_snapshot(&mut stdout, &info, args.full_command, remote.as_ref())
+    crate::display::server::write_snapshot(&mut stdout, &info, args.full_command, target.remote.as_ref())
         .context("failed to write server information")?;
     stdout.flush().context("failed to flush server information")
 }

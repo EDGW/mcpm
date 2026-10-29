@@ -3,7 +3,7 @@
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
-use kako_mc_lib::source::SearchPage;
+use mcpm_backend::source::types::SearchPage;
 use ratatui::layout::Position;
 
 use super::{Browser, Focus, view};

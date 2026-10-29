@@ -17,9 +17,9 @@ pub(super) struct ServerFilesArgs {
 }
 
 pub(super) fn run(mut args: ServerFilesArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if let Some(defaults) = args.server.defaults(ssh, super::remote::FILES)? {
+    if let Some(defaults) = args.server.defaults(ssh.clone())? {
         args.files
-            .apply_defaults(&defaults.version, &defaults.loader);
+            .apply_defaults(&defaults.minecraft_version, &defaults.loader);
     }
-    files::run(args.files)
+    files::run(args.files, &ssh)
 }

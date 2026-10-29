@@ -66,7 +66,7 @@ impl<C: Command> Operation for Handler<C> {
         encode_error,
         decode_error,
     ));
-    type Env = ();
+    type Env = mcpm_backend::HostEnv;
     type Input = Value;
     type Event = Value;
     type Output = ();

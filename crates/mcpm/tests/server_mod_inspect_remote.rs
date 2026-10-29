@@ -33,7 +33,7 @@ fn fixture(server: &Path, loader: &str) {
     fs::write(server.join("mods/broken.jar"), b"invalid archive").unwrap();
 }
 
-fn remote(root: &Path, command: &str, contents: Value) -> Vec<Value> {
+fn remote(root: &Path, contents: Value) -> Vec<Value> {
     fs::create_dir_all(root.join("home")).unwrap();
     let child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .env("HOME", root.join("home"))
@@ -45,9 +45,12 @@ fn remote(root: &Path, command: &str, contents: Value) -> Vec<Value> {
         .spawn()
         .unwrap();
     let mut remote = common::Remote::from_child(child);
-    remote.send(
-        json!({"guid":uuid::Uuid::from_u128(1),"operation":command,"level":"off","input":contents}),
-    );
+    remote.send(json!({
+        "guid":uuid::Uuid::from_u128(1),
+        "operation":"mods.select",
+        "level":"off",
+        "input":contents
+    }));
     let finished = remote.finish();
     assert!(finished.stderr.is_empty(), "{:?}", finished.frames);
     assert_eq!(finished.frames.last().unwrap()["status"], "closed");
@@ -59,18 +62,23 @@ fn selections_use_server_loader_and_scoped_paths_with_cached_failures() {
     let root = tempfile::tempdir().unwrap();
     let server = root.path().join("server ' 中文");
     fixture(&server, "fabric");
-    for command in ["server.mods.info", "server.mods.deps"] {
+    for _ in ["info", "deps"] {
         let replies = remote(
             root.path(),
-            command,
-            json!({"server":"server ' 中文", "no_cache":true, "parallelism":3, "selection":{"queries":[
-                {"kind":"modid","value":"omnibus_nested"},
-                {"kind":"file","value":"missing.jar"},
-                {"kind":"file","value":"missing.jar"},
-                {"kind":"file","value":"../outside.jar"},
-                {"kind":"file","value":format!("mods/{ARCHIVE}")},
-                {"kind":"file","value":ARCHIVE}
-            ]}}),
+            json!({
+                "scope":{"kind":"server", "path":"server ' 中文"},
+                "cache":{"kind":"disabled"},
+                "parallelism":3,
+                "hide_unrecognized":true,
+                "selection":{"queries":[
+                    {"kind":"modid","value":"omnibus_nested"},
+                    {"kind":"file","value":"missing.jar"},
+                    {"kind":"file","value":"missing.jar"},
+                    {"kind":"file","value":"../outside.jar"},
+                    {"kind":"file","value":format!("mods/{ARCHIVE}")},
+                    {"kind":"file","value":ARCHIVE}
+                ]}
+            }),
         );
         assert_eq!(replies[replies.len() - 2]["status"], "finished");
         let events: Vec<_> = replies
@@ -158,11 +166,15 @@ fn all_reports_progress_while_invalid_server_or_request_fails_without_completion
         b"invalid metadata",
     )
     .unwrap();
-    for command in ["server.mods.info", "server.mods.deps"] {
+    for _ in ["info", "deps"] {
         let replies = remote(
             root.path(),
-            command,
-            json!({"server":"forge","parallelism":2,"selection":{"all":true}}),
+            json!({
+                "scope":{"kind":"server", "path":"forge"},
+                "parallelism":2,
+                "hide_unrecognized":true,
+                "selection":{"all":true}
+            }),
         );
         let events: Vec<_> = replies
             .iter()
@@ -189,13 +201,13 @@ fn all_reports_progress_while_invalid_server_or_request_fails_without_completion
             json!({"event":"done","files":2,"failed":1,"ignored":0,"cache":{"fully_cached":0,"partially_cached":0,"total":2}})
         );
         for contents in [
-            json!({"server":"unsupported","selection":{"all":true}}),
-            json!({"server":"invalid","selection":{"all":true}}),
-            json!({"server":"missing","selection":{"all":true}}),
-            json!({"server":"forge","parallelism":0,"selection":{"all":true}}),
-            json!({"server":"forge","selection":{"all":true,"queries":[{"kind":"file","value":ARCHIVE}]}}),
+            json!({"scope":{"kind":"server","path":"unsupported"},"selection":{"all":true}}),
+            json!({"scope":{"kind":"server","path":"invalid"},"selection":{"all":true}}),
+            json!({"scope":{"kind":"server","path":"missing"},"selection":{"all":true}}),
+            json!({"scope":{"kind":"server","path":"forge"},"parallelism":0,"selection":{"all":true}}),
+            json!({"scope":{"kind":"server","path":"forge"},"selection":{"all":true,"queries":[{"kind":"file","value":ARCHIVE}]}}),
         ] {
-            let replies = remote(root.path(), command, contents);
+            let replies = remote(root.path(), contents);
             assert!(
                 replies.iter().any(|reply| reply["status"] == "failed"
                     && reply["contents"]["failure"] == "operation"),

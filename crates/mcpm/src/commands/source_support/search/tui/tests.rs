@@ -3,7 +3,9 @@
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use kako_mc_lib::source::{ProjectId, ProjectInfo, ProjectRef, SearchPage, SearchQuery, SourceId};
+use mcpm_backend::source::types::{
+    ProjectId, ProjectInfo, ProjectRef, SearchPage, SearchQuery, SourceId,
+};
 use ratatui::{
     Terminal,
     backend::{Backend, TestBackend},

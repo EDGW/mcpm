@@ -21,7 +21,8 @@ pub use publication::PublicationRecoveryError;
 pub use publication::{OverwritePolicy, Published, publish};
 
 /// Local configuration file presence for informational views; no Java probe or legacy migration.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConfigurationFiles {
     pub launch: bool,
     pub conf: bool,

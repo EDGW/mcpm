@@ -63,18 +63,23 @@ fn compatibility_defaults_come_from_remote_server_loader_and_minecraft_version()
     ] {
         let path = format!("server '{loader}' 中文");
         server(&root.path().join(&path), loader, version);
-        for command in ["server.mods.source.search", "server.mods.source.files"] {
-            let replies = remote(root.path(), command, json!({"server":path}), false);
-            let data: Vec<_> = replies
-                .iter()
-                .filter(|reply| reply["status"] == "data")
-                .collect();
-            assert_eq!(data.len(), 1, "{replies:?}");
-            assert_eq!(
-                data[0]["contents"],
-                json!({"version":version, "loader":loader})
+        for _ in ["search", "files"] {
+            let replies = remote(
+                root.path(),
+                "server.mods.context",
+                json!({"path":path}),
+                false,
             );
-            assert!(replies.iter().any(|reply| reply["status"] == "finished"));
+            let reply = replies
+                .iter()
+                .find(|reply| reply["status"] == "finished")
+                .expect("finished frame");
+            assert_eq!(reply["contents"]["minecraft_version"], version);
+            assert_eq!(reply["contents"]["loader"], loader);
+            assert_eq!(
+                reply["contents"]["directory"],
+                json!(Path::new(&path).join("mods"))
+            );
         }
     }
 }
@@ -90,9 +95,12 @@ fn identification_selects_outer_archives_once_and_keeps_valid_paths_after_input_
     fs::write(server_root.join("mods/broken.jar"), b"invalid archive").unwrap();
     let replies = remote(
         root.path(),
-        "server.mods.source.identify",
+        "mods.select",
         json!({
-            "server":path, "parallelism":2, "selection":{"queries":[
+            "scope":{"kind":"server", "path":path},
+            "parallelism":2,
+            "hide_unrecognized":true,
+            "selection":{"queries":[
                 {"kind":"modid", "value":"omnibus_nested"},
                 {"kind":"file", "value":format!("mods/{selected}")},
                 {"kind":"file", "value":"../escape.jar"},
@@ -128,11 +136,14 @@ fn identification_selects_outer_archives_once_and_keeps_valid_paths_after_input_
     let done = events.last().unwrap();
     assert_eq!(done["event"], "done");
     assert_eq!(done["failed"], 3);
+    let summary = replies
+        .iter()
+        .find(|reply| reply["status"] == "finished")
+        .expect("finished frame");
     assert_eq!(
-        done["paths"],
+        summary["contents"]["paths"],
         json!([Path::new(path).join("mods").join(selected)])
     );
-    assert!(replies.iter().any(|reply| reply["status"] == "finished"));
 }
 
 #[test]
@@ -145,9 +156,11 @@ fn cancellation_terminates_selection_without_business_completion() {
     }
     let replies = remote(
         root.path(),
-        "server.mods.source.identify",
+        "mods.select",
         json!({
-            "server":"server", "parallelism":1,
+            "scope":{"kind":"server", "path":"server"},
+            "parallelism":1,
+            "hide_unrecognized":true,
             "selection":{"queries":[{"kind":"modid", "value":"omnibus_nested"}]}
         }),
         true,
@@ -220,8 +233,8 @@ fn ssh_reads_remote_bytes_but_keeps_provider_options_and_failures_local() {
     assert!(error.contains("source must be modrinth"), "{error}");
     assert!(!error.contains("remote error:"), "{error}");
     let requests = fs::read_to_string(capture).unwrap();
-    assert!(requests.contains("server.mods.source.identify"));
-    assert!(requests.contains("mod.source.identify"));
+    assert!(requests.contains("mods.select"));
+    assert!(requests.contains("mods.jar.digest"));
     assert!(!requests.contains("invalid-provider"));
     assert!(!requests.contains("secret-sentinel"));
     let messages: Vec<Value> = requests
@@ -230,7 +243,7 @@ fn ssh_reads_remote_bytes_but_keeps_provider_options_and_failures_local() {
         .collect();
     let summary = messages
         .iter()
-        .find(|request| request["operation"] == "mod.source.identify")
+        .find(|request| request["operation"] == "mods.jar.digest")
         .unwrap();
     assert_eq!(
         summary["input"]["paths"],

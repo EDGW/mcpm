@@ -1,26 +1,15 @@
-//! Shared mod listing, identification diagnostics and terminal output.
+//! Shared mod list presentation and record conversion.
 
-use mcpm_backend::data::runtime::RuntimeEnvironment;
-use std::collections::HashMap;
 use std::io::{self, Write};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use kako_mc_lib::local::{
-    mcmod::ModEntry,
-    modloader::{LoaderId, ModLoaderMeta},
-};
 use thiserror::Error;
 
 use crate::commands::{execution::DEFAULT_PARALLELISM, source_support::identify::Location};
-use crate::{progress, terminal};
+use crate::terminal;
 
-use super::{
-    scan::ScanSession,
-    scan_output::ScanOutput,
-    selection::{Scope, SelectedFile, Selection},
-    source_path::PathArgs,
-};
+use super::{scan::CacheSummary, selection::SelectedFile, source_path::PathArgs};
 use columns::ColumnArgs;
 use filter::Filter;
 
@@ -28,12 +17,10 @@ mod columns;
 mod filter;
 mod output;
 pub(in crate::commands) mod protocol;
-mod records;
-pub(in crate::commands) mod remote_selection;
 mod rows;
-mod selection;
-pub(in crate::commands) mod ssh;
 mod tui;
+
+pub(in crate::commands) use protocol::Record;
 
 #[derive(Args, Debug)]
 pub(in crate::commands) struct ListDisplayArgs {
@@ -80,6 +67,7 @@ pub(in crate::commands) struct ListLoadingArgs {
     #[arg(short = 'p', long, default_value_t = std::num::NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(), value_name = "COUNT", help_heading = "Loading options")]
     parallelism: std::num::NonZeroUsize,
 }
+
 impl ListLoadingArgs {
     pub(in crate::commands) fn parallelism(&self) -> usize {
         self.parallelism.get()
@@ -92,117 +80,22 @@ type ListedFile = SelectedFile;
 pub(in crate::commands) struct Counts {
     pub input_errors: usize,
     pub failed: usize,
-    pub cache: Option<super::scan::CacheSummary>,
+    pub cache: Option<CacheSummary>,
 }
 
-/// Lists batches of entries supplied by a command, retaining per-input diagnostics.
-/// Loader selection and input resolution belong to the caller.
-pub(in crate::commands) fn run(
-    inputs: impl IntoIterator<Item = Result<Vec<ModEntry>>>,
-    loaders: HashMap<LoaderId, ModLoaderMeta>,
-    hide_unrecognized: bool,
-    environment: &RuntimeEnvironment,
-    loading: impl Into<super::scan::Options>,
-    args: ListDisplayArgs,
-) -> Result<()> {
-    let started = std::time::Instant::now();
-    tracing::debug!(loaders = ?loaders.keys().map(|id| id.as_str()).collect::<Vec<_>>(), hide_unrecognized, "Starting local mod list scan");
-    let source_loaders = source_loaders(&loaders, hide_unrecognized);
-    let progress = progress::Progress::new("Scanning mod directory...", "Identifying mods");
-    let mut entries = Vec::new();
+/// Rebuilds presentation files from operation records, counting unreadable inputs.
+pub(in crate::commands) fn files_from_records(
+    records: impl IntoIterator<Item = Record>,
+) -> Result<(Vec<ListedFile>, usize)> {
+    let mut files = Vec::new();
     let mut input_errors = 0;
-    for input in inputs {
-        match input {
-            Ok(found) => entries.extend(found),
-            Err(error) => {
-                progress.report(&error);
-                input_errors += 1;
-            }
+    for record in records {
+        match record.into_selected()? {
+            Some(file) => files.push(file),
+            None => input_errors += 1,
         }
     }
-    progress.set_total(entries.len());
-    tracing::debug!(
-        count = entries.len(),
-        input_errors,
-        "Local mod list input discovery completed"
-    );
-
-    drop(progress);
-    let output = ScanOutput::default();
-    let observe = |event| output.event(event);
-    let mut session = ScanSession::new(loaders, environment)
-        .with_options(loading.into())?
-        .with_observer(&observe);
-    let paths: Vec<_> = entries
-        .into_iter()
-        .map(|entry| entry.path().to_owned())
-        .collect();
-    let files = session
-        .collect(&paths)?
-        .into_iter()
-        .map(|scanned| SelectedFile {
-            scanned,
-            records: None,
-        })
-        .collect::<Vec<_>>();
-    tracing::debug!(
-        files = files.len(),
-        failed = session.failed_count(),
-        input_errors,
-        elapsed_ms = started.elapsed().as_millis(),
-        "Local mod list loading completed"
-    );
-    present(
-        files,
-        hide_unrecognized,
-        args,
-        Counts {
-            input_errors,
-            failed: session.failed_count(),
-            cache: Some(session.cache_summary()),
-        },
-        source_loaders,
-        Location::Local(environment),
-    )
-}
-
-/// Resolves server list queries through the same lazy indexes as info/deps.
-pub(in crate::commands) fn run_selection(
-    selection: Selection,
-    scope: Scope,
-    loaders: HashMap<LoaderId, ModLoaderMeta>,
-    environment: &RuntimeEnvironment,
-    loading: impl Into<super::scan::Options>,
-    args: ListDisplayArgs,
-) -> Result<()> {
-    let source_loaders = source_loaders(&loaders, true);
-    let output = ScanOutput::default();
-    let mut files = Vec::new();
-    let counts = selection::load(
-        selection,
-        scope,
-        loaders,
-        environment,
-        loading,
-        || Ok(()),
-        |event| output.event(event),
-        |file| {
-            files.push(file);
-            Ok(())
-        },
-    )?;
-    present(
-        files,
-        true,
-        args,
-        Counts {
-            input_errors: counts.input_errors,
-            failed: counts.failed,
-            cache: Some(counts.cache),
-        },
-        source_loaders,
-        Location::Local(environment),
-    )
+    Ok((files, input_errors))
 }
 
 /// Shared filtering, layout and summary for path-based and query-based listing.
@@ -213,7 +106,7 @@ pub(in crate::commands) fn present(
     args: ListDisplayArgs,
     counts: Counts,
     source_loaders: Vec<String>,
-    location: Location<'_>,
+    location: Location,
 ) -> Result<()> {
     let Counts {
         input_errors,
@@ -358,16 +251,6 @@ pub(in crate::commands) fn present(
         });
     }
     Ok(())
-}
-
-/// Forward explicit CLI or server loader constraints, leaving an unfiltered list unrestricted.
-fn source_loaders(loaders: &HashMap<LoaderId, ModLoaderMeta>, filtered: bool) -> Vec<String> {
-    if !filtered {
-        return Vec::new();
-    }
-    let mut ids: Vec<_> = loaders.keys().map(|id| id.as_str().to_owned()).collect();
-    ids.sort();
-    ids
 }
 
 #[derive(Debug, Error)]

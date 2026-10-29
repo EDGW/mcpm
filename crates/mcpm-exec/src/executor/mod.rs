@@ -123,7 +123,7 @@ impl<P> std::fmt::Debug for Executor<P> {
 pub struct Session<P> {
     executor: Executor<P>,
     target: Target,
-    remote: Mutex<Option<Arc<session::Session>>>,
+    remote: Arc<Mutex<Option<Arc<session::Session>>>>,
 }
 
 impl<P> Session<P> {
@@ -131,7 +131,7 @@ impl<P> Session<P> {
         Self {
             executor,
             target,
-            remote: Mutex::new(None),
+            remote: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -145,6 +145,34 @@ impl<P> Session<P> {
 }
 
 impl<P: Clone + Send + Sync + 'static> Session<P> {
+    /// Closes the opened remote session, draining accepted calls and waiting for the
+    /// shutdown acknowledgement. A local session has nothing to close.
+    pub async fn close(&self) -> Result<(), TransportError> {
+        let opened = {
+            let mut open = self.remote.lock().await;
+            open.take()
+        };
+        let Some(opened) = opened else {
+            return Ok(());
+        };
+        let session = Arc::try_unwrap(opened).map_err(|_| TransportError::Start {
+            message: "the remote session is still shared by an active call".to_owned(),
+        })?;
+        tokio::task::spawn_blocking(move || {
+            let mut session = session;
+            session.close().map_err(|failure| match failure {
+                CallFailure::Transport(error) => error,
+                other => TransportError::Start {
+                    message: other.to_string(),
+                },
+            })
+        })
+        .await
+        .map_err(|error| TransportError::Start {
+            message: error.to_string(),
+        })?
+    }
+
     /// Starts one call; must be awaited inside a Tokio runtime.
     pub async fn start<O>(&self, input: O::Input) -> Result<Handle<O>, Failure<O::Error>>
     where
@@ -228,6 +256,17 @@ impl<P: Clone + Send + Sync + 'static> Session<P> {
         let session = Arc::new(started?);
         *open = Some(session.clone());
         Ok(session)
+    }
+}
+
+impl<P: Clone> Clone for Session<P> {
+    /// Clones share the opened remote connection; a fork never re-handshakes.
+    fn clone(&self) -> Self {
+        Self {
+            executor: self.executor.clone(),
+            target: self.target.clone(),
+            remote: self.remote.clone(),
+        }
     }
 }
 

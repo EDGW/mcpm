@@ -69,6 +69,7 @@ struct Request {
 }
 
 pub(super) fn run(
+    identify_session: &mcpm_backend::Session,
     ssh: SshArgs,
     server: PathBuf,
     selection: Selection,
@@ -103,13 +104,21 @@ pub(super) fn run(
         })?;
     let environment = environment.context("missing remote cache environment")?;
     completion.finish(
-        crate::commands::source_support::identify::Location::Remote(&session, &environment),
+        crate::commands::source_support::identify::Location::Remote {
+            session: identify_session.clone(),
+            environment: environment.clone(),
+        },
         |event| output.event(event),
     )?;
     session.close()?;
     output.finish()
 }
-fn init() -> Result<()> {
-    crate::remote::registry::register::<Cache>()
+/// Installs the one remaining legacy handler into the process registry.
+pub(super) fn register(
+    registry: &mut mcpm_exec::Registry<mcpm_backend::Providers>,
+) -> Result<()> {
+    registry
+        .register::<crate::remote::command::Handler<Cache>>()
+        .map_err(anyhow::Error::new)
+        .map_err(|error| error.context("failed to register the legacy server.mods.cache handler"))
 }
-inventory::submit! { crate::initcall::Initcall(init) }

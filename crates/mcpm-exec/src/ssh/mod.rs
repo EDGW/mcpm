@@ -3,7 +3,7 @@
 //! The connection is settings plus argv construction: the caller keeps its own argument
 //! type and hands over the connection command and the remote executable path.
 
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
 
 use thiserror::Error;
 
@@ -18,6 +18,7 @@ const SUBCOMMAND: &str = "remote";
 pub struct Connection {
     ssh: String,
     executable: String,
+    directory: Option<PathBuf>,
 }
 
 impl Connection {
@@ -25,7 +26,20 @@ impl Connection {
         Self {
             ssh: ssh.into(),
             executable: executable.into(),
+            directory: None,
         }
+    }
+
+    /// Runs the local SSH process in `directory`; saved Remote workspaces use this to
+    /// resolve relative key paths exactly as the user registered them.
+    pub fn with_directory(mut self, directory: impl Into<PathBuf>) -> Self {
+        self.directory = Some(directory.into());
+        self
+    }
+
+    /// The local working directory of the SSH process, if one was set.
+    pub fn directory(&self) -> Option<&PathBuf> {
+        self.directory.as_ref()
     }
 
     /// The connection command as the user wrote it.
@@ -70,6 +84,9 @@ impl Connection {
         };
         let (mut command, _) = connection::command(&self.ssh)?;
         command.arg(remote);
+        if let Some(directory) = &self.directory {
+            command.current_dir(directory);
+        }
         Ok(command)
     }
 }

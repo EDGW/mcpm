@@ -237,7 +237,7 @@ fn write_metadatas(out: &mut ConsoleWriter<'_>, entry: &Entry) -> Result<()> {
                     source_match::View::new(
                         0,
                         &entry.file,
-                        &kako_mc_lib::source::SourceId(source.into()),
+                        &mcpm_backend::source::types::SourceId(source.into()),
                         Some(file),
                     )
                     .write_console(

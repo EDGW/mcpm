@@ -23,15 +23,9 @@ enum SourceCommand {
 }
 
 pub(super) fn run(args: SourceArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if ssh.is_requested() && !matches!(args.command, SourceCommand::Identify(_)) {
-        anyhow::bail!(
-            "--ssh and --ssh-mcpm are supported only by {} mods list/info/deps/source identify",
-            crate::program::roots().tools
-        );
-    }
     match args.command {
-        SourceCommand::Search(args) => search::run(args),
-        SourceCommand::Files(args) => files::run(args),
+        SourceCommand::Search(args) => search::run(args, &ssh),
+        SourceCommand::Files(args) => files::run(args, &ssh),
         SourceCommand::Identify(args) => identify::run(args, ssh),
     }
 }

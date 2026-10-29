@@ -1,7 +1,7 @@
 //! Source-identification CLI options, ordered presentation and shared local acquisition.
 
 use crate::commands::supports::mods::reuse::QueryArgs;
-use kako_mc_lib::source::SourceId;
+use mcpm_backend::source::types::SourceId;
 use mcpm_backend::data::cache::mods::ModsCacheSelection;
 use mcpm_backend::data::runtime::RuntimeEnvironment;
 use std::{
@@ -18,8 +18,6 @@ use crate::commands::execution::{DEFAULT_PARALLELISM, Runtime};
 mod columns;
 mod model;
 mod output;
-mod remote;
-mod summary;
 mod worker;
 
 pub(in crate::commands) use model::{Event, Location, Outcome};
@@ -96,33 +94,42 @@ pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> 
         )
     });
     if !ssh.is_requested() {
-        return present(args.options, paths, Location::Local(&environment));
+        let session = crate::commands::execution::local_session()?;
+        return present(
+            args.options,
+            paths,
+            Location::Local {
+                session: session.clone(),
+                environment: environment.clone(),
+            },
+        );
     }
     ensure!(
         !paths.is_empty(),
         "provide file paths as arguments or one per stdin line"
     );
     let _span = tracing::info_span!("source_identify", source = "ssh").entered();
-    let mut session = ssh.connect()?;
-    let result = present(
+    let session = crate::commands::execution::session_for(&ssh)?;
+    present(
         args.options,
         paths,
-        Location::Remote(&session, &environment),
-    );
-    session.close()?;
-    result
+        Location::Remote {
+            session: session.clone(),
+            environment: environment.clone(),
+        },
+    )
 }
 
 /// Identifies paths using resources selected by the caller on their owning host.
 pub(in crate::commands) fn run_paths_at(
     options: IdentifyOptions,
     paths: Vec<PathBuf>,
-    location: Location<'_>,
+    location: Location,
 ) -> Result<()> {
     present(options, paths, location)
 }
 
-fn present(options: IdentifyOptions, paths: Vec<PathBuf>, location: Location<'_>) -> Result<()> {
+fn present(options: IdentifyOptions, paths: Vec<PathBuf>, location: Location) -> Result<()> {
     ensure!(
         !paths.is_empty(),
         "provide file paths as arguments or one per stdin line"

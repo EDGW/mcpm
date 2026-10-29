@@ -1,4 +1,4 @@
-//! Shared validation for sequential scan batches, independent of event envelopes.
+//! Sequential scan progress validation for the remaining legacy event streams.
 
 use anyhow::{Result, ensure};
 
@@ -7,6 +7,7 @@ use anyhow::{Result, ensure};
 pub(in crate::commands) struct ProgressState {
     active: Option<(usize, usize)>,
 }
+
 impl ProgressState {
     pub(in crate::commands) fn accept(&mut self, completed: usize, total: usize) -> Result<()> {
         ensure!(completed <= total, "scan progress exceeds total");

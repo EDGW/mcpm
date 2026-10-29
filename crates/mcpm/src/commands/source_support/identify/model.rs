@@ -1,6 +1,6 @@
 //! Shared source-identification request, indexed events and provider-neutral result models.
 
-use kako_mc_lib::source::FileMatch;
+use mcpm_backend::source::types::FileMatch;
 use mcpm_backend::data::runtime::RuntimeEnvironment;
 
 /// Business result shared by CLI output, TUI state and remote messages.
@@ -47,20 +47,36 @@ pub(in crate::commands) enum Event {
     },
 }
 
-/// Where the input bytes live; remote acquisition reuses a caller-owned session.
-#[derive(Debug, Clone, Copy)]
-pub(in crate::commands) enum Location<'a> {
-    Local(&'a RuntimeEnvironment),
-    Remote(&'a crate::remote::client::Session, &'a RuntimeEnvironment),
+/// Where the input bytes live; every target runs the same digest operation.
+///
+/// The session is owned so background TUI work can outlive the calling command frame;
+/// cloning a session shares its opened connection.
+#[derive(Debug, Clone)]
+pub(in crate::commands) enum Location {
+    Local {
+        session: mcpm_backend::Session,
+        environment: RuntimeEnvironment,
+    },
+    Remote {
+        session: mcpm_backend::Session,
+        environment: RuntimeEnvironment,
+    },
 }
-impl<'a> Location<'a> {
-    pub(in crate::commands) fn environment(self) -> &'a RuntimeEnvironment {
+
+impl Location {
+    pub(in crate::commands) fn environment(&self) -> &RuntimeEnvironment {
         match self {
-            Self::Local(environment) | Self::Remote(_, environment) => environment,
+            Self::Local { environment, .. } | Self::Remote { environment, .. } => environment,
         }
     }
 
-    pub(in crate::commands) fn is_local(self) -> bool {
-        matches!(self, Self::Local(_))
+    pub(in crate::commands) fn session(&self) -> &mcpm_backend::Session {
+        match self {
+            Self::Local { session, .. } | Self::Remote { session, .. } => session,
+        }
+    }
+
+    pub(in crate::commands) fn is_local(&self) -> bool {
+        matches!(self, Self::Local { .. })
     }
 }

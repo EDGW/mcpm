@@ -9,7 +9,7 @@ use anyhow::{Context as _, Result, ensure};
 use clap::{Args, Subcommand};
 use mcpm_backend::data::server::MinecraftServer;
 
-use super::{target, workspace};
+use super::target;
 use crate::ssh::SshArgs;
 
 mod columns;
@@ -92,6 +92,7 @@ struct Context {
 
 impl Context {
     fn server(&self) -> Result<MinecraftServer> {
-        workspace::inspect_local(self.path.clone())
+        mcpm_backend::data::workspace::require_local(&self.path)?;
+        Ok(MinecraftServer::inspect(self.path.clone())?)
     }
 }

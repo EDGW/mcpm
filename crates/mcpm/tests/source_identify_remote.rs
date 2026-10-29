@@ -50,23 +50,27 @@ fn source_and_list_requests_share_one_server_and_preserve_file_failures() {
         ready["contents"]["operations"]
             .as_array()
             .unwrap()
-            .contains(&json!("mod.source.identify"))
+            .contains(&json!("mods.jar.digest"))
     );
     for (guid, command, contents) in [
         (
             1,
-            "mod.source.identify",
+            "mods.jar.digest",
             json!({"paths":paths,"requirements":{"murmur2":true},"parallelism":2}),
         ),
-        (2, "mod.list", json!({"paths":[root.path()]})),
+        (
+            2,
+            "mods.jar.read",
+            json!({"scope":{"kind":"paths","directory":".","paths":[root.path()]}}),
+        ),
         (
             3,
-            "mod.source.identify",
+            "mods.jar.digest",
             json!({"paths":paths,"requirements":{"murmur2":false},"parallelism":0}),
         ),
         (
             4,
-            "mod.source.identify",
+            "mods.jar.digest",
             json!({"paths":[sample],"requirements":{"murmur2":true},"parallelism":1}),
         ),
     ] {
@@ -153,7 +157,7 @@ mod transport {
             ),
         );
         let mut body = print(
-            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":6,"build":build_version(),"operations":["mod.source.identify"]}}),
+            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":6,"build":build_version(),"operations":["mods.jar.digest"]}}),
             "",
         );
         body.push_str(&format!("IFS= read -r request\nprintf '%s' \"$request\" > {}\nguid=$(printf '%s' \"$request\" | cut -d '\"' -f4)\n", shlex::try_quote(root.join("request").to_str().unwrap()).unwrap()));
@@ -253,7 +257,7 @@ mod transport {
         let request: Value =
             serde_json::from_str(&fs::read_to_string(root.path().join("request")).unwrap())
                 .unwrap();
-        assert_eq!(request["operation"], "mod.source.identify");
+        assert_eq!(request["operation"], "mods.jar.digest");
         assert_eq!(
             request["input"],
             json!({"paths":[r"D:\slow.jar","bad.jar","fast.jar",r"D:\slow.jar"],"requirements":{"murmur2":true},"parallelism":2,"cache":{"kind":"default"}})

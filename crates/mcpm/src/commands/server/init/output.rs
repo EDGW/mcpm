@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use super::git::{Outcome, Status};
+use mcpm_backend::workspace::git::{Outcome, Status};
 use crate::{
     display::{
         console::ConsoleWriter,

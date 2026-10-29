@@ -17,9 +17,9 @@ pub(super) struct ServerSearchArgs {
 }
 
 pub(super) fn run(mut args: ServerSearchArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if let Some(defaults) = args.server.defaults(ssh, super::remote::SEARCH)? {
+    if let Some(defaults) = args.server.defaults(ssh.clone())? {
         args.search
-            .apply_defaults(&defaults.version, &defaults.loader);
+            .apply_defaults(&defaults.minecraft_version, &defaults.loader);
     }
-    search::run(args.search)
+    search::run(args.search, &ssh)
 }

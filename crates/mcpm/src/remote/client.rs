@@ -49,12 +49,6 @@ fn options() -> session::Options {
 pub(crate) struct Pending(session::Pending);
 
 impl Pending {
-    /// The next event frame; `None` once the call completed.
-    pub(crate) async fn next(&mut self) -> Result<Option<Reply>> {
-        let frame = self.0.next().await.map_err(super::command::failure)?;
-        Ok(reply(frame))
-    }
-
     /// The next event frame on the current thread; `None` once the call completed.
     pub(crate) fn next_blocking(&mut self) -> Result<Option<Reply>> {
         let frame = self.0.next_blocking().map_err(super::command::failure)?;

@@ -4,8 +4,10 @@ use std::io;
 
 use anyhow::{Context, Result};
 use clap::{Args, ValueEnum};
-use kako_mc_lib::source::{SearchQuery, SearchSort};
+use mcpm_backend::source::types::{SearchQuery, SearchSort};
 
+use crate::commands::execution::{finish, session_for, Runtime};
+use crate::ssh::SshArgs;
 use crate::terminal;
 
 mod columns;
@@ -54,7 +56,7 @@ impl SearchArgs {
     }
 }
 
-pub(in crate::commands) fn run(args: SearchArgs) -> Result<()> {
+pub(in crate::commands) fn run(args: SearchArgs, ssh: &SshArgs) -> Result<()> {
     let expression = args.query.unwrap_or_default();
     let defaults = SearchQuery {
         game_versions: args.game_version.into_iter().collect(),
@@ -69,28 +71,31 @@ pub(in crate::commands) fn run(args: SearchArgs) -> Result<()> {
     };
     let mut query = expression::Expression::parse(&expression)?.apply(&defaults);
     query.offset = args.offset;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("failed to create source search runtime")?;
-    // Client construction and all requests stay inside the runtime's lifetime.
-    let _runtime_guard = runtime.enter();
-    let source = super::config::build_source(&args.source)?;
+    let runtime = Runtime::new()?;
+    let session = session_for(ssh)?;
     let progress = super::progress::Progress::new("Searching projects...");
-    let page = runtime
-        .block_on(source.search(&query))
-        .context("mod source search failed")?;
+    let page = runtime.block_on(super::ops::search(&session, &args.source, query.clone()))?;
     drop(progress);
-    if !args.no_ui
+    let result = if !args.no_ui
         && !args.columns.is_explicit()
         && terminal::stdout_is_tty()
         && terminal::stderr_is_tty()
     {
-        tui::run(source.as_ref(), &runtime, defaults, expression, query, page)
+        tui::run(
+            &session,
+            &args.source,
+            &runtime,
+            defaults,
+            expression,
+            query,
+            page,
+        )
     } else {
         output::write_page(&mut io::stdout().lock(), &page, &args.columns.selected())
             .context("failed to write source search results")
-    }
+    };
+    finish(&runtime, &session)?;
+    result
 }
 
 #[derive(Clone, Copy, ValueEnum, Debug)]

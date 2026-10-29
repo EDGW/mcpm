@@ -38,15 +38,13 @@ impl SelectionArgs {
 
     fn with_stdin_kind(mut self, kind: QueryKind) -> Result<Self> {
         let paths = crate::commands::stdin::append(Vec::new())?;
-        if self.selection.all && !paths.is_empty() {
+        if self.selection.is_all() && !paths.is_empty() {
             return Err(AllWithQueries.into());
         }
-        self.selection
-            .queries
-            .extend(paths.into_iter().map(|value| Query {
-                kind,
-                value: value.into_os_string(),
-            }));
+        for value in paths {
+            self.selection
+                .push(Query::new(kind, value.into_os_string()));
+        }
         Ok(self)
     }
 
@@ -128,16 +126,16 @@ impl FromArgMatches for SelectionArgs {
                 queries.extend(
                     indices
                         .zip(values)
-                        .map(|(index, value)| (index, Query { kind, value })),
+                        .map(|(index, value)| (index, Query::new(kind, value))),
                 );
             }
         }
         queries.sort_by_key(|(index, _)| *index);
         Ok(Self {
-            selection: Selection {
-                queries: queries.into_iter().map(|(_, query)| query).collect(),
-                all: raw.all,
-            },
+            selection: Selection::new(
+                queries.into_iter().map(|(_, query)| query).collect(),
+                raw.all,
+            ),
         })
     }
 

@@ -1,9 +1,8 @@
-//! Frontend bridge over `mcpm-exec` for the legacy command handlers.
+//! Frontend bridge over `mcpm-exec` for the one remaining legacy command handler.
 //!
-//! The handlers, their JSON codecs and their registration still belong to the commands
-//! until they become host operations. This module adapts them to the executor contract and
-//! converts executor failures back into the frontend's error model.
+//! `server.mods.cache` still owns its JSON codec and registration until `flows::mods_cache`
+//! replaces it. Every migrated command now dispatches through `mcpm-backend` operations and
+//! never depends on this module.
 
 pub(crate) mod client;
 pub(crate) mod command;
-pub(crate) mod registry;

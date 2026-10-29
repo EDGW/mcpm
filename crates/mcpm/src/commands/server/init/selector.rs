@@ -1,6 +1,6 @@
 //! Interactive server launch selection with shared TUI colors and loader styles.
 
-use super::model::Candidate;
+use mcpm_backend::server::Candidate;
 use crate::{display::style::text, terminal as policy};
 use anyhow::{Context, Result, ensure};
 use crossterm::{

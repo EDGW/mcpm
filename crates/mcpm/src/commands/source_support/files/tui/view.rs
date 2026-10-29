@@ -9,7 +9,7 @@ use crate::{
     },
     widgets::browser::{self, BrowserLayout, TableColumns, panel, short_line},
 };
-use kako_mc_lib::source::{FilePage, FileQuery, ProjectFile, ProjectRef, ReleaseType};
+use mcpm_backend::source::types::{FilePage, FileQuery, ProjectFile, ProjectRef, ReleaseType};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -45,7 +45,7 @@ pub(super) fn field_value(file: &ProjectFile, field: usize) -> (&'static str, St
             file.dependencies
                 .iter()
                 .map(|dependency| {
-                    use kako_mc_lib::source::DependencyTarget;
+                    use mcpm_backend::source::types::DependencyTarget;
                     let target = match &dependency.target {
                         DependencyTarget::Project(project) => {
                             format!("{} / {}", project.source.0, project.id.0)
@@ -72,7 +72,7 @@ pub(super) fn field_value(file: &ProjectFile, field: usize) -> (&'static str, St
             file.hashes
                 .iter()
                 .map(|hash| {
-                    use kako_mc_lib::source::FileHash;
+                    use mcpm_backend::source::types::FileHash;
                     match hash {
                         FileHash::Sha1(value) => format!("SHA1 {value}"),
                         FileHash::Sha512(value) => format!("SHA512 {value}"),

@@ -2,10 +2,9 @@
 
 use super::*;
 use crate::commands::supports::mods::selection::{Scope, SelectionInput};
-use kako_mc_lib::source::FileSummary;
-use kako_mc_lib::source::SourceId;
 use kako_mc_lib::source::curseforge::CurseForgeSource;
 use kako_mc_lib::source::modrinth::ModrinthSource;
+use mcpm_backend::source::types::{FileSummary, SourceId};
 use mcpm_backend::data::cache::mods::CacheStatus;
 use mcpm_backend::data::cache::mods::CacheUnavailableReason;
 use mcpm_backend::data::cache::mods::ModsCacheDir;
@@ -107,7 +106,13 @@ fn consecutive_files_reuse_one_live_http_connection_until_the_batch_finishes() {
     )
     .unwrap();
     completion
-        .finish(Location::Local(&environment), &mut emit)
+        .finish(
+            Location::Local {
+                session: crate::commands::execution::local_session().unwrap(),
+                environment: environment.clone(),
+            },
+            &mut emit,
+        )
         .unwrap();
     server.join().unwrap();
     let Event::Done(summary) = events.last().unwrap() else {
@@ -206,7 +211,13 @@ fn explicit_enrichment_publishes_successes_despite_other_sources_failing_and_ide
     )
     .unwrap();
     completion
-        .finish(Location::Local(&environment), &mut emit)
+        .finish(
+            Location::Local {
+                session: crate::commands::execution::local_session().unwrap(),
+                environment: environment.clone(),
+            },
+            &mut emit,
+        )
         .unwrap();
     server.join().unwrap();
     let mut validator = super::super::validation::Validator::default();
@@ -239,13 +250,17 @@ fn explicit_enrichment_publishes_successes_despite_other_sources_failing_and_ide
     ] {
         let mut matched = false;
         let runtime = Runtime::new().unwrap();
+        let environment = RuntimeEnvironment::new().with_mods_cache(selection.clone());
         runtime
             .block_on(
                 Identification::with_sources(
                     vec![input.clone()],
                     vec![Ok(modrinth.clone())],
                     1,
-                    Location::Local(&RuntimeEnvironment::new().with_mods_cache(selection.clone())),
+                    Location::Local {
+                        session: crate::commands::execution::local_session().unwrap(),
+                        environment,
+                    },
                 )
                 .unwrap()
                 .run(|event| {

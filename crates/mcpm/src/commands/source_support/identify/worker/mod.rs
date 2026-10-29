@@ -1,34 +1,45 @@
-//! One bounded local provider scheduler consuming either local or remote file summaries.
+//! One bounded local provider scheduler consuming summaries from the digest operation.
 
-use super::{Event, Location, Outcome, remote, summary};
-use crate::diagnostics::ErrorReport;
-use anyhow::{Result, ensure};
-use kako_mc_lib::source::{FileSummary, Source, SummaryRequirements};
-use mcpm_backend::data::runtime::RuntimeEnvironment;
 use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
-use tokio::sync::mpsc;
+
+use anyhow::{Result, ensure};
+use kako_mc_lib::source::Source;
+use mcpm_backend::source::types::{FileSummary, SummaryRequirements};
+use mcpm_backend::mods::digest::{DigestEvent, DigestInput, DigestOutcome, JarDigest};
 use tracing::Instrument;
+
+use super::{Event, Location, Outcome};
+use crate::commands::execution::failure as operation_failure;
+use crate::diagnostics::ErrorReport;
 
 pub(in crate::commands) type Sources = Vec<Result<Arc<dyn Source>, ErrorReport>>;
 
 pub(in crate::commands) fn sources(specifications: &[String]) -> Sources {
-    specifications.iter().map(|specification| {
-        let id = specification.split('@').next().unwrap_or(specification);
-        tracing::debug!(source = id, "Initializing local identification provider");
-        super::super::build_source(specification).map(Arc::<dyn Source>::from).map_err(|error| {
-            tracing::debug!(source = id, error = %format_args!("{error:#}"), "Source provider initialization failed");
-            ErrorReport::capture(&error)
+    specifications
+        .iter()
+        .map(|specification| {
+            let id = specification.split('@').next().unwrap_or(specification);
+            tracing::debug!(source = id, "Initializing local identification provider");
+            mcpm_backend::SurfaceEnv::new()
+                .and_then(|environment| environment.source(specification))
+                .map(Arc::<dyn Source>::from)
+                .map_err(|error| {
+                    tracing::debug!(source = id, error = %format_args!("{error:#}"), "Source provider initialization failed");
+                    ErrorReport::capture(&error)
+                })
         })
-    }).collect()
+        .collect()
 }
 
 /// Prepared before spawning so a caller-owned session need not be borrowed by a task.
 pub(in crate::commands) struct Identification {
-    input: Input,
     paths: Vec<PathBuf>,
     sources: Sources,
     parallelism: usize,
+    requirements: SummaryRequirements,
+    location: Location,
 }
+
 impl std::fmt::Debug for Identification {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Identification")
@@ -38,12 +49,13 @@ impl std::fmt::Debug for Identification {
             .finish_non_exhaustive()
     }
 }
+
 impl Identification {
     pub(in crate::commands) fn start(
         paths: Vec<PathBuf>,
         specifications: &[String],
         parallelism: usize,
-        location: Location<'_>,
+        location: Location,
     ) -> Result<Self> {
         Self::with_sources(paths, sources(specifications), parallelism, location)
     }
@@ -59,7 +71,7 @@ impl Identification {
         paths: Vec<PathBuf>,
         sources: Sources,
         parallelism: usize,
-        location: Location<'_>,
+        location: Location,
     ) -> Result<Self> {
         ensure!(
             !sources.is_empty(),
@@ -84,26 +96,12 @@ impl Identification {
             },
             "Prepared identification pipeline"
         );
-        let input = match location {
-            Location::Local(environment) => Input::Local {
-                requirements,
-                environment: environment.clone(),
-            },
-            Location::Remote(session, environment) => Input::Remote(remote::Lookup::start(
-                session,
-                &remote::Request {
-                    paths: paths.clone(),
-                    requirements,
-                    cache: crate::commands::supports::mods::reuse::selection(environment),
-                    parallelism: std::num::NonZeroUsize::new(parallelism).unwrap(),
-                },
-            )?),
-        };
         Ok(Self {
-            input,
             paths,
             sources,
             parallelism,
+            requirements,
+            location,
         })
     }
 
@@ -128,7 +126,7 @@ impl Identification {
         mut emit: impl FnMut(Event) -> Result<()>,
     ) -> Result<()> {
         let started = std::time::Instant::now();
-        let remote = matches!(self.input, Input::Remote(_));
+        let remote = !self.location.is_local();
         tracing::info!(
             files = self.paths.len(),
             sources = self.sources.len(),
@@ -136,42 +134,18 @@ impl Identification {
             remote_summaries = remote,
             "Starting local provider identification"
         );
-        let mut input = self.input;
-        // The guard aborts local digest acquisition on every exit path.
-        let mut acquisition = tokio::task::JoinSet::new();
-        if let Input::Local {
-            requirements,
-            environment,
-        } = input
-        {
-            let (sender, receiver) = mpsc::channel(self.parallelism);
-            let paths = self.paths.clone();
-            let parallelism = self.parallelism;
-            acquisition.spawn(
-                async move {
-                    let result = summary::run(
-                        paths,
-                        requirements,
-                        parallelism,
-                        &environment,
-                        || Ok(()),
-                        |event| {
-                            let sender = sender.clone();
-                            async move {
-                                sender.send(Ok(event)).await?;
-                                Ok(())
-                            }
-                        },
-                    )
-                    .await;
-                    if let Err(error) = result {
-                        let _ = sender.send(Err(error)).await;
-                    }
-                }
-                .in_current_span(),
-            );
-            input = Input::Receiving(receiver);
-        }
+        let cache = crate::commands::supports::mods::reuse::selection(self.location.environment());
+        let mut digest = self
+            .location
+            .session()
+            .start::<JarDigest>(DigestInput {
+                paths: self.paths.clone(),
+                requirements: self.requirements,
+                parallelism: self.parallelism,
+                cache,
+            })
+            .await
+            .map_err(|failure| operation_failure(failure, remote))?;
         let mut queued: VecDeque<(Vec<usize>, usize, FileSummary)> = VecDeque::new();
         let mut active = tokio::task::JoinSet::new();
         let mut ended = false;
@@ -187,64 +161,92 @@ impl Identification {
                 let source = self.sources[source_index].clone();
                 let path = self.paths[indices[0]].clone();
                 let span = tracing::debug_span!("identify_source", path = %path.display(), source_index, source = self.sources[source_index].as_ref().map(|source| source.id().0.as_str()).unwrap_or("unavailable"));
-                active.spawn(async move {
-                    let started = std::time::Instant::now();
-                    tracing::debug!("Querying provider locally using file summary");
-                    let result = match source { Ok(source) => source.identify_summary(&summary).await, Err(error) => Err(error.into_error()) };
-                    let outcome = match result {
-                        Ok(Some(file)) => Outcome::Matched { file },
-                        Ok(None) => Outcome::Unmatched,
-                        Err(error) => Outcome::Failed { remote: false, error: ErrorReport::capture(&error.context(format!("failed to identify file {path:?}"))) },
-                    };
-                    tracing::debug!(outcome = outcome.status(), elapsed_ms = started.elapsed().as_millis(), "Local provider lookup completed");
-                    if let Outcome::Failed { error, .. } = &outcome { tracing::debug!(error = %error.message, causes = ?error.causes, "Local provider lookup failed"); }
-                    Event::Item { indices, source: source_index, outcome }
-                }.instrument(span));
+                active.spawn(
+                    async move {
+                        let started = std::time::Instant::now();
+                        tracing::debug!("Querying provider locally using file summary");
+                        let result = match source {
+                            Ok(source) => source.identify_summary(&summary).await,
+                            Err(error) => Err(error.into_error()),
+                        };
+                        let outcome = match result {
+                            Ok(Some(file)) => Outcome::Matched { file },
+                            Ok(None) => Outcome::Unmatched,
+                            Err(error) => Outcome::Failed {
+                                remote: false,
+                                error: ErrorReport::capture(
+                                    &error.context(format!("failed to identify file {path:?}")),
+                                ),
+                            },
+                        };
+                        tracing::debug!(outcome = outcome.status(), elapsed_ms = started.elapsed().as_millis(), "Local provider lookup completed");
+                        if let Outcome::Failed { error, .. } = &outcome {
+                            tracing::debug!(error = %error.message, causes = ?error.causes, "Local provider lookup failed");
+                        }
+                        Event::Item {
+                            indices,
+                            source: source_index,
+                            outcome,
+                        }
+                    }
+                    .instrument(span),
+                );
             }
             if ended && queued.is_empty() && active.is_empty() {
                 break;
             }
             tokio::select! {
                 _ = cancellation.tick() => checkpoint()?,
-                event = input.next(), if !ended && queued.len() < self.parallelism => {
-                    match event? {
-                        Some(summary::Event::Loading { indices }) => {
+                event = digest.next(), if !ended && queued.len() < self.parallelism => {
+                    match event {
+                        Some(DigestEvent::Loading { indices }) => {
                             tracing::debug!(?indices, file_host = if remote { "remote" } else { "local" }, "File summary computation started");
-                            for source in 0..self.sources.len() { emit(Event::Loading { indices: indices.clone(), source })?; }
+                            for source in 0..self.sources.len() {
+                                emit(Event::Loading { indices: indices.clone(), source })?;
+                            }
                         }
-                        Some(summary::Event::Item { indices, outcome }) => {
-                            tracing::debug!(?indices, file_host = if remote { "remote" } else { "local" }, success = matches!(outcome, summary::Outcome::Summary { .. }), "Received file summary result");
+                        Some(DigestEvent::Item { indices, outcome }) => {
+                            tracing::debug!(?indices, file_host = if remote { "remote" } else { "local" }, success = matches!(outcome, DigestOutcome::Summary { .. }), "Received file summary result");
                             match outcome {
-                            summary::Outcome::Summary { summary, cached } => {
-                                let hits: Vec<_> = self.sources.iter().map(|source| {
-                                    source.as_ref().ok().and_then(|source| {
-                                        cached.get(&source.identification_cache_id().0).and_then(|file| file.for_source(source.as_ref()))
-                                    })
-                                }).collect();
-                                emit(Event::Cache {
-                                    indices: indices.clone(),
-                                    sources: hits.iter().enumerate().filter_map(|(index, hit)| hit.is_some().then_some(index)).collect(),
-                                })?;
-                                for (source_index, hit) in hits.into_iter().enumerate() {
-                                    if let Some(file) = hit {
-                                        emit(Event::Item { indices: indices.clone(), source: source_index, outcome: Outcome::Matched { file } })?;
-                                    } else { queued.push_back((indices.clone(), source_index, summary.clone())); }
+                                DigestOutcome::Summary { summary, cached } => {
+                                    let hits: Vec<_> = self.sources.iter().map(|source| {
+                                        source.as_ref().ok().and_then(|source| {
+                                            cached.get(&source.identification_cache_id().0).and_then(|file| file.for_source(source.as_ref()))
+                                        })
+                                    }).collect();
+                                    emit(Event::Cache {
+                                        indices: indices.clone(),
+                                        sources: hits.iter().enumerate().filter_map(|(index, hit)| hit.is_some().then_some(index)).collect(),
+                                    })?;
+                                    for (source_index, hit) in hits.into_iter().enumerate() {
+                                        if let Some(file) = hit {
+                                            emit(Event::Item { indices: indices.clone(), source: source_index, outcome: Outcome::Matched { file } })?;
+                                        } else {
+                                            queued.push_back((indices.clone(), source_index, summary.clone()));
+                                        }
+                                    }
+                                }
+                                DigestOutcome::Failed { error } => {
+                                    emit(Event::Cache { indices: indices.clone(), sources: Vec::new() })?;
+                                    failed += indices.len() * self.sources.len();
+                                    for source in 0..self.sources.len() {
+                                        emit(Event::Item { indices: indices.clone(), source, outcome: Outcome::Failed { error: error.clone(), remote } })?;
+                                    }
                                 }
                             }
-                            summary::Outcome::Failed { error } => {
-                                emit(Event::Cache { indices: indices.clone(), sources: Vec::new() })?;
-                                failed += indices.len() * self.sources.len();
-                                for source in 0..self.sources.len() { emit(Event::Item { indices: indices.clone(), source, outcome: Outcome::Failed { error: error.clone(), remote } })?; }
-                            }
-                            }
-                        },
-                        Some(summary::Event::Done { failed }) => { tracing::debug!(file_host = if remote { "remote" } else { "local" }, failed, "File summary acquisition completed; local provider queries may still be active"); },
+                        }
+                        Some(DigestEvent::Done { .. }) => {
+                            tracing::debug!(file_host = if remote { "remote" } else { "local" }, "File summary acquisition completed; local provider queries may still be active");
+                            ended = true;
+                        }
                         None => ended = true,
                     }
                 }
                 result = active.join_next(), if !active.is_empty() => {
                     let event = result.expect("active provider query exists")?;
-                    if let Event::Item { indices, outcome: Outcome::Failed { .. }, .. } = &event { failed += indices.len(); }
+                    if let Event::Item { indices, outcome: Outcome::Failed { .. }, .. } = &event {
+                        failed += indices.len();
+                    }
                     tracing::debug!(?event, "Delivering local identification result");
                     emit(event)?;
                 }
@@ -260,33 +262,3 @@ impl Identification {
         Ok(())
     }
 }
-
-enum Input {
-    Local {
-        requirements: SummaryRequirements,
-        environment: RuntimeEnvironment,
-    },
-    Remote(remote::Lookup),
-    Receiving(mpsc::Receiver<Result<summary::Event>>),
-}
-impl Input {
-    async fn next(&mut self) -> Result<Option<summary::Event>> {
-        match self {
-            Self::Remote(lookup) => lookup.next().await,
-            Self::Receiving(receiver) => receiver.recv().await.transpose(),
-            Self::Local { .. } => unreachable!("local acquisition has been started"),
-        }
-    }
-}
-impl std::fmt::Debug for Input {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Local { .. } => "Local",
-            Self::Remote(_) => "Remote",
-            Self::Receiving(_) => "Receiving",
-        })
-    }
-}
-
-#[cfg(test)]
-mod tests;

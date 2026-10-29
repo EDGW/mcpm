@@ -4,10 +4,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use kako_mc_lib::source::{FileQuery, SearchPage, SearchQuery, Source};
+use mcpm_backend::source::types::{FileQuery, SearchPage, SearchQuery};
 use tokio::runtime::Runtime;
 
-use super::super::request;
+use super::super::{ops, request};
 use super::expression::{Expression, ParseError};
 use crate::{
     theme::Role,
@@ -127,7 +127,7 @@ impl Browser {
         accepted
     }
 
-    fn project<'a>(&self, page: &'a SearchPage) -> Option<&'a kako_mc_lib::source::ProjectInfo> {
+    fn project<'a>(&self, page: &'a SearchPage) -> Option<&'a mcpm_backend::source::types::ProjectInfo> {
         page.projects.get(self.table.selected()?)
     }
 
@@ -167,13 +167,15 @@ impl Browser {
 }
 
 pub(super) fn run(
-    source: &dyn Source,
+    session: &mcpm_backend::Session,
+    specification: &str,
     runtime: &Runtime,
     defaults: SearchQuery,
     expression: String,
     mut query: SearchQuery,
     mut page: SearchPage,
 ) -> Result<()> {
+    let source_name = mcpm_backend::source::provider::family(specification);
     let mut screen = Screen::new().context("failed to open search results")?;
     let mut browser = Browser::new(&expression);
     let mut held_page_key = None;
@@ -182,7 +184,7 @@ pub(super) fn run(
         browser.refresh_completion();
         if browser.completion.needs_versions() {
             browser.completion.loading();
-            versions_request = Some(source.game_versions());
+            versions_request = Some(Box::pin(ops::game_versions(session, specification)));
         }
         if let Some(pending) = versions_request.as_mut() {
             // Drive the borrowed request without spawning a task or blocking typing.
@@ -200,7 +202,7 @@ pub(super) fn run(
         }
         view::render(
             &mut screen,
-            source.id().0.as_str(),
+            source_name,
             &query,
             &page,
             &mut browser,
@@ -249,12 +251,12 @@ pub(super) fn run(
                 };
                 match request::wait(
                     runtime,
-                    source.search(&pending),
+                    ops::search(session, specification, pending.clone()),
                     "Searching projects...",
                     |loading| {
                         view::render(
                             &mut screen,
-                            source.id().0.as_str(),
+                            source_name,
                             &query,
                             &page,
                             &mut browser,
@@ -286,7 +288,7 @@ pub(super) fn run(
                     };
                     view::render(
                         &mut screen,
-                        source.id().0.as_str(),
+                        source_name,
                         &query,
                         &page,
                         &mut browser,
@@ -294,12 +296,17 @@ pub(super) fn run(
                     )?;
                     match request::wait(
                         runtime,
-                        source.list_files(&project.reference, &files_query),
+                        ops::files_page(
+                            session,
+                            specification,
+                            project.reference.clone(),
+                            files_query.clone(),
+                        ),
                         "Fetching files...",
                         |loading| {
                             view::render(
                                 &mut screen,
-                                source.id().0.as_str(),
+                                source_name,
                                 &query,
                                 &page,
                                 &mut browser,
@@ -312,7 +319,8 @@ pub(super) fn run(
                             // Reopen search after the file browser has restored them.
                             drop(screen);
                             let result = super::super::files::tui::run(
-                                source,
+                                session,
+                                specification,
                                 runtime,
                                 files_query,
                                 vec![(project.name.clone(), project.reference.clone(), files)],
@@ -345,7 +353,7 @@ pub(super) fn run(
             };
             view::render(
                 &mut screen,
-                source.id().0.as_str(),
+                source_name,
                 &query,
                 &page,
                 &mut browser,
@@ -356,12 +364,12 @@ pub(super) fn run(
             query.offset = offset;
             match request::wait(
                 runtime,
-                source.search(&query),
+                ops::search(session, specification, query.clone()),
                 "Searching projects...",
                 |loading| {
                     view::render(
                         &mut screen,
-                        source.id().0.as_str(),
+                        source_name,
                         &query,
                         &page,
                         &mut browser,

@@ -20,7 +20,8 @@ pub(super) struct ServerMods {
 
 impl ServerMods {
     pub(super) fn load(path: PathBuf) -> Result<Self> {
-        let server = super::workspace::load_local(path)?;
+        mcpm_backend::data::workspace::require_local(&path)?;
+        let server = MinecraftServer::load(path)?;
         server
             .mods()
             .ok_or_else(|| match &server.metadata().loader {

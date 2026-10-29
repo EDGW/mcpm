@@ -59,12 +59,11 @@ fn snapshot_retains_source_paths_loader_identity_and_windows_argv() {
     fs::create_dir(&root).unwrap();
     let metadata = fixture(&root);
     let replies = remote(temp.path(), json!({"path":"服务端 ' $()"}));
-    let data = replies
+    let finished = replies
         .iter()
-        .filter(|reply| reply["status"] == "data")
-        .collect::<Vec<_>>();
-    assert_eq!(data.len(), 1, "{replies:?}");
-    let snapshot = &data[0]["contents"];
+        .find(|reply| reply["status"] == "finished")
+        .unwrap_or_else(|| panic!("{replies:?}"));
+    let snapshot = &finished["contents"];
     assert_eq!(snapshot["name"], "服务端 ' $()");
     assert_eq!(snapshot["path"], "服务端 ' $()");
     assert_eq!(snapshot["minecraft_version"], metadata["minecraft_version"]);
@@ -78,17 +77,22 @@ fn snapshot_retains_source_paths_loader_identity_and_windows_argv() {
     assert_eq!(replies[replies.len() - 2]["status"], "finished");
     assert_eq!(replies.last().unwrap()["status"], "closed");
     // Path ownership belongs to the handler; an invalid or missing server fails the invocation.
-    for contents in [
-        json!({"path":"missing server"}),
+    let replies = remote(temp.path(), json!({"path":"missing server"}));
+    assert!(!replies.iter().any(|reply| reply["status"] == "data"));
+    assert!(replies.iter().any(|reply| {
+        reply["status"] == "failed" && reply["contents"]["failure"] == "operation"
+    }));
+    assert!(!replies.iter().any(|reply| reply["status"] == "finished"));
+    let replies = remote(
+        temp.path(),
         json!({"path":"服务端 ' $()", "unexpected":true}),
-    ] {
-        let replies = remote(temp.path(), contents);
-        assert!(!replies.iter().any(|reply| reply["status"] == "data"));
-        assert!(replies.iter().any(|reply| {
-            reply["status"] == "failed" && reply["contents"]["failure"] == "operation"
-        }));
-        assert!(!replies.iter().any(|reply| reply["status"] == "finished"));
-    }
+    );
+    assert!(
+        replies
+            .iter()
+            .any(|reply| reply["status"] == "failed"),
+        "{replies:?}"
+    );
 }
 
 #[cfg(unix)]

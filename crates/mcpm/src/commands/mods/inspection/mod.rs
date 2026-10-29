@@ -1,20 +1,25 @@
-//! Shared file-command dispatch for local and SSH inspection; no command-specific presentation.
+//! Shared file-command dispatch for mod inspection through `mods.select`.
 
 use mcpm_backend::data::runtime::RuntimeEnvironment;
+use mcpm_backend::mods::selection::SelectionSpec;
+use mcpm_backend::mods::types::{ModsCachePolicy, ModsScope};
+use mcpm_backend::mods::select::SelectInput;
 use std::path::PathBuf;
 
 use anyhow::Result;
 
 use crate::{
-    commands::supports::mods::{
-        inspect::{self, Display},
-        loaders::LoaderArgs,
-        selection::{Scope, Selection},
+    commands::{
+        execution::{self, Runtime},
+        supports::mods::{
+            inspect::{self, Display},
+            loaders::LoaderArgs,
+            reuse::selection,
+            selection::Selection,
+        },
     },
     ssh::SshArgs,
 };
-
-mod remote;
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(
@@ -39,42 +44,39 @@ pub(super) fn run(
     )
     .entered();
     tracing::info!("Starting mod inspection");
-    tracing::debug!(
-        ?selection,
-        ?directory,
-        ?loaders,
-        parallelism = loading.parallelism,
-        "Selected mod inspection options"
-    );
     ssh.validate()?;
     if selection.is_empty() {
         return inspect::prompt_for_input();
     }
-    let result = if ssh.is_requested() {
-        remote::run_ssh(
-            ssh,
-            selection,
+    let session = execution::session_for(&ssh)?;
+    let remote = session.target().is_remote();
+    let request = SelectInput {
+        scope: ModsScope::Paths {
             directory,
-            loaders,
-            environment,
-            loading,
-            display,
-        )
-    } else {
-        inspect::run(
-            selection,
-            Scope::directory(directory),
-            loaders.select(),
-            loaders.is_filtered(),
-            environment,
-            loading,
-            display,
-        )
+            paths: Vec::new(),
+            loaders: loaders.ids(),
+        },
+        selection: SelectionSpec::from_selection(selection)?,
+        parallelism: loading.parallelism,
+        cache: match selection_policy(environment) {
+            Some(selection) => ModsCachePolicy::Select { selection },
+            None => ModsCachePolicy::Disabled,
+        },
+        hide_unrecognized: loaders.is_filtered() || remote,
     };
+    let runtime = Runtime::new()?;
+    let result = inspect::present_operation(&runtime, &session, request, display);
+    execution::finish(&runtime, &session)?;
     tracing::debug!(
         success = result.is_ok(),
         elapsed_ms = started.elapsed().as_millis(),
         "Mod inspection ended"
     );
     result
+}
+
+fn selection_policy(
+    environment: &RuntimeEnvironment,
+) -> Option<mcpm_backend::data::cache::mods::ModsCacheSelection> {
+    selection(environment)
 }

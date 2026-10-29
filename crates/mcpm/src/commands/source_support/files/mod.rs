@@ -4,7 +4,11 @@ use std::io::{self, BufRead, IsTerminal, Write};
 
 use anyhow::{Context, Result, ensure};
 use clap::{Args, ValueEnum};
-use kako_mc_lib::source::{FileId, FilePage, FileQuery, FileRef, ProjectFile, ReleaseType};
+use mcpm_backend::source::files::{FilesRequest, ProjectFilesResult};
+use mcpm_backend::source::types::{FilePage, FileQuery, ProjectFile, ReleaseType};
+
+use crate::commands::execution::{finish, session_for, Runtime};
+use crate::ssh::SshArgs;
 
 mod columns;
 mod output;
@@ -59,7 +63,7 @@ impl FilesArgs {
     }
 }
 
-pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
+pub(in crate::commands) fn run(mut args: FilesArgs, ssh: &SshArgs) -> Result<()> {
     let stdin = io::stdin();
     if !stdin.is_terminal() {
         for line in stdin.lock().lines() {
@@ -78,11 +82,8 @@ pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
         args.selected.is_none() || args.projects.len() == 1,
         "--selected requires exactly one project"
     );
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    let _guard = runtime.enter();
-    let source = super::config::build_source(&args.source)?;
+    let runtime = Runtime::new()?;
+    let session = session_for(ssh)?;
     let mut failed = 0;
     let interactive = !args.no_ui
         && !args.columns.is_explicit()
@@ -100,47 +101,56 @@ pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
         limit: args.limit,
     };
     for value in args.projects {
-        let progress = super::progress::Progress::new(format!(
+        let _progress = super::progress::Progress::new(format!(
             "Resolving project {}...",
             crate::display::style::text(&value)
         ));
-        let result = runtime.block_on(async {
-            let reference = source.resolve_project(&value).await?;
-            drop(progress);
-            let _progress = super::progress::Progress::new(format!(
-                "Fetching files for {}...",
-                crate::display::style::text(&value)
-            ));
-            let selected = match &args.selected {
-                Some(id) => Some(
-                    source
-                        .get_file(&FileRef {
-                            project: reference.clone(),
-                            id: FileId(id.clone()),
-                        })
-                        .await
-                        .with_context(|| format!("failed to fetch selected file {id:?}"))?,
-                ),
-                None => None,
-            };
-            let page = source.list_files(&reference, &query).await?;
-            Ok::<_, anyhow::Error>((reference, page, selected))
-        });
+        let request = FilesRequest::Lookup {
+            value: value.clone(),
+            query: query.clone(),
+            selected: args.selected.clone(),
+        };
+        let result = runtime.block_on(super::ops::files(
+            &session,
+            &args.source,
+            vec![request],
+        ));
         match result {
-            Ok((reference, page, selected)) => {
-                if interactive {
-                    projects.push((value, reference, page));
-                    selected_file = selected;
-                } else {
-                    output::write_files(
-                        &mut output,
-                        &reference,
-                        &page,
-                        selected.as_ref(),
-                        &args.columns,
-                    )?;
+            Ok(result) => match result.results.into_iter().next() {
+                Some(ProjectFilesResult::Listed {
+                    request,
+                    project,
+                    page,
+                    selected,
+                }) => {
+                    if interactive {
+                        projects.push((request, project, *page));
+                        selected_file = selected.map(|file| *file);
+                    } else {
+                        output::write_files(
+                            &mut output,
+                            &project,
+                            &page,
+                            selected.as_deref(),
+                            &args.columns,
+                        )?;
+                    }
                 }
-            }
+                Some(ProjectFilesResult::Failed { error, .. }) => {
+                    crate::diagnostics::error(
+                        &error
+                            .into_error()
+                            .context(format!("failed to list files for project {value:?}")),
+                    );
+                    failed += 1;
+                }
+                None => {
+                    crate::diagnostics::error(&anyhow::anyhow!(
+                        "failed to list files for project {value:?}: no result"
+                    ));
+                    failed += 1;
+                }
+            },
             Err(error) => {
                 crate::diagnostics::error(
                     &error.context(format!("failed to list files for project {value:?}")),
@@ -151,9 +161,20 @@ pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
     }
     output.flush()?;
     drop(output);
-    if interactive && !projects.is_empty() {
-        tui::run(source.as_ref(), &runtime, query, projects, selected_file)?;
-    }
+    let result = if interactive && !projects.is_empty() {
+        tui::run(
+            &session,
+            &args.source,
+            &runtime,
+            query,
+            projects,
+            selected_file,
+        )
+    } else {
+        Ok(())
+    };
+    finish(&runtime, &session)?;
+    result?;
     ensure!(failed == 0, "failed to list files for {failed} project(s)");
     Ok(())
 }

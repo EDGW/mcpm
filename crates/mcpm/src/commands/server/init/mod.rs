@@ -1,4 +1,4 @@
-//! Server initialization frontend: direct complete arguments, or read-only recognition followed by local selection.
+//! Server initialization frontend: complete arguments, or recognition followed by selection.
 
 use std::{
     cell::RefCell,
@@ -8,17 +8,21 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
+use mcpm_backend::server::{
+    Candidate, Info, InfoInput, Initialized, Initialize, LocalImport, Phase, Recognize,
+    RecognizeEvent, Recognition, Register, RegisterEvent,
+};
+use mcpm_backend::workspace::{RegisterInput, RemoteRegister};
+use mcpm_backend::ConnectionSpec;
 
-use super::target::{self, Target};
-use crate::{progress::Progress, ssh::SshArgs};
-use model::{Initialize, Initialized, LocalImport, Phase, Recognize};
+use super::target;
+use crate::commands::execution::{
+    default_executable, failure as operation_failure, local_session, Runtime,
+};
+use crate::progress::Progress;
+use crate::ssh::SshArgs;
 
-mod git;
-mod model;
-mod operation;
 mod output;
-mod reference;
-mod remote;
 mod selector;
 
 #[derive(Args, Debug)]
@@ -65,67 +69,42 @@ pub(super) struct InitArgs {
 }
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
-pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
-    if let Some(remote_path) = args.remote {
-        let info = reference::create(
-            args.path,
-            remote_path,
-            ssh,
-            args.force,
-            args.no_git,
-            args.git,
-        )?;
-        return write_info(&info, args.full_command);
+pub(super) fn run(mut args: InitArgs, ssh: SshArgs) -> Result<()> {
+    if let Some(remote_path) = args.remote.take() {
+        return create_remote(args, remote_path, ssh);
     }
-    let Target { path, ssh, .. } = target::resolve(args.path, ssh)?;
+    let resolved = target::resolve(args.path, ssh)?;
+    let remote = resolved.session.target().is_remote();
     anyhow::ensure!(
-        !args.foverride_conf || !ssh.is_requested(),
+        !args.foverride_conf || !remote,
         "--foverride-conf is supported only for local configuration import"
     );
     let recognition = Recognize {
-        path,
+        path: resolved.path.clone(),
         start_script: args.start_script,
         minecraft_version: args.minecraft_version,
         loader: args.loader,
         loader_version: args.loader_version,
     };
-    operation::validate_options(&recognition)?;
+    recognition.validate()?;
     let manual = recognition.manual_metadata();
-    let path = recognition.path.clone();
-    let mut session = if ssh.is_requested() {
-        tracing::info!("Opening SSH data source for server initialization");
-        Some(ssh.connect()?)
-    } else {
-        None
-    };
+    let runtime = Runtime::new()?;
     let progress = RefCell::new(None);
-    let phase = |phase| {
-        let description = match phase {
-            Phase::Recognizing => "Recognizing server launch candidates...",
-            Phase::Validating => "Validating server initialization...",
-            Phase::Writing => "Writing server configuration...",
-        };
-        // Drop the previous progress guard before attaching the next one.
-        progress.borrow_mut().take();
-        *progress.borrow_mut() = Some(Progress::new(description, "Initializing server"));
-        Ok(())
-    };
     let (metadata, configuration) = match manual {
         Some(metadata) => (metadata, None),
         None => {
-            let mut candidates = match session.as_ref() {
-                Some(session) => remote::recognize(session, recognition, phase)?,
-                None => operation::recognize(recognition, || Ok(()), phase)?,
-            };
+            let candidates = runtime.block_on(recognize(
+                &resolved.session,
+                recognition,
+                &progress,
+                remote,
+            ))?;
             progress.borrow_mut().take();
             let index = if candidates.len() == 1 {
                 0
             } else {
                 let Some(index) = selector::select(&candidates, args.no_ui)? else {
                     tracing::info!("Server initialization cancelled before writing");
-                    if let Some(session) = session.as_mut() {
-                        session.close()?;
-                    }
                     return Ok(());
                 };
                 index
@@ -135,30 +114,148 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
                 candidates = candidates.len(),
                 "Selected server launch snapshot"
             );
-            let candidate = candidates.swap_remove(index);
+            let candidate = candidates.into_iter().nth(index).expect("selected candidate");
             (candidate.metadata, candidate.configuration)
         }
     };
     let initialization = Initialize {
-        path,
+        path: resolved.path,
         metadata,
         force: args.force,
         no_git: args.no_git,
         git: args.git,
-        local: session.is_none().then_some(LocalImport {
+        local: (!remote).then_some(LocalImport {
             configuration,
             replace_conf: args.foverride_conf,
         }),
     };
-    let info = match session.as_ref() {
-        Some(session) => remote::initialize(session, initialization, phase)?,
-        None => operation::initialize(initialization, || Ok(()), phase)?,
-    };
+    let info = runtime.block_on(register(
+        &resolved.session,
+        initialization,
+        &progress,
+        remote,
+    ))?;
+    crate::commands::execution::finish(&runtime, &resolved.session)?;
     progress.borrow_mut().take();
-    if let Some(session) = session.as_mut() {
-        session.close()?;
-    }
     write_info(&info, args.full_command)
+}
+
+fn create_remote(args: InitArgs, remote_path: String, ssh: SshArgs) -> Result<()> {
+    anyhow::ensure!(ssh.is_requested(), "--remote requires global --ssh");
+    let (command, executable) = ssh.settings()?;
+    let directory = std::fs::canonicalize(&args.path)
+        .context("Remote workspace PATH must be an existing local directory")?;
+    let runtime = Runtime::new()?;
+    let resolved = mcpm_backend::ResolvedWorkspace {
+        path: args.path.clone(),
+        connection: Some(ConnectionSpec {
+            ssh: command.clone(),
+            executable: executable.clone(),
+            directory: Some(directory),
+        }),
+        remote: None,
+    };
+    let remote_session = crate::commands::execution::session_for_workspace(&resolved)?;
+    let info = runtime.block_on(async {
+        let handle = remote_session
+            .start::<Info>(InfoInput {
+                path: PathBuf::from(&remote_path),
+                include_configuration: false,
+            })
+            .await
+            .map_err(|error| operation_failure(error, true))?;
+        handle
+            .finish()
+            .await
+            .map_err(|error| operation_failure(error, true))
+    })?;
+    let surface = local_session()?;
+    let registration = runtime.block_on(async {
+        let handle = surface
+            .start::<RemoteRegister>(RegisterInput {
+                path: args.path,
+                connection: ConnectionSpec {
+                    ssh: command,
+                    executable,
+                    directory: None,
+                },
+                remote_path,
+                force: args.force,
+                no_git: args.no_git,
+                git: args.git,
+                default_executable: default_executable().to_owned(),
+            })
+            .await
+            .map_err(surface_failure)?;
+        handle.finish().await.map_err(surface_failure)
+    })?;
+    crate::commands::execution::finish(&runtime, &remote_session)?;
+    let initialized = Initialized {
+        server: info,
+        git: registration.git,
+        publication: None,
+    };
+    write_info(&initialized, args.full_command)
+}
+
+fn surface_failure(failure: mcpm_exec::Failure<mcpm_backend::workspace::RegisterError>) -> anyhow::Error {
+    match failure {
+        mcpm_exec::Failure::Operation(error) => anyhow::Error::new(error),
+        mcpm_exec::Failure::Dispatch(error) => anyhow::Error::new(error),
+        mcpm_exec::Failure::Transport(error) => anyhow::Error::new(error),
+        mcpm_exec::Failure::Cancelled => anyhow::anyhow!("workspace registration was cancelled"),
+    }
+}
+
+async fn recognize(
+    session: &mcpm_backend::Session,
+    request: Recognize,
+    progress: &RefCell<Option<Progress>>,
+    remote: bool,
+) -> Result<Vec<Candidate>> {
+    let mut handle = session
+        .start::<Recognition>(request)
+        .await
+        .map_err(|error| operation_failure(error, remote))?;
+    while let Some(event) = handle.next().await {
+        let RecognizeEvent::Stage { phase } = event;
+        advance(progress, phase);
+    }
+    handle
+        .finish()
+        .await
+        .map_err(|error| operation_failure(error, remote))
+}
+
+async fn register(
+    session: &mcpm_backend::Session,
+    request: Initialize,
+    progress: &RefCell<Option<Progress>>,
+    remote: bool,
+) -> Result<Initialized> {
+    let mut handle = session
+        .start::<Register>(request)
+        .await
+        .map_err(|error| operation_failure(error, remote))?;
+    while let Some(event) = handle.next().await {
+        let RegisterEvent::Stage { phase } = event;
+        advance(progress, phase);
+    }
+    handle
+        .finish()
+        .await
+        .map_err(|error| operation_failure(error, remote))
+}
+
+fn advance(progress: &RefCell<Option<Progress>>, phase: Phase) {
+    let description = match phase {
+        Phase::Recognizing => "Recognizing server launch candidates...",
+        Phase::Validating => "Validating server initialization...",
+        Phase::Writing => "Writing server configuration...",
+    };
+    // Drop the previous progress guard before attaching the next one.
+    progress.borrow_mut().take();
+    *progress.borrow_mut() = Some(Progress::new(description, "Initializing server"));
 }
 
 fn write_info(info: &Initialized, full_command: bool) -> Result<()> {

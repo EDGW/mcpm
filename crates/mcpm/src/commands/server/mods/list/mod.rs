@@ -1,27 +1,24 @@
-//! Resolves ordered server mod queries for the shared CLI listing pipeline.
+//! Resolves ordered server mod queries and lists them through `mods.jar.read`.
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
+use mcpm_backend::mods::selection::SelectionSpec;
+use mcpm_backend::mods::types::{ModsCachePolicy, ModsScope};
+use mcpm_backend::mods::{JarRead, ReadEvent, ReadInput};
 
-use super::super::{
-    mod_source::ServerMods,
-    target::{self, Target},
+use super::super::target;
+use crate::commands::execution;
+use crate::commands::supports::mods::{
+    list::{self, Counts, ListDisplayArgs, ListLoadingArgs},
+    reuse::QueryArgs,
+    scan_output::ScanOutput,
+    selection::SelectionArgs,
 };
-use crate::{
-    commands::supports::mods::{
-        list::{self, ListDisplayArgs, ListLoadingArgs},
-        reuse::QueryArgs,
-        scan,
-        selection::SelectionArgs,
-    },
-    help,
-    remote::command::Command,
-    ssh::SshArgs,
-};
-
-mod remote;
+use crate::help;
+use crate::ssh::SshArgs;
 
 #[derive(Args, Debug)]
 #[command(
@@ -51,27 +48,79 @@ pub(super) struct ListArgs {
 }
 
 pub(super) fn run(args: ListArgs, ssh: SshArgs) -> Result<()> {
-    let loading = scan::Options {
-        parallelism: args.loading.parallelism(),
-    };
+    let loading = args.loading.parallelism();
     let display = args.display;
-    let selection = args.selection.with_stdin()?.into_selection();
-    let Target { path, ssh, .. } = target::resolve(args.path, ssh)?;
-    if ssh.is_requested() {
-        return list::remote_selection::run_ssh(
-            ssh,
-            remote::List::ID,
-            remote::request(path, selection, args.cache.no_cache, loading)?,
-            display,
-        );
-    }
-    let source = ServerMods::load(path)?;
-    list::run_selection(
+    let selection = SelectionSpec::from_selection(args.selection.with_stdin()?.into_selection())?;
+    let target = target::resolve(args.path, ssh)?;
+    let remote = target.session.target().is_remote();
+    let request = ReadInput {
+        scope: ModsScope::Server {
+            path: target.path.clone(),
+        },
         selection,
-        source.scope(),
-        source.loaders(),
-        &args.cache.environment(source.runtime()),
-        loading,
-        display,
-    )
+        parallelism: loading,
+        cache: if args.cache.no_cache {
+            ModsCachePolicy::Disabled
+        } else {
+            ModsCachePolicy::ScopeDefault
+        },
+    };
+    let runtime = execution::Runtime::new()?;
+    let (files, counts, source_loaders) = runtime.block_on(async {
+        let mut handle = target
+            .session
+            .start::<JarRead>(request)
+            .await
+            .map_err(|failure| execution::failure(failure, remote))?;
+        let output = ScanOutput::default();
+        let mut records = Vec::new();
+        let mut source_loaders = Vec::new();
+        while let Some(event) = handle.next().await {
+            match event {
+                ReadEvent::Scope { loaders, .. } => source_loaders = loaders,
+                ReadEvent::Scan { completed, total } => {
+                    output.event(crate::commands::supports::mods::scan::Event::Progress {
+                        completed,
+                        total,
+                    })?;
+                }
+                ReadEvent::Diagnostic { error } => {
+                    output.event(
+                        crate::commands::supports::mods::scan::Event::Diagnostic { error },
+                    )?;
+                }
+                ReadEvent::Item { record, .. } => records.push(record),
+            }
+        }
+        let summary = handle
+            .finish()
+            .await
+            .map_err(|failure| execution::failure(failure, remote))?;
+        let (files, unreadable) = list::files_from_records(records)
+            .context("failed to rebuild listed mod records")?;
+        let counts = Counts {
+            input_errors: summary.input_errors + unreadable,
+            failed: summary.failed,
+            cache: summary.cache,
+        };
+        Ok::<_, anyhow::Error>((files, counts, source_loaders))
+    })?;
+    let environment = RuntimeEnvironment::new().with_mods_cache(
+        (!args.cache.no_cache)
+            .then_some(mcpm_backend::data::cache::mods::ModsCacheSelection::Default),
+    );
+    let location = if remote {
+        crate::commands::source_support::identify::Location::Remote {
+            session: target.session.clone(),
+            environment: environment.clone(),
+        }
+    } else {
+        crate::commands::source_support::identify::Location::Local {
+            session: target.session.clone(),
+            environment: environment.clone(),
+        }
+    };
+    let result = list::present(files, true, display, counts, source_loaders, location);
+    execution::finish(&runtime, &target.session)?;
+    result
 }

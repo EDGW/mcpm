@@ -9,7 +9,7 @@ use super::{
 use crate::commands::{execution::Runtime, source_support::identify::Location};
 use anyhow::{Context, Result};
 use crossterm::event;
-use kako_mc_lib::source::FileRef;
+use mcpm_backend::source::types::FileRef;
 use ratatui::widgets::TableState;
 use std::{
     collections::HashMap,
@@ -28,7 +28,7 @@ mod tests;
 
 #[derive(Debug)]
 pub(super) struct Summary<'a> {
-    pub location: Location<'a>,
+    pub location: Location,
     pub ignored: usize,
     pub ignored_files: &'a [PathBuf],
     pub input_errors: usize,
@@ -63,7 +63,7 @@ pub(super) fn run(
             .map(|file| file.scanned.file.entry.path().to_owned())
             .collect(),
         identify_parallelism,
-        summary.location,
+        summary.location.clone(),
     )?;
     let mut screen = screen::Screen::new().context("failed to open mod list TUI")?;
     let mut redraw = true;
@@ -123,6 +123,8 @@ pub(super) fn run(
         tracing::debug!(?reference, "Opening source files from mod list");
         drop(screen);
         let result = crate::commands::source_support::files::open_selected(
+            summary.location.session(),
+            &reference.project.source.0,
             &runtime,
             &reference,
             source_loaders,

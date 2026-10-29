@@ -6,12 +6,11 @@ use clap::{Args, Subcommand};
 mod info;
 mod init;
 mod launch;
-mod metadata;
 mod mod_source;
 mod mods;
+pub(crate) use mods::register_legacy;
 mod stash;
 mod target;
-mod workspace;
 
 #[derive(Args, Debug)]
 pub(crate) struct ServerArgs {

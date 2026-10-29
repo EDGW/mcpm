@@ -2,7 +2,7 @@
 
 use crate::commands::{
     execution::Runtime,
-    source_support::{self, SourcesArgs},
+    source_support::SourcesArgs,
 };
 use anyhow::{Context, Result, ensure};
 use clap::Args;
@@ -34,9 +34,10 @@ pub(super) fn run(
 ) -> Result<()> {
     Runtime::new()?.with_workers(|runtime| {
         let selected = args.sources.selected()?;
+        let environment = mcpm_backend::SurfaceEnv::new()?;
         let sources = selected
             .iter()
-            .map(|spec| source_support::build_source(spec))
+            .map(|spec| environment.source(spec))
             .collect::<Result<Vec<_>>>()?;
         let mut seen = HashSet::new();
         for source in &sources {

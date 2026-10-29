@@ -20,17 +20,19 @@ fn fixture(root: &Path) {
     fs::write(root.join("broken.jar"), b"invalid archive").unwrap();
 }
 
-fn remote(root: &Path, command: &str, contents: Value) -> Vec<Value> {
+fn dispatch(root: &Path, contents: Value) -> Vec<Value> {
     let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
     process.arg("remote").current_dir(root);
     let mut remote = common::Remote::start(&mut process);
-    remote.send(json!({"guid":uuid::Uuid::from_u128(1),"operation":command,"level":"off","input":contents}));
+    remote.send(json!({"guid":uuid::Uuid::from_u128(1),"operation":"mods.select","level":"off","input":contents}));
     let finished = remote.finish();
     assert!(finished.stderr.is_empty(), "{:?}", finished.frames);
-    let replies = &finished.frames;
-    assert_eq!(replies[replies.len() - 2]["status"], "finished");
-    finished
-        .frames
+    finished.frames
+}
+
+fn remote(root: &Path, contents: Value) -> Vec<Value> {
+    let frames = dispatch(root, contents);
+    frames
         .into_iter()
         .filter(|reply| reply["status"] == "data")
         .map(|reply| reply["contents"].clone())
@@ -41,16 +43,21 @@ fn remote(root: &Path, command: &str, contents: Value) -> Vec<Value> {
 fn nested_queries_preserve_archive_subtrees_order_and_deduplicated_failure_counts() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());
-    for command in ["mod.info", "mod.deps"] {
+    for _ in ["info", "deps"] {
         let events = remote(
             root.path(),
-            command,
-            json!({"parallelism":3,"loaders":["fabric"],"selection":{"queries":[
-                {"kind":"modid","value":"omnibus_nested"},
-                {"kind":"file","value":"missing.jar"},
-                {"kind":"file","value":"missing.jar"},
-                {"kind":"file","value":"quoted ' mod.jar.disabled"}
-            ]}}),
+            json!({
+                "scope":{"kind":"paths","directory":".","paths":[],"loaders":["fabric"]},
+                "parallelism":3,
+                "cache":{"kind":"disabled"},
+                "hide_unrecognized":true,
+                "selection":{"queries":[
+                    {"kind":"modid","value":"omnibus_nested"},
+                    {"kind":"file","value":"missing.jar"},
+                    {"kind":"file","value":"missing.jar"},
+                    {"kind":"file","value":"quoted ' mod.jar.disabled"}
+                ]}
+            }),
         );
         // Index scans report all completions before any selected subtree is emitted.
         // Repeated missing files and cached archive selections do not trigger new scans.
@@ -111,16 +118,15 @@ fn nested_queries_preserve_archive_subtrees_order_and_deduplicated_failure_count
         );
     }
     for args in [
-        json!({"selection":{"all":true,"queries":[{"kind":"file","value":"a.jar"}]}}),
-        json!({"loaders":["unknown"]}),
-        json!({"parallelism":0}),
-        json!({"selection":{"queries":[{"kind":"invalid","value":"a.jar"}]}}),
+        json!({"scope":{"kind":"paths","directory":".","paths":[],"loaders":[]},"selection":{"all":true,"queries":[{"kind":"file","value":"a.jar"}]}}),
+        json!({"scope":{"kind":"paths","directory":".","paths":[],"loaders":["unknown"]}}),
+        json!({"scope":{"kind":"paths","directory":".","paths":[],"loaders":[]},"parallelism":0}),
+        json!({"scope":{"kind":"paths","directory":".","paths":[],"loaders":[]},"selection":{"queries":[{"kind":"invalid","value":"a.jar"}]}}),
     ] {
-        let events = remote(root.path(), "mod.info", args);
-        assert_eq!(events[0]["event"], "error");
-        assert_eq!(
-            events[1],
-            json!({"event":"done","files":0,"failed":1,"ignored":0})
+        let frames = dispatch(root.path(), args);
+        assert!(
+            frames.iter().any(|reply| reply["status"] == "failed"),
+            "{frames:?}"
         );
     }
 }

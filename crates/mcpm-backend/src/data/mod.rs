@@ -8,3 +8,4 @@ pub mod cache;
 pub mod mods;
 pub mod runtime;
 pub mod server;
+pub mod workspace;

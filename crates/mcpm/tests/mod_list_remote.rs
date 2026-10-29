@@ -1,4 +1,4 @@
-//! Structured mod.list protocol checks for exact counts, failures and recursive metadata.
+//! Structured `mods.jar.read` checks for exact records, failures and recursive metadata.
 
 mod common;
 
@@ -8,45 +8,40 @@ use std::process::Command;
 
 use serde_json::Value;
 
-fn run(root: &Path, args: Value, count: usize, success: bool) -> Vec<Value> {
+fn run(root: &Path, args: Value) -> (Vec<Value>, Value, Vec<Value>) {
     let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
     command.current_dir(root).arg("remote");
     let mut remote = common::Remote::start(&mut command);
-    remote.send(
-        serde_json::json!({"guid":"00000000-0000-0000-0000-000000000001","operation":"mod.list","level":"off","input":args}),
-    );
+    remote.send(serde_json::json!({
+        "guid":"00000000-0000-0000-0000-000000000001",
+        "operation":"mods.jar.read",
+        "level":"off",
+        "input":args
+    }));
     let finished = remote.finish();
     assert!(finished.stderr.is_empty(), "{:?}", finished.frames);
-    let events: Vec<Value> = finished.frames;
-    assert_eq!(events.len(), count + 5, "{events:?}");
-    assert_eq!(events[0]["status"], "ready");
-    let envelopes = events;
-    assert!(
-        envelopes
-            .iter()
-            .all(|reply| reply.as_object().unwrap().len() == 3)
-    );
-    let events: Vec<_> = envelopes
+    let frames = finished.frames;
+    let records: Vec<_> = frames
         .iter()
-        .filter(|reply| reply["status"] == "data")
-        .map(|reply| reply["contents"].clone())
+        .filter(|reply| {
+            reply["status"] == "data"
+                && reply["contents"]["event"] == "item"
+        })
+        .map(|reply| reply["contents"]["record"].clone())
         .collect();
-    assert_eq!(
-        events[0],
-        serde_json::json!({"event":"count","count":count})
-    );
-    assert_eq!(events[count + 1]["event"], "done");
-    assert_eq!(events[count + 1]["success"], success);
-    assert_eq!(envelopes[count + 3]["status"], "finished");
-    assert_eq!(envelopes[count + 4]["status"], "closed");
-    let mut records = vec![None; count];
-    for event in &events[1..count + 1] {
-        assert_eq!(event["event"], "item");
-        let index = event["index"].as_u64().unwrap() as usize;
-        assert!(index < count && records[index].is_none(), "{event}");
-        records[index] = Some(event["record"].clone());
-    }
-    records.into_iter().map(Option::unwrap).collect()
+    let summary = frames
+        .iter()
+        .find(|reply| reply["status"] == "finished")
+        .expect("finished frame")
+        .clone();
+    (records, summary["contents"].clone(), frames)
+}
+
+fn record<'a>(records: &'a [Value], path: &str) -> &'a Value {
+    records
+        .iter()
+        .find(|record| record["path"] == path)
+        .unwrap_or_else(|| panic!("missing record {path}: {records:?}"))
 }
 
 #[test]
@@ -61,42 +56,57 @@ fn every_success_failure_and_unrecognized_file_has_exactly_one_record() {
     )
     .unwrap();
     fs::write(root.path().join("invalid.txt"), b"not a mod").unwrap();
-    let records = run(
+    let (records, summary, frames) = run(
         root.path(),
-        serde_json::json!({"paths":[".","missing.jar","invalid.txt","a.jar"],"loaders":["forge"],"parallelism":3}),
-        6,
-        false,
+        serde_json::json!({
+            "scope":{
+                "kind":"paths",
+                "directory":".",
+                "paths":[".","missing.jar","invalid.txt","a.jar"],
+                "loaders":["forge"]
+            },
+            "parallelism":3,
+            "cache":{"kind":"disabled"}
+        }),
     );
-    assert_eq!(records[0]["status"], "success");
-    assert_eq!(records[0]["path"], "./a.jar");
-    assert_eq!(records[0]["enabled"], true);
-    assert_eq!(records[0]["metadata"].as_array().unwrap().len(), 1);
-    assert_eq!(records[0]["metadata"][0]["loader"], "forge");
-    assert_eq!(records[0]["metadata"][0]["mods"][0]["modid"], "omnibus");
+    assert_eq!(records.len(), 6, "{frames:?}");
+    assert_eq!(summary["files"], 6);
+    assert_eq!(summary["input_errors"], 2);
+    assert_eq!(summary["failed"], 1, "{frames:?}");
+
+    let success = record(&records, "./a.jar");
+    assert_eq!(success["status"], "success");
+    assert_eq!(success["enabled"], true);
+    assert_eq!(success["metadata"].as_array().unwrap().len(), 1);
+    assert_eq!(success["metadata"][0]["loader"], "forge");
+    assert_eq!(success["metadata"][0]["mods"][0]["modid"], "omnibus");
     assert_eq!(
-        records[0]["metadata"][0]["nested"][0]["meta"]["nested"][0]["meta"]["mods"][0]["modid"],
+        success["metadata"][0]["nested"][0]["meta"]["nested"][0]["meta"]["mods"][0]["modid"],
         "omnibus_leaf"
     );
-    assert_eq!(records[1]["path"], "./b.jar");
-    assert_eq!(records[1]["status"], "failed");
-    assert_eq!(records[1]["errors"].as_array().unwrap().len(), 1);
-    assert_eq!(records[1]["errors"][0]["loader"], "forge");
+
+    let failed = record(&records, "./b.jar");
+    assert_eq!(failed["status"], "failed");
+    assert_eq!(failed["errors"].as_array().unwrap().len(), 1);
+    assert_eq!(failed["errors"][0]["loader"], "forge");
     assert!(
-        records[1]["errors"][0]["message"]
+        failed["errors"][0]["message"]
             .as_str()
             .unwrap()
             .contains("b.jar")
     );
-    assert_eq!(records[2]["status"], "unrecognized");
-    assert_eq!(records[2]["enabled"], false);
-    assert_eq!(records[2]["metadata"], serde_json::json!([]));
-    assert_eq!(records[2]["errors"], serde_json::json!([]));
-    for (record, path) in records[3..5].iter().zip(["missing.jar", "invalid.txt"]) {
-        assert_eq!(record["path"], path);
+
+    let unrecognized = record(&records, "./c.jar.disabled");
+    assert_eq!(unrecognized["status"], "unrecognized");
+    assert_eq!(unrecognized["enabled"], false);
+    assert_eq!(unrecognized["metadata"], serde_json::json!([]));
+    assert_eq!(unrecognized["errors"], serde_json::json!([]));
+
+    for path in ["missing.jar", "invalid.txt"] {
+        let record = record(&records, path);
         assert_eq!(record["status"], "failed");
         assert_eq!(record["errors"].as_array().unwrap().len(), 1);
         assert!(record["errors"][0]["loader"].is_null());
     }
-    assert_eq!(records[5]["path"], "a.jar");
-    assert_eq!(records[5]["metadata"], records[0]["metadata"]);
+    assert_eq!(record(&records, "a.jar")["metadata"], success["metadata"]);
 }

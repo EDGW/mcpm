@@ -7,7 +7,9 @@ use crate::display::{
     style::{OutputStyle, text},
 };
 
-use super::{File, model::Metadata};
+use mcpm_backend::mods::records::inspect::Metadata;
+
+use super::File;
 
 pub(super) fn write_info(output: &mut impl Write, file: &File) -> io::Result<()> {
     let mut output = ConsoleWriter::new(output);

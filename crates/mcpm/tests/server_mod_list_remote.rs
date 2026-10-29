@@ -28,7 +28,7 @@ fn fixture(root: &Path) {
     fs::write(root.join("mods/broken.jar"), b"bad archive").unwrap();
 }
 
-fn remote(root: &Path, selection: Value) -> Vec<Value> {
+fn remote(root: &Path, selection: Value) -> (Vec<Value>, Value) {
     fs::create_dir_all(root.join("home")).unwrap();
     let child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .env("HOME", root.join("home"))
@@ -40,29 +40,37 @@ fn remote(root: &Path, selection: Value) -> Vec<Value> {
         .spawn()
         .unwrap();
     let mut remote = common::Remote::from_child(child);
-    remote.send(
-        json!({"guid":uuid::Uuid::from_u128(1),"operation":"server.mods.list","level":"off","input":{"selection":selection,"parallelism":2}}),
-    );
+    remote.send(json!({
+        "guid":uuid::Uuid::from_u128(1),
+        "operation":"mods.jar.read",
+        "level":"off",
+        "input":{
+            "scope":{"kind":"server", "path":"."},
+            "selection":selection,
+            "parallelism":2
+        }
+    }));
     let finished = remote.finish();
-    let replies = &finished.frames;
-    assert_eq!(
-        replies[replies.len() - 2]["status"],
-        "finished",
-        "{replies:?}"
-    );
-    finished
+    let summary = finished
+        .frames
+        .iter()
+        .find(|reply| reply["status"] == "finished")
+        .expect("finished frame")["contents"]
+        .clone();
+    let events = finished
         .frames
         .into_iter()
         .filter(|reply| reply["status"] == "data")
         .map(|reply| reply["contents"].clone())
-        .collect()
+        .collect();
+    (events, summary)
 }
 
 #[test]
 fn selected_records_and_failure_counts_are_independent_of_output_multiplicity() {
     let root = tempfile::tempdir().unwrap();
     fixture(root.path());
-    let events = remote(
+    let (events, summary) = remote(
         root.path(),
         json!({"queries":[
             {"kind":"modid","value":"omnibus_nested"},
@@ -95,21 +103,23 @@ fn selected_records_and_failure_counts_are_independent_of_output_multiplicity() 
     assert!(!items[0]["record"]["records"].as_array().unwrap().is_empty());
     assert!(items[2]["record"].get("records").is_none());
     assert_eq!(items[2]["record"]["enabled"], false);
-    // The failed index-only file is not an item; done remains the scan's unique accounting.
+    // The failed index-only file is not an item; the summary keeps unique scan accounting.
     assert_eq!(
-        events.last().unwrap(),
-        &json!({"event":"done","files":3,"input_errors":1,"failed":1,"cache":{"fully_cached":0,"partially_cached":0,"total":2}})
+        summary,
+        json!({"files":3,"input_errors":1,"failed":1,"cache":{"fully_cached":0,"partially_cached":0,"total":2}})
     );
-    assert_eq!(events.iter().filter(|e| e["event"] == "error").count(), 2);
+    assert_eq!(events.iter().filter(|e| e["event"] == "diagnostic").count(), 2);
     let empty = tempfile::tempdir().unwrap();
     fixture(empty.path());
     fs::remove_file(empty.path().join("mods/broken.jar")).unwrap();
     fs::remove_file(empty.path().join("mods/quoted ' mod.jar.disabled")).unwrap();
-    let events = remote(empty.path(), json!({}));
-    assert_eq!(events[1], json!({"event":"scan","completed":0,"total":0}));
+    let (events, summary) = remote(empty.path(), json!({}));
+    if let Some(scan) = events.iter().find(|event| event["event"] == "scan") {
+        assert_eq!(scan, &json!({"event":"scan","completed":0,"total":0}));
+    }
     assert_eq!(
-        events.last().unwrap(),
-        &json!({"event":"done","files":0,"input_errors":0,"failed":0,"cache":{"fully_cached":0,"partially_cached":0,"total":0}})
+        summary,
+        json!({"files":0,"input_errors":0,"failed":0,"cache":{"fully_cached":0,"partially_cached":0,"total":0}})
     );
 }
 

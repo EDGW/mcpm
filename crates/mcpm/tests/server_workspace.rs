@@ -62,28 +62,37 @@ fn all_server_endpoints_reject_remote_targets_without_following_their_connection
     let before = fs::read(root.path().join(".mcpm/server.json")).unwrap();
     for (command, contents) in [
         ("server.info", json!({})),
-        ("server.init.recognize", json!({})),
-        ("server.mods.list", json!({})),
+        ("server.recognize", json!({})),
+        (
+            "mods.jar.read",
+            json!({"scope":{"kind":"server","path":"."}}),
+        ),
         (
             "server.mods.cache",
             json!({"server":".","selection":{"all":true},"writing":{}}),
         ),
         (
-            "server.mods.info",
-            json!({"selection":{"queries":[{"kind":"file","value":"a.jar"}]}}),
+            "mods.select",
+            json!({
+                "scope":{"kind":"server","path":"."},
+                "selection":{"queries":[{"kind":"file","value":"a.jar"}]}
+            }),
         ),
         (
-            "server.mods.deps",
-            json!({"selection":{"queries":[{"kind":"file","value":"a.jar"}]}}),
+            "mods.select",
+            json!({
+                "scope":{"kind":"server","path":"."},
+                "selection":{"queries":[{"kind":"file","value":"a.jar"}]}
+            }),
         ),
-        ("server.mods.source.search", json!({"server":"."})),
-        ("server.mods.source.files", json!({"server":"."})),
+        ("server.mods.context", json!({"path":"."})),
+        ("server.mods.context", json!({"path":"."})),
         (
-            "server.mods.source.identify",
-            json!({"server":".","selection":{"all":true}}),
+            "mods.select",
+            json!({"scope":{"kind":"server","path":"."},"selection":{"all":true}}),
         ),
         (
-            "server.init",
+            "server.register",
             json!({"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":true}),
         ),
     ] {

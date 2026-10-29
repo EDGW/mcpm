@@ -27,9 +27,11 @@ fn call_logs_are_forwarded_for_their_call_and_drain_before_closed() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex-mod.jar");
     remote.send(json!({
         "guid": command,
-        "operation": "mod.list",
+        "operation": "mods.jar.read",
         "level": "debug",
-        "input": {"paths": [fixture, "missing.jar"], "loaders": ["fabric"]},
+        "input": {
+            "scope": {"kind":"paths", "directory":".", "paths":[fixture, "missing.jar"], "loaders":["fabric"]}
+        },
     }));
     let finished = remote.finish();
     let mut logs = 0;

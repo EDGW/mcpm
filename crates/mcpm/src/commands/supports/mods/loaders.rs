@@ -3,10 +3,7 @@
 use std::collections::HashMap;
 
 use clap::{Args, ValueEnum};
-use kako_mc_lib::local::{
-    mcmod::ModFile,
-    modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta},
-};
+use kako_mc_lib::local::modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta};
 
 #[derive(Args, Debug)]
 pub(in crate::commands) struct LoaderArgs {
@@ -52,6 +49,22 @@ impl LoaderArgs {
         !self.loader.is_empty() || !self.loaders.is_empty()
     }
 
+    /// Selected loader identifiers, sorted for a stable request.
+    pub(in crate::commands) fn ids(&self) -> Vec<String> {
+        if !self.is_filtered() {
+            return Vec::new();
+        }
+        let mut ids: Vec<_> = self
+            .loader
+            .iter()
+            .chain(&self.loaders)
+            .map(|loader| loader.id().to_owned())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
     pub(in crate::commands) fn select(&self) -> HashMap<LoaderId, ModLoaderMeta> {
         if !self.is_filtered() {
             return BUILTIN_LOADERS.clone();
@@ -66,23 +79,5 @@ impl LoaderArgs {
                     .map(|metadata| (metadata.id().clone(), metadata.clone()))
             })
             .collect()
-    }
-}
-
-/// Keeps console output stable independently of hash map iteration order.
-pub(in crate::commands) fn sort_metadata(file: &mut ModFile) {
-    file.metadata.sort_by(|left, right| {
-        display_order(left.loader.id())
-            .cmp(&display_order(right.loader.id()))
-            .then_with(|| left.loader.id().cmp(right.loader.id()))
-    });
-}
-
-fn display_order(id: &LoaderId) -> usize {
-    match id.as_str() {
-        "forge" => 0,
-        "neoforge" => 1,
-        "fabric" => 2,
-        _ => 4,
     }
 }
