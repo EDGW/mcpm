@@ -1,0 +1,35 @@
+[package]
+name = "mcpm-backend"
+version = "0.1.1"
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true, features = ["std", "serde"] }
+lazy_static = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+blake3 = { workspace = true }
+imohash = { workspace = true }
+murmur3 = { workspace = true }
+rusqlite = { workspace = true, features = ["bundled"] }
+dirs = { workspace = true }
+md-5 = { workspace = true }
+shlex = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v4"] }
+tokio = { workspace = true, features = ["rt"] }
+url = { workspace = true, features = ["serde"] }
+toml = { workspace = true }
+zip = { workspace = true, features = ["deflate"] }
+
+tempfile = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_SystemServices"] }

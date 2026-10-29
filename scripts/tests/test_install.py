@@ -17,7 +17,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[2]
 # Cargo owns the program inventory; package manifests carry it to the installers.
 METADATA = json.loads(subprocess.check_output([
-    'cargo', 'metadata', '--manifest-path', str(REPO / 'mcpm/Cargo.toml'),
+    'cargo', 'metadata', '--manifest-path', str(REPO / 'crates/mcpm/Cargo.toml'),
     '--no-deps', '--format-version', '1', '--locked',
 ]))
 NAMES = sorted(t['name'] for p in METADATA['packages'] if p['name'] == 'mcpm'
