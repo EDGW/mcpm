@@ -24,7 +24,7 @@ pub(crate) enum Command {
     /// Manage explicitly stored cache objects (Console, Raw).
     Cache(crate::commands::cache::CacheArgs),
     /// Serve concurrent commands over one persistent stdin/stdout JSON session (Raw).
-    Remote(RemoteArgs),
+    Remote,
     /// Customize terminal themes and loader colors (TUI, Console, Raw).
     Customize(crate::commands::customize::CustomizeArgs),
     /// Inspect mcpm's terminal presentation and diagnostics.
@@ -35,14 +35,6 @@ pub(crate) enum Command {
     Server(ServerArgs),
     /// Inspect local mod files and search remote sources.
     Mods(ModsArgs),
-}
-
-/// Process startup options are CLI concerns; request arguments use command-owned schemas.
-#[derive(clap::Args, Debug)]
-pub(crate) struct RemoteArgs {
-    /// Maximum concurrent remote commands; excess requests return busy.
-    #[arg(long, default_value = "8")]
-    pub(crate) max_concurrency: std::num::NonZeroUsize,
 }
 
 /// A child process status remains a successful command operation with its own exit code.
@@ -60,9 +52,9 @@ pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandO
         );
     }
     let result = match command {
-        Command::Remote(args) => {
-            let registry = crate::remote::registry::registered();
-            crate::remote::server::run(args.max_concurrency, registry)
+        Command::Remote => {
+            let runtime = execution::Runtime::new()?;
+            runtime.block_on(crate::remote::registry::serve())
         }
         Command::Customize(args) => customize::run(args),
         Command::Debug(args) => debug::run(args),

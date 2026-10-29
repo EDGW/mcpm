@@ -24,9 +24,10 @@ pub(super) fn create(
     ensure!(ssh.is_requested(), "--remote requires global --ssh");
     let directory = fs::canonicalize(&path)
         .context("Remote workspace PATH must be an existing local directory")?;
-    let remote = Remote::new(ssh.connection()?, remote_path)?;
+    let (command, executable) = ssh.settings()?;
+    let remote = Remote::new(command, executable, remote_path)?;
     tracing::info!(workspace = %path.display(), "Checking Local Server before registering Remote workspace");
-    let connection = SshArgs::from_connection(remote.connection(), directory);
+    let connection = remote.ssh_args(directory);
     // The server.info endpoint only opens Local Servers, so this also rejects chaining.
     let info = metadata::load_ssh(connection, PathBuf::from(&remote.path))?;
     let writer = Writer::acquire(&path)?;

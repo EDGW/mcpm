@@ -1,15 +1,27 @@
 //! Builds connection processes with best-effort OpenSSH destination recognition.
 
-use std::path::Path;
-use std::process::Command;
+use std::{
+    path::Path,
+    process::Command,
+};
 
-use anyhow::{Context, Result, ensure};
+use super::ConnectionError;
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
-pub(super) fn command(source: &str) -> Result<(Command, Option<String>)> {
-    let words = shlex::split(source).context("invalid quoting in --ssh connection command")?;
-    let executable = words.first().context("--ssh connection command is empty")?;
-    ensure!(!executable.is_empty(), "--ssh executable is empty");
+pub(super) fn command(source: &str) -> Result<(Command, Option<String>), ConnectionError> {
+    let words = shlex::split(source).ok_or_else(|| ConnectionError::Command {
+        message: "invalid quoting".to_owned(),
+    })?;
+    let executable = words
+        .first()
+        .ok_or_else(|| ConnectionError::Command {
+            message: "the command is empty".to_owned(),
+        })?;
+    if executable.is_empty() {
+        return Err(ConnectionError::Command {
+            message: "the executable is empty".to_owned(),
+        });
+    }
     let mut command = Command::new(executable);
     let Some(target) = target(&words) else {
         // Unknown connection tools and option syntax retain their original argv.

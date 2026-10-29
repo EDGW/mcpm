@@ -1,5 +1,7 @@
 //! Remote selection semantics for nested archives, cached failures and SSH frontend parity.
 
+mod common;
+
 use std::{
     fs,
     io::Write,
@@ -19,30 +21,16 @@ fn fixture(root: &Path) {
 }
 
 fn remote(root: &Path, command: &str, contents: Value) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-        .arg("remote")
-        .current_dir(root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    writeln!(
-        child.stdin.take().unwrap(),
-        "{}",
-        json!({"guid":uuid::Uuid::from_u128(1),"command":command,"contents":contents})
-    )
-    .unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success(), "{output:?}");
-    assert!(output.stderr.is_empty(), "{output:?}");
-    let replies = String::from_utf8(output.stdout)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).unwrap())
-        .collect::<Vec<_>>();
+    let mut process = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
+    process.arg("remote").current_dir(root);
+    let mut remote = common::Remote::start(&mut process);
+    remote.send(json!({"guid":uuid::Uuid::from_u128(1),"operation":command,"level":"off","input":contents}));
+    let finished = remote.finish();
+    assert!(finished.stderr.is_empty(), "{:?}", finished.frames);
+    let replies = &finished.frames;
     assert_eq!(replies[replies.len() - 2]["status"], "finished");
-    replies
+    finished
+        .frames
         .into_iter()
         .filter(|reply| reply["status"] == "data")
         .map(|reply| reply["contents"].clone())

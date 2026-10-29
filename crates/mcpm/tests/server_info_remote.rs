@@ -1,8 +1,9 @@
 //! Server metadata transport across source-machine paths, startup platforms and SSH failures.
 
+mod common;
+
 use std::{
     fs,
-    io::Write,
     path::Path,
     process::{Command, Output, Stdio},
 };
@@ -31,7 +32,7 @@ fn fixture(root: &Path) -> Value {
 }
 
 fn remote(root: &Path, contents: Value) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+    let child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .arg("remote")
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -39,20 +40,13 @@ fn remote(root: &Path, contents: Value) -> Vec<Value> {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    writeln!(
-        child.stdin.take().unwrap(),
-        "{}",
-        json!({"guid":uuid::Uuid::from_u128(1),"command":"server.info","contents":contents})
-    )
-    .unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success(), "{output:?}");
-    assert!(output.stderr.is_empty(), "{output:?}");
-    String::from_utf8(output.stdout)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
+    let mut remote = common::Remote::from_child(child);
+    remote.send(
+        json!({"guid":uuid::Uuid::from_u128(1),"operation":"server.info","level":"off","input":contents}),
+    );
+    let finished = remote.finish();
+    assert!(finished.stderr.is_empty(), "{:?}", finished.frames);
+    finished.frames
 }
 
 #[test]
@@ -91,7 +85,7 @@ fn snapshot_retains_source_paths_loader_identity_and_windows_argv() {
         let replies = remote(temp.path(), contents);
         assert!(!replies.iter().any(|reply| reply["status"] == "data"));
         assert!(replies.iter().any(|reply| {
-            reply["status"] == "error" && reply["contents"]["code"] == "handler_failed"
+            reply["status"] == "failed" && reply["contents"]["failure"] == "operation"
         }));
         assert!(!replies.iter().any(|reply| reply["status"] == "finished"));
     }

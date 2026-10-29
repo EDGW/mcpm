@@ -1,37 +1,23 @@
 //! Structured mod.list protocol checks for exact counts, failures and recursive metadata.
 
+mod common;
+
 use std::fs;
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use serde_json::Value;
 
 fn run(root: &Path, args: Value, count: usize, success: bool) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-        .current_dir(root)
-        .arg("remote")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    writeln!(
-        child.stdin.take().unwrap(),
-        "{}",
-        serde_json::json!({"guid":"00000000-0000-0000-0000-000000000001","command":"mod.list","contents":args})
-    )
-    .unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success(), "{:?}", output);
-    assert!(output.stderr.is_empty(), "{:?}", output);
-    assert!(!output.stdout.contains(&0x1b));
-    assert!(output.stdout.ends_with(b"\n"));
-    let events: Vec<Value> = String::from_utf8(output.stdout)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"));
+    command.current_dir(root).arg("remote");
+    let mut remote = common::Remote::start(&mut command);
+    remote.send(
+        serde_json::json!({"guid":"00000000-0000-0000-0000-000000000001","operation":"mod.list","level":"off","input":args}),
+    );
+    let finished = remote.finish();
+    assert!(finished.stderr.is_empty(), "{:?}", finished.frames);
+    let events: Vec<Value> = finished.frames;
     assert_eq!(events.len(), count + 5, "{events:?}");
     assert_eq!(events[0]["status"], "ready");
     let envelopes = events;

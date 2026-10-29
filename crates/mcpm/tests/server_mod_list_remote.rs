@@ -1,9 +1,10 @@
 //! Server list transport preserves selected archive identities, unique scan counts and local presentation.
 
+mod common;
+
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::Write,
     path::Path,
     process::{Command, Stdio},
 };
@@ -29,7 +30,7 @@ fn fixture(root: &Path) {
 
 fn remote(root: &Path, selection: Value) -> Vec<Value> {
     fs::create_dir_all(root.join("home")).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+    let child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .env("HOME", root.join("home"))
         .arg("remote")
         .current_dir(root)
@@ -38,20 +39,19 @@ fn remote(root: &Path, selection: Value) -> Vec<Value> {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    writeln!(child.stdin.take().unwrap(), "{}", json!({"guid":uuid::Uuid::from_u128(1),"command":"server.mods.list","contents":{"selection":selection,"parallelism":2}})).unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success(), "{output:?}");
-    let replies: Vec<Value> = String::from_utf8(output.stdout)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
+    let mut remote = common::Remote::from_child(child);
+    remote.send(
+        json!({"guid":uuid::Uuid::from_u128(1),"operation":"server.mods.list","level":"off","input":{"selection":selection,"parallelism":2}}),
+    );
+    let finished = remote.finish();
+    let replies = &finished.frames;
     assert_eq!(
         replies[replies.len() - 2]["status"],
         "finished",
         "{replies:?}"
     );
-    replies
+    finished
+        .frames
         .into_iter()
         .filter(|reply| reply["status"] == "data")
         .map(|reply| reply["contents"].clone())

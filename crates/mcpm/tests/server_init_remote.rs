@@ -1,8 +1,9 @@
 //! Remote legacy-wire compatibility, read-only recognition and identity-only registration writes.
 
+mod common;
+
 use std::{
     fs,
-    io::Write,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
 };
@@ -50,7 +51,7 @@ fn fixture(name: &str, target: &Path) {
 }
 
 fn remote(root: &Path, requests: &[(&str, Value)]) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+    let child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .arg("remote")
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -58,24 +59,15 @@ fn remote(root: &Path, requests: &[(&str, Value)]) -> Vec<Value> {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let mut input = child.stdin.take().unwrap();
+    let mut remote = common::Remote::from_child(child);
     for (index, (command, contents)) in requests.iter().enumerate() {
-        writeln!(
-            input,
-            "{}",
-            json!({"guid":uuid::Uuid::from_u128(index as u128 + 1),"command":command,"contents":contents})
-        )
-        .unwrap();
+        remote.send(
+            json!({"guid":uuid::Uuid::from_u128(index as u128 + 1),"operation":command,"level":"off","input":contents}),
+        );
     }
-    drop(input);
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success(), "{output:?}");
-    assert!(output.stderr.is_empty(), "{output:?}");
-    let replies: Vec<Value> = String::from_utf8(output.stdout)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
+    let finished = remote.finish();
+    assert!(finished.stderr.is_empty(), "{:?}", finished.frames);
+    let replies = finished.frames;
     assert_eq!(replies.last().unwrap()["status"], "closed");
     replies
 }
@@ -94,7 +86,7 @@ fn succeeded(replies: &[Value]) {
         "{replies:?}"
     );
     assert!(
-        !replies.iter().any(|reply| reply["status"] == "error"),
+        !replies.iter().any(|reply| reply["status"] == "failed"),
         "{replies:?}"
     );
 }
@@ -102,7 +94,7 @@ fn succeeded(replies: &[Value]) {
 fn failed(replies: &[Value]) {
     assert!(
         replies.iter().any(|reply| {
-            reply["status"] == "error" && reply["contents"]["code"] == "handler_failed"
+            reply["status"] == "failed" && reply["contents"]["failure"] == "operation"
         }),
         "{replies:?}"
     );
@@ -320,7 +312,7 @@ fn concurrent_initializers_have_one_winner_without_partial_or_overwritten_metada
     assert_eq!(
         replies
             .iter()
-            .filter(|reply| reply["status"] == "error")
+            .filter(|reply| reply["status"] == "failed")
             .count(),
         requests.len() - 1,
         "{replies:?}"
@@ -397,7 +389,7 @@ impl SshFixture {
             .unwrap()
             .lines()
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
-            .filter(|frame| frame["command"].is_string())
+            .filter(|frame| frame["operation"].is_string())
             .collect()
     }
 }
@@ -430,10 +422,10 @@ fn ssh_full_arguments_bypass_recognition_and_keep_paths_on_the_source() {
     );
     let requests = ssh.requests();
     assert_eq!(requests.len(), 1, "{requests:?}");
-    assert_eq!(requests[0]["command"], "server.init");
-    assert_eq!(requests[0]["contents"]["path"], relative);
-    assert_eq!(requests[0]["contents"]["metadata"]["loader"], Value::Null);
-    assert_eq!(requests[0]["contents"]["metadata"]["version"], 1);
+    assert_eq!(requests[0]["operation"], "server.init");
+    assert_eq!(requests[0]["input"]["path"], relative);
+    assert_eq!(requests[0]["input"]["metadata"]["loader"], Value::Null);
+    assert_eq!(requests[0]["input"]["metadata"]["version"], 1);
 }
 
 #[cfg(unix)]
@@ -445,14 +437,14 @@ fn ssh_recognizes_default_source_script_then_initializes_and_raw_ambiguity_never
     assert!(output.status.success(), "{output:?}");
     let requests = ssh.requests();
     assert_eq!(requests.len(), 2, "{requests:?}");
-    assert_eq!(requests[0]["command"], "server.init.recognize");
+    assert_eq!(requests[0]["operation"], "server.init.recognize");
     assert!(
-        requests[0]["contents"]
+        requests[0]["input"]
             .get("start_script")
             .is_none_or(Value::is_null)
     );
-    assert_eq!(requests[1]["command"], "server.init");
-    let start = &requests[1]["contents"]["metadata"]["start"];
+    assert_eq!(requests[1]["operation"], "server.init");
+    let start = &requests[1]["input"]["metadata"]["start"];
     assert_eq!(start["script"], "run.sh");
     assert!(start.get("directory").is_none());
     assert_eq!(start["windows"], false);
@@ -466,7 +458,7 @@ fn ssh_recognizes_default_source_script_then_initializes_and_raw_ambiguity_never
     assert!(!ssh.source.path().join("multiple/.mcpm").exists());
     let requests = ssh.requests();
     assert_eq!(requests.len(), 1, "{requests:?}");
-    assert_eq!(requests[0]["command"], "server.init.recognize");
+    assert_eq!(requests[0]["operation"], "server.init.recognize");
 
     // Partial values filter the recognized candidates before the same complete write command.
     let output = ssh.run(&["multiple", "--minecraft-version", "1.21.1"]);
@@ -474,7 +466,7 @@ fn ssh_recognizes_default_source_script_then_initializes_and_raw_ambiguity_never
     let requests = ssh.requests();
     assert_eq!(requests.len(), 2, "{requests:?}");
     assert_eq!(
-        requests[1]["contents"]["metadata"]["minecraft_version"],
+        requests[1]["input"]["metadata"]["minecraft_version"],
         "1.21.1"
     );
 }

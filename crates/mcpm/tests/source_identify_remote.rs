@@ -6,6 +6,23 @@ use std::{
     process::{Command, Stdio},
 };
 
+/// Build identity both ends must agree on; read from the executable under test.
+fn build_version() -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    stdout
+        .lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_owned()
+}
+
 #[test]
 fn source_and_list_requests_share_one_server_and_preserve_file_failures() {
     let root = tempfile::tempdir().unwrap();
@@ -24,13 +41,13 @@ fn source_and_list_requests_share_one_server_and_preserve_file_failures() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let mut input = child.stdin.take().unwrap();
+    let mut input = Some(child.stdin.take().unwrap());
     let mut output = BufReader::new(child.stdout.take().unwrap());
     let mut line = String::new();
     output.read_line(&mut line).unwrap();
     let ready: Value = serde_json::from_str(&line).unwrap();
     assert!(
-        ready["contents"]["commands"]
+        ready["contents"]["operations"]
             .as_array()
             .unwrap()
             .contains(&json!("mod.source.identify"))
@@ -54,13 +71,12 @@ fn source_and_list_requests_share_one_server_and_preserve_file_failures() {
         ),
     ] {
         writeln!(
-            input,
+            input.as_mut().unwrap(),
             "{}",
-            json!({"guid":uuid::Uuid::from_u128(guid),"command":command,"contents":contents})
+            json!({"guid":uuid::Uuid::from_u128(guid),"operation":command,"level":"off","input":contents})
         )
         .unwrap();
     }
-    drop(input);
     let mut completed = 0;
     let mut seen = [false; 3];
     loop {
@@ -74,8 +90,12 @@ fn source_and_list_requests_share_one_server_and_preserve_file_failures() {
             assert_eq!(reply["status"], "closed");
             break;
         }
-        if reply["status"] == "finished" || reply["status"] == "error" {
+        if reply["status"] == "finished" || reply["status"] == "failed" {
             completed += 1;
+            if completed == 4 {
+                // Serve cancels accepted calls when stdin closes, so close it only now.
+                drop(input.take());
+            }
         }
         if id == 1 && reply["contents"]["event"] == "item" {
             let item = &reply["contents"];
@@ -102,7 +122,7 @@ fn source_and_list_requests_share_one_server_and_preserve_file_failures() {
             );
         }
         if id == 3 {
-            assert_eq!(reply["status"], "error");
+            assert_eq!(reply["status"], "failed");
         }
     }
     assert_eq!(completed, 4);
@@ -133,14 +153,9 @@ mod transport {
             ),
         );
         let mut body = print(
-            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":5,"commands":["mod.source.identify"],"max_concurrency":8}}),
+            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":6,"build":build_version(),"operations":["mod.source.identify"]}}),
             "",
         );
-        body.push_str("IFS= read -r logs\nlog_guid=$(printf '%s' \"$logs\" | cut -d '\"' -f6)\n");
-        body.push_str(&print(
-            json!({"guid":"__GUID__","status":"ready","contents":null}),
-            "\"$log_guid\"",
-        ));
         body.push_str(&format!("IFS= read -r request\nprintf '%s' \"$request\" > {}\nguid=$(printf '%s' \"$request\" | cut -d '\"' -f4)\n", shlex::try_quote(root.join("request").to_str().unwrap()).unwrap()));
         for event in events {
             body.push_str(&print(
@@ -153,10 +168,6 @@ mod transport {
             "\"$guid\"",
         ));
         body.push_str("cat >/dev/null\n");
-        body.push_str(&print(
-            json!({"guid":"__GUID__","status":"finished","contents":null}),
-            "\"$log_guid\"",
-        ));
         body.push_str(&print(
             json!({"guid":uuid::Uuid::nil(),"status":"closed","contents":null}),
             "",
@@ -242,9 +253,9 @@ mod transport {
         let request: Value =
             serde_json::from_str(&fs::read_to_string(root.path().join("request")).unwrap())
                 .unwrap();
-        assert_eq!(request["command"], "mod.source.identify");
+        assert_eq!(request["operation"], "mod.source.identify");
         assert_eq!(
-            request["contents"],
+            request["input"],
             json!({"paths":[r"D:\slow.jar","bad.jar","fast.jar",r"D:\slow.jar"],"requirements":{"murmur2":true},"parallelism":2,"cache":{"kind":"default"}})
         );
         assert_eq!(

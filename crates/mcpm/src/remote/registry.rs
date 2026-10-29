@@ -1,46 +1,45 @@
-//! String command ID registration through module initcalls; payload decoding belongs to handlers.
+//! Legacy command registration and the serve entry point of this process.
+//!
+//! Handlers register from their own modules; the registry only knows erased JSON handlers.
+//! Once handlers become host operations, registration moves to the backend and this module
+//! disappears.
 
-use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex};
 
-use anyhow::{Result, ensure};
-use serde_json::Value;
+use anyhow::{Context, Result};
 
-use super::command::{Command, Output};
+use mcpm_exec::{Provide, Registry};
 
-type Handler = fn(Value, &Output) -> Result<()>;
+use super::command::{Command, Handler};
 
-#[derive(Clone, Default, Debug)]
-pub(crate) struct Registry {
-    handlers: BTreeMap<&'static str, Handler>,
+/// Environment provider of the adapter; legacy handlers need no process-local state.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Providers;
+
+impl Provide<()> for Providers {
+    fn provide(&self) {}
 }
 
-impl Registry {
-    pub(crate) fn register<C: Command>(&mut self) -> Result<()> {
-        ensure!(!C::ID.is_empty(), "remote command ID must not be empty");
-        ensure!(
-            !self.handlers.contains_key(C::ID),
-            "duplicate remote command ID: {}",
-            C::ID
-        );
-        self.handlers.insert(C::ID, C::run);
-        tracing::debug!(command = C::ID, "Registered remote command");
-        Ok(())
-    }
-
-    pub(super) fn ids(&self) -> Vec<String> {
-        self.handlers.keys().map(|id| (*id).to_owned()).collect()
-    }
-    pub(super) fn handler(&self, id: &str) -> Option<Handler> {
-        self.handlers.get(id).copied()
-    }
-}
-
-static REGISTERED: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(Registry::default()));
+static REGISTERED: LazyLock<Mutex<Registry<Providers>>> =
+    LazyLock::new(|| Mutex::new(Registry::new(Providers)));
 
 pub(crate) fn register<C: Command>() -> Result<()> {
-    REGISTERED.lock().unwrap().register::<C>()
+    REGISTERED
+        .lock()
+        .expect("the serve registry is never poisoned")
+        .register::<Handler<C>>()
+        .map_err(anyhow::Error::new)
+        .with_context(|| format!("failed to register remote command {}", C::ID))
 }
-pub(crate) fn registered() -> Registry {
-    REGISTERED.lock().unwrap().clone()
+
+/// Serves the registered handlers until the caller closes stdin.
+pub(crate) async fn serve() -> Result<()> {
+    let registry = REGISTERED
+        .lock()
+        .expect("the serve registry is never poisoned")
+        .clone();
+    mcpm_exec::serve::run(registry, crate::build_info::VERSION)
+        .await
+        .map_err(anyhow::Error::new)
+        .context("remote serve session failed")
 }

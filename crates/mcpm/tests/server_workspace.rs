@@ -1,8 +1,9 @@
 //! Remote workspace registration, automatic routing, precedence and Local-only endpoint boundaries.
 
+mod common;
+
 use std::{
     fs,
-    io::Write,
     path::Path,
     process::{Command, Output, Stdio},
 };
@@ -86,7 +87,7 @@ fn all_server_endpoints_reject_remote_targets_without_following_their_connection
             json!({"metadata":{"version":1,"minecraft_version":"1.21.1","loader":null},"force":true}),
         ),
     ] {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+        let child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
             .arg("remote")
             .current_dir(root.path())
             .stdin(Stdio::piped())
@@ -94,21 +95,15 @@ fn all_server_endpoints_reject_remote_targets_without_following_their_connection
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        writeln!(
-            child.stdin.take().unwrap(),
-            "{}",
-            json!({"guid":uuid::Uuid::from_u128(1),"command":command,"contents":contents})
-        )
-        .unwrap();
-        let output = child.wait_with_output().unwrap();
-        success(&output);
-        let replies: Vec<Value> = String::from_utf8(output.stdout)
-            .unwrap()
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect();
+        let mut remote = common::Remote::from_child(child);
+        remote.send(
+            json!({"guid":uuid::Uuid::from_u128(1),"operation":command,"level":"off","input":contents}),
+        );
+        let finished = remote.finish();
+        assert!(finished.stderr.is_empty(), "{:?}", finished.frames);
+        let replies: Vec<Value> = finished.frames;
         assert!(
-            replies.iter().any(|reply| reply["status"] == "error"
+            replies.iter().any(|reply| reply["status"] == "failed"
                 && reply["contents"]
                     .to_string()
                     .contains("requires a Local Server")),

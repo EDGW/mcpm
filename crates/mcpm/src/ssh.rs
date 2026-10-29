@@ -1,17 +1,17 @@
-//! Shared global SSH options and non-PTY remote mcpm command construction.
+//! Global SSH options and the connection they select.
+//!
+//! Only the command-line shape lives here: the connection identity, its argv and the remote
+//! executable belong to `mcpm-exec`. Remote settings parsed from a workspace registration are
+//! converted into the same types.
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
 
+pub(crate) use mcpm_exec::ssh::Connection;
+
 use crate::{progress::Progress, remote::client::Session};
-
-mod config;
-pub(crate) use config::Connection;
-
-mod connection;
-mod windows;
 
 #[derive(Args, Debug, Default)]
 pub(crate) struct SshArgs {
@@ -33,6 +33,7 @@ pub(crate) struct SshArgs {
         help_heading = "Global options"
     )]
     ssh_mcpm: Option<String>,
+    /// Working directory the SSH command runs in, when the settings came from a workspace.
     #[arg(skip)]
     directory: Option<PathBuf>,
 }
@@ -49,32 +50,46 @@ impl SshArgs {
         Ok(())
     }
 
-    pub(crate) fn connection(&self) -> Result<Connection> {
+    /// Connection settings as stored, including whether the executable was overridden.
+    pub(crate) fn settings(&self) -> Result<(String, Option<String>)> {
         self.validate()?;
-        Ok(Connection {
-            ssh: self
-                .ssh
+        Ok((
+            self.ssh
                 .clone()
                 .context("missing --ssh connection command")?,
-            ssh_mcpm: self.ssh_mcpm.clone(),
-        })
+            self.ssh_mcpm.clone(),
+        ))
     }
 
-    pub(crate) fn from_connection(connection: Connection, directory: PathBuf) -> Self {
+    /// Connection identity with the executable resolved to its default.
+    pub(crate) fn connection(&self) -> Result<Connection> {
+        let (ssh, executable) = self.settings()?;
+        let executable =
+            executable.unwrap_or_else(|| crate::program::Program::McpmTools.name().to_owned());
+        Ok(Connection::new(ssh, executable))
+    }
+
+    /// Settings of a workspace registration; `directory` becomes the connection's working directory.
+    pub(crate) fn from_settings(
+        ssh: String,
+        ssh_mcpm: Option<String>,
+        directory: Option<PathBuf>,
+    ) -> Self {
         Self {
-            ssh: Some(connection.ssh),
-            ssh_mcpm: connection.ssh_mcpm,
-            directory: Some(directory),
+            ssh: Some(ssh),
+            ssh_mcpm,
+            directory,
         }
     }
 
-    /// Display connection progress until the remote handshake and log subscription are ready.
+    /// Display connection progress until the remote handshake is complete.
     pub(crate) fn connect(&self) -> Result<Session> {
-        let (mut command, destination) = self.connection()?.prepare()?;
+        let connection = self.connection()?;
+        let mut command = connection.command()?;
         if let Some(directory) = &self.directory {
             command.current_dir(directory);
         }
-        let message = match destination {
+        let message = match connection.destination() {
             Some(destination) => format!("Connecting {}...", destination.escape_debug()),
             None => "Connecting...".into(),
         };

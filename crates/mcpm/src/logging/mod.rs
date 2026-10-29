@@ -1,4 +1,7 @@
 //! Independent terminal and per-process file logging, including user-facing error chains.
+//!
+//! This module also owns the process's log level, the remote-record replay used by the SSH
+//! session and the check that keeps a serve process from drawing on the caller's terminal.
 
 use std::{
     fs::File,
@@ -8,6 +11,7 @@ use std::{
 
 use anyhow::Result;
 use clap::ValueEnum;
+use mcpm_exec::protocol::{LogLevel as ProtocolLevel, LogRecord};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{
     Layer,
@@ -22,7 +26,6 @@ pub(crate) use writer::{ProgressGuard, attach_progress, pause_console};
 
 mod file;
 mod format;
-pub(crate) mod stream;
 mod writer;
 
 const REMOTE_TARGET: &str = "mcpm::remote_log";
@@ -30,6 +33,7 @@ const DIAGNOSTIC_TARGET: &str = "mcpm::diagnostics";
 
 static LEVEL: OnceLock<LogLevel> = OnceLock::new();
 static REMOTE_LOGS: OnceLock<bool> = OnceLock::new();
+static SERVING: OnceLock<bool> = OnceLock::new();
 
 pub(crate) fn level() -> LogLevel {
     LEVEL.get().copied().unwrap_or(LogLevel::Warn)
@@ -37,6 +41,11 @@ pub(crate) fn level() -> LogLevel {
 
 fn remote_logs_enabled() -> bool {
     REMOTE_LOGS.get().copied().unwrap_or(false)
+}
+
+/// Whether this process serves a remote session, where stderr belongs to the protocol peer.
+pub(crate) fn is_serving() -> bool {
+    SERVING.get().copied().unwrap_or(false)
 }
 
 pub(crate) fn init(
@@ -48,6 +57,7 @@ pub(crate) fn init(
     let (file, path) = file::open(started)?;
     let _ = LEVEL.set(level);
     let _ = REMOTE_LOGS.set(remote_logs);
+    let _ = SERVING.set(remote);
     subscriber(level, writer::WriterFactory, file, remote)
         .try_init()
         .map_err(|error| anyhow::anyhow!("failed to initialize diagnostic logging: {error}"))?;
@@ -85,11 +95,38 @@ where
     tracing_subscriber::registry()
         .with(console)
         .with(file)
-        .with(stream::Capture.with_filter(if remote {
+        .with(mcpm_exec::serve::logs::Capture.with_filter(if remote {
             LevelFilter::TRACE
         } else {
             LevelFilter::OFF
         }))
+}
+
+/// Renders a record forwarded by a remote serve process into the local sinks.
+pub(crate) fn replay(mut record: LogRecord) {
+    let message = record.take_message();
+    let detail = format!("{}: {message}", record.target());
+    let fields = record.fields();
+    let spans = record.spans();
+    macro_rules! emit {
+        ($level:expr) => {
+            tracing::event!(
+                target: REMOTE_TARGET,
+                $level,
+                remote_fields = ?fields,
+                remote_spans = ?spans,
+                "{detail}"
+            )
+        };
+    }
+    match record.level() {
+        ProtocolLevel::Off => {}
+        ProtocolLevel::Error => emit!(tracing::Level::ERROR),
+        ProtocolLevel::Warn => emit!(tracing::Level::WARN),
+        ProtocolLevel::Info => emit!(tracing::Level::INFO),
+        ProtocolLevel::Debug => emit!(tracing::Level::DEBUG),
+        ProtocolLevel::Trace => emit!(tracing::Level::TRACE),
+    }
 }
 
 pub(crate) fn record_error(error: &anyhow::Error) {
@@ -116,6 +153,19 @@ impl LogLevel {
             Self::Info => LevelFilter::INFO,
             Self::Debug => LevelFilter::DEBUG,
             Self::Trace => LevelFilter::TRACE,
+        }
+    }
+}
+
+impl From<LogLevel> for ProtocolLevel {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Off => Self::Off,
+            LogLevel::Error => Self::Error,
+            LogLevel::Warn => Self::Warn,
+            LogLevel::Info => Self::Info,
+            LogLevel::Debug => Self::Debug,
+            LogLevel::Trace => Self::Trace,
         }
     }
 }

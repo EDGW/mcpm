@@ -39,22 +39,34 @@ pub(super) struct Remote {
 }
 
 impl Remote {
-    pub fn new(connection: Connection, path: String) -> Result<Self> {
+    pub fn new(ssh: String, ssh_mcpm: Option<String>, path: String) -> Result<Self> {
         let remote = Self {
             version: 2,
-            ssh: connection.ssh,
-            ssh_mcpm: connection.ssh_mcpm,
+            ssh,
+            ssh_mcpm,
             path,
         };
         remote.validate()?;
         Ok(remote)
     }
 
+    /// Connection identity for this registration; the stored executable may remain unset.
     pub fn connection(&self) -> Connection {
-        Connection {
-            ssh: self.ssh.clone(),
-            ssh_mcpm: self.ssh_mcpm.clone(),
-        }
+        Connection::new(
+            self.ssh.clone(),
+            self.ssh_mcpm
+                .clone()
+                .unwrap_or_else(|| crate::program::Program::McpmTools.name().to_owned()),
+        )
+    }
+
+    /// Command-line settings that select this registration from a local directory.
+    pub fn ssh_args(&self, directory: PathBuf) -> crate::ssh::SshArgs {
+        crate::ssh::SshArgs::from_settings(
+            self.ssh.clone(),
+            self.ssh_mcpm.clone(),
+            Some(directory),
+        )
     }
 
     fn validate(&self) -> Result<()> {

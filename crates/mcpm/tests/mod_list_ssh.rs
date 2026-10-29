@@ -2,6 +2,23 @@
 
 use std::process::{Command, Stdio};
 
+/// Build identity both ends must agree on; read from the executable under test.
+fn build_version() -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    stdout
+        .lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_owned()
+}
+
 #[cfg(unix)]
 mod transport {
     use super::*;
@@ -125,7 +142,8 @@ mod transport {
         let nil = "00000000-0000-0000-0000-000000000000";
         let command_id = "mod.list";
         let ready = format!(
-            "{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":5,\"commands\":[\"{command_id}\"],\"max_concurrency\":8}}}}\n"
+            "{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":6,\"build\":\"{build}\",\"operations\":[\"{command_id}\"]}}}}\n",
+            build = build_version()
         );
         for (body, status, message) in [
             (
@@ -133,7 +151,7 @@ mod transport {
                 0, "count",
             ),
             ("printf '{\"guid\":\"%s\",\"status\":\"data\",\"contents\":{}}' \"$guid\"", 0, "newline"),
-            ("printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000099\",\"status\":\"data\",\"contents\":{}}'", 0, "request"),
+            ("printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000099\",\"status\":\"data\",\"contents\":{}}'", 0, "active call"),
             (
                 "printf '{\"guid\":\"%s\",\"status\":\"data\",\"contents\":{\"event\":\"count\",\"count\":0}}\n{\"guid\":\"%s\",\"status\":\"data\",\"contents\":{\"event\":\"done\",\"success\":true}}\n{\"guid\":\"%s\",\"status\":\"finished\",\"contents\":null}\n' \"$guid\" \"$guid\" \"$guid\"
 cat >/dev/null
@@ -142,7 +160,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             ),
         ] {
             fs::write(&remote, format!(
-                "#!/bin/sh\nprintf '%s' {}\nIFS= read -r logs\nlog_guid=$(printf '%s' \"$logs\" | cut -d '\"' -f6)\nprintf '{{\"guid\":\"%s\",\"status\":\"ready\",\"contents\":null}}\\n' \"$log_guid\"\nIFS= read -r request\nguid=$(printf '%s' \"$request\" | cut -d '\"' -f4)\n{body}\nexit {status}\n",
+                "#!/bin/sh\nprintf '%s' {}\nIFS= read -r request\nguid=$(printf '%s' \"$request\" | cut -d '\"' -f4)\n{body}\nexit {status}\n",
                 shlex::try_quote(&ready).unwrap()
             )).unwrap();
             fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
@@ -212,13 +230,8 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             let remote = root.path().join("remote");
             let mut body = String::from("#!/bin/sh\n");
             body += &print(
-                json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":5,"commands":["mod.list"],"max_concurrency":8}}),
+                json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":6,"build":build_version(),"operations":["mod.list"]}}),
                 "",
-            );
-            body += "IFS= read -r logs\nlog_guid=$(printf '%s' \"$logs\" | cut -d '\"' -f6)\n";
-            body += &print(
-                json!({"guid":"__GUID__","status":"ready","contents":null}),
-                "\"$log_guid\"",
             );
             body += &format!(
                 "IFS= read -r request\nprintf '%s' \"$request\" > {}\nguid=$(printf '%s' \"$request\" | cut -d '\"' -f4)\n",
@@ -235,10 +248,6 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
                 "\"$guid\"",
             );
             body += "cat >/dev/null\n";
-            body += &print(
-                json!({"guid":"__GUID__","status":"finished","contents":null}),
-                "\"$log_guid\"",
-            );
             body += &print(
                 json!({"guid":uuid::Uuid::nil(),"status":"closed","contents":null}),
                 "",
@@ -268,9 +277,9 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             let request: Value =
                 serde_json::from_str(&fs::read_to_string(root.path().join("request")).unwrap())
                     .unwrap();
-            assert_eq!(request["command"], "mod.list");
-            assert_eq!(request["contents"]["parallelism"], 2);
-            assert!(request["contents"].get("identify_parallelism").is_none());
+            assert_eq!(request["operation"], "mod.list");
+            assert_eq!(request["input"]["parallelism"], 2);
+            assert!(request["input"].get("identify_parallelism").is_none());
             let stderr = String::from_utf8(output.stderr).unwrap();
             if let Some(expected) = expected {
                 assert_eq!(output.status.code(), Some(1), "{stderr}");

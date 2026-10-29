@@ -8,7 +8,7 @@ pub(super) fn remote_view(remote: &super::workspace::Remote) -> crate::server::R
     let connection = remote.connection();
     crate::server::RemoteInfo {
         path: remote.path.clone(),
-        ssh: connection.ssh.clone(),
+        ssh: connection.ssh().to_owned(),
         destination: connection.destination(),
         executable: connection.executable().into(),
     }

@@ -1,9 +1,10 @@
 //! Server source compatibility, archive selection, cancellation and local provider boundaries.
 
+mod common;
+
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::Write,
     path::Path,
     process::{Command, Output, Stdio},
 };
@@ -31,7 +32,7 @@ fn jar(root: &Path, filename: &str) {
 }
 
 fn remote(root: &Path, command: &str, contents: Value, cancel: bool) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+    let child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
         .arg("remote")
         .current_dir(root)
         .env("HOME", root.join("home"))
@@ -42,24 +43,14 @@ fn remote(root: &Path, command: &str, contents: Value, cancel: bool) -> Vec<Valu
         .spawn()
         .unwrap();
     let guid = uuid::Uuid::from_u128(1);
-    let mut input = child.stdin.take().unwrap();
-    let mut messages = format!(
-        "{}\n",
-        json!({"guid":guid,"command":command,"contents":contents})
-    );
+    let mut remote = common::Remote::from_child(child);
+    remote.send(json!({"guid":guid,"operation":command,"level":"off","input":contents}));
     if cancel {
-        messages.push_str(&format!("{}\n", json!({"cancel":guid})));
+        remote.send_cancel(guid);
     }
-    input.write_all(messages.as_bytes()).unwrap();
-    drop(input);
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success(), "{output:?}");
-    assert!(output.stderr.is_empty(), "{output:?}");
-    String::from_utf8(output.stdout)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
+    let finished = remote.finish();
+    assert!(finished.stderr.is_empty(), "{:?}", finished.frames);
+    finished.frames
 }
 
 #[test]
@@ -164,7 +155,7 @@ fn cancellation_terminates_selection_without_business_completion() {
     assert!(
         replies
             .iter()
-            .any(|reply| reply["status"] == "error" && reply["contents"]["code"] == "cancelled"),
+            .any(|reply| reply["status"] == "failed" && reply["contents"]["failure"] == "cancelled"),
         "{replies:?}"
     );
     assert!(
@@ -239,10 +230,10 @@ fn ssh_reads_remote_bytes_but_keeps_provider_options_and_failures_local() {
         .collect();
     let summary = messages
         .iter()
-        .find(|request| request["command"] == "mod.source.identify")
+        .find(|request| request["operation"] == "mod.source.identify")
         .unwrap();
     assert_eq!(
-        summary["contents"]["paths"],
+        summary["input"]["paths"],
         json!([Path::new("server ' 中文/mods/selected.jar")])
     );
     assert!(!client.path().join("server ' 中文").exists());

@@ -30,7 +30,7 @@ pub(super) fn resolve(path: PathBuf, ssh: SshArgs) -> Result<Target> {
     tracing::info!(workspace = %path.display(), "Using saved SSH connection for Remote workspace");
     Ok(Target {
         path: PathBuf::from(&remote.path),
-        ssh: SshArgs::from_connection(remote.connection(), directory),
+        ssh: remote.ssh_args(directory),
         remote: Some(remote),
     })
 }

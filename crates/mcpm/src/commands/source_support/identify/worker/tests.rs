@@ -408,10 +408,7 @@ fn remote_summaries_drive_local_provider_requests_without_reading_remote_paths()
     };
     let script = format!(
         r#"
-printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{{"version":5,"commands":["mod.source.identify"],"max_concurrency":8}}}}'
-IFS= read -r logs
-log_guid=$(printf '%s' "$logs" | cut -d '"' -f6)
-printf {} "$log_guid"
+printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"ready","contents":{{"version":{version},"build":"{build}","operations":["mod.source.identify"]}}}}'
 IFS= read -r request
 printf '%s' "$request" > {}
 guid=$(printf '%s' "$request" | cut -d '"' -f4)
@@ -420,10 +417,8 @@ printf {} "$guid"
 printf {} "$guid"
 printf {} "$guid"
 cat >/dev/null
-printf {} "$log_guid"
 printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"closed","contents":null}}'
 "#,
-        reply("ready", json!(null)),
         shlex::try_quote(request_path.to_str().unwrap()).unwrap(),
         reply("data", json!({"event":"loading","indices":[0,1]})),
         reply(
@@ -432,10 +427,12 @@ printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"closed"
         ),
         reply("data", json!({"event":"done","failed":0})),
         reply("finished", json!(null)),
-        reply("finished", json!(null)),
+        version = mcpm_exec::protocol::VERSION,
+        build = crate::build_info::VERSION,
     );
-    let mut session =
-        Session::start(std::process::Command::new("sh").args(["-c", &script])).unwrap();
+    let mut command = std::process::Command::new("sh");
+    command.args(["-c", &script]);
+    let mut session = Session::start(&mut command).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -500,7 +497,7 @@ printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"closed"
     let request: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(request_path).unwrap()).unwrap();
     assert_eq!(
-        request["contents"],
+        request["input"],
         json!({"paths":[r"D:\remote-only.jar",r"D:\remote-only.jar"],"requirements":{"murmur2":true},"parallelism":2})
     );
 }

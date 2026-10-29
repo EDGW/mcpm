@@ -39,6 +39,7 @@ terminal-colorsaurus = { workspace = true }
 ratatui = { workspace = true, features = ["crossterm_0_29", "unstable-rendered-line-info"] }
 regex = { workspace = true }
 mcpm-backend = { workspace = true }
+mcpm-exec = { workspace = true }
 owo-colors = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }

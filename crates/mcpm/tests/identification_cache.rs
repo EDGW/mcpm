@@ -262,16 +262,27 @@ fn remote_publication_acknowledges_verified_data_and_rejects_incorrect_content()
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        writeln!(process.stdin.take().unwrap(), "{}", serde_json::json!({
-            "guid":uuid::Uuid::from_u128(1), "command":"cache.mods.identification.write",
-            "contents":{"cache":{"kind":"directory","path":"cache"}, "id":id.to_string(), "file":file}
+        let mut input = process.stdin.take().unwrap();
+        writeln!(input, "{}", serde_json::json!({
+            "guid":uuid::Uuid::from_u128(1), "operation":"cache.mods.identification.write", "level":"off",
+            "input":{"cache":{"kind":"directory","path":"cache"}, "id":id.to_string(), "file":file}
         })).unwrap();
-        let output = process.wait_with_output().unwrap();
-        assert!(output.status.success(), "{output:?}");
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(|line| serde_json::from_str::<Value>(line).unwrap())
-            .collect::<Vec<_>>()
+        // Serve cancels accepted calls when its stdin closes, so keep it open until the call ends.
+        let mut output = std::io::BufReader::new(process.stdout.take().unwrap());
+        let mut replies = Vec::new();
+        loop {
+            let mut line = String::new();
+            assert!(std::io::BufRead::read_line(&mut output, &mut line).unwrap() > 0);
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            let terminal = reply["status"] == "finished" || reply["status"] == "failed";
+            replies.push(reply);
+            if terminal {
+                break;
+            }
+        }
+        drop(input);
+        assert!(process.wait().unwrap().success());
+        replies
     };
     let replies = request(&file);
     assert!(
@@ -284,9 +295,9 @@ fn remote_publication_acknowledges_verified_data_and_rejects_incorrect_content()
     let mut wrong = file.clone();
     wrong.hashes = vec![FileHash::Sha1("0".repeat(40))];
     let replies = request(&wrong);
-    assert!(replies.iter().any(|reply| reply["status"] == "error"));
+    assert!(replies.iter().any(|reply| reply["status"] == "failed"));
     assert_eq!(fs::read(cache.ident_info(id).path()).unwrap(), saved);
     fs::remove_file(cache.mod_metadata(id).data_path()).unwrap();
     let replies = request(&file);
-    assert!(replies.iter().any(|reply| reply["status"] == "error"));
+    assert!(replies.iter().any(|reply| reply["status"] == "failed"));
 }

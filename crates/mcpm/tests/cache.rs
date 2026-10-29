@@ -610,7 +610,7 @@ fn remote_inspection_counts_full_partial_and_uncached_files_before_expanding_row
                 .spawn()
                 .unwrap();
             writeln!(child.stdin.take().unwrap(), "{}", json!({
-                "guid":"00000000-0000-0000-0000-000000000001", "command":command, "contents":contents
+                "guid":"00000000-0000-0000-0000-000000000001", "operation":command, "level":"off", "input":contents
             })).unwrap();
             let output = child.wait_with_output().unwrap();
             assert!(output.status.success(), "{output:?}");

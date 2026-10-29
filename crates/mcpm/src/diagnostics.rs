@@ -8,21 +8,26 @@ use crate::display::{console::ConsoleWriter, error as display};
 
 /// Marks a failure received from another process while preserving its original sources.
 ///
-/// Remote transport belongs to the frontend until the executor owns it; the library
-/// reports only its own failures.
+/// The marker carries the failure's outermost message so reports and events keep their
+/// wording; renderers still recognise the type to label the origin.
 #[derive(Debug, thiserror::Error)]
-#[error("remote operation failed")]
-pub(crate) struct RemoteError(#[source] anyhow::Error);
+#[error("remote error: {message}")]
+pub(crate) struct RemoteError {
+    message: String,
+    #[source]
+    error: anyhow::Error,
+}
 
 impl RemoteError {
     pub(crate) fn wrap(error: anyhow::Error) -> anyhow::Error {
-        Self(error).into()
+        let message = error.to_string();
+        Self { message, error }.into()
     }
 }
 
 pub(crate) fn error(error: &anyhow::Error) {
     crate::logging::record_error(error);
-    if crate::logging::stream::is_forwarding() {
+    if crate::logging::is_serving() {
         return;
     }
     display_error(error);

@@ -1,75 +1,65 @@
-//! Remote log subscription concurrency and shutdown ordering.
+//! Per-call log forwarding, interleaving and shutdown ordering.
+
+mod common;
 
 use std::{
-    io::{BufRead, BufReader, Write},
     path::Path,
     process::{Command, Stdio},
 };
 
-use serde_json::{Value, json};
+use serde_json::json;
 use uuid::Uuid;
 
-fn event(reader: &mut impl BufRead) -> Value {
-    let mut line = String::new();
-    assert!(reader.read_line(&mut line).unwrap() > 0);
-    serde_json::from_str(&line).unwrap()
-}
-
 #[test]
-fn log_subscription_keeps_command_slot_free_and_drains_before_closed() {
+fn call_logs_are_forwarded_for_their_call_and_drain_before_closed() {
     let home = tempfile::tempdir().unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-        .args(["--log-level", "trace", "remote", "--max-concurrency", "1"])
+    let child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+        .args(["--log-level", "trace", "remote"])
         .env("HOME", home.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let mut input = child.stdin.take().unwrap();
-    let mut output = BufReader::new(child.stdout.take().unwrap());
-    assert_eq!(event(&mut output)["status"], "ready");
-    let logs = Uuid::new_v4();
+    let mut remote = common::Remote::from_child(child);
+    assert_eq!(remote.next_frame()["status"], "ready");
     let command = Uuid::new_v4();
-    writeln!(input, "{}", json!({"logs":{"guid":logs,"level":"debug"}})).unwrap();
-    input.flush().unwrap();
-    assert_eq!(
-        event(&mut output),
-        json!({"guid":logs,"status":"ready","contents":null})
-    );
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex-mod.jar");
-    writeln!(input, "{}", json!({"guid":command,"command":"mod.list","contents":{"paths":[fixture,"missing.jar"],"loaders":["fabric"]}})).unwrap();
-    drop(input);
-    let mut log_finished = false;
-    let mut command_finished = false;
-    loop {
-        let reply = event(&mut output);
-        if reply["guid"] == logs.to_string() {
-            assert!(!log_finished);
-            match reply["status"].as_str().unwrap() {
-                "data" => {}
-                "finished" => {
-                    assert!(reply["contents"].is_null());
-                    log_finished = true;
+    remote.send(json!({
+        "guid": command,
+        "operation": "mod.list",
+        "level": "debug",
+        "input": {"paths": [fixture, "missing.jar"], "loaders": ["fabric"]},
+    }));
+    let finished = remote.finish();
+    let mut logs = 0;
+    let mut completed = false;
+    for frame in &finished.frames {
+        if frame["guid"] == command.to_string() {
+            assert!(!completed, "no frame may follow the call's completion");
+            match frame["status"].as_str().unwrap() {
+                "log" => {
+                    assert!(
+                        matches!(
+                            frame["contents"]["level"].as_str().unwrap(),
+                            "error" | "warn" | "info" | "debug"
+                        ),
+                        "{}",
+                        frame["contents"]["level"]
+                    );
+                    logs += 1;
                 }
-                other => panic!("unexpected logging status: {other}"),
-            }
-        } else if reply["guid"] == command.to_string() {
-            assert!(!command_finished);
-            match reply["status"].as_str().unwrap() {
                 "data" => {}
-                "finished" => command_finished = true,
-                other => panic!("log subscription must not consume the command slot: {other}"),
+                "finished" => completed = true,
+                other => panic!("unexpected frame status: {other}"),
             }
-        } else {
-            assert_eq!(
-                reply,
-                json!({"guid":Uuid::nil(),"status":"closed","contents":null})
-            );
-            assert!(log_finished && command_finished);
-            break;
         }
     }
-    let result = child.wait_with_output().unwrap();
-    assert!(result.status.success(), "{result:?}");
+    assert!(
+        completed,
+        "the call must finish before the connection closes"
+    );
+    assert!(logs > 0, "the call's own records must be forwarded");
+    assert_eq!(finished.frames.last().unwrap()["status"], "closed");
+    assert!(finished.stderr.is_empty(), "{:?}", finished.frames);
 }

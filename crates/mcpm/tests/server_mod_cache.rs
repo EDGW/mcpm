@@ -1,5 +1,7 @@
 //! Server cache integration: scoped selection, declared loaders, read-only reuse and host routing.
 
+mod common;
+
 use kako_mc_lib::local::modloader::BUILTIN_LOADERS;
 use mcpm_backend::data::cache::mods::ModsCacheDir;
 use mcpm_backend::data::cache::mods::meta::CachedIdentification;
@@ -69,16 +71,22 @@ fn rows(output: &Output) -> Vec<Value> {
         .collect()
 }
 fn remote(root: &Path, command: &str, contents: Value) -> Vec<Value> {
-    let output = run(
-        root,
-        &["remote"],
-        &format!(
-            "{}\n",
-            json!({"guid":uuid::Uuid::from_u128(1), "command":command, "contents":contents})
-        ),
+    fs::create_dir_all(root.join("home")).unwrap();
+    let child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+        .env("HOME", root.join("home"))
+        .args(["--raw", "--log-level", "off", "remote"])
+        .current_dir(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut remote = common::Remote::from_child(child);
+    remote.send(
+        json!({"guid":uuid::Uuid::from_u128(1), "operation":command, "level":"off", "input":contents}),
     );
-    assert!(output.status.success(), "{output:?}");
-    let replies = rows(&output);
+    let finished = remote.finish();
+    let replies = finished.frames;
     assert_eq!(
         replies[replies.len() - 2]["status"],
         "finished",

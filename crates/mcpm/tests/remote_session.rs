@@ -17,12 +17,29 @@ fn event(reader: &mut impl BufRead) -> Value {
     serde_json::from_str(&line).unwrap()
 }
 
+/// Build identity both ends must agree on; read from the executable under test.
+fn build_version() -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    stdout
+        .lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_owned()
+}
+
 #[test]
 fn concurrent_typed_requests_and_failures_share_one_process() {
     let empty = tempfile::tempdir().unwrap();
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex-mod.jar");
     let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-        .args(["remote", "--max-concurrency", "16"])
+        .arg("remote")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -33,9 +50,9 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
     let ready = event(&mut output);
     assert_eq!(ready["guid"], Uuid::nil().to_string());
     assert_eq!(ready["status"], "ready");
-    assert_eq!(ready["contents"]["version"], 5);
-    assert_eq!(ready["contents"]["max_concurrency"], 16);
-    let commands = ready["contents"]["commands"].as_array().unwrap();
+    assert_eq!(ready["contents"]["version"], mcpm_exec::protocol::VERSION);
+    assert_eq!(ready["contents"]["build"], build_version());
+    let commands = ready["contents"]["operations"].as_array().unwrap();
     assert!(commands.iter().any(|id| id == LIST));
     assert!(
         commands
@@ -80,7 +97,7 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
         writeln!(
             input,
             "{}",
-            json!({"guid":Uuid::from_u128(index as u128+1),"command":command,"contents":args})
+            json!({"guid":Uuid::from_u128(index as u128+1),"operation":command,"level":"off","input":args})
         )
         .unwrap();
     }
@@ -96,7 +113,7 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
             .unwrap()
             .as_u128() as usize;
         assert!((1..=cases.len()).contains(&id));
-        if value["status"] == "finished" || value["status"] == "error" {
+        if value["status"] == "finished" || value["status"] == "failed" {
             finished += 1;
         }
         received.entry(id).or_default().push(value);
@@ -110,8 +127,9 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
         );
         if index == 2 {
             assert_eq!(replies.len(), 1);
-            assert_eq!(replies[0]["status"], "error");
-            assert_eq!(replies[0]["contents"]["code"], "unsupported_command");
+            assert_eq!(replies[0]["status"], "failed");
+            assert_eq!(replies[0]["contents"]["failure"], "dispatch");
+            assert_eq!(replies[0]["contents"]["error"]["kind"], "unknown_operation");
             continue;
         }
         assert_eq!(replies.last().unwrap()["status"], "finished");
@@ -151,7 +169,7 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
     writeln!(
         input,
         "{}",
-        json!({"guid":Uuid::from_u128(7),"command":LIST,"contents":{"paths":[empty.path()]}})
+        json!({"guid":Uuid::from_u128(7),"operation":LIST,"level":"off","input":{"paths":[empty.path()]}})
     )
     .unwrap();
     input.flush().unwrap();
@@ -176,7 +194,8 @@ fn concurrent_typed_requests_and_failures_share_one_process() {
 
 #[test]
 fn duplicate_ids_and_broken_frames_fail_the_session_instead_of_aliasing_requests() {
-    let request = json!({"guid":Uuid::from_u128(1),"command":LIST,"contents":{}}).to_string();
+    let request =
+        json!({"guid":Uuid::from_u128(1),"operation":LIST,"level":"off","input":{}}).to_string();
     for text in [format!("{request}\n{request}\n"), request] {
         let root = tempfile::tempdir().unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
@@ -200,9 +219,10 @@ fn duplicate_ids_and_broken_frames_fail_the_session_instead_of_aliasing_requests
             .lines()
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
             .collect::<Vec<_>>();
-        assert!(events.iter().any(|event| event["status"] == "error"
+        assert!(events.iter().any(|event| event["status"] == "failed"
             && event["guid"] == Uuid::nil().to_string()
-            && event["contents"]["code"] == "protocol"));
+            && event["contents"]["failure"] == "dispatch"
+            && event["contents"]["error"]["kind"] == "protocol"));
         assert!(!events.iter().any(|event| event["status"] == "closed"));
     }
 }

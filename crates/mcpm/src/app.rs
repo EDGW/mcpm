@@ -28,7 +28,7 @@ pub fn run(program: Program) -> ExitCode {
             ColorChoice::Never
         },
     );
-    let remote = matches!(cli.command, commands::Command::Remote(_));
+    let remote = matches!(cli.command, commands::Command::Remote);
     terminal::init(cli.common.raw || remote);
     let result = (|| {
         logging::init(cli.common.log_level, started, remote, cli.remote_logs)?;
