@@ -1,6 +1,6 @@
 //! Bounded concurrent outer-JAR source lookups and provider-neutral result states for the TUI.
 
-use crate::commands::source_support::identify::{self as acquisition, Event, Location, Outcome};
+use crate::flows::identify::{self as pipeline, Event, Outcome, Target};
 use anyhow::Result;
 use mcpm_backend::source::types::{FileMatch, MatchedFileRole};
 use std::{
@@ -92,16 +92,17 @@ pub(super) enum Update {
 pub(super) fn start(
     paths: Vec<PathBuf>,
     parallelism: usize,
-    location: Location,
+    target: Target,
 ) -> Result<Receiver<Update>> {
     let (sender, receiver) = channel();
     let count = paths.len();
     if count == 0 {
         return Ok(receiver);
     }
-    let sources = Platform::ALL.map(|platform| platform.id().to_owned());
-    let identification =
-        acquisition::Identification::start(paths, &sources, parallelism, location)?;
+    let sources = Platform::ALL
+        .iter()
+        .map(|platform| platform.id().to_owned())
+        .collect::<Vec<_>>();
     tracing::info!(
         files = count,
         parallelism,
@@ -121,10 +122,10 @@ pub(super) fn start(
                 }
                 send_update(event, &sender)
             };
-            let result = identification.run(&mut emit).await;
+            let result = pipeline::run(target, sources, paths, parallelism, &mut emit).await;
             if let Err(error) = result {
                 crate::logging::record_error(&error);
-                let (report, remote) = crate::diagnostics::capture(&error);
+                let (report, error_remote) = crate::diagnostics::capture(&error);
                 for platform in Platform::ALL {
                     let _ = sender.send(Update::State {
                         files: (0..count)
@@ -133,7 +134,7 @@ pub(super) fn start(
                         platform,
                         state: State::Failed {
                             error: report.clone(),
-                            remote,
+                            remote: error_remote,
                         },
                     });
                 }
@@ -161,13 +162,14 @@ fn send_update(event: Event, sender: &std::sync::mpsc::Sender<Update>) -> Result
             indices,
             source,
             outcome,
+            remote,
         } => (
             indices,
             source,
             match outcome {
-                Outcome::Matched { file } => State::Matched(file),
+                Outcome::Matched { file, .. } => State::Matched(*file),
                 Outcome::Unmatched => State::Unmatched,
-                Outcome::Failed { error, remote } => State::Failed { error, remote },
+                Outcome::Failed { error } => State::Failed { error, remote },
             },
         ),
         Event::Done { failed } => {

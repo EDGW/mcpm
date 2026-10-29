@@ -3,6 +3,8 @@
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, ensure};
+use mcpm_backend::data::cache::mods::ModsCacheSelection;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 use mcpm_backend::source::types::FileMatch;
 
 use super::{
@@ -11,11 +13,9 @@ use super::{
     record::IdentResult,
 };
 use crate::{
-    commands::{
-        execution::{Runtime, blocking},
-        source_support::identify::{self, Identification, Location, Outcome, Sources},
-    },
+    commands::{execution::blocking, supports::mods::reuse},
     diagnostics::ErrorReport,
+    flows::identify::{self as pipeline, Event as IdentifyEvent, Outcome, Target},
 };
 
 /// Captures the storage phase only when source enrichment is requested.
@@ -24,30 +24,28 @@ pub(in crate::commands) struct Completion {
     enabled: bool,
     force: bool,
     parallelism: usize,
-    sources: Sources,
+    specifications: Vec<String>,
     keys: Vec<String>,
     files: Vec<Record>,
     summary: Option<Summary>,
     validator: super::validation::Validator,
 }
 impl Completion {
-    pub fn new(writing: &WriteArgs, specifications: &[String]) -> Result<Self> {
+    pub fn new(
+        writing: &WriteArgs,
+        specifications: &[String],
+        session: &mcpm_backend::Session,
+    ) -> Result<Self> {
         let enabled = writing.selected_metas()?.contains(&Meta::Ident);
-        let sources = if enabled {
-            identify::prepare_sources(specifications)
+        let keys: Vec<_> = if enabled {
+            crate::commands::execution::Runtime::new()?
+                .block_on(pipeline::profiles(session, specifications))?
+                .into_iter()
+                .map(|profile| profile.cache_key)
+                .collect()
         } else {
             Vec::new()
         };
-        let keys: Vec<_> = sources
-            .iter()
-            .zip(specifications)
-            .map(|(source, spec)| {
-                source
-                    .as_ref()
-                    .map(|source| source.identification_cache_id().0)
-                    .unwrap_or_else(|_| spec.split('@').next().unwrap_or(spec).to_owned())
-            })
-            .collect();
         let mut unique = HashSet::new();
         ensure!(
             !enabled || !keys.is_empty(),
@@ -63,7 +61,7 @@ impl Completion {
             enabled,
             force: writing.force(),
             parallelism: writing.parallelism(),
-            sources,
+            specifications: specifications.to_vec(),
             keys,
             files: Vec::new(),
             summary: None,
@@ -91,13 +89,19 @@ impl Completion {
     /// Files remain bounded in flight; provider lookups run on the client even for SSH files.
     pub fn finish(
         mut self,
-        location: Location,
+        session: &mcpm_backend::Session,
+        environment: &RuntimeEnvironment,
         mut emit: impl FnMut(Event) -> Result<()>,
     ) -> Result<()> {
         self.validator.finish()?;
         if !self.enabled {
             return Ok(());
         }
+        let selection = reuse::selection(environment);
+        let target = Target {
+            session: session.clone(),
+            cache: if self.force { None } else { selection.clone() },
+        };
         let mut summary = self.summary.take().context("missing storage completion")?;
         let mut pending: Vec<Option<Record>> = (0..self.files.len()).map(|_| None).collect();
         let mut next = 0;
@@ -115,11 +119,18 @@ impl Completion {
         );
         // One reactor must outlive every shared HTTP connection. Blocking workers
         // may drive futures through its Handle, while this thread keeps I/O alive.
-        Runtime::new()?.with_workers(|handle| {
+        crate::commands::execution::Runtime::new()?.with_workers(|handle| {
             blocking::run(
                 self.files.len(),
                 self.parallelism,
-                |index| self.process(self.files[index].clone(), location.clone(), handle),
+                |index| {
+                    self.process(
+                        self.files[index].clone(),
+                        &target,
+                        selection.as_ref(),
+                        handle,
+                    )
+                },
                 || Ok(()),
                 |index, file| {
                     completed += 1;
@@ -151,58 +162,63 @@ impl Completion {
     fn process(
         &self,
         mut record: Record,
-        location: Location,
+        target: &Target,
+        selection: Option<&ModsCacheSelection>,
         runtime: &tokio::runtime::Handle,
     ) -> Record {
         let Some(path) = record.data_path.clone() else {
             return record;
         };
         let operation = (|| -> Result<()> {
-            let environment = if self.force {
-                location.environment().clone().with_mods_cache(None)
-            } else {
-                location.environment().clone()
-            };
-            let lookup_location = match &location {
-                Location::Local { session, .. } => Location::Local {
-                    session: session.clone(),
-                    environment: environment.clone(),
-                },
-                Location::Remote { session, .. } => Location::Remote {
-                    session: session.clone(),
-                    environment: environment.clone(),
-                },
-            };
-            let identification =
-                Identification::with_sources(vec![path], self.sources.clone(), 1, lookup_location)?;
             let mut outcomes = vec![None; self.keys.len()];
-            runtime.block_on(identification.run(|event| {
-                if let identify::Event::Item {
-                    source, outcome, ..
-                } = event
-                {
-                    outcomes[source] = Some(outcome);
-                }
-                Ok(())
-            }))?;
-            for (source_index, (key, outcome)) in self.keys.iter().zip(outcomes).enumerate() {
-                let outcome = match outcome.context("missing source identification result")? {
-                    Outcome::Matched { file } => {
-                        let publication = self.sources[source_index]
-                            .as_ref()
-                            .map_err(|error| error.clone().into_error())
-                            .and_then(|source| file.for_cache(source.as_ref()))
-                            .and_then(|file| self.publish(&record, &file, &location, runtime));
+            let mut remote_failures = vec![false; self.keys.len()];
+            runtime.block_on(pipeline::run(
+                target.clone(),
+                self.specifications.clone(),
+                vec![path],
+                1,
+                |event| {
+                    if let IdentifyEvent::Item {
+                        source,
+                        outcome,
+                        remote,
+                        ..
+                    } = event
+                    {
+                        if let Some(slot) = outcomes.get_mut(source) {
+                            *slot = Some(outcome);
+                        }
+                        if let Some(slot) = remote_failures.get_mut(source) {
+                            *slot = remote;
+                        }
+                    }
+                    Ok(())
+                },
+            ))?;
+            for (source_index, key) in self.keys.iter().enumerate() {
+                let outcome = outcomes[source_index]
+                    .take()
+                    .context("missing source identification result")?;
+                let outcome = match outcome {
+                    Outcome::Matched { cache, .. } => {
+                        let publication = selection
+                            .context("Mod cache is disabled")
+                            .and_then(|selection| {
+                                self.publish(&record, cache.as_ref(), target, selection, runtime)
+                            });
                         match publication {
                             Ok(()) => IdentResult::Matched,
                             Err(error) => IdentResult::Failed {
                                 error: ErrorReport::capture(&error),
-                                remote: !location.is_local(),
+                                remote: !target.is_local(),
                             },
                         }
                     }
                     Outcome::Unmatched => IdentResult::Unmatched,
-                    Outcome::Failed { error, remote } => IdentResult::Failed { error, remote },
+                    Outcome::Failed { error } => IdentResult::Failed {
+                        error,
+                        remote: remote_failures[source_index],
+                    },
                 };
                 if let IdentResult::Failed { error, remote } = &outcome {
                     fail(&mut record, error.clone(), *remote);
@@ -212,8 +228,7 @@ impl Completion {
             Ok(())
         })();
         if let Err(error) = operation {
-            let remote =
-                kako_mc_lib::error::contains::<crate::diagnostics::RemoteError>(error.as_ref());
+            let remote = kako_mc_lib::error::contains::<crate::diagnostics::RemoteError>(error.as_ref());
             fail(&mut record, ErrorReport::capture(&error), remote);
         }
         record
@@ -223,7 +238,8 @@ impl Completion {
         &self,
         record: &Record,
         file: &FileMatch,
-        location: &Location,
+        target: &Target,
+        selection: &ModsCacheSelection,
         runtime: &tokio::runtime::Handle,
     ) -> Result<()> {
         let id = record
@@ -231,11 +247,9 @@ impl Completion {
             .as_deref()
             .context("missing cache content ID")?
             .to_owned();
-        let cache = crate::commands::supports::mods::reuse::selection(location.environment())
-            .context("Mod cache is disabled")?;
-        let remote = !location.is_local();
+        let remote = !target.is_local();
         let request = mcpm_backend::cache::IdentWriteInput {
-            cache,
+            cache: selection.clone(),
             entries: vec![mcpm_backend::cache::IdentEntry {
                 key: id,
                 file: file.clone(),
@@ -244,8 +258,8 @@ impl Completion {
             protect_stash: false,
         };
         runtime.block_on(async {
-            let mut handle = location
-                .session()
+            let mut handle = target
+                .session
                 .start::<mcpm_backend::cache::IdentWrite>(request)
                 .await
                 .map_err(|failure| crate::commands::execution::failure(failure, remote))?;

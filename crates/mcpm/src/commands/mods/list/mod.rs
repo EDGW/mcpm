@@ -112,18 +112,18 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         };
         Ok::<_, anyhow::Error>((files, counts, source_loaders))
     })?;
-    let location = if remote {
-        crate::commands::source_support::identify::Location::Remote {
-            session: session.clone(),
-            environment: environment.clone(),
-        }
-    } else {
-        crate::commands::source_support::identify::Location::Local {
-            session: session.clone(),
-            environment: environment.clone(),
-        }
+    let target = crate::flows::identify::Target {
+        session: session.clone(),
+        cache: crate::commands::supports::mods::reuse::selection(&environment),
     };
-    let result = list::present(files, hide_unrecognized, display, counts, source_loaders, location);
+    let result = list::present(
+        files,
+        hide_unrecognized,
+        display,
+        counts,
+        source_loaders,
+        target,
+    );
     execution::finish(&runtime, &session)?;
     tracing::debug!(
         success = result.is_ok(),

@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_backend::data::runtime::RuntimeEnvironment;
 use mcpm_backend::mods::selection::SelectionSpec;
 use mcpm_backend::mods::types::{ModsCachePolicy, ModsScope};
 use mcpm_backend::mods::{JarRead, ReadEvent, ReadInput};
@@ -105,22 +104,16 @@ pub(super) fn run(args: ListArgs, ssh: SshArgs) -> Result<()> {
         };
         Ok::<_, anyhow::Error>((files, counts, source_loaders))
     })?;
-    let environment = RuntimeEnvironment::new().with_mods_cache(
-        (!args.cache.no_cache)
-            .then_some(mcpm_backend::data::cache::mods::ModsCacheSelection::Default),
-    );
-    let location = if remote {
-        crate::commands::source_support::identify::Location::Remote {
-            session: target.session.clone(),
-            environment: environment.clone(),
-        }
+    let cache = if args.cache.no_cache {
+        None
     } else {
-        crate::commands::source_support::identify::Location::Local {
-            session: target.session.clone(),
-            environment: environment.clone(),
-        }
+        Some(mcpm_backend::data::cache::mods::ModsCacheSelection::Default)
     };
-    let result = list::present(files, true, display, counts, source_loaders, location);
+    let identify = crate::flows::identify::Target {
+        session: target.session.clone(),
+        cache,
+    };
+    let result = list::present(files, true, display, counts, source_loaders, identify);
     execution::finish(&runtime, &target.session)?;
     result
 }

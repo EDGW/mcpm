@@ -6,6 +6,7 @@
 
 pub mod files;
 pub mod game;
+pub mod identify;
 pub mod provider;
 pub mod search;
 pub mod types;
@@ -14,4 +15,8 @@ pub use files::{
     FilesError, FilesInput, FilesOutput, FilesRequest, ProjectFiles, ProjectFilesResult,
 };
 pub use game::{GameVersions, GameVersionsError, GameVersionsInput};
+pub use identify::{
+    Identify, IdentifyError, IdentifyEvent, IdentifyFile, IdentifyInput, IdentifyOutcome,
+    IdentifyOutput,
+};
 pub use search::{Search, SearchError, SearchInput};

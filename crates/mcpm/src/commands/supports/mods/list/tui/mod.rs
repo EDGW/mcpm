@@ -6,7 +6,8 @@ use super::{
     filter::{self, Filter},
     rows::RowOptions,
 };
-use crate::commands::{execution::Runtime, source_support::identify::Location};
+use crate::commands::execution::Runtime;
+use crate::flows::identify::Target;
 use anyhow::{Context, Result};
 use crossterm::event;
 use mcpm_backend::source::types::FileRef;
@@ -28,7 +29,7 @@ mod tests;
 
 #[derive(Debug)]
 pub(super) struct Summary<'a> {
-    pub location: Location,
+    pub target: Target,
     pub ignored: usize,
     pub ignored_files: &'a [PathBuf],
     pub input_errors: usize,
@@ -53,7 +54,7 @@ pub(super) fn run(
     tracing::debug!(
         nodes = browser.nodes.len(),
         visible = browser.matches.len(),
-        local_files = summary.location.is_local(),
+        local_files = summary.target.is_local(),
         identify_parallelism,
         "Initialized mod list browser"
     );
@@ -63,7 +64,7 @@ pub(super) fn run(
             .map(|file| file.scanned.file.entry.path().to_owned())
             .collect(),
         identify_parallelism,
-        summary.location.clone(),
+        summary.target.clone(),
     )?;
     let mut screen = screen::Screen::new().context("failed to open mod list TUI")?;
     let mut redraw = true;
@@ -123,7 +124,7 @@ pub(super) fn run(
         tracing::debug!(?reference, "Opening source files from mod list");
         drop(screen);
         let result = crate::commands::source_support::files::open_selected(
-            summary.location.session(),
+            &summary.target.session,
             &reference.project.source.0,
             &runtime,
             &reference,

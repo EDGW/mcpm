@@ -64,7 +64,8 @@ pub(super) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
         );
     }
     let server = ServerMods::load(path)?;
-    let mut completion = Completion::new(&args.writing, &args.sources.selected()?)?;
+    let mut completion =
+        Completion::new(&args.writing, &args.sources.selected()?, &session)?;
     let mut output = Presentation::new(args.display);
     cache::run(
         selection,
@@ -74,12 +75,6 @@ pub(super) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
         || Ok(()),
         |event| completion.accept(event, &mut |event| output.event(event)),
     )?;
-    completion.finish(
-        crate::commands::source_support::identify::Location::Local {
-            session: session.clone(),
-            environment: server.runtime().clone(),
-        },
-        |event| output.event(event),
-    )?;
+    completion.finish(&session, server.runtime(), |event| output.event(event))?;
     output.finish()
 }

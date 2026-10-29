@@ -6,7 +6,8 @@ use anyhow::{Context, Result};
 use clap::Args;
 use thiserror::Error;
 
-use crate::commands::{execution::DEFAULT_PARALLELISM, source_support::identify::Location};
+use crate::commands::execution::DEFAULT_PARALLELISM;
+use crate::flows::identify::Target;
 use crate::terminal;
 
 use super::{scan::CacheSummary, selection::SelectedFile, source_path::PathArgs};
@@ -106,14 +107,14 @@ pub(in crate::commands) fn present(
     args: ListDisplayArgs,
     counts: Counts,
     source_loaders: Vec<String>,
-    location: Location,
+    target: Target,
 ) -> Result<()> {
     let Counts {
         input_errors,
         failed,
         cache,
     } = counts;
-    let local_files = location.is_local();
+    let local_files = target.is_local();
     let formatted = terminal::stdout_is_tty();
     let interactive = formatted && terminal::stderr_is_tty() && !args.no_ui;
     tracing::debug!(
@@ -176,7 +177,7 @@ pub(in crate::commands) fn present(
             args.identify_parallelism.get(),
             args.filter.unwrap_or_default(),
             tui::Summary {
-                location,
+                target,
                 ignored,
                 ignored_files: &ignored_files,
                 input_errors,

@@ -2,7 +2,6 @@
 
 use anyhow::{Result, ensure};
 use clap::Args;
-use mcpm_backend::data::runtime::RuntimeEnvironment;
 use mcpm_backend::mods::types::{ModsCachePolicy, ModsScope};
 use mcpm_backend::mods::{Select, SelectInput};
 use mcpm_backend::mods::selection::SelectionSpec;
@@ -93,21 +92,19 @@ pub(super) fn run(args: IdentifyArgs, ssh: SshArgs) -> Result<()> {
     if summary.paths.is_empty() {
         return Ok(());
     }
-    let environment = RuntimeEnvironment::new().with_mods_cache(
-        (!args.options.cache.no_cache).then_some(mcpm_backend::data::cache::mods::ModsCacheSelection::Default),
-    );
-    let location = if remote {
-        identify::Location::Remote {
-            session: target.session.clone(),
-            environment: environment.clone(),
-        }
+    let cache = if args.options.cache.no_cache {
+        None
     } else {
-        identify::Location::Local {
-            session: target.session.clone(),
-            environment: environment.clone(),
-        }
+        Some(mcpm_backend::data::cache::mods::ModsCacheSelection::Default)
     };
-    identify::run_paths_at(args.options, summary.paths, location)?;
+    identify::run_paths_at(
+        args.options,
+        summary.paths,
+        crate::flows::identify::Target {
+            session: target.session.clone(),
+            cache,
+        },
+    )?;
     crate::commands::execution::finish(&runtime, &target.session)?;
     ensure!(
         summary.failed == 0,

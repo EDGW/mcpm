@@ -49,7 +49,9 @@ pub(super) fn run(args: CacheArgs) -> Result<()> {
             .map(|path| ModsCacheSelection::Directory { path })
             .unwrap_or(ModsCacheSelection::Default),
     ));
-    let mut completion = Completion::new(&args.writing, &args.sources.selected()?)?;
+    let session = crate::commands::execution::local_session()?;
+    let mut completion =
+        Completion::new(&args.writing, &args.sources.selected()?, &session)?;
     let mut output = Presentation::new(args.display);
     cache::run(
         selection,
@@ -59,13 +61,6 @@ pub(super) fn run(args: CacheArgs) -> Result<()> {
         || Ok(()),
         |event| completion.accept(event, &mut |event| output.event(event)),
     )?;
-    let session = crate::commands::execution::local_session()?;
-    completion.finish(
-        crate::commands::source_support::identify::Location::Local {
-            session,
-            environment: environment.clone(),
-        },
-        |event| output.event(event),
-    )?;
+    completion.finish(&session, &environment, |event| output.event(event))?;
     output.finish()
 }

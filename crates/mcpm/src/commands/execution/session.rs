@@ -13,7 +13,7 @@ use crate::build_info;
 use crate::ssh::SshArgs;
 
 /// Builds a session for the target selected by global SSH options.
-pub(in crate::commands) fn session_for(ssh: &SshArgs) -> Result<Session> {
+pub(crate) fn session_for(ssh: &SshArgs) -> Result<Session> {
     let target = if ssh.is_requested() {
         Target::Remote(ssh.connection()?)
     } else {
@@ -23,7 +23,7 @@ pub(in crate::commands) fn session_for(ssh: &SshArgs) -> Result<Session> {
 }
 
 /// Builds a session for a resolved workspace, whose connection was already validated.
-pub(in crate::commands) fn session_for_workspace(resolved: &ResolvedWorkspace) -> Result<Session> {
+pub(crate) fn session_for_workspace(resolved: &ResolvedWorkspace) -> Result<Session> {
     let target = match &resolved.connection {
         Some(connection) => Target::Remote(connection.connection(default_executable())?),
         None => Target::Local,
@@ -32,12 +32,12 @@ pub(in crate::commands) fn session_for_workspace(resolved: &ResolvedWorkspace) -
 }
 
 /// Builds a session that always runs locally, for commands fixed to the local target.
-pub(in crate::commands) fn local_session() -> Result<Session> {
+pub(crate) fn local_session() -> Result<Session> {
     build(Target::Local)
 }
 
 /// The remote executable used when neither the caller nor a registration names one.
-pub(in crate::commands) fn default_executable() -> &'static str {
+pub(crate) fn default_executable() -> &'static str {
     crate::program::Program::McpmTools.name()
 }
 
@@ -52,7 +52,7 @@ fn build(target: Target) -> Result<Session> {
 }
 
 /// Gracefully closes a remote session so the remote process can acknowledge shutdown.
-pub(in crate::commands) fn finish(
+pub(crate) fn finish(
     runtime: &crate::commands::execution::Runtime,
     session: &Session,
 ) -> Result<()> {
@@ -65,7 +65,7 @@ pub(in crate::commands) fn finish(
 }
 
 /// Renders a surface-operation failure, which keeps its own error chain.
-pub(in crate::commands) fn surface_failure<E>(failure: Failure<E>) -> anyhow::Error
+pub(crate) fn surface_failure<E>(failure: Failure<E>) -> anyhow::Error
 where
     E: std::error::Error + Send + Sync + 'static,
 {
@@ -78,7 +78,7 @@ where
 }
 
 /// Renders one operation failure, preserving the remote origin for the display layer.
-pub(in crate::commands) fn failure<K>(
+pub(crate) fn failure<K>(
     failure: Failure<mcpm_backend::error::OperationError<K>>,
     remote: bool,
 ) -> anyhow::Error

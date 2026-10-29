@@ -140,7 +140,7 @@ pub(super) fn draw(
     }
     let cache = browser.identification_cache_summary();
     lines.push((
-        if summary.location.environment().cache.mods.is_none() {
+        if summary.target.cache.is_none() {
             "Identification cache: disabled".into()
         } else {
             format!(

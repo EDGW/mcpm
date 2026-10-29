@@ -5,10 +5,10 @@ use std::ops::Deref;
 use anyhow::{Context, Result};
 
 #[derive(Debug)]
-pub(in crate::commands) struct Runtime(Option<tokio::runtime::Runtime>);
+pub(crate) struct Runtime(Option<tokio::runtime::Runtime>);
 
 impl Runtime {
-    pub(in crate::commands) fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -18,7 +18,7 @@ impl Runtime {
     }
 
     /// Tokio drives I/O on its worker while synchronous callers use the shared handle.
-    pub(in crate::commands) fn with_workers<T>(
+    pub(crate) fn with_workers<T>(
         self,
         work: impl FnOnce(&tokio::runtime::Handle) -> Result<T>,
     ) -> Result<T> {

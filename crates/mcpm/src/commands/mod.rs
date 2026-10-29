@@ -6,7 +6,7 @@ pub(crate) mod client;
 mod confirm;
 pub(crate) mod customize;
 pub(crate) mod debug;
-mod execution;
+pub(crate) mod execution;
 pub(crate) mod mods;
 pub(crate) mod server;
 mod source_support;

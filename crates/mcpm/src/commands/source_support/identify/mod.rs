@@ -1,9 +1,5 @@
-//! Source-identification CLI options, ordered presentation and shared local acquisition.
+//! Source-identification CLI options and ordered presentation over the shared flow.
 
-use crate::commands::supports::mods::reuse::QueryArgs;
-use mcpm_backend::source::types::SourceId;
-use mcpm_backend::data::cache::mods::ModsCacheSelection;
-use mcpm_backend::data::runtime::RuntimeEnvironment;
 use std::{
     io::{self, Write},
     path::PathBuf,
@@ -11,17 +7,15 @@ use std::{
 
 use anyhow::{Result, ensure};
 use clap::Args;
+use mcpm_backend::data::cache::mods::ModsCacheSelection;
+use mcpm_backend::source::types::SourceId;
 use std::num::NonZeroUsize;
 
 use crate::commands::execution::{DEFAULT_PARALLELISM, Runtime};
+use crate::flows::identify::{self, Event, Outcome, Target};
 
 mod columns;
-mod model;
 mod output;
-mod worker;
-
-pub(in crate::commands) use model::{Event, Location, Outcome};
-pub(in crate::commands) use worker::{Identification, Sources, sources as prepare_sources};
 
 #[derive(Args, Debug)]
 #[command(
@@ -58,7 +52,7 @@ pub(in crate::commands) struct IdentifyOptions {
     #[arg(long)]
     headers: bool,
     #[command(flatten)]
-    pub cache: QueryArgs,
+    pub cache: crate::commands::supports::mods::reuse::QueryArgs,
 }
 
 impl IdentifyOptions {
@@ -84,7 +78,7 @@ impl std::fmt::Debug for IdentifyOptions {
 pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     ssh.validate()?;
     let paths = crate::commands::stdin::append(args.paths)?;
-    let environment = RuntimeEnvironment::new().with_mods_cache(if args.options.cache.no_cache {
+    let cache = if args.options.cache.no_cache {
         None
     } else {
         Some(
@@ -92,17 +86,10 @@ pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> 
                 .map(|path| ModsCacheSelection::Directory { path })
                 .unwrap_or(ModsCacheSelection::Default),
         )
-    });
+    };
     if !ssh.is_requested() {
         let session = crate::commands::execution::local_session()?;
-        return present(
-            args.options,
-            paths,
-            Location::Local {
-                session: session.clone(),
-                environment: environment.clone(),
-            },
-        );
+        return present(args.options, paths, Target { session, cache });
     }
     ensure!(
         !paths.is_empty(),
@@ -110,35 +97,29 @@ pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> 
     );
     let _span = tracing::info_span!("source_identify", source = "ssh").entered();
     let session = crate::commands::execution::session_for(&ssh)?;
-    present(
-        args.options,
-        paths,
-        Location::Remote {
-            session: session.clone(),
-            environment: environment.clone(),
-        },
-    )
+    present(args.options, paths, Target { session, cache })
 }
 
 /// Identifies paths using resources selected by the caller on their owning host.
 pub(in crate::commands) fn run_paths_at(
     options: IdentifyOptions,
     paths: Vec<PathBuf>,
-    location: Location,
+    target: Target,
 ) -> Result<()> {
-    present(options, paths, location)
+    present(options, paths, target)
 }
 
-fn present(options: IdentifyOptions, paths: Vec<PathBuf>, location: Location) -> Result<()> {
+fn present(options: IdentifyOptions, paths: Vec<PathBuf>, target: Target) -> Result<()> {
     ensure!(
         !paths.is_empty(),
         "provide file paths as arguments or one per stdin line"
     );
     let started = std::time::Instant::now();
+    let remote = !target.is_local();
     tracing::info!(
         files = paths.len(),
         parallelism = options.parallelism.get(),
-        remote = !location.is_local(),
+        remote,
         "Starting source identify command"
     );
     tracing::debug!(?options, "Selected source identify options");
@@ -174,7 +155,10 @@ fn present(options: IdentifyOptions, paths: Vec<PathBuf>, location: Location) ->
             );
         }
         if let Event::Item {
-            indices, outcome, ..
+            indices,
+            outcome,
+            remote: item_remote,
+            ..
         } = event
         {
             for index in indices {
@@ -187,12 +171,12 @@ fn present(options: IdentifyOptions, paths: Vec<PathBuf>, location: Location) ->
                     break;
                 };
                 match outcome {
-                    Outcome::Matched { file } => output::write_match(
+                    Outcome::Matched { file, .. } => output::write_match(
                         &mut output,
                         next + 1,
                         &paths[next],
                         &source,
-                        Some(&file),
+                        Some(file.as_ref()),
                         &columns,
                     )?,
                     Outcome::Unmatched => output::write_match(
@@ -203,16 +187,16 @@ fn present(options: IdentifyOptions, paths: Vec<PathBuf>, location: Location) ->
                         None,
                         &columns,
                     )?,
-                    Outcome::Failed { error, remote } => {
+                    Outcome::Failed { error } => {
                         let error = error.into_error();
-                        let error = if remote {
+                        let error = if item_remote {
                             crate::diagnostics::RemoteError::wrap(error)
                         } else {
                             error
                         };
                         progress.report(&error);
                         failed += 1;
-                        remote_failure |= remote;
+                        remote_failure |= item_remote;
                     }
                 }
                 next += 1;
@@ -222,13 +206,13 @@ fn present(options: IdentifyOptions, paths: Vec<PathBuf>, location: Location) ->
         Ok(())
     };
     let result = runtime.block_on(async {
-        Identification::start(
+        identify::run(
+            target,
+            vec![options.source],
             paths.clone(),
-            &[options.source],
             options.parallelism.get(),
-            location,
-        )?
-        .run(&mut emit)
+            &mut emit,
+        )
         .await
     });
     drop(progress);

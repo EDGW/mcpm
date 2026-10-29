@@ -1,15 +1,22 @@
-//! Ordered source refresh with per-source outcomes and the resulting stored snapshot.
+//! Ordered source refresh through the shared identification pipeline.
 
-use crate::commands::{
-    execution::Runtime,
-    source_support::SourcesArgs,
+use crate::{
+    commands::{
+        execution::Runtime,
+        source_support::SourcesArgs,
+    },
+    flows::{
+        cache_ident_refresh::{self, CacheObject, Status},
+        identify::{self, Target},
+    },
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use clap::Args;
 use mcpm_backend::data::cache::{
     hash::Blake3Hash,
-    mods::{MetadataRefresh, ModsCacheDir},
+    mods::{MetadataRefresh, ModsCacheDir, ModsCacheSelection, ident::RefreshStatus},
 };
+use mcpm_backend::source::types::SourceId;
 use std::collections::HashSet;
 
 use super::super::batch;
@@ -33,35 +40,45 @@ pub(super) fn run(
     output: &mut Presentation<'_>,
 ) -> Result<()> {
     Runtime::new()?.with_workers(|runtime| {
-        let selected = args.sources.selected()?;
-        let environment = mcpm_backend::SurfaceEnv::new()?;
-        let sources = selected
-            .iter()
-            .map(|spec| environment.source(spec))
-            .collect::<Result<Vec<_>>>()?;
+        let specifications = args.sources.selected()?;
+        let selection = ModsCacheSelection::Directory {
+            path: cache.path().to_owned(),
+        };
+        let target = Target {
+            session: crate::commands::execution::local_session()?,
+            cache: Some(selection),
+        };
         let mut seen = HashSet::new();
-        for source in &sources {
+        for profile in
+            runtime.block_on(identify::profiles(&target.session, &specifications))?
+        {
             ensure!(
-                seen.insert(source.identification_cache_id()),
+                seen.insert(profile.cache_key),
                 "select each identification source only once"
             );
         }
+        let force = mode == MetadataRefresh::Force;
         batch::run(
             &ids,
             parallelism,
             batch::FailurePolicy::Stop,
             |id| {
                 runtime.block_on(async {
-                    let mut results = Vec::with_capacity(sources.len());
-                    for source in &sources {
-                        let outcome = cache
-                            .refresh_ident_info_with_outcome(id, source.as_ref(), mode)
-                            .await
-                            .with_context(|| {
-                                format!("failed to refresh source identification for {id}")
-                            })?;
-                        results.push((source.identification_cache_id(), outcome.status));
-                    }
+                    let object = CacheObject {
+                        key: id.to_string(),
+                        path: cache.content_path(&id),
+                    };
+                    let results = cache_ident_refresh::refresh(
+                        target.clone(),
+                        force,
+                        specifications.clone(),
+                        object,
+                    )
+                    .await?;
+                    let results: Vec<(SourceId, RefreshStatus)> = results
+                        .into_iter()
+                        .map(|(source, status)| (source, status.into()))
+                        .collect();
                     Ok(results)
                 })
             },
@@ -71,4 +88,14 @@ pub(super) fn run(
             },
         )
     })
+}
+
+impl From<Status> for RefreshStatus {
+    fn from(status: Status) -> Self {
+        match status {
+            Status::Reused => Self::Reused,
+            Status::Matched => Self::Matched,
+            Status::Unmatched => Self::Unmatched,
+        }
+    }
 }

@@ -77,7 +77,7 @@ pub(super) fn run(
     sources: SourcesArgs,
     display: DisplayArgs,
 ) -> Result<()> {
-    let mut completion = Completion::new(&writing, &sources.selected()?)?;
+    let mut completion = Completion::new(&writing, &sources.selected()?, identify_session)?;
     let mut session = ssh.connect()?;
     let mut output = Presentation::remote(display);
     let mut environment = None;
@@ -103,13 +103,9 @@ pub(super) fn run(
             )
         })?;
     let environment = environment.context("missing remote cache environment")?;
-    completion.finish(
-        crate::commands::source_support::identify::Location::Remote {
-            session: identify_session.clone(),
-            environment: environment.clone(),
-        },
-        |event| output.event(event),
-    )?;
+    completion.finish(identify_session, &environment, |event| {
+        output.event(event)
+    })?;
     session.close()?;
     output.finish()
 }

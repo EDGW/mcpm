@@ -50,12 +50,10 @@ fn fixture(expanded: bool) -> Browser {
     )
 }
 fn summary() -> Summary<'static> {
-    static ENVIRONMENT: std::sync::LazyLock<RuntimeEnvironment> =
-        std::sync::LazyLock::new(|| RuntimeEnvironment::new().with_mods_cache(None));
     Summary {
-        location: Location::Local {
+        target: crate::flows::identify::Target {
             session: crate::commands::execution::local_session().unwrap(),
-            environment: ENVIRONMENT.clone(),
+            cache: None,
         },
         ignored: 0,
         ignored_files: &[],
