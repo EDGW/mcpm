@@ -40,13 +40,13 @@ mcpm-tools mods deps example.jar --loader fabric
 mcpm-tools --raw mods list mods/ -C MF > mods.tsv
 ```
 
-使用 `cargo build --manifest-path mcpm/Cargo.toml --release --bins` 构建全部五个程序。
-`cargo run --manifest-path mcpm/Cargo.toml -- info` 默认启动 `mcpm`。
+使用 `cargo build --manifest-path crates/mcpm/Cargo.toml --release --bins` 构建全部五个程序。
+`cargo run --manifest-path crates/mcpm/Cargo.toml -- info` 默认启动 `mcpm`。
 其他入口使用 `--bin` 选择：
 
 ```sh
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpmc -- list
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods list
+cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpmc -- list
+cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpm-tools -- mods list
 ```
 
 ## 全局选项

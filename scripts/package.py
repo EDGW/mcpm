@@ -16,7 +16,7 @@ import zipfile
 def package(binary_dir, output_dir, asset, target, tag=None):
     repo = Path(__file__).resolve().parents[1]
     metadata = json.loads(subprocess.check_output([
-        'cargo', 'metadata', '--manifest-path', str(repo / 'mcpm/Cargo.toml'),
+        'cargo', 'metadata', '--manifest-path', str(repo / 'crates/mcpm/Cargo.toml'),
         '--no-deps', '--format-version', '1', '--locked',
     ]))
     crate = next(item for item in metadata['packages'] if item['name'] == 'mcpm')

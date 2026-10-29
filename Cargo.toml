@@ -1,0 +1,48 @@
+[workspace]
+members = ["crates/mcpm", "crates/mcpm-backend"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+anyhow = { version = "1.0.104" }
+arboard = { version = "3", default-features = false }
+async-trait = { version = "0.1" }
+blake3 = { version = "1" }
+chrono = { version = "0.4", default-features = false }
+clap = { version = "4" }
+console = { version = "0.16" }
+crossterm = { version = "0.29", default-features = false }
+dirs = { version = "6" }
+imohash = { version = "0.1.2" }
+indicatif = { version = "0.18" }
+inventory = { version = "0.3" }
+lazy_static = { version = "1.5.1" }
+mcpm-backend = { path = "crates/mcpm-backend" }
+md-5 = { version = "0.10" }
+murmur3 = { version = "0.5" }
+owo-colors = { version = "4" }
+ratatui = { version = "0.30", default-features = false }
+regex = { version = "1" }
+reqwest = { version = "0.12", default-features = false }
+rusqlite = { version = "0.38" }
+serde = { version = "1" }
+serde_json = { version = "1.0.154" }
+sha1 = { version = "0.10" }
+sha2 = { version = "0.10" }
+shlex = { version = "1.3" }
+tempfile = { version = "3.27.0" }
+terminal-colorsaurus = { version = "1" }
+textwrap = { version = "0.16" }
+thiserror = { version = "2.0.21" }
+tokio = { version = "1" }
+toml = { version = "1.1.8" }
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3", default-features = false }
+unicode-segmentation = { version = "1" }
+unicode-width = { version = "0.2" }
+url = { version = "2" }
+uuid = { version = "1" }
+windows-sys = { version = "0.61" }
+zip = { version = "9.0.3", default-features = false }

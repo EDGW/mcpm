@@ -18,13 +18,13 @@ mixed case, and an omitted type using its default.
 Rebuild the deterministic archive with:
 
 ```sh
-python3 mcpm/tests/fixtures/build_complex_mod.py
+python3 crates/mcpm/tests/fixtures/build_complex_mod.py
 ```
 
 Run the CLI output test with:
 
 ```sh
-cargo test --manifest-path mcpm/Cargo.toml --test complex_mod_output -- --nocapture
+cargo test --manifest-path crates/mcpm/Cargo.toml --test complex_mod_output -- --nocapture
 ```
 
 The test checks the loader-specific archive trees, direct Mod counts, relative
@@ -46,8 +46,8 @@ expected output: inspect changes against the fixture declarations first.
 For an interactive preview of the colors:
 
 ```sh
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods info mcpm/tests/fixtures/complex-mod.jar
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods deps mcpm/tests/fixtures/complex-mod.jar
+cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpm-tools -- mods info crates/mcpm/tests/fixtures/complex-mod.jar
+cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpm-tools -- mods deps crates/mcpm/tests/fixtures/complex-mod.jar
 ```
 
 ## Client profiles
@@ -64,8 +64,8 @@ profiles remain visible without causing a successful directory listing to fail.
 bytecode. The fixtures do not establish server authenticity or launchability.
 
 ```sh
-python3 mcpm/tests/fixtures/build_server_fixtures.py
-cargo test --manifest-path mcpm/Cargo.toml --test server_init
+python3 crates/mcpm/tests/fixtures/build_server_fixtures.py
+cargo test --manifest-path crates/mcpm/Cargo.toml --test server_init
 ```
 
 Success cases cover Forge, NeoForge, early NeoForge with Forge argument names,
@@ -119,5 +119,5 @@ mismatches and isolated roots. Its README documents expected states and commands
 for previewing `--rule`, `--problem` and colors. Rebuild with:
 
 ```sh
-python3 mcpm/tests/fixtures/build_dependency_problems.py
+python3 crates/mcpm/tests/fixtures/build_dependency_problems.py
 ```

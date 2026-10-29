@@ -1,0 +1,58 @@
+[package]
+name = "mcpm"
+version = "0.1.0-dev.26w43d"
+edition.workspace = true
+default-run = "mcpm"
+
+[[bin]]
+name = "mcpm"
+path = "src/bin/mcpm.rs"
+
+[[bin]]
+name = "mcpm-server"
+path = "src/bin/mcpm-server.rs"
+
+[[bin]]
+name = "mcpmc"
+path = "src/bin/mcpmc.rs"
+
+[[bin]]
+name = "mcpm-client"
+path = "src/bin/mcpm-client.rs"
+
+[[bin]]
+name = "mcpm-tools"
+path = "src/bin/mcpm-tools.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+arboard = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+chrono = { workspace = true, features = ["clock"] }
+console = { workspace = true }
+crossterm = { workspace = true, features = ["events", "windows"] }
+indicatif = { workspace = true }
+inventory = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v4"] }
+terminal-colorsaurus = { workspace = true }
+ratatui = { workspace = true, features = ["crossterm_0_29", "unstable-rendered-line-info"] }
+regex = { workspace = true }
+mcpm-backend = { workspace = true }
+owo-colors = { workspace = true }
+reqwest = { workspace = true, features = ["rustls-tls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+toml = { workspace = true }
+dirs = { workspace = true }
+shlex = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "net", "time", "macros", "sync"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "ansi", "registry"] }
+unicode-width = { workspace = true }
+unicode-segmentation = { workspace = true }
+tempfile = { workspace = true }
+textwrap = { workspace = true, features = ["terminal_size"] }
+
+[build-dependencies]
+anyhow = { workspace = true }

@@ -65,9 +65,6 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            mcpm -> target
-            mcpm-backend -> target
           key: ${{ matrix.target }}
 
       - name: Install Zig
@@ -82,19 +79,19 @@ jobs:
 
       - name: Build Linux binary
         if: runner.os == 'Linux'
-        working-directory: mcpm
+        working-directory: crates/mcpm
         env:
           ZIG_TARGET: ${{ matrix.zig_target }}
         run: cargo zigbuild --release --bins --locked --target "$ZIG_TARGET"
 
       - name: Test Windows environment names
         if: runner.os == 'Windows'
-        run: cargo test --manifest-path mcpm-backend/Cargo.toml --locked --lib env_name
+        run: cargo test --manifest-path crates/mcpm-backend/Cargo.toml --locked --lib env_name
 
       - name: Build macOS or Windows binary
         if: runner.os != 'Linux'
         shell: bash
-        working-directory: mcpm
+        working-directory: crates/mcpm
         env:
           TARGET: ${{ matrix.target }}
         run: cargo build --release --bins --locked --target "$TARGET"
@@ -105,7 +102,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           ASSET: ${{ matrix.asset }}
         run: |
-          args=(--binary-dir "mcpm/target/$TARGET/release" --target "$TARGET" --asset "$ASSET")
+          args=(--binary-dir "target/$TARGET/release" --target "$TARGET" --asset "$ASSET")
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             args+=(--tag "$GITHUB_REF_NAME")
           fi
@@ -118,7 +115,7 @@ jobs:
       - name: Test Windows installer lifecycle
         if: runner.os == 'Windows'
         shell: powershell
-        run: ./scripts/tests/install.Tests.ps1 -BinaryDir "mcpm/target/${{ matrix.target }}/release"
+        run: ./scripts/tests/install.Tests.ps1 -BinaryDir "target/${{ matrix.target }}/release"
 
       - name: Upload suite and checksum
         uses: actions/upload-artifact@v4
