@@ -40,13 +40,13 @@ mcpm-tools mods deps example.jar --loader fabric
 mcpm-tools --raw mods list mods/ -C MF > mods.tsv
 ```
 
-Build all five executables with `cargo build --manifest-path mcpm/Cargo.toml --release --bins`.
-`cargo run --manifest-path mcpm/Cargo.toml -- info` starts `mcpm` by default.
+Build all five executables with `cargo build --manifest-path crates/mcpm/Cargo.toml --release --bins`.
+`cargo run --manifest-path crates/mcpm/Cargo.toml -- info` starts `mcpm` by default.
 Select another executable with `--bin`, for example:
 
 ```sh
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpmc -- list
-cargo run --manifest-path mcpm/Cargo.toml --bin mcpm-tools -- mods list
+cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpmc -- list
+cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpm-tools -- mods list
 ```
 
 ## Global options

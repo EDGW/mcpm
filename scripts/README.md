@@ -40,7 +40,7 @@ Uninstall removes only recorded executables and owned links/PATH entries. Unknow
 ```sh
 shellcheck scripts/install.sh
 python3 scripts/tests/test_install.py
-python3 scripts/package.py --binary-dir mcpm/target/debug \
+python3 scripts/package.py --binary-dir target/debug \
   --target aarch64-apple-darwin --asset mcpm-macos-arm64 \
   --tag v0.1.0-dev.26w43d
 ```
@@ -50,7 +50,7 @@ Adjust target and asset to the host. Packaging runs the executables, so the buil
 On Windows, use PowerShell 5.1 or newer:
 
 ```powershell
-./scripts/tests/install.Tests.ps1 -BinaryDir mcpm/target/x86_64-pc-windows-msvc/release
+./scripts/tests/install.Tests.ps1 -BinaryDir target/x86_64-pc-windows-msvc/release
 ```
 
 Unix tests inject local download and filesystem failures in an isolated home. Windows tests use a locally generated archive and restore the original environment and user PATH in `finally`. They exercise repair, checksum and incomplete-package rejection, rollback, concurrent-install refusal, legacy preservation, and PATH ownership. CI runs these checks before uploading release assets.
