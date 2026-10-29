@@ -1,13 +1,13 @@
 //! Shared inspection acquisition, data and local presentation for file and server commands.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 use std::{
     collections::HashMap,
     io::{self, Write},
 };
 
 use anyhow::{Context, Result};
-use mcpm_backend::local::modloader::{LoaderId, ModLoaderMeta};
+use kako_mc_lib::local::modloader::{LoaderId, ModLoaderMeta};
 
 use super::{
     selection::{Scope, Selection},

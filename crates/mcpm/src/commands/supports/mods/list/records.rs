@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
-use mcpm_backend::local::{
+use kako_mc_lib::local::{
     mcmod::{ModEntry, ModEntryName, ModFile},
     modloader::{BUILTIN_LOADERS, ModLoaderMeta},
 };
@@ -138,13 +138,13 @@ fn loader(id: &str) -> Result<ModLoaderMeta> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mcpm_backend::local::mcmod::MetadataConversionError;
+    use kako_mc_lib::local::mcmod::MetadataConversionError;
     use serde_json::{Value, json};
 
     #[test]
     fn selected_records_preserve_nested_diagnostics_across_transport() {
         use crate::diagnostics::ErrorReport;
-        use mcpm_backend::error::CombinedError;
+        use kako_mc_lib::error::CombinedError;
 
         let error = anyhow::Error::new(CombinedError::new(
             anyhow::anyhow!("archive corrupt").context("cannot read fabric metadata"),

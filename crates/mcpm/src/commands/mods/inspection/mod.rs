@@ -1,6 +1,6 @@
 //! Shared file-command dispatch for local and SSH inspection; no command-specific presentation.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 use std::path::PathBuf;
 
 use anyhow::Result;

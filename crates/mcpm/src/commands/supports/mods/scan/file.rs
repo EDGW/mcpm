@@ -1,12 +1,13 @@
 //! Adapts library identification reports to command-local scan results and diagnostics.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use mcpm_backend::local::{
-    mcmod::{self, IdentificationErrorAction, ModCacheReuse, ModEntry},
+use kako_mc_lib::local::{
+    mcmod::{IdentificationErrorAction, ModEntry},
     modloader::{LoaderId, ModLoaderMeta},
 };
+use mcpm_backend::data::cache::{self, mods::ModCacheReuse};
 
 use super::{FailedIdentification, ScannedFile};
 use crate::{commands::supports::mods::loaders, diagnostics::ErrorReport};
@@ -40,7 +41,7 @@ pub(super) fn read(
     let mut errors = Vec::new();
     let mut failures = Vec::new();
     let result = ModEntry::new(path.clone()).and_then(|entry| {
-        mcmod::open(entry, loaders.clone(), environment, |_, loader, _, error| {
+        cache::mods::open(entry, loaders.clone(), environment, |_, loader, _, error| {
             tracing::debug!(path = %path.display(), loader = %loader.id(), error = %format_args!("{error:#}"), "Mod loader identification failed");
             let report = ErrorReport::capture(error);
             failures.push(FailedIdentification {

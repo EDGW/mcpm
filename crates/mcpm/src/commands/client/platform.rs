@@ -3,7 +3,7 @@
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use mcpm_backend::local::mc::client::{ClientPlatform, RuleEnvironment};
+use kako_mc_lib::local::mc::client::{ClientPlatform, RuleEnvironment};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

@@ -1,7 +1,7 @@
 //! CLI adapter for selecting and explicitly caching whole mod archives and metadata.
 
-use mcpm_backend::local::cache::mods::ModsCacheSelection;
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_backend::data::cache::mods::ModsCacheSelection;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 use std::path::PathBuf;
 
 use anyhow::Result;

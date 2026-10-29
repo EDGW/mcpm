@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use mcpm_backend::source::{FilePage, ProjectFile, ProjectRef, ReleaseType};
+use kako_mc_lib::source::{FilePage, ProjectFile, ProjectRef, ReleaseType};
 
 use crate::{
     display::console::ConsoleWriter,

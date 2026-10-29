@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use mcpm_backend::source::SearchPage;
+use kako_mc_lib::source::SearchPage;
 use unicode_width::UnicodeWidthStr;
 
 use super::columns::Column;

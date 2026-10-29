@@ -2,10 +2,9 @@
 
 use std::path::PathBuf;
 
-use mcpm_backend::local::mc::server::{
-    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader,
-    config::{ConfigurationDraft, Published},
-    identify::ServerCandidate,
+use mcpm_backend::data::server::config::{ConfigurationDraft, Published};
+use mcpm_backend::data::server::{
+    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerCandidate, ServerModLoader,
 };
 use serde::{Deserialize, Serialize};
 

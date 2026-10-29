@@ -7,9 +7,9 @@ use std::{
     thread,
 };
 
-use mcpm_backend::local::{
-    cache::{CacheDir, CacheLinkPreference, codec::CacheDirMetadata, hash::Blake3Hash},
-    files::FileIdentity,
+use kako_mc_lib::local::files::FileIdentity;
+use mcpm_backend::data::cache::{
+    CacheDir, CacheLinkPreference, codec::CacheDirMetadata, hash::Blake3Hash,
 };
 use tempfile::TempDir;
 

@@ -1,9 +1,7 @@
 //! Borrowed display views for runtime, cached and selected Mod declarations.
 
-use mcpm_backend::local::{
-    cache::mods::meta::CachedIdentification,
-    mcmod::{CachedModMeta, ModInfo, ModMeta},
-};
+use kako_mc_lib::local::mcmod::{CachedModMeta, ModInfo, ModMeta};
+use mcpm_backend::data::cache::mods::meta::CachedIdentification;
 
 pub(crate) struct Declaration<'a> {
     pub info: &'a ModInfo,

@@ -7,10 +7,8 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use mcpm_backend::local::{
-    cache::{CacheLinkPreference, hash::Blake3Hash, mods::ModsCacheDir},
-    mc::server::{MinecraftServer, MinecraftServerMetadata, stash},
-};
+use mcpm_backend::data::cache::{CacheLinkPreference, hash::Blake3Hash, mods::ModsCacheDir};
+use mcpm_backend::data::server::{MinecraftServer, MinecraftServerMetadata, stash};
 
 struct Fixture {
     root: tempfile::TempDir,

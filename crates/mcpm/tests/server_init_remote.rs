@@ -7,7 +7,7 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use mcpm_backend::local::mc::server::SERVER_METADATA_VERSION;
+use mcpm_backend::data::server::SERVER_METADATA_VERSION;
 use serde_json::{Value, json};
 
 fn persisted(mut metadata: Value) -> Value {

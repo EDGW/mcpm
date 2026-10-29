@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, ensure};
-use mcpm_backend::local::mc::server::MinecraftServer;
+use mcpm_backend::data::server::MinecraftServer;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

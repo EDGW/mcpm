@@ -4,10 +4,8 @@ use std::{io::Write, path::PathBuf};
 
 use anyhow::Result;
 use clap::ValueEnum;
-use mcpm_backend::local::{
-    mc::server::stash::{Stash, Status, WorkspaceState},
-    mcmod::backup::{FileDifference, Manifest},
-};
+use mcpm_backend::data::mods::backup::{FileDifference, Manifest};
+use mcpm_backend::data::server::stash::{Stash, Status, WorkspaceState};
 
 use super::{
     backup,

@@ -1,9 +1,7 @@
 //! CLI server identification and initialization using declarations rather than launch validation.
 
-use mcpm_backend::local::{
-    mc::server::{MinecraftServer, identify},
-    modloader::BUILTIN_LOADERS,
-};
+use kako_mc_lib::local::modloader::BUILTIN_LOADERS;
+use mcpm_backend::data::server::{MinecraftServer, identify};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -84,7 +82,7 @@ fn init_identifies_loaders_and_publishes_configuration_without_legacy_command() 
             assert_eq!(info.version, version);
         }
         assert!(server.metadata().start.is_none());
-        let launch = mcpm_backend::local::mc::server::config::decode_launch(
+        let launch = mcpm_backend::data::server::config::decode_launch(
             &fs::read_to_string(temp.path().join("launch.toml")).unwrap(),
         )
         .unwrap();
@@ -95,7 +93,7 @@ fn init_identifies_loaders_and_publishes_configuration_without_legacy_command() 
                 .iter()
                 .all(|arg| !arg.starts_with('@'))
         );
-        mcpm_backend::local::mc::server::config::decode_conf(
+        mcpm_backend::data::server::config::decode_conf(
             &fs::read_to_string(temp.path().join("conf.toml")).unwrap(),
         )
         .unwrap();
@@ -129,7 +127,7 @@ fn fml_uses_command_evidence_without_opening_dependency_jars() {
                 "helper \"$UNRESOLVED_HELPER\"\njava -jar absent-helper.jar\n"
             };
             fs::write(&path, format!("{helper}{original}")).unwrap();
-            let candidates = identify::identify(temp.path(), script, &BUILTIN_LOADERS).unwrap();
+            let candidates = identify(temp.path(), script, &BUILTIN_LOADERS).unwrap();
             // Conflict fixtures change only the shell argument file.
             let expected_version = if case == "loader-version-conflict" && script == "run.bat" {
                 "47.3.12"
@@ -160,7 +158,7 @@ fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
             // The intermediary coordinate already supplies the game version.
             fs::remove_file(temp.path().join("server.jar")).unwrap();
         }
-        let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
+        let candidates = identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
         assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1", "{case}");
         assert_eq!(
             candidates[0].metadata.loader.as_ref().unwrap().version,
@@ -173,10 +171,10 @@ fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
     copy(&fixture("fabric"), temp.path());
     fs::write(temp.path().join("run.sh"), "java -cp libraries/net/fabricmc/fabric-loader/0.16.10/fabric-loader-0.16.10.jar net.fabricmc.loader.impl.launch.knot.KnotServer\n").unwrap();
     fs::remove_dir_all(temp.path().join("libraries")).unwrap();
-    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
+    let candidates = identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
     assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1");
     fs::remove_file(temp.path().join("server.jar")).unwrap();
-    assert!(identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).is_err());
+    assert!(identify(temp.path(), "run.sh", &BUILTIN_LOADERS).is_err());
 }
 
 #[test]
@@ -236,7 +234,7 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
 fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identified_results() {
     let temp = TempDir::new().unwrap();
     copy(&fixture("multiple"), temp.path());
-    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
+    let candidates = identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
     assert_eq!(candidates.len(), 2);
     for args in [
         vec!["init", "--start-script", "run.sh"],
@@ -257,13 +255,13 @@ fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identif
     );
     let server = MinecraftServer::load(temp.path()).unwrap();
     assert_eq!(server.metadata().minecraft_version, "1.21.1");
-    let launch = mcpm_backend::local::mc::server::config::decode_launch(
+    let launch = mcpm_backend::data::server::config::decode_launch(
         &fs::read_to_string(temp.path().join("launch.toml")).unwrap(),
     )
     .unwrap();
     assert_eq!(
         launch.entry,
-        mcpm_backend::local::mc::server::launch::JavaEntry::Jar {
+        kako_mc_lib::local::mc::server::launch::JavaEntry::Jar {
             path: "other.jar".into()
         }
     );

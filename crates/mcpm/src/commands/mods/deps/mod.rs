@@ -1,6 +1,6 @@
 //! Resolves user-selected mod files for shared deps inspection.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 use std::path::PathBuf;
 
 use anyhow::Result;

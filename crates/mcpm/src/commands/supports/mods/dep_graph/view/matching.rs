@@ -1,6 +1,6 @@
 //! Candidate and target matching shared by graph rule filtering and display colors.
 
-use mcpm_backend::local::{
+use kako_mc_lib::local::{
     mcmod::{
         ModInfo,
         dependency::{

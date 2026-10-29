@@ -7,12 +7,12 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use mcpm_backend::local::cache::mods::CacheStatus;
-use mcpm_backend::local::cache::mods::CacheUnavailableReason;
-use mcpm_backend::local::cache::mods::ModsCacheDir;
-use mcpm_backend::local::cache::mods::meta::CachedIdentification;
-use mcpm_backend::local::files::FileIdentity;
-use mcpm_backend::local::modloader::BUILTIN_LOADERS;
+use kako_mc_lib::local::files::FileIdentity;
+use kako_mc_lib::local::modloader::BUILTIN_LOADERS;
+use mcpm_backend::data::cache::mods::CacheStatus;
+use mcpm_backend::data::cache::mods::CacheUnavailableReason;
+use mcpm_backend::data::cache::mods::ModsCacheDir;
+use mcpm_backend::data::cache::mods::meta::CachedIdentification;
 use serde_json::Value;
 
 fn fixture(relative: &str) -> PathBuf {

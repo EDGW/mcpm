@@ -8,10 +8,9 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use mcpm_backend::local::{
-    cache::{CacheLinkPreference, mods::ModsCacheDir},
-    mcmod::backup::{self, CreateOptions, CreateStorage},
-};
+use mcpm_backend::data::cache::{CacheLinkPreference, mods::ModsCacheDir};
+use mcpm_backend::data::mods::backup::{self, CreateOptions, CreateStorage};
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 
 fn run(root: &Path, operation: &str, paths: &[&str], input: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
@@ -55,8 +54,8 @@ fn arguments_and_literal_stdin_paths_verify_all_backups_after_a_failure() {
     let created = backup::create(
         &source,
         &valid,
-        &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_backup_cache(
-            mcpm_backend::local::cache::mods::ModsCacheSelection::Directory {
+        &RuntimeEnvironment::new().with_backup_cache(
+            mcpm_backend::data::cache::mods::ModsCacheSelection::Directory {
                 path: cache.path().to_owned(),
             },
         ),
@@ -114,8 +113,8 @@ fn deletion_combines_arguments_and_stdin_and_continues_after_a_refused_directory
         backup::create(
             &source,
             &root.path().join(name),
-            &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_backup_cache(
-                mcpm_backend::local::cache::mods::ModsCacheSelection::Directory {
+            &RuntimeEnvironment::new().with_backup_cache(
+                mcpm_backend::data::cache::mods::ModsCacheSelection::Directory {
                     path: cache.path().to_owned(),
                 },
             ),
@@ -148,8 +147,8 @@ fn deletion_combines_arguments_and_stdin_and_continues_after_a_refused_directory
     backup::create(
         &source,
         &root.path().join("last backup"),
-        &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_backup_cache(
-            mcpm_backend::local::cache::mods::ModsCacheSelection::Directory {
+        &RuntimeEnvironment::new().with_backup_cache(
+            mcpm_backend::data::cache::mods::ModsCacheSelection::Directory {
                 path: cache.path().to_owned(),
             },
         ),

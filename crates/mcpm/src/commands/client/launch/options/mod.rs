@@ -6,7 +6,10 @@ mod process;
 mod runtime;
 
 use clap::Args;
-use mcpm_backend::local::mc::client::{MinecraftVersion, RuleEnvironment, launch::LaunchOptions};
+use kako_mc_lib::local::mc::client::{
+    MinecraftVersion, RuleEnvironment,
+    launch::{LaunchOptions, LauncherInfo},
+};
 
 #[derive(Args, Debug)]
 pub(super) struct OptionArgs {
@@ -30,6 +33,7 @@ impl OptionArgs {
             self.runtime.java.clone(),
             self.identity.build(),
             rules.clone(),
+            LauncherInfo::new("mcpm"),
         );
         self.runtime.apply(&mut options);
         self.game.apply(&mut options, version)?;

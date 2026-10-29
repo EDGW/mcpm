@@ -1,17 +1,19 @@
 # Mod and source cache conventions
 
 All content, directory management, atomic publication, transfers and imohash lookup
-are owned by `local::cache`. See [Generic local cache](local-cache.md) for the version
+are owned by `data::cache`. See [Generic local cache](local-cache.md) for the version
 3 directory protocol and public storage API.
 
 ## Responsibilities and selection
 
-- `local::cache::mods::ModsCacheDir` is the Mod cache entry point, privately wrapping the generic `CacheDir`.
+- `data::cache::mods::ModsCacheDir` is the Mod cache entry point, privately wrapping the generic `CacheDir`.
 - Generic caching owns content and named metadata; `meta` and `ident` are Mod-specific metadata names.
 - Import stores content only. `ModsCacheDir::verify` checks content structure/BLAKE3 without interpreting metadata.
 
-- `local::cache::mods::meta` owns Loader snapshots and Mod refresh policy.
-- `local::cache::mods::ident` owns source `FileMatch` snapshots and source refresh policy.
+- `data::cache::mods::meta` owns Loader snapshots and Mod refresh policy.
+- `data::cache::mods::ident` owns source `FileMatch` snapshots and source refresh policy.
+- `data::cache::mods::open` composes cached recognition with `kako_mc_lib` loader
+  identification; the library's own `open`/`identify` never consult a cache.
 - Both use `CacheDir` and typed `Codec` operations. Neither implements file storage,
   directory naming, permissions, hard-link policy or an independent quick index.
 - Every persisted metadata type implements `Codec`: `CacheDirMetadata`, `CacheDigest`

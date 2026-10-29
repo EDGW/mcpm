@@ -2,12 +2,10 @@
 
 use std::time::{Duration, Instant};
 
-use mcpm_backend::{
-    download::{Event as DownloadEvent, RequestKind},
-    local::mc::server::{
-        authlib_injector::Event as AuthEvent,
-        launch::{Event, Stage},
-    },
+use kako_mc_lib::download::{Event as DownloadEvent, RequestKind};
+use mcpm_backend::data::server::{
+    authlib::Event as AuthEvent,
+    launch::{Event, Stage},
 };
 
 use crate::{display::style::text, progress::Progress, terminal};

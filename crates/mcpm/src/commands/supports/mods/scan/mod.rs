@@ -7,11 +7,11 @@ use std::{
 };
 
 use anyhow::Result;
-use mcpm_backend::local::{
+use kako_mc_lib::local::{
     mcmod::{ModDirectory, ModFile},
     modloader::{LoaderId, ModLoaderMeta},
-    runtime::RuntimeEnvironment,
 };
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 
 use crate::diagnostics::ErrorReport;
 

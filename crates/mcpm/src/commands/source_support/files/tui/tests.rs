@@ -2,7 +2,7 @@
 
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use mcpm_backend::source::{FileId, ProjectId, ReleaseType, SourceId};
+use kako_mc_lib::source::{FileId, ProjectId, ReleaseType, SourceId};
 use ratatui::{Terminal, backend::TestBackend};
 
 fn file(id: &str) -> ProjectFile {

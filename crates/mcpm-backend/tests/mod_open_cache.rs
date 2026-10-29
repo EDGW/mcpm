@@ -11,23 +11,24 @@ use std::{
     },
 };
 
-use mcpm_backend::local::cache::CacheLinkPreference;
-use mcpm_backend::local::cache::mods::MetadataRefresh;
-use mcpm_backend::local::cache::mods::ModsCacheDir;
-use mcpm_backend::local::cache::mods::ModsCacheSelection;
-use mcpm_backend::local::mcmod;
-use mcpm_backend::local::mcmod::CachedModMeta;
-use mcpm_backend::local::mcmod::IdentificationErrorAction;
-use mcpm_backend::local::mcmod::LoaderCacheMissReason;
-use mcpm_backend::local::mcmod::LoaderCacheUsage;
-use mcpm_backend::local::mcmod::ModEntry;
-use mcpm_backend::local::mcmod::ModMeta;
-use mcpm_backend::local::mcmod::ModOpenCacheReport;
-use mcpm_backend::local::modloader::BUILTIN_LOADERS;
-use mcpm_backend::local::modloader::LoaderId;
-use mcpm_backend::local::modloader::ModLoader;
-use mcpm_backend::local::modloader::ModLoaderMeta;
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use kako_mc_lib::local::mcmod;
+use kako_mc_lib::local::mcmod::CachedModMeta;
+use kako_mc_lib::local::mcmod::IdentificationErrorAction;
+use kako_mc_lib::local::mcmod::ModEntry;
+use kako_mc_lib::local::mcmod::ModMeta;
+use kako_mc_lib::local::modloader::BUILTIN_LOADERS;
+use kako_mc_lib::local::modloader::LoaderId;
+use kako_mc_lib::local::modloader::ModLoader;
+use kako_mc_lib::local::modloader::ModLoaderMeta;
+use mcpm_backend::data::cache::CacheLinkPreference;
+use mcpm_backend::data::cache::mods as cache;
+use mcpm_backend::data::cache::mods::LoaderCacheMissReason;
+use mcpm_backend::data::cache::mods::LoaderCacheUsage;
+use mcpm_backend::data::cache::mods::ModOpenCacheReport;
+use mcpm_backend::data::cache::mods::MetadataRefresh;
+use mcpm_backend::data::cache::mods::ModsCacheDir;
+use mcpm_backend::data::cache::mods::ModsCacheSelection;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 
 #[derive(Debug)]
 struct CountingLoader {
@@ -93,8 +94,8 @@ fn open(
     path: &Path,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
     context: &RuntimeEnvironment,
-) -> mcmod::ModOpenReport {
-    mcmod::open(
+) -> cache::ModOpenReport {
+    cache::open(
         ModEntry::new(path.to_owned()).unwrap(),
         loaders.clone(),
         context,
@@ -112,7 +113,7 @@ fn recognized_and_null_results_bypass_loaders_and_preserve_input_identity() {
     let id = writer
         .import(
             &source,
-            mcpm_backend::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::data::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     writer
@@ -126,7 +127,7 @@ fn recognized_and_null_results_bypass_loaders_and_preserve_input_identity() {
     forge_calls.store(0, Ordering::SeqCst);
     let context = context(&cache);
     let report = open(&linked, &loaders, &context);
-    assert_eq!(report.cache.reuse(), mcmod::ModCacheReuse::Full);
+    assert_eq!(report.cache.reuse(), cache::ModCacheReuse::Full);
     assert_eq!(fabric_calls.load(Ordering::SeqCst), 0);
     assert_eq!(forge_calls.load(Ordering::SeqCst), 0);
     assert_eq!(report.file.entry.path(), linked);
@@ -154,7 +155,7 @@ fn recognized_and_null_results_bypass_loaders_and_preserve_input_identity() {
     // Direct .dat paths also match, while preserving the separately supplied name.
     let data = cache.mod_metadata(id).data_path().to_owned();
     let entry = ModEntry::from_parts(data, mcmod::ModEntryName::new("cache.jar").unwrap());
-    let direct = mcmod::open(entry, loaders, &context, |_, _, _, _| {
+    let direct = cache::open(entry, loaders, &context, |_, _, _, _| {
         IdentificationErrorAction::Abort
     })
     .unwrap();
@@ -172,7 +173,7 @@ fn missing_loader_is_identified_but_cached_null_is_not() {
     let id = writer
         .import(
             &source,
-            mcpm_backend::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::data::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let forge_only = [(LoaderId::from("forge"), loaders["forge"].clone())]
@@ -188,7 +189,7 @@ fn missing_loader_is_identified_but_cached_null_is_not() {
         .unwrap();
     forge_calls.store(0, Ordering::SeqCst);
     let report = open(&linked, &loaders, &context(&cache));
-    assert_eq!(report.cache.reuse(), mcmod::ModCacheReuse::Partial);
+    assert_eq!(report.cache.reuse(), cache::ModCacheReuse::Partial);
     assert_eq!(fabric_calls.load(Ordering::SeqCst), 1);
     assert_eq!(forge_calls.load(Ordering::SeqCst), 0);
     assert_eq!(report.file.metadata.len(), 1);
@@ -204,7 +205,7 @@ fn missing_loader_is_identified_but_cached_null_is_not() {
     }
     assert_eq!(fs::read(entry.digest_path()).unwrap(), saved);
     let repeated = open(&linked, &loaders, &context(&cache));
-    assert_eq!(repeated.cache.reuse(), mcmod::ModCacheReuse::Partial);
+    assert_eq!(repeated.cache.reuse(), cache::ModCacheReuse::Partial);
     assert_eq!(fabric_calls.load(Ordering::SeqCst), 2);
 }
 
@@ -213,7 +214,7 @@ fn cache_misses_never_import_files_or_change_the_source() {
     let root = tempfile::tempdir().unwrap();
     let (cache, source) = fixture(root.path());
     let (loaders, fabric_calls, forge_calls) = loaders();
-    let identity = mcpm_backend::local::files::FileIdentity::read(&source).unwrap();
+    let identity = kako_mc_lib::local::files::FileIdentity::read(&source).unwrap();
     let contents = fs::read(&source).unwrap();
     #[cfg(unix)]
     let mode = {
@@ -224,13 +225,13 @@ fn cache_misses_never_import_files_or_change_the_source() {
     for _ in 0..2 {
         let report = open(&source, &loaders, &context);
         assert_eq!(report.file.metadata[0].mods[0].modid, "example");
-        assert_eq!(report.cache.reuse(), mcmod::ModCacheReuse::None);
+        assert_eq!(report.cache.reuse(), cache::ModCacheReuse::None);
         assert!(cache.list_metadata().unwrap().is_empty());
     }
     assert_eq!(fabric_calls.load(Ordering::SeqCst), 2);
     assert_eq!(forge_calls.load(Ordering::SeqCst), 2);
     assert_eq!(
-        mcpm_backend::local::files::FileIdentity::read(&source).unwrap(),
+        kako_mc_lib::local::files::FileIdentity::read(&source).unwrap(),
         identity
     );
     assert_eq!(fs::read(&source).unwrap(), contents);
@@ -283,7 +284,7 @@ fn concurrent_opens_do_not_create_cache_objects() {
     assert!(
         reports
             .iter()
-            .all(|r| r.cache.reuse() == mcmod::ModCacheReuse::None)
+            .all(|r| r.cache.reuse() == cache::ModCacheReuse::None)
     );
 }
 
@@ -319,7 +320,7 @@ fn skipped_and_aborted_loader_errors_do_not_publish() {
     .into_iter()
     .collect::<HashMap<_, _>>();
     assert!(
-        mcmod::open(
+        cache::open(
             ModEntry::new(source.clone()).unwrap(),
             loaders.clone(),
             &context,
@@ -328,7 +329,7 @@ fn skipped_and_aborted_loader_errors_do_not_publish() {
         .is_err()
     );
     assert!(cache.list_metadata().unwrap().is_empty());
-    let report = mcmod::open(
+    let report = cache::open(
         ModEntry::new(source.clone()).unwrap(),
         loaders,
         &context,
@@ -348,7 +349,7 @@ fn independent_copies_reuse_content_without_becoming_hard_links() {
     let id = writer
         .import(
             &source,
-            mcpm_backend::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::data::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     writer
@@ -357,18 +358,18 @@ fn independent_copies_reuse_content_without_becoming_hard_links() {
     let data = writer.mod_metadata(id).data_path().to_owned();
     let copy = root.path().join("copy.jar");
     fs::copy(&source, &copy).unwrap();
-    let copy_identity = mcpm_backend::local::files::FileIdentity::read(&copy).unwrap();
+    let copy_identity = kako_mc_lib::local::files::FileIdentity::read(&copy).unwrap();
     assert_ne!(
         copy_identity,
-        mcpm_backend::local::files::FileIdentity::read(&data).unwrap()
+        kako_mc_lib::local::files::FileIdentity::read(&data).unwrap()
     );
     fabric_calls.store(0, Ordering::SeqCst);
     let context = context(&cache);
     let report = open(&copy, &loaders, &context);
-    assert_eq!(report.cache.reuse(), mcmod::ModCacheReuse::Full);
+    assert_eq!(report.cache.reuse(), cache::ModCacheReuse::Full);
     assert_eq!(fabric_calls.load(Ordering::SeqCst), 0);
     assert_eq!(
-        mcpm_backend::local::files::FileIdentity::read(&copy).unwrap(),
+        kako_mc_lib::local::files::FileIdentity::read(&copy).unwrap(),
         copy_identity
     );
     cache.remove(&(id)).unwrap();
@@ -387,7 +388,7 @@ fn missing_and_corrupt_digests_are_not_written_by_open() {
     let id = writer
         .import(
             &source,
-            mcpm_backend::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::data::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let entry = writer.mod_metadata(id);
@@ -466,7 +467,7 @@ fn default_cache_process_worker() {
     let Some(expected) = std::env::var_os("MCPM_BACKEND_DEFAULT_CACHE_EXPECT") else {
         return;
     };
-    let result = mcpm_backend::local::cache::mods::ModsCacheSelection::Default.open();
+    let result = mcpm_backend::data::cache::mods::ModsCacheSelection::Default.open();
     if expected == "valid" {
         assert!(result.is_ok(), "{result:?}");
     } else {
@@ -559,13 +560,13 @@ fn unusable_cached_content_falls_back_to_loader_and_source_identification() {
         forge_calls.store(0, Ordering::SeqCst);
         let report = open(&source, &loaders, &context(&cache));
         assert_eq!(report.file.metadata[0].mods[0].modid, "example");
-        assert_eq!(report.cache.reuse(), mcmod::ModCacheReuse::None);
+        assert_eq!(report.cache.reuse(), cache::ModCacheReuse::None);
         assert_eq!(fabric_calls.load(Ordering::SeqCst), 1);
         assert_eq!(forge_calls.load(Ordering::SeqCst), 1);
         let source_snapshot = cache.find_ident_info(&source).unwrap().unwrap();
         assert!(matches!(
             source_snapshot.status(),
-            mcpm_backend::local::cache::mods::CacheStatus::Unavailable(_)
+            mcpm_backend::data::cache::mods::CacheStatus::Unavailable(_)
         ));
         assert_eq!(source_snapshot.matches().count(), 0);
         // Errors in the actual input must remain errors rather than cache misses.

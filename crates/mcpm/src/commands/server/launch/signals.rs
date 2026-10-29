@@ -1,7 +1,7 @@
 //! Adapts process notifications into typed backend stop requests without owning Java PIDs.
 
 use anyhow::{Context, Result};
-use mcpm_backend::local::mc::server::launch::StopRequest;
+use mcpm_backend::data::server::launch::StopRequest;
 use std::sync::mpsc::Sender;
 
 /// Adapts the existing synchronous process channel while asynchronous preparation is pending.

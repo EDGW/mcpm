@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
-use mcpm_backend::local::mcmod::backup::{
+use mcpm_backend::data::mods::backup::{
     ChecksumMismatch, Comparison, DirectoryChecksum, Event, FileDisposition, FileSource, Manifest,
     Operation, Outcome, Stage, VerificationError, VerifiedBackup,
 };

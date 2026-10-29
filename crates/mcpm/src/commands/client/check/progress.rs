@@ -6,7 +6,7 @@ use std::{
 };
 
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use mcpm_backend::local::mc::client::{CheckEvent, CheckProgress, CheckStep};
+use kako_mc_lib::local::mc::client::{CheckEvent, CheckProgress, CheckStep};
 
 use super::super::output::text;
 use crate::display::style::OutputStyle;

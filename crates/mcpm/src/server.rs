@@ -1,6 +1,6 @@
 //! Shared transport-safe server snapshots and presentation inputs.
 
-use mcpm_backend::local::mc::server::MinecraftServer;
+use mcpm_backend::data::server::MinecraftServer;
 use serde::{Deserialize, Serialize};
 
 /// Resolved metadata for presentation; paths retain their originating platform's spelling.
@@ -14,7 +14,7 @@ pub(crate) struct ServerInfo {
     pub start: Option<StartCommand>,
     /// Local information only; the existing Remote info protocol does not imply config transfer.
     #[serde(skip)]
-    pub configuration: Option<mcpm_backend::local::mc::server::config::ConfigurationFiles>,
+    pub configuration: Option<mcpm_backend::data::server::config::ConfigurationFiles>,
 }
 
 impl ServerInfo {

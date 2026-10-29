@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_backend::local::{
+use kako_mc_lib::local::{
     mcmod::{
         ModDirectory,
         dependency::graph::{DependencyGraph, build, candidate::ExternalCandidate, storage},

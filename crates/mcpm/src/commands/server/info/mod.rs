@@ -38,7 +38,7 @@ pub(super) fn run(args: InfoArgs, ssh: SshArgs) -> Result<()> {
         let server = workspace::inspect_local(path)?;
         let mut info = ServerInfo::from_server(&server);
         info.configuration =
-            Some(mcpm_backend::local::mc::server::config::configuration_files(server.path())?);
+            Some(mcpm_backend::data::server::config::configuration_files(server.path())?);
         info
     };
     let mut stdout = io::stdout().lock();

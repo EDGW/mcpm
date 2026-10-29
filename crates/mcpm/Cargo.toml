@@ -33,6 +33,7 @@ console = { workspace = true }
 crossterm = { workspace = true, features = ["events", "windows"] }
 indicatif = { workspace = true }
 inventory = { workspace = true }
+kako-mc-lib = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 terminal-colorsaurus = { workspace = true }
 ratatui = { workspace = true, features = ["crossterm_0_29", "unstable-rendered-line-info"] }

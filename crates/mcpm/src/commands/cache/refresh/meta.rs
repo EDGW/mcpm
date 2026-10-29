@@ -5,7 +5,7 @@ use super::Presentation;
 use crate::commands::supports::mods::loaders::LoaderArgs;
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_backend::local::cache::{
+use mcpm_backend::data::cache::{
     hash::Blake3Hash,
     mods::{MetadataRefresh, ModsCacheDir},
 };

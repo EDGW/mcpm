@@ -1,8 +1,7 @@
-//! Minecraft installations, mod metadata, dependencies, and remote mod sources.
+//! mcpm's own data: the sole codecs for what mcpm stores under `.mcpm/`, and the
+//! resources that interpret it.
+//!
+//! Every mcpm-specific format is encoded and decoded in exactly one module here;
+//! general Minecraft behaviour stays in `kako-mc-lib`.
 
-pub mod download;
-pub mod error;
-pub mod local;
-pub mod source;
-
-pub mod blocking;
+pub mod data;

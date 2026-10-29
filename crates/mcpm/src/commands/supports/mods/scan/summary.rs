@@ -1,6 +1,6 @@
 //! File-level cache reuse totals shared by local acquisition and remote completion events.
 
-use mcpm_backend::local::mcmod::ModCacheReuse;
+use mcpm_backend::data::cache::mods::ModCacheReuse;
 use serde::{Deserialize, Serialize};
 
 /// Counts independent inspections, including errors and unrecognized files.

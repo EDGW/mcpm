@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context as _, Result, ensure};
 use clap::{Args, Subcommand};
-use mcpm_backend::local::mc::server::MinecraftServer;
+use mcpm_backend::data::server::MinecraftServer;
 
 use super::{target, workspace};
 use crate::ssh::SshArgs;

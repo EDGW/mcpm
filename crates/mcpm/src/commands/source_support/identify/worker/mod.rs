@@ -3,8 +3,8 @@
 use super::{Event, Location, Outcome, remote, summary};
 use crate::diagnostics::ErrorReport;
 use anyhow::{Result, ensure};
-use mcpm_backend::local::runtime::RuntimeEnvironment;
-use mcpm_backend::source::{FileSummary, Source, SummaryRequirements};
+use kako_mc_lib::source::{FileSummary, Source, SummaryRequirements};
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use tracing::Instrument;

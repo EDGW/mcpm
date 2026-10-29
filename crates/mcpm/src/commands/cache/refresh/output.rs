@@ -3,12 +3,10 @@
 use std::io::Write;
 
 use anyhow::{Context, Result};
-use mcpm_backend::{
-    local::cache::{
-        hash::Blake3Hash,
-        mods::{ModsCacheDir, ident::RefreshStatus, meta::CacheEntry},
-    },
-    source::SourceId,
+use kako_mc_lib::source::SourceId;
+use mcpm_backend::data::cache::{
+    hash::Blake3Hash,
+    mods::{ModsCacheDir, ident::RefreshStatus, meta::CacheEntry},
 };
 
 use super::super::entry;

@@ -6,7 +6,7 @@ use super::{
 };
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use mcpm_backend::local::cache::{VerificationMode, hash::Blake3Hash, mods::ModsCacheSelection};
+use mcpm_backend::data::cache::{VerificationMode, hash::Blake3Hash, mods::ModsCacheSelection};
 use std::io::{self, Write};
 
 use crate::{

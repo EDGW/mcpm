@@ -3,14 +3,9 @@
 use std::{fs, io, path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result, bail, ensure};
-use mcpm_backend::local::{
-    mc::server::{
-        MinecraftServer, MinecraftServerMetadata,
-        config::{self, OverwritePolicy},
-        identify,
-    },
-    modloader::BUILTIN_LOADERS,
-};
+use kako_mc_lib::local::modloader::BUILTIN_LOADERS;
+use mcpm_backend::data::server::config::{self, OverwritePolicy};
+use mcpm_backend::data::server::{MinecraftServer, MinecraftServerMetadata, identify};
 use thiserror::Error;
 
 use super::super::metadata::ServerInfo;
@@ -34,7 +29,7 @@ pub(super) fn recognize(
         .start_script
         .unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "run.bat" } else { "run.sh" }));
     tracing::info!(path = %args.path.display(), script = %script.display(), "Recognizing server launch candidates");
-    let mut candidates = identify::identify(&args.path, &script, &BUILTIN_LOADERS)
+    let mut candidates = identify(&args.path, &script, &BUILTIN_LOADERS)
         .context("automatic server identification failed; server remains unrecognized; initialize manually with --minecraft-version VERSION --loader forge|neoforge|fabric --loader-version VERSION, or explicitly use --loader vanilla for a known vanilla server")?;
     checkpoint()?;
     candidates.retain(|candidate| {
@@ -310,7 +305,7 @@ mod tests {
         .unwrap_err();
         assert!(
             error
-                .downcast_ref::<mcpm_backend::local::mc::server::MinecraftServerError>()
+                .downcast_ref::<mcpm_backend::data::server::MinecraftServerError>()
                 .is_some()
         );
         assert_eq!(fs::read(manifest).unwrap(), winner);

@@ -346,7 +346,7 @@ impl Shared {
     fn fail(&self, error: &anyhow::Error) {
         let message = Failure {
             report: crate::diagnostics::ErrorReport::capture(error),
-            remote: mcpm_backend::error::contains::<crate::diagnostics::RemoteError>(
+            remote: kako_mc_lib::error::contains::<crate::diagnostics::RemoteError>(
                 error.as_ref(),
             ),
         };

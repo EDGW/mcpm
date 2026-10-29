@@ -1,15 +1,17 @@
 # Mod 与来源缓存约定
 
-内容、目录管理、原子发布、传输和 imohash 查询统一由 `local::cache` 负责。
+内容、目录管理、原子发布、传输和 imohash 查询统一由 `data::cache` 负责。
 版本 3 目录协议和通用接口参见[通用本地缓存](local-cache.md)。
 
 ## 职责与选择
 
-- `local::cache::mods::ModsCacheDir` 是 Mod 缓存入口，内部私有封装通用 `CacheDir`。
+- `data::cache::mods::ModsCacheDir` 是 Mod 缓存入口，内部私有封装通用 `CacheDir`。
 - 通用缓存只管理不可变内容与具名 metadata；Mod 的 metadata 名为 `meta` 和 `ident`。
 - `ModsCacheDir::import` 只导入内容；`verify` 只验证内容结构或 BLAKE3，不解释任何 metadata。
-- `local::cache::mods::meta` 负责 Loader 快照与 Mod 刷新策略。
-- `local::cache::mods::ident` 负责来源 `FileMatch` 快照与来源刷新策略。
+- `data::cache::mods::meta` 负责 Loader 快照与 Mod 刷新策略。
+- `data::cache::mods::ident` 负责来源 `FileMatch` 快照与来源刷新策略。
+- `data::cache::mods::open` 组合缓存复用与 `kako_mc_lib` 的 Loader 识别；库自身的
+  `open`/`identify` 从不查询缓存。
 - 两者在 `ModsCacheDir` 内部使用 `CacheDir` 和类型化 `Codec`，不各自实现文件存储、目录命名、权限、硬链接或索引。
 - 所有持久化元数据均实现 `Codec`：`CacheDirMetadata`、`CacheDigest` 和来源快照。
   JSON 的解释只发生在对应 Codec 内。

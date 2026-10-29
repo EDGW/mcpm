@@ -14,7 +14,7 @@ use crate::{
 /// Import diagnostics stay on stderr, including Raw mode, leaving server records unchanged.
 pub(super) fn write_publication(
     output: &mut impl Write,
-    publication: &mcpm_backend::local::mc::server::config::Published,
+    publication: &mcpm_backend::data::server::config::Published,
 ) -> io::Result<()> {
     let style = OutputStyle::stderr();
     let mut output = ConsoleWriter::new(output);

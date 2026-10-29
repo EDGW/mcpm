@@ -213,7 +213,7 @@ pub(super) fn read<T: DeserializeOwned>(reader: &mut impl BufRead) -> Result<Opt
 #[cfg(test)]
 mod diagnostic_tests {
     use super::*;
-    use mcpm_backend::error::{CombinedError, ErrorReport};
+    use kako_mc_lib::error::{CombinedError, ErrorReport};
 
     #[test]
     fn remote_aggregate_preserves_branches_and_global_error_identity() {

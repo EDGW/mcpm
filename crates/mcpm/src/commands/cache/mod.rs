@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use mcpm_backend::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::data::cache::mods::ModsCacheSelection;
 
 mod batch;
 mod columns;

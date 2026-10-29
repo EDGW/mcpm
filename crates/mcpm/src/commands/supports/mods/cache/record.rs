@@ -2,9 +2,9 @@
 
 use super::{FileResult, Stage};
 use crate::diagnostics::ErrorReport;
-use mcpm_backend::local::cache::TransferMethod;
-use mcpm_backend::local::cache::mods::CacheStatus;
-use mcpm_backend::local::cache::mods::CacheUnavailableReason;
+use mcpm_backend::data::cache::TransferMethod;
+use mcpm_backend::data::cache::mods::CacheStatus;
+use mcpm_backend::data::cache::mods::CacheUnavailableReason;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};
 

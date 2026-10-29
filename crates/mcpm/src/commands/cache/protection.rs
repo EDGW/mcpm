@@ -3,7 +3,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
-use mcpm_backend::local::{cache::mods::ModsCacheSelection, mc::server::stash};
+use mcpm_backend::data::cache::mods::ModsCacheSelection;
+use mcpm_backend::data::server::stash;
 
 use super::Command;
 

@@ -1,7 +1,7 @@
 //! Shared source-identification request, indexed events and provider-neutral result models.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
-use mcpm_backend::source::FileMatch;
+use kako_mc_lib::source::FileMatch;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 
 /// Business result shared by CLI output, TUI state and remote messages.
 #[derive(Debug, Clone)]

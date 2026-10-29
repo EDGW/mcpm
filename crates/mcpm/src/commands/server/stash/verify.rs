@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use anyhow::{Result, ensure};
-use mcpm_backend::local::mc::server::stash::{Selector, StashStore};
+use mcpm_backend::data::server::stash::{Selector, StashStore};
 
 use super::{Context, input, options::WorkArgs, query};
 use crate::display::{backup::FileProgress, stash};

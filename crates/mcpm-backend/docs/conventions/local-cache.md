@@ -1,6 +1,6 @@
 # Generic local cache
 
-`local::cache` stores immutable content and independently encoded metadata. It has
+`data::cache` stores immutable content and independently encoded metadata. It has
 no dependency on loaders, mod identification, sources, credentials or presentation.
 Mod and source workflows can build typed adapters over this storage layer.
 

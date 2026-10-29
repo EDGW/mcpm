@@ -3,7 +3,7 @@
 use std::str::FromStr;
 
 use clap::{Args, ValueEnum};
-use mcpm_backend::local::mcmod::dependency::{
+use kako_mc_lib::local::mcmod::dependency::{
     Dependency, DependencyKind, graph::identifier::DependencyIdentifier,
 };
 use thiserror::Error;
@@ -164,7 +164,7 @@ impl ViewFilter {
     pub(super) fn accepts(
         &self,
         kind: DependencyKind,
-        state: mcpm_backend::local::mcmod::dependency::DependencyMatch,
+        state: kako_mc_lib::local::mcmod::dependency::DependencyMatch,
     ) -> bool {
         self.rules
             .iter()

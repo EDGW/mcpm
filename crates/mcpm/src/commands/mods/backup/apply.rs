@@ -4,10 +4,8 @@ use std::{io, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_backend::local::{
-    cache::mods::{ModsCacheDir, ModsCacheSelection},
-    mcmod::backup::{self, ApplyOptions},
-};
+use mcpm_backend::data::cache::mods::{ModsCacheDir, ModsCacheSelection};
+use mcpm_backend::data::mods::backup::{self, ApplyOptions};
 
 use super::DisplayArgs;
 use crate::{

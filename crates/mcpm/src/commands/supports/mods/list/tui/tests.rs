@@ -5,11 +5,12 @@ use super::*;
 use crate::commands::supports::mods::{scan::ScannedFile, source_path::PathArgs};
 use clap::Parser;
 use crossterm::event::{Event, KeyModifiers, MouseEvent, MouseEventKind};
-use mcpm_backend::local::runtime::RuntimeEnvironment;
-use mcpm_backend::local::{
-    mcmod::{self, IdentificationErrorAction, ModEntry},
+use kako_mc_lib::local::{
+    mcmod::{IdentificationErrorAction, ModEntry},
     modloader::BUILTIN_LOADERS,
 };
+use mcpm_backend::data::cache::mods::open;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 use ratatui::{Terminal, backend::TestBackend};
 use std::{path::Path, sync::Arc};
 
@@ -20,7 +21,7 @@ fn fixture(expanded: bool) -> Browser {
         paths: PathArgs,
     }
     let paths = Paths::parse_from(["test"]).paths;
-    let file = mcmod::open(
+    let file = open(
         ModEntry::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/complex-mod.jar"))
             .unwrap(),
         BUILTIN_LOADERS.clone(),
@@ -378,7 +379,7 @@ fn two_line_items_map_both_rendered_rows_to_the_same_selection() {
 #[test]
 fn two_line_source_entries_map_to_one_field_and_scroll_together() {
     use crossterm::event::{KeyCode, KeyEvent, MouseButton};
-    use mcpm_backend::source::{
+    use kako_mc_lib::source::{
         FileId, FileMatch, FileRef, MatchedFileRole, ProjectId, ProjectRef, SourceId,
     };
 

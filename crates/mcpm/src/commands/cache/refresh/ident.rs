@@ -6,7 +6,7 @@ use crate::commands::{
 };
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use mcpm_backend::local::cache::{
+use mcpm_backend::data::cache::{
     hash::Blake3Hash,
     mods::{MetadataRefresh, ModsCacheDir},
 };

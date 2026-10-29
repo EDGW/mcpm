@@ -5,7 +5,7 @@ use std::{
     path::Path,
 };
 
-use mcpm_backend::local::mc::client::{
+use kako_mc_lib::local::mc::client::{
     CheckOptionValue, CheckReport, CheckTarget, FileCheckStatus,
 };
 

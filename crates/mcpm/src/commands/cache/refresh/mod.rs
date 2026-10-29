@@ -4,7 +4,7 @@ use std::io::Write;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use mcpm_backend::local::cache::mods::{MetadataRefresh, ModsCacheSelection};
+use mcpm_backend::data::cache::mods::{MetadataRefresh, ModsCacheSelection};
 
 use super::{batch::Parallelism, input::Inputs};
 

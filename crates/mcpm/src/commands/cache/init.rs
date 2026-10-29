@@ -1,7 +1,7 @@
 //! Explicit Mod cache initialization through the library-owned directory policy.
 
 use anyhow::Result;
-use mcpm_backend::local::cache::mods::{ModsCacheDir, ModsCacheSelection};
+use mcpm_backend::data::cache::mods::{ModsCacheDir, ModsCacheSelection};
 use std::io::Write;
 
 pub(super) fn run(

@@ -3,12 +3,11 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
-use mcpm_backend::local::{
-    mc::server::MinecraftServer,
+use kako_mc_lib::local::{
     mcmod::ModContainer,
     modloader::{LoaderId, ModLoaderMeta},
-    runtime::RuntimeEnvironment,
 };
+use mcpm_backend::data::{runtime::RuntimeEnvironment, server::MinecraftServer};
 use thiserror::Error;
 
 use crate::commands::supports::mods::selection::Scope;

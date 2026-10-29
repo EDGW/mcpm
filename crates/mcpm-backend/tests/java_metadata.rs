@@ -2,7 +2,8 @@
 
 use std::{fs, io::Write, path::Path};
 
-use mcpm_backend::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
+use kako_mc_lib::local::modloader::BUILTIN_LOADERS;
+use mcpm_backend::data::server::identify;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 fn archive(path: &Path, entries: &[(&str, &[u8])]) {

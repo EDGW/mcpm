@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_backend::local::mcmod::ModDirectory;
+use kako_mc_lib::local::mcmod::ModDirectory;
 
 use crate::commands::supports::mods::{
     dep_graph::{self, BuildOptions},

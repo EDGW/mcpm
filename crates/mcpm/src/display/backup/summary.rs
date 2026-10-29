@@ -3,9 +3,9 @@
 use std::io::Write;
 
 use anyhow::Result;
-use mcpm_backend::local::{
-    cache::TransferMethod,
-    mcmod::backup::{FileDisposition, FileRecord, FileSource, Operation, Outcome},
+use mcpm_backend::data::cache::TransferMethod;
+use mcpm_backend::data::mods::backup::{
+    FileDisposition, FileRecord, FileSource, Operation, Outcome,
 };
 
 use super::super::{

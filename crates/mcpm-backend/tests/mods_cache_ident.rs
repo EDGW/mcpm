@@ -2,12 +2,12 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use mcpm_backend::local::cache::mods::CacheStatus;
-use mcpm_backend::local::cache::mods::CacheUnavailableReason;
-use mcpm_backend::local::cache::mods::MetadataRefresh;
-use mcpm_backend::local::cache::mods::ModsCacheDir;
-use mcpm_backend::local::cache::mods::ident::RefreshStatus;
-use mcpm_backend::source::*;
+use kako_mc_lib::source::*;
+use mcpm_backend::data::cache::mods::CacheStatus;
+use mcpm_backend::data::cache::mods::CacheUnavailableReason;
+use mcpm_backend::data::cache::mods::MetadataRefresh;
+use mcpm_backend::data::cache::mods::ModsCacheDir;
+use mcpm_backend::data::cache::mods::ident::RefreshStatus;
 use std::{
     fs,
     sync::atomic::{AtomicUsize, Ordering},
@@ -90,7 +90,7 @@ fn source_namespaces_reuse_successes_preserve_additional_files_and_never_cache_n
     let id = writer
         .import(
             &source,
-            mcpm_backend::local::cache::CacheLinkPreference::Copy,
+            mcpm_backend::data::cache::CacheLinkPreference::Copy,
         )
         .unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -196,7 +196,7 @@ fn publications_verify_content_and_merge_only_current_valid_snapshots() {
     let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
     let writer = &cache;
     let id = writer
-        .import(&path, mcpm_backend::local::cache::CacheLinkPreference::Copy)
+        .import(&path, mcpm_backend::data::cache::CacheLinkPreference::Copy)
         .unwrap();
     let a = matched(SourceId("a".into()), &summary);
     writer.write_ident_info(id, &a).unwrap();

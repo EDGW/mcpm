@@ -5,7 +5,7 @@ use tempfile::TempDir;
 
 #[test]
 fn new_registration_removes_legacy_start_snapshot_and_survives_relocation() {
-    use mcpm_backend::local::mc::server::MinecraftServer;
+    use mcpm_backend::data::server::MinecraftServer;
 
     let parent = TempDir::new().unwrap();
     let original = parent.path().join("original");
@@ -30,7 +30,7 @@ fn new_registration_removes_legacy_start_snapshot_and_survives_relocation() {
 
 #[test]
 fn invalid_start_scripts_fail_all_persistence_entry_points_before_side_effects() {
-    use mcpm_backend::local::mc::server::{MinecraftServer, MinecraftServerError};
+    use mcpm_backend::data::server::{MinecraftServer, MinecraftServerError};
 
     for script in [
         "",
@@ -85,10 +85,8 @@ fn invalid_start_scripts_fail_all_persistence_entry_points_before_side_effects()
 #[cfg(unix)]
 #[test]
 fn script_symlinks_cannot_escape_at_initialization_or_after_registration() {
-    use mcpm_backend::local::{
-        mc::server::{MinecraftServer, identify},
-        modloader::BUILTIN_LOADERS,
-    };
+    use kako_mc_lib::local::modloader::BUILTIN_LOADERS;
+    use mcpm_backend::data::server::{MinecraftServer, identify};
     use std::os::unix::fs::symlink;
 
     let parent = TempDir::new().unwrap();
@@ -99,7 +97,7 @@ fn script_symlinks_cannot_escape_at_initialization_or_after_registration() {
     symlink(&outside, root.join("external")).unwrap();
     // Even a missing script cannot hide an existing parent symlink that points outside.
     assert!(MinecraftServer::create(&root, metadata_with_script("external/missing.sh")).is_err());
-    assert!(identify::identify(&root, "external/missing.sh", &BUILTIN_LOADERS).is_err());
+    assert!(identify(&root, "external/missing.sh", &BUILTIN_LOADERS).is_err());
     assert!(!root.join(".mcpm").exists());
 
     // Legacy snapshots still use the original validation path when read from disk.
@@ -121,7 +119,7 @@ fn script_symlinks_cannot_escape_at_initialization_or_after_registration() {
     assert!(MinecraftServer::load(&root).is_err());
 }
 
-fn metadata_with_script(script: &str) -> mcpm_backend::local::mc::server::MinecraftServerMetadata {
+fn metadata_with_script(script: &str) -> mcpm_backend::data::server::MinecraftServerMetadata {
     serde_json::from_value(serde_json::json!({
         "version": 2, "minecraft_version": "1.21.1",
         "loader": {"type": "fabric", "version": "0.16.10"},
@@ -132,7 +130,7 @@ fn metadata_with_script(script: &str) -> mcpm_backend::local::mc::server::Minecr
 
 #[test]
 fn legacy_metadata_is_read_without_rewriting_and_only_migrates_on_explicit_persistence() {
-    use mcpm_backend::local::mc::server::{MinecraftServer, SERVER_METADATA_VERSION};
+    use mcpm_backend::data::server::{MinecraftServer, SERVER_METADATA_VERSION};
 
     let root = TempDir::new().unwrap();
     fs::create_dir(root.path().join(".mcpm")).unwrap();
@@ -161,7 +159,7 @@ fn legacy_metadata_is_read_without_rewriting_and_only_migrates_on_explicit_persi
 
 #[test]
 fn inspection_resolves_loader_without_creating_missing_mod_directory() {
-    use mcpm_backend::local::mc::server::MinecraftServer;
+    use mcpm_backend::data::server::MinecraftServer;
 
     let root = TempDir::new().unwrap();
     fs::create_dir(root.path().join(".mcpm")).unwrap();
@@ -176,7 +174,8 @@ fn inspection_resolves_loader_without_creating_missing_mod_directory() {
 
 #[test]
 fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments() {
-    use mcpm_backend::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
+    use kako_mc_lib::local::modloader::BUILTIN_LOADERS;
+    use mcpm_backend::data::server::identify;
 
     let root = TempDir::new().unwrap();
     let argument_file = "libraries/net/neoforged/neoforge/21.1.233/win_args.txt";
@@ -234,7 +233,8 @@ fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments(
 
 #[test]
 fn identification_errors_retain_script_archive_member_and_parser_cause() {
-    use mcpm_backend::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
+    use kako_mc_lib::local::modloader::BUILTIN_LOADERS;
+    use mcpm_backend::data::server::identify;
     use std::io::{Cursor, Write};
     use zip::{ZipWriter, write::SimpleFileOptions};
     let root = TempDir::new().unwrap();

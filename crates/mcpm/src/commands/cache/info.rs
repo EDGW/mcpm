@@ -4,7 +4,7 @@ use std::io::Write;
 
 use anyhow::Result;
 use clap::Args;
-use mcpm_backend::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::data::cache::mods::ModsCacheSelection;
 
 use super::{columns::Columns, entry, input::Inputs};
 use crate::display::cache::{self, Column};

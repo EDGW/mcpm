@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use mcpm_backend::local::mcmod::backup;
+use mcpm_backend::data::mods::backup;
 
 use super::input;
 

@@ -4,7 +4,7 @@ use std::io;
 
 use anyhow::{Context, Result};
 use clap::{Args, ValueEnum};
-use mcpm_backend::source::{SearchQuery, SearchSort};
+use kako_mc_lib::source::{SearchQuery, SearchSort};
 
 use crate::terminal;
 

@@ -1,12 +1,12 @@
 //! Shared mod listing, identification diagnostics and terminal output.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 use std::collections::HashMap;
 use std::io::{self, Write};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_backend::local::{
+use kako_mc_lib::local::{
     mcmod::ModEntry,
     modloader::{LoaderId, ModLoaderMeta},
 };

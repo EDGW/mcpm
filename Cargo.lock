@@ -1136,6 +1136,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "kako-mc-lib"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "blake3",
+ "chrono",
+ "lazy_static",
+ "libc",
+ "md-5",
+ "murmur3",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "shlex 1.3.0",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+ "url",
+ "uuid",
+ "windows-sys 0.61.2",
+ "zip",
+]
+
+[[package]]
 name = "kasuari"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1255,6 +1285,7 @@ dependencies = [
  "dirs",
  "indicatif",
  "inventory",
+ "kako-mc-lib",
  "mcpm-backend",
  "owo-colors",
  "ratatui",
@@ -1287,26 +1318,19 @@ dependencies = [
  "chrono",
  "dirs",
  "imohash",
- "lazy_static",
+ "kako-mc-lib",
  "libc",
- "md-5",
- "murmur3",
- "regex",
  "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
- "sha1",
  "sha2",
- "shlex 1.3.0",
  "tempfile",
  "thiserror",
  "tokio",
  "toml",
  "tracing",
- "url",
  "uuid",
- "windows-sys 0.61.2",
  "zip",
 ]
 

@@ -3,19 +3,21 @@
 use std::path::Path;
 use std::process::Command;
 
-use mcpm_backend::local::{
-    mcmod::{self, IdentificationErrorAction, ModEntry, ModMeta},
+use kako_mc_lib::local::{
+    mcmod::{IdentificationErrorAction, ModEntry, ModMeta},
     modloader::BUILTIN_LOADERS,
 };
+use mcpm_backend::data::cache::mods::open;
+use mcpm_backend::data::runtime::RuntimeEnvironment;
 
 /// Exercise the real clap dispatch, all three parsers, nested archives, and output.
 #[test]
 fn complex_mod_tree_and_output_match_reviewed_expectations() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let file = mcmod::open(
+    let file = open(
         ModEntry::new(fixtures.join("complex-mod.jar")).unwrap(),
         BUILTIN_LOADERS.clone(),
-        &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_mods_cache(None),
+        &RuntimeEnvironment::new().with_mods_cache(None),
         |_, _, _, _| IdentificationErrorAction::Abort,
     )
     .expect("failed to identify composite archive")
