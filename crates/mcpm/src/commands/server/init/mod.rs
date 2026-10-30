@@ -24,7 +24,7 @@ mod selector;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = format!("Modes: TUI (candidate selection), Console (--no-ui), Raw (--raw or redirected stdout). Console and Raw require an unambiguous candidate or complete manual arguments.\n\nTwo SSH init flows:\n  {server} --ssh COMMAND [--ssh-mcpm EXE] init <REMOTE_PATH>\n    Initialize a Local Server on the SSH host.\n  {server} --ssh COMMAND [--ssh-mcpm EXE] init <PATH> --remote <REMOTE_PATH>\n    Initialize/register host server R, then register local placeholder P. PATH is local; --remote is the host path.\n\nComplete metadata initializes directly on the host; otherwise host recognition returns candidates for caller selection.", server = crate::program::roots().server)
+    after_help = format!("Modes: TUI (candidate selection), Console (--no-ui), Raw (--raw or redirected stdout). Console and Raw require an unambiguous candidate or complete manual arguments.\n\nTwo SSH init flows:\n  {server} --ssh COMMAND [--ssh-mcpmd EXE] init <REMOTE_PATH>\n    Initialize a Local Server on the SSH host.\n  {server} --ssh COMMAND [--ssh-mcpmd EXE] init <PATH> --remote <REMOTE_PATH>\n    Initialize/register host server R, then register local placeholder P. PATH is local; --remote is the host path.\n\nComplete metadata initializes directly on the host; otherwise host recognition returns candidates for caller selection.", server = crate::program::roots().server)
 )]
 pub(super) struct InitArgs {
     /// Existing server directory; with --ssh it is remote, but with --remote it is local placeholder P.

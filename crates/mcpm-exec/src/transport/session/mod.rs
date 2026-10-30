@@ -6,8 +6,8 @@
 
 use std::{
     collections::HashMap,
-    io::BufReader,
-    process::{Child, ChildStdin, Command as ProcessCommand, Stdio},
+    io::{BufReader, Read, Write},
+    process::{Child, Command as ProcessCommand, Stdio},
     sync::{
         Arc, Mutex,
         mpsc::{Receiver, SyncSender, TryRecvError, sync_channel},
@@ -68,7 +68,7 @@ impl std::fmt::Debug for Options {
 /// One protocol session with the process it started.
 #[derive(Debug)]
 pub struct Session {
-    child: Child,
+    child: Option<Child>,
     shared: Arc<Shared>,
     reader: Option<JoinHandle<()>>,
     operations: Vec<String>,
@@ -81,9 +81,8 @@ impl Session {
     /// Starts the process and completes the handshake; no log subscription is negotiated.
     #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
     pub fn start(command: &mut ProcessCommand, options: Options) -> Result<Self, CallFailure> {
-        let started = Instant::now();
         info!(program = ?command.get_program(), "Starting remote session");
-        let mut child = command
+        let child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -93,11 +92,28 @@ impl Session {
                     message: format!("failed to start the remote session: {error}"),
                 })
             })?;
-        debug!(pid = child.id(), "Remote process spawned; waiting for handshake");
+        Self::start_pipes(child, options)
+    }
+
+
+    fn start_pipes(mut child: Child, options: Options) -> Result<Self, CallFailure> {
+        let input = child.stdin.take().ok_or_else(|| io_failure("missing remote stdin"))?;
+        let output = child.stdout.take().ok_or_else(|| io_failure("missing remote stdout"))?;
+        Self::initialize(Some(child), Box::new(input), Box::new(output), options)
+    }
+
+    #[cfg(any(unix, windows))]
+    pub fn start_holder(stream: crate::ipc::LocalStream, options: Options) -> Result<Self, CallFailure> {
+        let output = stream.try_clone().map_err(io_failure)?;
+        Self::initialize(None, Box::new(stream), Box::new(output), options)
+    }
+
+
+    fn initialize(child: Option<Child>, input: Box<dyn Write + Send>, output: Box<dyn Read + Send>, options: Options) -> Result<Self, CallFailure> {
+        let started = Instant::now();
         let traffic = Traffic::default();
-        let input = traffic.stdin(child.stdin.take().ok_or_else(|| io_failure("missing remote stdin"))?);
-        let mut output =
-            BufReader::new(traffic.stdout(child.stdout.take().ok_or_else(|| io_failure("missing remote stdout"))?));
+        let input = traffic.stdin(input);
+        let mut output = BufReader::new(traffic.stdout(output));
         let shared = Arc::new(Shared {
             input: Mutex::new(Input { pipe: Some(input) }),
             routes: Mutex::new(Routes::new(options.logs.clone())),
@@ -129,6 +145,7 @@ impl Session {
             elapsed_ms = started.elapsed().as_millis(),
             "Started remote session"
         );
+        debug!(operations = session.operations.len(), elapsed_ms = started.elapsed().as_millis(), "Started remote session");
         Ok(session)
     }
 
@@ -211,7 +228,7 @@ impl Session {
     #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
     pub fn close(&mut self) -> Result<(), CallFailure> {
         let started = Instant::now();
-        debug!(pid = self.child.id(), "Closing remote session; draining accepted calls");
+        debug!("Closing remote session; draining accepted calls");
         {
             let mut input = self.shared.input.lock().unwrap();
             self.shared.routes.lock().unwrap().closing = true;
@@ -222,18 +239,12 @@ impl Session {
         {
             return Err(io_failure("the remote response reader panicked"));
         }
-        let status = self.child.wait().map_err(|error| {
-            CallFailure::Transport(TransportError::Exited {
-                message: format!("failed to wait for the remote session: {error}"),
-            })
-        })?;
-        self.report_traffic();
-        debug!(%status, elapsed_ms = started.elapsed().as_millis(), "Remote process exited");
-        if !status.success() {
-            return Err(CallFailure::Transport(TransportError::Exited {
-                message: status.to_string(),
-            }));
-        }
+        if let Some(child) = self.child.as_mut() {
+            let status = child.wait().map_err(|error| CallFailure::Transport(TransportError::Exited { message: format!("failed to wait for the remote session: {error}") }))?;
+            self.report_traffic();
+            debug!(%status, elapsed_ms = started.elapsed().as_millis(), "Remote process exited");
+            if !status.success() { return Err(CallFailure::Transport(TransportError::Exited { message: status.to_string() })); }
+        } else { self.report_traffic(); }
         let routes = self.shared.routes.lock().unwrap();
         if let Some(failure) = &routes.failure {
             return Err(failure.clone());
@@ -262,14 +273,14 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         self.shared.input.lock().unwrap().pipe.take();
-        if !matches!(self.child.try_wait(), Ok(Some(_))) {
-            debug!(pid = self.child.id(), "Terminating remote process during session cleanup");
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+        if let Some(child) = self.child.as_mut() {
+            if !matches!(child.try_wait(), Ok(Some(_))) {
+                debug!(pid = child.id(), "Terminating remote process during session cleanup");
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
-        }
+        if let Some(reader) = self.reader.take() { let _ = reader.join(); }
         self.report_traffic();
     }
 }
@@ -429,9 +440,11 @@ impl Shared {
     }
 }
 
-#[derive(Debug)]
 struct Input {
-    pipe: Option<Metered<ChildStdin>>,
+    pipe: Option<Metered<Box<dyn Write + Send>>>,
+}
+impl std::fmt::Debug for Input {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { formatter.debug_struct("Input").finish_non_exhaustive() }
 }
 
 struct Routes {

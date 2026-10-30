@@ -8,7 +8,6 @@ mod init;
 mod launch;
 mod mod_source;
 mod mods;
-pub(crate) use mods::register_legacy;
 mod stash;
 mod target;
 

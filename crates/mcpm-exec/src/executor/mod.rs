@@ -34,6 +34,7 @@ pub struct Settings {
     build: String,
     level: LogLevel,
     logs: Arc<dyn Fn(LogRecord) + Send + Sync>,
+    holder: Option<std::path::PathBuf>,
 }
 
 impl Settings {
@@ -47,6 +48,7 @@ impl Settings {
             build: build.into(),
             level,
             logs,
+            holder: std::env::current_exe().ok().map(|path| path.with_file_name("mcpmd")),
         }
     }
 
@@ -61,6 +63,8 @@ impl Settings {
     fn session(&self) -> session::Options {
         session::Options::new(self.build.clone(), self.level, self.logs.clone())
     }
+
+    fn holder(&self) -> Option<std::path::PathBuf> { self.holder.clone() }
 }
 
 impl std::fmt::Debug for Settings {
@@ -259,20 +263,17 @@ impl<P: Clone + Send + Sync + 'static> Session<P> {
             "Opening the remote session"
         );
         let options = self.executor.settings.session();
-        let started = tokio::task::spawn_blocking(move || {
-            let mut command = connection.command().map_err(|error| {
-                CallFailure::Transport(TransportError::Start {
-                    message: error.to_string(),
-                })
-            })?;
-            session::Session::start(&mut command, options)
-        })
-        .await
-        .map_err(|error| {
-            CallFailure::Transport(TransportError::Start {
-                message: error.to_string(),
-            })
-        })?;
+        #[cfg(unix)]
+        let started = {
+            let holder = self.executor.settings.holder().ok_or_else(|| CallFailure::Transport(TransportError::Start { message: "mcpmd executable is unavailable".to_owned() }))?;
+            let holder_options = crate::link::ClientOptions { ssh: connection.ssh().to_owned(), executable: connection.executable().to_owned(), holder_executable: holder, build: self.executor.settings.build().to_owned(), timeout: std::time::Duration::from_secs(10) };
+            tokio::task::spawn_blocking(move || crate::link::connect(holder_options).map_err(|error| CallFailure::Transport(TransportError::Start { message: error.to_string() })))
+                .await
+                .map_err(|error| CallFailure::Transport(TransportError::Start { message: error.to_string() }))?
+                .and_then(|stream| session::Session::start_holder(crate::ipc::LocalStream::Unix(stream), options))
+        };
+        #[cfg(not(unix))]
+        let started: Result<session::Session, CallFailure> = Err(CallFailure::Transport(TransportError::Start { message: "holder transport is unavailable on this platform".to_owned() }));
         let session = Arc::new(started?);
         *open = Some(session.clone());
         Ok(session)

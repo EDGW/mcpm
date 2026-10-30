@@ -28,8 +28,8 @@ pub fn run(program: Program) -> ExitCode {
             ColorChoice::Never
         },
     );
-    let remote = matches!(cli.command, commands::Command::Remote);
-    terminal::init(cli.common.raw || remote);
+    let remote = false;
+    terminal::init(cli.common.raw);
     let result = (|| {
         logging::init(cli.common.log_level, started, remote, cli.remote_logs)?;
         theme::init()?;

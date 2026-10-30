@@ -11,7 +11,7 @@ mod connection;
 mod windows;
 
 /// Remote entry point of the serve loop on the connected host.
-const SUBCOMMAND: &str = "remote";
+const SUBCOMMAND: &str = "serve";
 
 /// How to reach a host and which executable serves requests there.
 #[derive(Clone, Debug, PartialEq, Eq)]

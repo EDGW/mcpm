@@ -10,6 +10,8 @@ pub mod operation;
 pub mod protocol;
 pub mod registry;
 pub mod serve;
+pub mod ipc;
+pub mod link;
 pub mod ssh;
 pub mod transport;
 

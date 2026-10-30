@@ -4,7 +4,6 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 mod cache;
-pub(crate) use cache::register_legacy;
 mod check;
 mod dep_graph;
 mod deps;

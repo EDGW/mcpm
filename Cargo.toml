@@ -4,6 +4,7 @@ members = [
     "crates/kako-mc-lib",
     "crates/mcpm-backend",
     "crates/mcpm-exec",
+    "crates/mcpmd",
 ]
 resolver = "3"
 
