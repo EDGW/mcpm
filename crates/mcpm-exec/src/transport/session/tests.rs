@@ -3,13 +3,66 @@
 use std::{
     io::Cursor,
     process::Command as ProcessCommand,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
 };
 
 use serde_json::json;
+use tracing_subscriber::{Layer, layer::Context, prelude::*, registry::LookupSpan};
 use uuid::Uuid;
 
 use super::*;
+
+struct BuildWarningLayer {
+    records: Arc<Mutex<Vec<(String, String, String)>>>,
+}
+
+impl<S> Layer<S> for BuildWarningLayer
+where
+    S: tracing::Subscriber + for<'span> LookupSpan<'span>,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, _context: Context<'_, S>) {
+        if *event.metadata().level() != tracing::Level::WARN {
+            return;
+        }
+        let mut visitor = BuildWarningVisitor::default();
+        event.record(&mut visitor);
+        if visitor.message == "remote build version differs" {
+            self.records.lock().unwrap().push((
+                visitor.message,
+                visitor.local_build,
+                visitor.remote_build,
+            ));
+        }
+    }
+}
+
+#[derive(Default)]
+struct BuildWarningVisitor {
+    message: String,
+    local_build: String,
+    remote_build: String,
+}
+
+impl tracing::field::Visit for BuildWarningVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        let value = format!("{value:?}");
+        match field.name() {
+            "message" => self.message = value.trim_matches('"').to_owned(),
+            "local_build" => self.local_build = value.trim_matches('"').to_owned(),
+            "remote_build" => self.remote_build = value.trim_matches('"').to_owned(),
+            _ => {}
+        }
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        match field.name() {
+            "message" => self.message = value.to_owned(),
+            "local_build" => self.local_build = value.to_owned(),
+            "remote_build" => self.remote_build = value.to_owned(),
+            _ => {}
+        }
+    }
+}
 
 fn options(build: &str) -> Options {
     Options::new(build, LogLevel::Warn, Arc::new(|_| {}))
@@ -212,37 +265,63 @@ printf '%s\n' '{{"guid":"{nil}","status":"closed","contents":null}}'
 
 #[cfg(unix)]
 #[test]
-fn handshake_rejects_wrong_build_and_protocol_version() {
+fn build_mismatch_session_can_submit_a_call() {
+    let script = format!(
+        r#"
+printf '%s\n' '{{"guid":"{nil}","status":"ready","contents":{{"version":{version},"build":"other","operations":["test.operation"]}}}}'
+IFS= read -r request
+guid=$(printf '%s' "$request" | cut -d '"' -f4)
+printf '{{"guid":"%s","status":"finished","contents":null}}\n' "$guid"
+cat >/dev/null
+printf '%s\n' '{{"guid":"{nil}","status":"closed","contents":null}}'
+"#,
+        nil = Uuid::nil(),
+        version = protocol::VERSION,
+    );
+    let mut command = ProcessCommand::new("sh");
+    command.args(["-c", &script]);
+    let mut session = Session::start(&mut command, options("test-build")).unwrap();
+    let mut call = session.submit("test.operation", json!({"input":1})).unwrap();
+    assert_eq!(call.next_blocking().unwrap().status(), Status::Finished);
+    session.close().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn handshake_allows_wrong_build_and_rejects_wrong_protocol_version() {
     let nil = Uuid::nil();
-    for (contents, version_mismatch) in [
-        (
-            format!("{{\"version\":{},\"build\":\"other\",\"operations\":[]}}", protocol::VERSION),
-            true,
-        ),
-        (
-            "{\"version\":5,\"build\":\"test-build\",\"operations\":[]}".to_owned(),
-            false,
-        ),
-    ] {
-        let script = format!(
-            "printf '%s\\n' '{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{contents}}}'\ncat >/dev/null\n"
+    let records = Arc::new(Mutex::new(Vec::new()));
+    let subscriber = tracing_subscriber::registry().with(BuildWarningLayer {
+        records: records.clone(),
+    });
+    let contents = format!(
+        "{{\"version\":{},\"build\":\"other\",\"operations\":[]}}",
+        protocol::VERSION
+    );
+    tracing::subscriber::with_default(subscriber, || {
+        let frame = format!(
+            "{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{contents}}}\n"
         );
-        let mut command = ProcessCommand::new("sh");
-        command.args(["-c", &script]);
-        let error = Session::start(&mut command, options("test-build")).unwrap_err();
-        if version_mismatch {
-            assert_eq!(
-                error,
-                CallFailure::Dispatch(DispatchError::VersionMismatch {
-                    local: "test-build".to_owned(),
-                    remote: "other".to_owned(),
-                })
-            );
-        } else {
-            assert!(matches!(
-                error,
-                CallFailure::Dispatch(DispatchError::Protocol { .. })
-            ));
-        }
-    }
+        let ready = handshake(&mut Cursor::new(frame), &options("test-build")).unwrap();
+        assert!(ready.operations.is_empty());
+    });
+    assert_eq!(
+        *records.lock().unwrap(),
+        vec![(
+            "remote build version differs".to_owned(),
+            "test-build".to_owned(),
+            "other".to_owned(),
+        )]
+    );
+
+    let script = format!(
+        "printf '%s\n' '{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":5,\"build\":\"other\",\"operations\":[]}}}}'\ncat >/dev/null\n"
+    );
+    let mut command = ProcessCommand::new("sh");
+    command.args(["-c", &script]);
+    let error = Session::start(&mut command, options("test-build")).unwrap_err();
+    assert!(matches!(
+        error,
+        CallFailure::Dispatch(DispatchError::Protocol { .. })
+    ));
 }

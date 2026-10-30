@@ -390,7 +390,7 @@ impl Operation for Local {
 fn protocol_versions_are_compared_before_any_call() {
     let nil = Uuid::nil();
     let script = format!(
-        "printf '%s\\n' '{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":6,\"build\":\"other\",\"operations\":[]}}}}'\ncat >/dev/null\n"
+        "printf '%s\n' '{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":5,\"build\":\"other\",\"operations\":[]}}}}'\ncat >/dev/null\n"
     );
     let mut command = ProcessCommand::new("sh");
     command.args(["-c", &script]);
@@ -401,65 +401,45 @@ fn protocol_versions_are_compared_before_any_call() {
     .unwrap_err();
     assert!(matches!(
         error,
-        crate::error::CallFailure::Dispatch(DispatchError::VersionMismatch { .. })
+        crate::error::CallFailure::Dispatch(DispatchError::Protocol { .. })
     ));
 }
-
 /// A rejected handshake reaches the caller as a dispatch failure of its own call, never as a
 /// transport failure: the requested call was refused, so retrying the connection cannot help.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn rejected_handshakes_reach_the_caller_as_dispatch_failures() {
+async fn rejected_protocol_handshake_reaches_the_caller_as_dispatch_failure() {
     use std::os::unix::fs::PermissionsExt;
 
     let nil = Uuid::nil();
-    for (contents, expected) in [
-        (
-            format!(
-                "{{\"version\":{},\"build\":\"other\",\"operations\":[]}}",
-                protocol::VERSION
-            ),
-            "VersionMismatch",
+    let script = std::env::temp_dir().join(format!(
+        "mcpm-exec-fake-ssh-{}-protocol",
+        std::process::id()
+    ));
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nprintf '%s\n' '{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":5,\"build\":\"test-build\",\"operations\":[]}}}}'\n"
         ),
-        (
-            "{\"version\":5,\"build\":\"test-build\",\"operations\":[]}".to_owned(),
-            "Protocol",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let connection = crate::ssh::Connection::new(
+        script.to_str().expect("temporary paths are UTF-8"),
+        "mcpm-tools",
+    );
+    let session = Session::new(
+        Executor::new(
+            Provider,
+            Settings::new("test-build", LogLevel::Warn, std::sync::Arc::new(|_| {})),
         ),
-    ] {
-        let script = std::env::temp_dir().join(format!(
-            "mcpm-exec-fake-ssh-{}-{}",
-            std::process::id(),
-            expected.replace(' ', "-")
-        ));
-        std::fs::write(
-            &script,
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' '{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{contents}}}'\n"
-            ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let connection = crate::ssh::Connection::new(
-            script.to_str().expect("temporary paths are UTF-8"),
-            "mcpm-tools",
-        );
-        let session = Session::new(
-            Executor::new(
-                Provider,
-                Settings::new("test-build", LogLevel::Warn, std::sync::Arc::new(|_| {})),
-            ),
-            Target::Remote(connection),
-        );
-        let error = session.start::<Echo>(1).await.err().unwrap();
-        let message = format!("{error:?}");
-        assert!(
-            matches!(error, Failure::Dispatch(_)),
-            "{expected} behind a dispatch failure: {message}"
-        );
-        assert!(
-            message.contains(expected),
-            "{expected} must be preserved: {message}"
-        );
-        let _ = std::fs::remove_file(&script);
-    }
+        Target::Remote(connection),
+    );
+    let error = session.start::<Echo>(1).await.err().unwrap();
+    let message = format!("{error:?}");
+    assert!(
+        matches!(error, Failure::Dispatch(DispatchError::Protocol { .. })),
+        "protocol mismatch behind a dispatch failure: {message}"
+    );
+    let _ = std::fs::remove_file(&script);
 }

@@ -295,10 +295,11 @@ fn handshake(reader: &mut impl std::io::BufRead, options: &Options) -> Result<Re
         )));
     }
     if ready.build != options.build {
-        return Err(CallFailure::Dispatch(DispatchError::VersionMismatch {
-            local: options.build.clone(),
-            remote: ready.build,
-        }));
+        warn!(
+            local_build = %options.build,
+            remote_build = %ready.build,
+            "remote build version differs"
+        );
     }
     Ok(ready)
 }

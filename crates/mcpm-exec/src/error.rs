@@ -82,9 +82,6 @@ pub enum DispatchError {
     /// A host operation without a wire codec was dispatched to a remote target.
     #[error("operation cannot cross a process boundary: {operation}")]
     NotRemotable { operation: String },
-    /// The two ends were built from different versions and must not interoperate.
-    #[error("build version mismatch: local {local}, remote {remote}")]
-    VersionMismatch { local: String, remote: String },
     /// A frame violated the protocol.
     #[error("protocol violation: {message}")]
     Protocol { message: String },
