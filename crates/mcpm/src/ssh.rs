@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::Args;
 use mcpm_exec::ssh::Connection;
-use crate::{progress::Progress, remote::client::Session};
 #[derive(Args, Debug, Default, Clone)]
 pub(crate) struct SshArgs {
     /// SSH connection command, e.g. "ssh -i key -p 2222 user@host".
@@ -40,16 +39,4 @@ impl SshArgs {
         Ok(match &self.directory { Some(directory) => connection.with_directory(directory.clone()), None => connection })
     }
 
-    pub(crate) fn from_settings(ssh: String, ssh_mcpmd: Option<String>, directory: Option<PathBuf>) -> Self {
-        Self { ssh: Some(ssh), ssh_mcpmd, directory }
-    }
-
-    pub(crate) fn connect(&self) -> Result<Session> {
-        let connection = self.connection()?;
-        let mut command = connection.command()?;
-        if let Some(directory) = &self.directory { command.current_dir(directory); }
-        let message = match connection.destination() { Some(destination) => format!("Connecting {}...", destination.escape_debug()), None => "Connecting...".into() };
-        let _progress = Progress::new(&message, "Connecting");
-        Session::start(&mut command).context("failed to open legacy cache session")
-    }
 }

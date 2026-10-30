@@ -21,6 +21,7 @@ impl ExclusiveLock {
             .create(true)
             .read(true)
             .write(true)
+            .truncate(false)
             .open(&path)
             .map_err(|source| LockError::Io { path: path.clone(), source })?;
         lock_file(&file).map_err(|source| LockError::Acquire { path: path.clone(), source })?;

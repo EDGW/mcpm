@@ -35,10 +35,9 @@ pub(crate) enum Command {
     Mods(ModsArgs),
 }
 
-/// A child process status remains a successful command operation with its own exit code.
+/// A command completed successfully; child lifecycle commands report through operations.
 pub(crate) enum CommandOutcome {
     Completed,
-    Exited(u32),
 }
 
 

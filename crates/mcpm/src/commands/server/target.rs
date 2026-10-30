@@ -16,7 +16,6 @@ use crate::ssh::SshArgs;
 /// Effective data source plus the local registration used to select it, if any.
 pub(super) struct Target {
     pub path: PathBuf,
-    pub ssh: SshArgs,
     pub remote: Option<RemoteView>,
     /// Session bound to the resolved data source; every migrated operation uses it.
     pub session: mcpm_backend::Session,
@@ -42,7 +41,6 @@ pub(super) fn resolve(path: PathBuf, ssh: SshArgs) -> Result<Target> {
     let session = session_for_workspace(&resolved)?;
     Ok(Target {
         path: resolved.path.clone(),
-        ssh: ssh_args(&resolved),
         remote: resolved.remote.clone(),
         session,
     })
@@ -69,16 +67,6 @@ pub(super) fn require_supported_local(path: &std::path::Path, command: &str) -> 
     mcpm_backend::workspace::require_local(path, command)
 }
 
-fn ssh_args(resolved: &ResolvedWorkspace) -> SshArgs {
-    match &resolved.connection {
-        Some(connection) => SshArgs::from_settings(
-            connection.ssh.clone(),
-            connection.executable.clone(),
-            connection.directory.clone(),
-        ),
-        None => SshArgs::default(),
-    }
-}
 
 fn session_failure(
     failure: mcpm_exec::Failure<mcpm_backend::workspace::ResolveError>,

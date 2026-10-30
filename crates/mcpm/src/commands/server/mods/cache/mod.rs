@@ -1,10 +1,7 @@
 //! Server-scoped explicit mod caching; the file-owning host resolves selection and storage.
 
 use super::{
-    super::{
-        mod_source::ServerMods,
-        target::{self, Target},
-    },
+    super::{mod_source::ServerMods, target},
     input::FileArgs,
 };
 use crate::{
@@ -19,8 +16,6 @@ use crate::{
 };
 use anyhow::Result;
 use clap::Args;
-
-mod remote;
 
 #[derive(Debug, Args)]
 #[command(
@@ -37,35 +32,16 @@ pub(super) struct CacheArgs {
     display: DisplayArgs,
 }
 
-/// Installs the still-legacy `server.mods.cache` handler; removed with `flows::mods_cache`.
-pub(crate) fn register_legacy(
-    registry: &mut mcpm_exec::Registry<mcpm_backend::Providers>,
-) -> Result<()> {
-    remote::register(registry)
-}
-
 pub(super) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
+    anyhow::ensure!(!ssh.is_requested(), "server mods cache does not support SSH yet; this command has not been migrated");
     let (path, selection) = args.files.read()?;
     if selection.is_empty() {
         return crate::commands::supports::mods::inspect::prompt_for_input();
     }
-    let Target {
-        path, ssh, session, ..
-    } = target::resolve(path, ssh)?;
-    if ssh.is_requested() {
-        return remote::run(
-            &session,
-            ssh,
-            path,
-            selection,
-            args.writing,
-            args.sources,
-            args.display,
-        );
-    }
-    let server = ServerMods::load(path)?;
+    let target = target::resolve(path, ssh)?;
+    let server = ServerMods::load(target.path)?;
     let mut completion =
-        Completion::new(&args.writing, &args.sources.selected()?, &session)?;
+        Completion::new(&args.writing, &args.sources.selected()?, &target.session)?;
     let mut output = Presentation::new(args.display);
     cache::run(
         selection,
@@ -75,6 +51,6 @@ pub(super) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
         || Ok(()),
         |event| completion.accept(event, &mut |event| output.event(event)),
     )?;
-    completion.finish(&session, server.runtime(), |event| output.event(event))?;
+    completion.finish(&target.session, server.runtime(), |event| output.event(event))?;
     output.finish()
 }

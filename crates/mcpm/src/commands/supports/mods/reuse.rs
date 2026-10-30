@@ -64,17 +64,6 @@ pub(in crate::commands) fn write_summary(
     Ok(())
 }
 
-/// A host-resolved cache target for subsequent remote queries or source publication.
-fn resolved_selection(
-    environment: &RuntimeEnvironment,
-) -> anyhow::Result<Option<ModsCacheSelection>> {
-    Ok(environment
-        .mods_cache()?
-        .map(|cache| ModsCacheSelection::Directory {
-            path: cache.path().to_owned(),
-        }))
-}
-
 /// Transport configuration is extracted without opening a remote cache locally.
 pub(in crate::commands) fn selection(
     environment: &RuntimeEnvironment,
@@ -84,23 +73,4 @@ pub(in crate::commands) fn selection(
         .mods
         .as_ref()
         .map(|cache| cache.selection().clone())
-}
-
-/// Cache configuration resolved on the file host; contains no local resource handles.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::commands) struct HostEnvironment {
-    pub cache: Option<ModsCacheSelection>,
-}
-
-impl HostEnvironment {
-    pub fn capture(environment: &RuntimeEnvironment) -> anyhow::Result<Self> {
-        Ok(Self {
-            cache: resolved_selection(environment)?,
-        })
-    }
-
-    pub fn into_runtime(self) -> RuntimeEnvironment {
-        RuntimeEnvironment::new().with_mods_cache(self.cache)
-    }
 }

@@ -10,16 +10,9 @@ use crate::progress::Progress;
 #[derive(Default)]
 pub(in crate::commands) struct ScanOutput {
     progress: RefCell<Option<Progress>>,
-    remote: bool,
 }
 
 impl ScanOutput {
-    pub(in crate::commands) fn remote() -> Self {
-        Self {
-            remote: true,
-            ..Self::default()
-        }
-    }
 
     pub(in crate::commands) fn event(&self, event: Event) -> Result<()> {
         let mut active = self.progress.borrow_mut();
@@ -39,11 +32,6 @@ impl ScanOutput {
             }
             Event::Diagnostic { error } => {
                 let error = error.into_error();
-                let error = if self.remote {
-                    crate::diagnostics::RemoteError::wrap(error)
-                } else {
-                    error
-                };
                 match active.as_ref() {
                     Some(progress) => progress.report(&error),
                     None => crate::diagnostics::error(&error),

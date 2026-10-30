@@ -8,8 +8,6 @@
 use std::{collections::{HashMap, HashSet}, io::{BufRead, BufReader, Write}, process::{Child, Stdio}, sync::mpsc::{self, Receiver, Sender, TryRecvError}, thread, time::{Duration, Instant}};
 use thiserror::Error;
 
-#[cfg(unix)]
-
 /// Client-side holder connection settings.
 #[derive(Clone, Debug)]
 pub struct ClientOptions {

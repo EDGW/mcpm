@@ -47,13 +47,6 @@ impl Presentation {
         }
     }
 
-    pub fn remote(args: DisplayArgs) -> Self {
-        Self {
-            scan: ScanOutput::remote(),
-            remote: true,
-            ..Self::new(args)
-        }
-    }
 
     pub fn event(&mut self, event: Event) -> Result<()> {
         self.validator.accept(&event)?;
