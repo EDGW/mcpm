@@ -3,9 +3,14 @@
 // Test operations mirror the trait's `impl Future` signature so their shape stays explicit.
 #![allow(clippy::manual_async_fn)]
 
-use std::{future::Future, process::Command as ProcessCommand};
+use std::{
+    future::Future,
+    process::Command as ProcessCommand,
+    sync::{Arc, Mutex},
+};
 
 use serde_json::{Value, json};
+use tracing_subscriber::{Layer, layer::Context as LayerContext, prelude::*, registry::LookupSpan};
 use uuid::Uuid;
 
 use super::*;
@@ -16,6 +21,86 @@ use crate::{
     transport::session,
 };
 
+struct StartLogLayer {
+    records: Arc<Mutex<Vec<(String, String, String)>>>,
+}
+
+impl<S> Layer<S> for StartLogLayer
+where
+    S: tracing::Subscriber + for<'span> LookupSpan<'span>,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, _context: LayerContext<'_, S>) {
+        if *event.metadata().level() != tracing::Level::INFO {
+            return;
+        }
+        let mut visitor = StartLogVisitor::default();
+        event.record(&mut visitor);
+        if visitor.message == "starting operation" {
+            self.records.lock().unwrap().push((
+                visitor.operation,
+                visitor.placement,
+                visitor.target,
+            ));
+        }
+    }
+}
+
+#[derive(Default)]
+struct StartLogVisitor {
+    operation: String,
+    placement: String,
+    target: String,
+    message: String,
+}
+
+impl tracing::field::Visit for StartLogVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        let value = format!("{value:?}");
+        match field.name() {
+            "message" => self.message = value.trim_matches('"').to_owned(),
+            "operation" => self.operation = value.trim_matches('"').to_owned(),
+            "placement" => self.placement = value,
+            "target" => self.target = value.trim_matches('"').to_owned(),
+            _ => {}
+        }
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        self.record_debug(field, &value);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn operation_start_logs_once_with_dispatch_metadata() {
+    let records = Arc::new(Mutex::new(Vec::new()));
+    let subscriber = tracing_subscriber::registry().with(StartLogLayer {
+        records: records.clone(),
+    });
+    tracing::subscriber::with_default(subscriber, || {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let executor = Executor::new(Provider, settings());
+                let local = Session::new(executor.clone(), Target::Local);
+                let _ = local.start::<Local>(()).await.unwrap().finish().await;
+                let _ = local.start::<Echo>(1).await.unwrap().finish().await;
+
+                let remote = Session::new(
+                    executor,
+                    Target::Remote(crate::ssh::Connection::new("ssh host", "")),
+                );
+                let _ = remote.start::<Echo>(1).await;
+            });
+        });
+    });
+    assert_eq!(
+        *records.lock().unwrap(),
+        vec![
+            ("test.local".to_owned(), "Surface".to_owned(), "local".to_owned()),
+            ("test.echo".to_owned(), "Host".to_owned(), "local".to_owned()),
+            ("test.echo".to_owned(), "Host".to_owned(), "remote".to_owned()),
+        ]
+    );
+}
 /// Starts a session whose serve side replays `frames` (a shell snippet using `$guid`).
 fn call(frames: &str) -> (session::Session, Handle<Echo>) {
     let script = format!(

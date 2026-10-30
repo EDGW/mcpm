@@ -11,7 +11,7 @@ use std::sync::{
 };
 
 use tokio::sync::{Mutex, mpsc};
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::{
     error::{CallFailure, DispatchError, Failure, TransportError},
@@ -179,6 +179,26 @@ impl<P: Clone + Send + Sync + 'static> Session<P> {
         O: Operation,
         P: Provide<O::Env>,
     {
+        let target = if matches!(O::PLACEMENT, Placement::Surface) || !self.target.is_remote() {
+            "local"
+        } else {
+            "remote"
+        };
+        match self.target.connection().and_then(|connection| connection.destination()) {
+            Some(destination) if target == "remote" => info!(
+                operation = O::ID,
+                placement = ?O::PLACEMENT,
+                target,
+                %destination,
+                "starting operation"
+            ),
+            _ => info!(
+                operation = O::ID,
+                placement = ?O::PLACEMENT,
+                target,
+                "starting operation"
+            ),
+        }
         if matches!(O::PLACEMENT, Placement::Surface) || !self.target.is_remote() {
             return Ok(self.start_local(input));
         }
