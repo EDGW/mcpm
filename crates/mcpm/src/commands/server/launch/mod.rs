@@ -1,156 +1,136 @@
-//! Local-only server launch routing; the backend owns configuration, argv and child lifetime.
-
-use crate::{commands::CommandOutcome, ssh::SshArgs};
-use anyhow::{Result, ensure};
+//! Server instance launch through the host operation and detached shim.
+// signal and foreground tty handling intentionally do not exist; Java is owned by shim.
+use crate::{
+    commands::{CommandOutcome, execution},
+    ssh::SshArgs,
+};
+use anyhow::Result;
 use clap::{Args, ValueEnum};
-use kako_mc_lib::download::{DownloadConfig, sources};
 use mcpm_backend::data::server::authlib::JarPolicy;
-use mcpm_backend::data::server::config::ConfigurationOverrides;
-use mcpm_backend::data::server::launch::{self, ForegroundStreams};
-use std::{cell::RefCell, path::PathBuf, sync::mpsc};
-
-mod signals;
+use mcpm_backend::server::instance::{
+    Attach, AttachEvent, AttachInput, ConfigurationOverridesWire, Send, SendInput, Start,
+    StartInput,
+};
+use std::io::{self, BufRead, IsTerminal};
+use std::path::PathBuf;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Modes: Console and Raw. Both inherit the Java process's stdin, stdout and stderr without converting game output. Preparation stages and download progress bars update dynamically on terminal stderr. These indicators are disabled by --raw or redirected stderr. Reads launch.toml and conf.toml from the registered local server root. Runs in the foreground and returns Java's exit status. SSH and Remote workspaces are not supported."
+    after_help = "Modes: Console and Raw. Launch starts the detached server shim; use server attach to observe it."
 )]
 pub(super) struct LaunchArgs {
-    /// Registered local server directory containing launch.toml and conf.toml.
     #[arg(long, value_name = "PATH", default_value = ".")]
     server: PathBuf,
-    /// Override a conf field for this launch. Lists: = or + appends; := clears and sets.
     #[arg(short = 'O', long = "override", value_name = "KEY=VALUE")]
     overrides: Vec<String>,
-    /// Override java.executable for this launch.
     #[arg(long, value_name = "EXECUTABLE")]
     java: Option<String>,
-    /// Override maximum heap, optionally also initial heap (INITIAL:MAXIMUM).
     #[arg(short = 'm', long, value_name = "[INITIAL:]MAXIMUM")]
     memory: Option<String>,
-    /// Override jvm.gc.collector for this launch.
     #[arg(short = 'G', long, value_name = "COLLECTOR")]
     gc: Option<String>,
-    /// Override server.port for this launch.
     #[arg(long, value_name = "PORT")]
     port: Option<u16>,
-    /// Override server.world for this launch.
     #[arg(long, value_name = "DIRECTORY")]
     world: Option<String>,
-    /// Override authlib-injector.apiUrl for this launch; enables managed authentication if absent.
     #[arg(short = 'A', long, value_name = "API_URL")]
     auth: Option<String>,
-    /// Managed authentication JAR: auto repairs if needed, local forbids downloads, refresh reinstalls latest.
     #[arg(long, value_enum, value_name = "POLICY")]
     auth_jar_policy: Option<AuthJarPolicy>,
-    /// Append one JVM argument after -O list changes. May be specified once.
     #[arg(short = 'E', long, value_name = "ARGUMENT", allow_hyphen_values = true)]
     extra: Option<String>,
+    #[arg(long)]
+    detach: bool,
 }
-
-impl LaunchArgs {
-    fn configuration_overrides(&self) -> Result<ConfigurationOverrides> {
-        let mut overrides = ConfigurationOverrides::default();
-        for assignment in &self.overrides {
-            overrides.parse(assignment)?;
-        }
-        if let Some(java) = &self.java {
-            overrides.set("java.executable", java)?;
-        }
-        if let Some(memory) = &self.memory {
-            if let Some((initial, maximum)) = memory.split_once(':') {
-                ensure!(
-                    !initial.is_empty() && !maximum.is_empty() && !maximum.contains(':'),
-                    "memory must be MAXIMUM or INITIAL:MAXIMUM"
-                );
-                overrides.set("jvm.heap.initial", initial)?;
-                overrides.set("jvm.heap.maximum", maximum)?;
-            } else {
-                overrides.set("jvm.heap.maximum", memory)?;
-            }
-        }
-        if let Some(gc) = &self.gc {
-            overrides.set("jvm.gc.collector", gc)?;
-        }
-        if let Some(port) = self.port {
-            overrides.set("server.port", port)?;
-        }
-        if let Some(world) = &self.world {
-            overrides.set("server.world", world)?;
-        }
-        if let Some(auth) = &self.auth {
-            overrides.set("authlib-injector.apiUrl", auth)?;
-        }
-        if let Some(extra) = &self.extra {
-            overrides.set("jvm.extraArguments", vec![extra])?;
-        }
-        Ok(overrides)
-    }
-}
-
-/// CLI spellings adapt to the backend policy; parsing never implements file lifecycle rules.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum AuthJarPolicy {
     Auto,
     Local,
     Refresh,
 }
-
 impl From<AuthJarPolicy> for JarPolicy {
-    fn from(value: AuthJarPolicy) -> Self {
-        match value {
+    fn from(v: AuthJarPolicy) -> Self {
+        match v {
             AuthJarPolicy::Auto => Self::Auto,
             AuthJarPolicy::Local => Self::Local,
             AuthJarPolicy::Refresh => Self::Refresh,
         }
     }
 }
-
-pub(super) fn run(args: LaunchArgs, ssh: SshArgs) -> Result<CommandOutcome> {
-    ensure!(
-        !ssh.is_requested(),
-        "launch supports only local servers; SSH is not supported"
-    );
-    super::target::require_supported_local(&args.server, "launch")?;
-    let overrides = args.configuration_overrides()?;
-    let (sender, stop) = mpsc::channel();
-    let _signals = signals::Handler::install(sender)?;
-    let runtime = crate::commands::execution::Runtime::new()?;
-    let progress = RefCell::new(crate::display::server::launch::LaunchProgress::default());
-    let plan = runtime.block_on(async {
-        let observe = |event: launch::Event<'_>| {
-            progress.borrow_mut().event(event);
-            Ok(())
-        };
-        let prepare = launch::prepare_with_progress(
-            &args.server,
-            &overrides,
-            args.auth_jar_policy.map(Into::into),
-            || sources::downloader(&DownloadConfig::default()),
-            &observe,
-        );
-        tokio::select! {
-            biased;
-            request = signals::wait(&stop) => Ok(Err(request)),
-            plan = prepare => plan.map(Ok),
+impl LaunchArgs {
+    fn assignments(&self) -> Vec<String> {
+        let mut a = self.overrides.clone();
+        if let Some(v) = &self.java {
+            a.push(format!("java.executable={v}"));
         }
-    })?;
-    let plan = match plan {
-        Ok(plan) => plan,
-        Err(request) => return Ok(stopped(request)),
-    };
-    if let Ok(request) = stop.try_recv() {
-        return Ok(stopped(request));
+        if let Some(v) = &self.memory {
+            a.push(format!("jvm.heap.maximum={v}"));
+        }
+        if let Some(v) = &self.gc {
+            a.push(format!("jvm.gc.collector={v}"));
+        }
+        if let Some(v) = self.port {
+            a.push(format!("server.port={v}"));
+        }
+        if let Some(v) = &self.world {
+            a.push(format!("server.world={v}"));
+        }
+        if let Some(v) = &self.auth {
+            a.push(format!("authlib-injector.apiUrl={v}"));
+        }
+        if let Some(v) = &self.extra {
+            a.push(format!("jvm.extraArguments={v}"));
+        }
+        a
     }
-    progress.borrow_mut().starting();
-    drop(progress);
-    let result = launch::execute(plan, ForegroundStreams::Inherit, &stop)?;
-    Ok(CommandOutcome::Exited(result.shell_code()))
 }
-
-fn stopped(request: launch::StopRequest) -> CommandOutcome {
-    CommandOutcome::Exited(match request {
-        launch::StopRequest::Interrupt | launch::StopRequest::ConsoleInterrupt => 130,
-        launch::StopRequest::Terminate => 143,
-    })
+pub(super) fn run(args: LaunchArgs, ssh: SshArgs) -> Result<CommandOutcome> {
+    let runtime = execution::Runtime::new()?;
+    let session = execution::session_for(&ssh)?;
+    let input = StartInput {
+        path: args.server.clone(),
+        overrides: ConfigurationOverridesWire {
+            assignments: args.assignments(),
+        },
+        auth_api: args.auth.clone(),
+        auth_jar_policy: args.auth_jar_policy.map(Into::into),
+        stop_timeout_secs: 10,
+    };
+    let handle = runtime
+        .block_on(session.start::<Start>(input))
+        .map_err(|error| execution::failure(error, ssh.is_requested()))?;
+    let output = runtime
+        .block_on(handle.finish())
+        .map_err(|error| execution::failure(error, ssh.is_requested()))?;
+    println!("{}\t{:?}", output.instance_id, output.status);
+    if args.detach {
+        return Ok(CommandOutcome::Completed);
+    }
+    let mut attach = runtime
+        .block_on(session.start::<Attach>(AttachInput {
+            path: args.server.clone(),
+            tail: 0,
+        }))
+        .map_err(|error| execution::failure(error, ssh.is_requested()))?;
+    if !io::stdin().is_terminal() {
+        let path = args.server.clone();
+        for line in io::stdin().lock().lines() {
+            let send = runtime
+                .block_on(session.start::<Send>(SendInput {
+                    path: path.clone(),
+                    line: line?,
+                }))
+                .map_err(|error| execution::failure(error, ssh.is_requested()))?;
+            runtime
+                .block_on(send.finish())
+                .map_err(|error| execution::failure(error, ssh.is_requested()))?;
+        }
+    }
+    while let Some(AttachEvent { text, .. }) = runtime.block_on(attach.next()) {
+        println!("{text}");
+    }
+    runtime
+        .block_on(attach.finish())
+        .map_err(|error| execution::failure(error, ssh.is_requested()))?;
+    Ok(CommandOutcome::Completed)
 }

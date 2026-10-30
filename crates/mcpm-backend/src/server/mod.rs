@@ -6,6 +6,7 @@
 
 pub mod context;
 pub mod info;
+pub mod instance;
 pub mod recognize;
 pub mod register;
 pub mod types;
@@ -15,6 +16,6 @@ pub use info::{Info, InfoInput, InfoKind};
 pub use recognize::{Recognition, RecognizeEvent, RecognizeKind};
 pub use register::{Register, RegisterEvent, RegisterKind};
 pub use types::{
-    Candidate, Initialized, Initialize, LoaderInfo, ModsContext, Phase, Recognize, ServerInfo,
+    Candidate, Initialize, Initialized, LoaderInfo, ModsContext, Phase, Recognize, ServerInfo,
     StartCommand,
 };

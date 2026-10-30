@@ -17,6 +17,7 @@ use crate::data::{cache::mods::ModsCacheSelection, runtime::RuntimeEnvironment};
 
 pub mod authlib;
 pub mod config;
+pub mod instance;
 pub mod launch;
 pub mod stash;
 

@@ -44,6 +44,9 @@ impl LaunchPlan {
     pub fn environment(&self) -> &BTreeMap<OsString, OsString> {
         &self.environment
     }
+    pub fn argument_file(&self) -> bool {
+        self.argument_file
+    }
 }
 
 /// Reads configuration under a short shared lock, then resolves the Java executable.

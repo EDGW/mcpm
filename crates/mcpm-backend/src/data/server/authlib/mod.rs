@@ -13,7 +13,7 @@ mod storage;
 mod tests;
 
 /// Per-launch policy for the managed JAR, unrelated to the authentication API URL.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum JarPolicy {
     #[default]
     Auto,

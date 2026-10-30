@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 
 mod link;
 mod serve;
+mod shim;
 
 #[derive(Debug, Parser)]
 #[command(name = "mcpmd", version, about = "mcpm remote operation process")]
@@ -22,13 +23,19 @@ enum Command {
     Serve,
     /// Hold one SSH serve session behind a local IPC socket.
     Link(link::Args),
+    /// Supervise one detached Minecraft server instance.
+    Shim,
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt().with_ansi(false).with_writer(std::io::stderr).init();
+    tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_writer(std::io::stderr)
+        .init();
     let cli = Cli::parse();
     match cli.command {
         Command::Serve => serve::run(),
         Command::Link(args) => link::run(args),
+        Command::Shim => shim::run(),
     }
 }
