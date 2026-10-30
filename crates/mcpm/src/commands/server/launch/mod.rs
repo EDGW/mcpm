@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Modes: Console and Raw. Launch starts the detached server shim; use server attach to observe it."
+    after_help = "Modes: Console and Raw. Launch starts the detached server shim and attaches to its line console; use --detach to leave it running. Use server attach/status/send/stop for explicit instance control."
 )]
 pub(super) struct LaunchArgs {
     #[arg(long, value_name = "PATH", default_value = ".")]

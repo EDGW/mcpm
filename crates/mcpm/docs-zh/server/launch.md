@@ -1,6 +1,6 @@
 # `mcpm launch`
 
-从服务端根目录中的配置启动 Java，继承终端输入输出，在前台等待退出并传递 Java 的退出码。
+通过 `mcpmd shim` 启动已登记服务端。默认 attach 到 shim 的行模式 console；使用 `--detach` 只启动并立即返回。
 
 ```sh
 mcpm init ./server --start-script run.sh
@@ -9,10 +9,8 @@ mcpm-server launch --server ./server
 mcpm-tools server launch --server ./server
 ```
 
-- `--server <PATH>`：已登记的本地服务端目录，默认 `.`；不接受路径位置参数。
-- 支持 Console、Raw；`--raw` 或 stdout 重定向不改变 Minecraft 控制台内容。
-- 不支持 SSH、Remote 工作区、后台守护或自动重启。
-- 不执行原始脚本，不重新读取原始 Java 参数文件，不安装服务端依赖或接受 EULA；启用托管认证时可下载 authlib-injector。
+- `--server <PATH>`：已登记的服务端目录，默认 `.`；不接受路径位置参数。
+- Console、Raw 显示 shim 的 console 行；`--detach` 跳过初始 attach。随后可使用 `attach`、`status`、`send`、`stop` 管理实例，SSH 与 Local 使用相同 operation target。
 
 ## 本次启动覆盖
 

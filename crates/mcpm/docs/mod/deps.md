@@ -53,7 +53,7 @@ SSH uses the same modes and local formatting:
 
 ```sh
 mcpm-tools --ssh 'ssh user@host' mods deps --directory /srv/mods --modid example
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm-tools.exe' --raw mods deps --directory 'D:\mods' --all
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpmd 'D:\mcpmd.exe' --raw mods deps --directory 'D:\mods' --all
 ```
 
 Inputs match filenames, then exact mod IDs, then exact names. Use repeated
@@ -71,8 +71,7 @@ independent file inputs are processed sequentially and are unaffected by this
 option. Scan progress is reported after each completion, including failures and
 unrecognized files; stderr TTY detection controls the local progress display.
 
-Both endpoints require protocol version 5. See [Remote](../remote.md) for
-structured `mod.deps` requests.
+Both endpoints require protocol version 6. See [Remote](../remote.md) for
 
 For shared options, see [Loader selection](README.md#loader-selection). For colors, ignored-file hints, and `--raw`, see [Terminal output](../README.md#terminal-output).
 

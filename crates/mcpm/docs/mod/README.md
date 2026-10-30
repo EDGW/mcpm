@@ -18,15 +18,11 @@ mcpm-tools mods [OPTIONS] <COMMAND>
 | [`source identify`](source-identify.md) | Identify file contents with ordered concurrency and SSH support. |
 
 ## SSH connections
-
-`--ssh <COMMAND>` and `--ssh-mcpm <PATH>` are top-level global options, so they
-can appear before or after its subcommands. `list` supports TUI, Console and Raw; `info` and `deps` support Console and Raw;
-`source identify` also supports SSH. Other commands explicitly reject them. `--ssh-mcpm` requires `--ssh` and names one remote
-executable, defaulting to `mcpm-tools` on the remote PATH.
+`--ssh <COMMAND>` and `--ssh-mcpmd <PATH>` are top-level global options and may appear before or after subcommands. Migrated `list`, `info`, `deps`, and `source identify` use the same operation target locally and remotely; cache, backup, and dep-graph have not been migrated and reject SSH. `--ssh-mcpmd` requires `--ssh` and defaults to `mcpmd` on the remote PATH.
 
 ```sh
 mcpm-tools mods --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
-mcpm-tools mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw
+mcpm-tools mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpmd.exe' --raw
 ```
 
 See [SSH listing](list.md#ssh-listing) for transport and presentation behavior.

@@ -1,6 +1,6 @@
 # `mcpm launch`
 
-Launch a registered local server from its root `launch.toml` and `conf.toml`, inherit Java's standard streams, wait in the foreground, and return its exit status.
+Start a registered server through its `mcpmd shim`. Launch attaches to the shim's line-oriented console by default; use `--detach` to leave it running and return immediately.
 
 ```sh
 mcpm init ./server --start-script run.sh
@@ -10,7 +10,7 @@ mcpm-tools server launch --server ./server
 ```
 
 - `--server <PATH>` selects the server root; default `.`. There is no positional path argument.
-- Console and Raw both preserve Minecraft's console streams. SSH, Remote workspaces, background operation and automatic restarts are unsupported.
+- Console and Raw display shim console lines. `--detach` skips the initial attach; use `attach`, `status`, `send`, and `stop` for explicit instance control. SSH uses the same operation target as Local.
 - `launch.toml` owns fixed JVM arguments, the class/JAR/module entry, fixed application arguments, working directory and explicit environment overrides.
 - `conf.toml` owns the Java executable, memory/GC tuning, authlib-injector, server overrides and user arguments. Import enables source settings and leaves unspecified settings commented out. Every supported field has English documentation in the generated file.
 - Complete manual registration creates a default `conf.toml` without inventing a launch entry.

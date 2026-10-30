@@ -3,7 +3,7 @@
 `mcpm-tools mods backup` creates, verifies, applies and deletes a complete directory's file backup,
 and computes directory checksums for comparison with backups. It recursively
 includes every regular file, including disabled mods and extensions other than `.jar`.
-Archives are not unpacked and empty directories are not recorded. Operations are local only.
+Archives are not unpacked and empty directories are not recorded. Backup is not migrated to SSH yet; its command entry rejects SSH explicitly.
 
 ## Usage
 

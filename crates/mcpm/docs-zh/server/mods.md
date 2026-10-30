@@ -60,10 +60,10 @@ printf '%s\n' create jei | mcpm mods cache --server /srv/minecraft --input modid
 - 单文件失败后继续处理后续文件，任何失败令 CLI 返回非零状态；已完成写入保留。缓存遵循[弱一致性保证](../cache.md)。
 
 ## 远程协议
+协议版本为 v6，客户端与远端必须同步升级。已迁移的 Server operation 使用统一输入输出类型；`server.mods.cache` 仍属于未迁移边界，暂由隔离 adapter 提供。
 
-协议版本为 5，客户端与远端必须同步升级。Server 请求拒绝原来的 `cache` 目录覆盖字段和 `writing.cache_dir`。
-
-- `server.mods.info`、`server.mods.deps` 接受 `server`（默认 `.`）、`selection`、正整数 `parallelism`（默认 10）及 `no_cache`（默认 false），复用[检查事件流](../remote.md)。
+- `server.mods.info`、`server.mods.deps` 接受 `server`（默认 `.`）、`selection`、正整数 `parallelism`（默认 10）及 `no_cache`（默认 false），复用检查事件流。
+- `server.mods.list` 接受相同字段，事件为 `scope`、`scan`、`error`、有序 `item`、`done`。
 - `server.mods.list` 接受相同字段，事件为 `scope {loaders,environment}`、`scan {completed,total}`、`error {error}`、有序 `item {index,record}`、`done {files,input_errors,failed,cache}`。记录复用 mod-list 表示，可附带 `records` 选择键，每个键包含 `metadata` 和 `record` 索引。
 - Info/list 默认使用 Server 缓存，`no_cache:true` 禁用本次查询；deps 始终直接识别。完成事件的 `cache` 包含 `fully_cached`、`partially_cached`、`total`。List scope 的 `environment` 为 `{cache}`，携带文件主机解析后的目录选择；禁用时为 null。后续 TUI 查询沿用此目标，不在客户端打开远端路径。
 - `server.mods.source.identify` 接受 `{server,selection,no_cache,parallelism}`，返回 scan/error 事件后，以 `done {paths,failed,environment}` 结束。客户端使用此有效环境进行只读来源识别，平台配置和凭据留在本地。

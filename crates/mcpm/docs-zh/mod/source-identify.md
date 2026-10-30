@@ -6,7 +6,7 @@
 mcpm-tools mods source identify --source modrinth --parallelism 4 a.jar b.jar
 mcpm-tools --raw mods source identify --source curseforge a.jar b.jar
 mcpm-tools --ssh 'ssh user@host' mods source identify --source modrinth /srv/mods/a.jar /srv/mods/b.jar
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' mods source identify --source curseforge 'D:\mods\a.jar'
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpmd.exe' mods source identify --source curseforge 'D:\mods\a.jar'
 ```
 
 `--source` 接受 `modrinth`、`curseforge`（Curse.tools）或 `curseforge@KEY`（官方 API）。路径是字面文件路径；stdin 每行追加一个路径。SSH 下路径属于远端，文件读取与摘要计算由远端执行，传回文件大小、SHA-1、所需的 MurmurHash2 指纹、校验后的缓存命中及读取错误。本地完成平台 HTTP 请求和匹配验证，沿用本地代理与 API key，不传输 JAR 内容。

@@ -1,21 +1,19 @@
 # Development principles
 
-## Executable entry points
-
-- `src/bin/` contains five thin entry points: `mcpm`, `mcpm-server`, `mcpmc`, `mcpm-client`, and `mcpm-tools`.
-- `program.rs` owns executable names and the immutable server/client/tools command roots. Use these roots for command hints and examples.
-- `cli/` composes common options with each family’s existing argument schema. Client entry points omit SSH and remote-log options.
-- `app.rs` owns shared process initialization and dispatch. The binary passes its identity explicitly; renaming a file does not change its command family.
-- SSH starts `mcpm-tools remote` by default. Remote executable overrides belong to connection settings, independently of local command roots.
+- `src/bin/` contains five thin frontend entry points: `mcpm`, `mcpm-server`, `mcpmc`, `mcpm-client`, and `mcpm-tools`; the remote service entry point is the standalone `mcpmd` binary.
+- `program.rs` owns executable names and immutable server/client/tools command roots. Use these roots for command hints and examples.
+- `cli/` composes common options with each family’s argument schema. Client entry points omit SSH and remote-log options.
+- `app.rs` owns shared initialization and dispatch. Migrated commands select Local/Remote through operation placement rather than a global SSH allowlist.
+- SSH holders start remote `mcpmd serve`; `--ssh-mcpmd` selects the remote executable and defaults to `mcpmd`.
 
 ## Server configuration and foreground launch
 
 - Backend `local/java/command.rs` owns Java option/operand boundaries and argument-file expansion. Configuration import uses this model without reparsing command strings.
 - `local::mc::server::config` owns TOML types, templates, import classification, validation and publication. Frontends neither generate TOML nor interpret fields independently.
 - `config/publication.rs` owns configuration locks and recovery for registration and both TOML files. Registration replacement and conf replacement remain separate intentions.
-- `launch/plan.rs` asynchronously prepares an immutable plan. Local preflight and argument validation precede managed downloads; `launch/process.rs` owns child lifetime and temporary argument files. Capability probes never run Minecraft or environment-injected agents.
-- Frontend `commands/server/launch` owns local routing, CLI adaptation, Tokio execution and stop notifications. Console/Raw inherit game streams without consuming game stdin.
-- Launch progress composes `launch::Event`, `authlib_injector::Event` and generic `download::Event` without a download-layer dependency on servers. `display/server/launch.rs` owns stage text, stderr policy and transfer presentation; shared `Progress` owns indicatif, themes and log coordination. Commands only connect callbacks. Displays are dropped before preparation errors reach diagnostics and cleared before spawning Java.
+- `launch/plan.rs` asynchronously prepares an immutable plan. Local preflight and argument validation precede managed downloads; `mcpmd shim` owns the Java child and line-oriented console instead of the removed tty/foreground process path.
+- Frontend `commands/server/launch` starts the shim and attaches by default; `--detach` starts and returns, while attach/status/send/stop provide explicit instance control. Console/Raw consume console lines without consuming game stdin.
+- Launch progress composes `launch::Event`, `authlib_injector::Event` and generic `download::Event` without a download-layer dependency on servers.
 - Explicit `auto` memory/GC tuning remains unsupported. Omitted fields do not infer policy from examples, host state or legacy snapshots.
 - `config/overrides.rs` reuses the configuration schema for typed scalar/list changes. Optional authentication tables are populated only in schema probes, without enabling authentication in actual defaults. Effective configuration passes through the existing codec and validation without rewriting TOML.
 

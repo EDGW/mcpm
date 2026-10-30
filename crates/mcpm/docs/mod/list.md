@@ -112,16 +112,9 @@ while Console uses its Console palette. NO_COLOR disables colors.
 
 ## SSH listing
 
-Use `--ssh 'ssh -i key -p 2222 user@host'` to load mods on another machine and
-display them locally. `--ssh-mcpm <PATH>` selects its mcpm executable; without
-it, the remote command uses `mcpm-tools`. These options are top-level global options.
-They are supported by `list` TUI, Console and Raw, and by
-[`mods source identify`](source-identify.md); other commands reject them.
+Use `--ssh 'ssh -i key -p 2222 user@host'` to load mods on another machine and display them locally. `--ssh-mcpmd <PATH>` selects its mcpmd executable; without it, the holder starts `mcpmd`. Migrated list/info/deps/source operations use the same Local/Remote target; other command families reject SSH as not yet migrated.
 
-The connection command contains the SSH executable, options and destination,
-without a remote command. Quote its arguments using shell-style quoting.
-mcpm opens one non-PTY SSH connection and starts one persistent `mcpm-tools remote`
-process. The SSH server's default shell starts the executable directly; POSIX
+The connection command contains the SSH executable, options and destination, without a legacy remote command. `mcpm` opens a non-PTY SSH connection through the `mcpmd link` holder, which starts `mcpmd serve` and reuses it for calls.
 shells and Windows cmd are supported. For Windows connections:
 
 - The SSH default shell must be cmd.
@@ -147,13 +140,12 @@ The shared identify pipeline queries both providers locally, using local proxies
 matched-file browsing reuse the usual TUI. Exiting cancels pending identification.
 
 A CLI list invocation owns its session until the local view closes. A caller that
-needs multiple commands can retain one SSH child process and send concurrent
-requests to its `mcpm-tools remote` process; see [Persistent remote sessions](../remote.md).
-No local daemon or per-command SSH handshake is required.
+needs multiple commands can retain one SSH holder connection and send concurrent
+requests through `mcpmd serve`. No local daemon or per-command SSH handshake is required.
 
 ```sh
 mcpm-tools mods --ssh 'ssh -i key -p 2222 user@host' list mods/ --expanded --no-ui
-mcpm-tools --raw mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' -C NML
+mcpm-tools --raw mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpmd.exe' -C NML
 ```
 
 ## Remote support

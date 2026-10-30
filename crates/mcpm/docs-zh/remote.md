@@ -1,11 +1,13 @@
-# Remote 会话与分发
+# mcpmd 远程服务
 
-`mcpm-tools remote` 使用一个进程承载整个会话。调用方可通过一个非 PTY 的 SSH 连接持续发送、并行执行多条请求。Remote 只负责会话、GUID 路由、并发限制、取消和全局错误；每个命令自己定义、编码和解码业务 contents，不依赖命令行参数解析。
+`mcpmd serve` 在 SSH 的非 PTY stdin/stdout 上承载 operation 请求；`mcpmd link` 由本地 holder 复用连接。远端不启动 mcpm UI，也不提供已删除的旧 CLI 会话。
 
 ```sh
-ssh -T user@host mcpm-tools remote
-ssh -T user@windows C:/mcpm-tools.exe remote
+ssh -T user@host mcpmd serve
+ssh -T user@windows C:/mcpmd.exe serve
 ```
+
+连接协议为 v6，调用通过 operation ID 分发；Local 与 Remote 使用同一 operation 输入输出类型。
 
 双向使用 UTF-8 NDJSON，每条消息是一个单行 JSON 加换行，写完立即刷新。字符串内换行由 JSON 转义。stdout 仅包含协议，正常运行时日志通过独立日志会话传输；stderr 保留非正式 release 构建的启动提示，以及启动或连接失败诊断，无颜色或终端界面。
 
@@ -47,10 +49,11 @@ ssh -T user@windows C:/mcpm-tools.exe remote
 调用方检查版本与需要的 command ID。支持能力来自 initcall 注册表，不从 CLI 子命令推断。目前 mods list、mods info、mods deps 与 mods source identify 注册。
 
 可以连续提交请求，无需等待前一条结束。同一请求内的回复保持顺序，不同请求的回复允许交错；调用方按 request GUID 路由。远端持续读 stdin，独立执行命令，由一个写入器向 stdout 写完整消息。本地同样由一个读取器按 GUID 分发给各请求句柄。
+`mcpmd serve` 按 operation ID 分发并发请求；`mcpmd link` holder 负责连接复用。并发、取消和全局错误由 mcpmd/exec 处理，业务 payload 使用 operation codec。
 
-`mcpm-tools remote --max-concurrency 8` 设置并发上限，默认 8。超出上限的新调用返回 `busy` 全局错误，稍后可以用新的 request GUID 重试。
+请求关闭 stdin 后服务端完成已接收调用，再发送 closed；客户端关闭 Session 会回收 holder 连接。所有日志与诊断通过 mcpmd 的连接级能力回传。
 
-关闭 stdin 表示不再提交请求。服务端先完成所有已接收任务，再发送全零 GUID 的 closed 回复并成功退出，即使此前有调用失败。丢弃本地 Session 会关闭并回收子进程。 Session 关闭时以 info 日志报告 `stdin_bytes`（本地发送）、`stdout_bytes`（本地接收）和 `total_bytes`。统计包含握手、命令、日志、控制帧和换行的实际 UTF-8 字节，不含 SSH 协议开销或 stderr；异常退出也会报告一次。
+远程服务不再提供旧的 CLI 并发参数；并发由 mcpmd/exec 的 operation 调度负责。
 
 ## 远端日志会话
 
@@ -66,7 +69,7 @@ ssh -T user@windows C:/mcpm-tools.exe remote
 
 远端日志默认不在 stderr 显示，只有添加全局参数 `--remote-logs` 后才显示；远端操作错误始终以 `remote error:` 显示，不受 `--remote-logs` 和 `--log-level` 影响。文件日志和失败退出码不受影响。终端同时按本地 `--log-level` 过滤日志，远端日志的 `INFO`、`DEBUG` 等级别标签采用斜体，不添加前缀。Raw、重定向或 `NO_COLOR` 下不输出样式。文件日志仍至少保留到 debug，因此即使终端为 off 也会传输 debug 日志；trace 仅在选择 trace 时传输，日志文件仍固定记录到 debug。远端也保留自己的日志文件。
 
-订阅前缓存最近 256 条启动日志，超过上限时附带丢弃数量警告。关闭 stdin 后先排空命令，再排空日志，发送日志 GUID 的 finished，最后发送全零 GUID 的 closed。本地 TUI 打开期间延迟终端日志显示，关闭面板后输出；文件日志持续写入。当前协议版本为 5，调用方和远端需同时更新。
+订阅前缓存最近 256 条启动日志，超过上限时附带丢弃数量警告。`mcpmd serve` 通过 operation frame 回传调用与日志，`mcpmd link` holder 负责连接复用。关闭 stdin 后先排空 operation，再排空日志，发送日志 GUID 的 finished，最后发送全零 GUID 的 closed。当前 mcpmd 协议版本为 6，调用方和远端需同时更新。
 
 ## 全局错误与取消
 
@@ -162,7 +165,7 @@ ignored=0 的 done。业务失败仍跟随 finished。执行失败（包括工�
 向调用方传播；远端通过全局 error 结束，不再发送业务 done 或 finished。
 取消使用 cancelled 全局状态并可留下部分结果。
 在查询之间、选中文件之间、目录扫描完成项之间检查取消。客户端校验序号、数量、诊断与失败
-状态的一致性以及事件生命周期。通信协议版本为 5，两端需要同步更新。
+状态的一致性以及事件生命周期。通信协议版本为 6，两端需要同步更新。
 
 ## mods source identify 的 contents
 
@@ -194,7 +197,7 @@ SSH mods list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 ## Server 命令的 contents
 
-协议版本为 5，两端必须同步升级。客户端检查握手版本及声明的命令 ID。Server 缓存由远端 Server 决定，请求不再接受目录覆盖。
+协议版本为 6，两端必须同步升级。客户端检查握手版本及声明的 operation ID。Server 缓存由远端 Server 决定，请求不再接受目录覆盖。
 
 - [`server.init` 与 `server.init.recognize`](server/init.md#远程行为)：独立的完整参数初始化和只读识别，本地选择候选。
 - [`server.info`](server/info.md#ssh)：来源主机的元数据快照，在本地渲染。
@@ -233,21 +236,21 @@ SSH mods list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 wire v5 仍输出 metadata version 1；Local 磁盘持久化写为 version 2。初始化依次回传 `stage {phase: "validating"}`、`stage {phase: "writing"}`、`initialized {server}`，最后一个使用 `server.info` 结构。成功由通用 `finished` 结束，失败以 `error` 结束；客户端校验阶段顺序和唯一结果。需要候选选择时，识别与初始化共用同一 SSH 会话。
 
-所有 server 端点（包括识别）都要求 Local 工作目录类型。Remote 引用仅由前端解析，`mcpm-tools remote` 不跟随引用。初始化可以创建 Local 登记，但即使带 `force` 也不能替换 Remote 工作目录。识别继续作为独立的脚本读取操作，不跟随工作目录引用。
+已迁移的 server operation 使用解析后的 workspace target，并在 Local 与 Remote 复用同一 operation 契约。未迁移的 `server.mods.cache` 仍隔离在旧 adapter 中，已迁移命令不依赖它。
 
 元数据文件分别原子写入，不构成双文件事务。mcpm 登记写入持有工作目录锁，并在写入前重新检查类型。新 Remote 登记先写 `server.json`，再发布 `mcpm.json`；发布类型失败则删除刚创建的服务端文件。进程突然终止仍可能留下无法加载的未完成登记。Local 初始化可能先保存 `server.json` 再发布 Local 标记；标记失败会明确报告部分成功，缺失标记仍按 Local 处理。原子写入完成后，取消或连接中断不回滚配置；结果不确定时先通过 `server info` 检查。
 
 ## 模块注册与 SSH
 
-各模块通过 `inventory::submit! { Initcall(init) }` 提交自己的 initcall。程序启动统一执行 initcall，模块在自己的 init 中调用 `remote::registry::register::<Command>()`。Remote 不引用业务实现，中央入口不逐项列举命令。重复 command ID 在启动时明确报错。命令自己定义业务类型，通过 `Output::send(业务值)` 发送回复；序列化由 `Reply::new` 封装，接收端通过 `Reply::decode::<业务类型>()` 解码。Remote 仅选择握手和全局错误类型，不认识业务字段；处理器使用 checkpoint 响应取消。
+各模块通过 operation 注册并由 mcpmd serve 提供 Host operation；Remote 不再引用 mcpm CLI 实现或旧 command registry。
 
-SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpm` 是最外层全局选项，可以出现在子命令前后；支持 `mods list/info/deps/source identify`、`server init/info` 和 `server mods list/info/cache/deps/source search/files/identify`。列表和来源浏览的 TUI 在本地运行，检查命令支持 Console/Raw。`server mods check` 和 `dep-graph` 明确拒绝 SSH。`--ssh-mcpm` 需配合 `--ssh`，省略时使用远端 PATH 中的 mcpm。
+SSH 公共模块位于 `src/ssh/`。`--ssh` 和 `--ssh-mcpmd` 是最外层全局选项，可以出现在子命令前后；已迁移命令由 operation placement 决定 target。cache、stash、backup、client 尚未迁移，在对应命令入口明确拒绝 SSH。
 
-SSH 默认 shell 直接启动 `mcpm-tools remote`。Windows 连接要求默认 shell 为 cmd；可执行文件路径自动加双引号，不能包含双引号、换行、NUL、`%` 或 `!`。POSIX 可执行文件使用 shell 引号转义。业务参数通过 JSON 传输，不依赖 shell 语法。
+SSH holder 启动远端 `mcpmd serve` 并复用连接；不再启动旧 CLI 会话。Windows 连接要求默认 shell 为 cmd；可执行文件路径自动加双引号，不能包含双引号、换行、NUL、`%` 或 `!`。POSIX 可执行文件使用 shell 引号转义。业务参数通过 operation frame 传输，不依赖 shell 语法。
 
 ```sh
 mcpm-tools --ssh 'ssh -i key user@host' mods list mods/ --no-ui
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw mods list 'C:\mods'
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpmd.exe' --raw mods list 'C:\mods'
 ```
 
 [命令参考](README.md) · [列表命令](mod/list.md) · [English](../docs/remote.md)
@@ -294,8 +297,8 @@ Server 命令使用 Server 运行环境的缓存。Server list scope 和来源�
 - FileMatch 含 `reference {project:{source,id},id}`、`filename`、`size`、`hashes`（`{algorithm,value}`）、`role`（primary／additional）。所有 CurseForge 配置持久化为 `source:"curseforge"`。
 - 缓存 record 新增 `metadata_requested`、各来源 `identification`（matched／unmatched／failed，失败含 error 和 remote）、主错误的 `error_remote`。多个 source 失败仍按一个文件计失败，Console 分别按真实来源展示错误。
 
-### 分支诊断（协议 5）
+### 分支诊断（协议 6）
 
 - 错误保留 `message` 和有序 `causes`；可选的 `branches` 数组保存独立失败，每项仍是同样结构的错误报告，可递归嵌套。
 - 组合根节点允许空消息，仅包含分支。首分支沿用当前错误或原因标签，后续分支用 `and:`；每条分支自己的原因链再缩进一级。
-- 两端必须使用协议 5，避免旧端静默忽略分支而丢失错误信息。
+- 两端必须使用协议 6，避免旧端静默忽略分支而丢失错误信息。

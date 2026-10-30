@@ -25,7 +25,7 @@ SSH uses the same modes and local formatting:
 
 ```sh
 mcpm-tools --ssh 'ssh user@host' mods info --directory /srv/mods --modid example
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm-tools.exe' --raw mods info --directory 'D:\mods' --all
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpmd 'D:\mcpmd.exe' --raw mods info --directory 'D:\mods' --all
 ```
 
 Inputs match filenames, then exact mod IDs, then exact names. Use repeated

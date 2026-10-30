@@ -1,16 +1,8 @@
 # mcpm command reference
 
-The executables share one implementation and configuration:
+All entry points share the same implementation and configuration. The standalone `mcpmd` binary provides `serve`, `link`, and `shim`; the legacy CLI session is removed.
 
-| Executable | Commands |
-| --- | --- |
-| `mcpm`, `mcpm-server` | `init`, `info`, `launch`, `mods`, `stash` |
-| `mcpmc`, `mcpm-client` | `list`, `check`, `launch` |
-| `mcpm-tools` | `cache`, `remote`, `customize`, `debug`, `mods`, `server`, `client` |
-
-Each long name has the same behavior as its short name; help and command hints use the selected name. Tools also exposes `mcpm-tools server info` and `mcpm-tools client list`. The server and client executables accept only their own command families; remote sessions use `mcpm-tools remote`.
-
-Inspection commands read mod archives without modifying them. `mcpm-tools mods cache` explicitly stores files and metadata, with optional hard-link protection. Graph snapshots can be written to a separate file.
+Inspection commands read mod archives without modifying them.
 
 [Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
 
@@ -50,8 +42,7 @@ cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpm-tools -- mods list
 ```
 
 ## Global options
-
-`--ssh`, `--ssh-mcpm`, and `--remote-logs` are available only in the server and tools executables. SSH defaults to the remote `mcpm-tools` executable; explicit `--ssh-mcpm` paths are used as provided. `--ssh` and `--ssh-mcpm` are global; supported by `mods list`, `mods info`, `mods deps`, `mods source identify`, `server init`, `server info`, and `server mods list/info/cache/deps/source search/files/identify`. See [Remote sessions](remote.md).
+`--ssh`, `--ssh-mcpmd`, and `--remote-logs` are available in the server and tools executables. SSH defaults to the remote `mcpmd` executable; explicit `--ssh-mcpmd` paths are used as provided. Migrated commands select their target through operation placement. Cache, stash, backup, and client are not migrated yet and reject SSH at their command entry points. See [Remote service](remote.md).
 
 ```text
 mcpm-tools [OPTIONS] <COMMAND>

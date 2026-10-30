@@ -37,21 +37,19 @@ enum ModsCommand {
 }
 
 pub(crate) fn run(args: ModsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if ssh.is_requested()
-        && matches!(
-            args.command,
-            ModsCommand::DepGraph(_) | ModsCommand::Cache(_) | ModsCommand::Backup(_)
-        )
-    {
-        anyhow::bail!(
-            "--ssh and --ssh-mcpmd are supported only by {} mods list/info/deps/source identify",
-            crate::program::roots().tools
-        );
-    }
     match args.command {
-        ModsCommand::Cache(args) => cache::run(args),
-        ModsCommand::Backup(args) => backup::run(args),
-        ModsCommand::DepGraph(args) => dep_graph::run(args),
+        ModsCommand::Cache(args) => {
+            anyhow::ensure!(!ssh.is_requested(), "mods cache does not support SSH yet; this command has not been migrated");
+            cache::run(args)
+        }
+        ModsCommand::Backup(args) => {
+            anyhow::ensure!(!ssh.is_requested(), "mods backup does not support SSH yet; this command has not been migrated");
+            backup::run(args)
+        }
+        ModsCommand::DepGraph(args) => {
+            anyhow::ensure!(!ssh.is_requested(), "mods dep-graph does not support SSH yet; this command has not been migrated");
+            dep_graph::run(args)
+        }
         ModsCommand::Deps(args) => deps::run(args, ssh),
         ModsCommand::Info(args) => info::run(args, ssh),
         ModsCommand::List(list) => list::run(list, ssh),

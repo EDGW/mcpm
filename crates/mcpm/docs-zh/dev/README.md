@@ -1,13 +1,10 @@
 # 开发原则
 
-## 可执行文件入口
-
-- `src/bin/` 提供五个薄入口：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`。
+- `src/bin/` 提供五个薄入口：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`；远端服务入口是独立的 `mcpmd`。
 - `program.rs` 统一定义程序名称和进程只读的 Server、Client、Tools 命令根；命令提示和示例使用这些命令根。
 - `cli/` 将公共选项与命令族已有参数结构组合；客户端入口不提供 SSH 和远端日志选项。
-- `app.rs` 负责公共初始化和分发。二进制显式传入程序身份，文件改名不改变命令族。
-- SSH 默认启动 `mcpm-tools remote`；远端可执行文件覆盖配置属于连接设置，与本地命令根独立。
-
+- `app.rs` 负责公共初始化和分发。可迁移命令通过 operation 的 target 运行，不维护全局 SSH 白名单。
+- SSH holder 启动远端 `mcpmd serve`；远端可执行文件覆盖使用 `--ssh-mcpmd`，默认值为 `mcpmd`。
 ## 构建身份
 
 - `build.rs` 统一生成编译期构建身份；`build_info.rs` 提供版本元数据，`display/build_info.rs` 渲染启动提示。
@@ -21,12 +18,11 @@
 ## 服务端配置导入与前台启动
 
 - 后端 `local/java/command.rs` 是 Java 参数区、入口边界和参数文件的唯一解析入口；识别模型中的类路径、模块路径和属性均由命令模型派生。
-- 后端 `local/mc/server/config` 拥有 TOML 类型、模板、分类、校验和发布；导入值生效，缺失值保持注释。前端不拼 TOML、不重复解释字段。
-- 本地初始化输入显式携带配置草稿；旧 Remote 协议保留自己的登记契约，不由未传输的数据推断配置。
+- 后端 `local/mc/server/config` 拥有 TOML 类型、模板、分类、校验和发布；前端不拼 TOML、不重复解释字段。
 - `config/publication.rs` 持有配置锁和恢复日志，统一协调登记及两份 TOML；`--force` 与 `--foverride-conf` 是独立覆盖意图。跨文件发布可恢复，工作区类型标记仍是前端后续步骤。
-- 后端 `launch/plan.rs` 异步准备不可由前端修改的执行计划；本地条件及参数检查先于托管下载。`launch/process.rs` 持有子进程及临时参数文件，标准流直接继承。能力探测不执行 Minecraft 入口或环境注入的 agent。
-- 前端 `commands/server/launch` 检查本地路由、接入停止通知并传递类型化退出状态。Console/Raw 不转换游戏输出，不占用游戏 stdin。
-- 启动进度通过 `launch::Event` → `authlib_injector::Event` → `download::Event` 逐层组合，通用下载层不引用服务端类型。`display/server/launch.rs` 负责阶段文案、stderr 模式及下载渲染，通用 `Progress` 负责 indicatif、主题与日志协调；命令只接入回调。准备错误返回前销毁动态显示，启动 Java 前结束进度。
+- 后端 `launch/plan.rs` 异步准备不可由前端修改的执行计划；本地条件及参数检查先于托管下载。`mcpmd shim` 持有 Java 子进程及其行模式 console，前端不再管理旧 tty/前台进程。
+- `commands/server/launch` 启动 shim 并默认 attach；`--detach` 只启动并返回，后续使用 attach/status/send/stop。Console/Raw 接收 console 行，不占用游戏 stdin。
+- 启动进度通过 `launch::Event` → `authlib_injector::Event` → `download::Event` 逐层组合，通用下载层不引用服务端类型。
 - v3 登记只存身份，旧 v1/v2 `start` 经原编解码入口兼容读取，仅用于历史展示，不自动迁移成启动配置。
 - 内存或 GC 设置中的显式 `auto` 暂不受支持；不从模板示例、宿主机状态或旧快照推导隐式默认策略。
 - `config/overrides.rs` 拥有本次启动覆盖操作，字段及类型复用配置 schema；标量唯一，列表按序追加或清空重设。前端只将便捷参数转换为同一覆盖输入，最终配置经原 codec 和校验入口生成计划，不回写 TOML。

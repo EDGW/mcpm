@@ -37,7 +37,7 @@ SSH 同样使用这两种模式，由本地控制输出格式：
 
 ```sh
 mcpm-tools --ssh 'ssh user@host' mods deps --directory /srv/mods --modid example
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm-tools.exe' --raw mods deps --directory 'D:\mods' --all
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpmd 'D:\mcpmd.exe' --raw mods deps --directory 'D:\mods' --all
 ```
 
 输入依次按文件名、精确 Mod ID、精确名称匹配。可重复使用 `--file`、`--modid`、
@@ -50,7 +50,7 @@ SSH 模式在远端完成选择、文件读取和 Loader 解析，本地先读�
 文件扫描并发，本地与 SSH 均适用。多个独立文件输入仍顺序处理，不受此参数影响。
 每个扫描项完成后回传进度，包括失败和未识别文件；本地依据 stderr 是否为 TTY 显示进度。
 
-两端均需协议版本 5。结构化 `mod.deps` 请求见 [Remote](../remote.md)。
+mcpmd v6 的结构化 operation 请求由 `mcpmd serve` 处理，并由 `mcpmd link` holder 复用 SSH 连接。Local 与 Remote 使用同一 `mod.deps` 输入输出类型；两端必须同步升级。
 
 通用选项见 [Loader 选择](README.md#loader-选择)，颜色和 `--raw` 行为见[终端输出](../README.md#终端输出)。
 

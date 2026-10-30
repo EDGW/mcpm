@@ -1,9 +1,11 @@
-# Remote sessions and dispatch
+# Remote service
 
-One `mcpm-tools remote` process serves the entire caller-owned session over non-PTY
-SSH stdin/stdout. Requests can run concurrently. Remote handles session routing,
-cancellation, concurrency and global errors. Each command owns its contents codec;
-remote never parses command-line arguments or business payloads.
+`mcpmd serve` handles operation requests over non-PTY SSH stdin/stdout; `mcpmd link` is the local holder used to reuse that connection. The remote side does not start the mcpm UI or expose the removed legacy CLI session.
+
+```sh
+ssh -T user@host mcpmd serve
+ssh -T user@windows C:/mcpmd.exe serve
+```
 
 A **command ID** is a stable string such as `mod.list`, declared and registered
 by its command module. The client automatically generates a UUID v4 for each
@@ -195,7 +197,7 @@ done or finished. Cancellation uses the global cancelled status and can leave
 partial results. Cancellation is checked between queries,
 selected files and directory scan completions. The client validates indices,
 completion counts, diagnostics/failure agreement and lifecycle before final success.
-Protocol version 5 requires updating both endpoints.
+The mcpmd v6 operation protocol requires both endpoints to use the same framing and operation schemas. `mcpmd serve` dispatches host operations; `mcpmd link` reuses the SSH holder connection. The client validates event order, completion counts, diagnostics and lifecycle before final success.
 
 ## mod.source.identify contents
 
@@ -227,7 +229,7 @@ Logs distinguish execution=local/remote and phase=summary/provider, including re
 
 ## Server command contents
 
-Protocol version 5 requires both endpoints to be upgraded together. Clients validate the handshake version and required command IDs. Server cache targets come from the remote Server runtime; requests cannot override the directory.
+The mcpmd v6 protocol requires both endpoints to be upgraded together. Clients validate the handshake and operation IDs. Server cache targets come from the remote Server runtime; requests cannot override the directory.
 
 - [`server.init` and `server.init.recognize`](server/init.md#remote-behavior): independent complete-data initialization and read-only recognition; candidate selection stays local.
 - [`server.info`](server/info.md#ssh): one source-host metadata snapshot, rendered locally.
@@ -266,7 +268,7 @@ Metadata requires nonempty Minecraft/loader versions and explicit `loader` (`nul
 
 Wire v5 continues to emit metadata version 1; Local persistence writes disk version 2. Initialization emits `stage` with `validating`, then `writing`, then `initialized {server}` using the `server.info` schema. Successful operations finish with the common `finished` status; failures end with `error`. Clients validate phase order and exactly one result. Recognition and initialization share one SSH session when candidate selection is needed.
 
-All server endpoints, including recognition, require a Local workspace type. Remote references are resolved only by the frontend, never by `mcpm-tools remote`. Initialization can create a new Local registration but cannot replace a Remote workspace, even with `force`. Recognition remains an independent script-only operation and does not follow workspace references.
+Migrated server operations use the resolved workspace target and the same operation contract for Local and Remote. The un migrated `server.mods.cache` path remains isolated in its legacy adapter; it is not used by migrated commands.
 
 Metadata files are individually atomic, not a two-file transaction. mcpm registration writers hold a workspace lock and recheck its type before writing. A new Remote registration publishes `server.json` before `mcpm.json`; if publishing the type fails, it removes its new server file. An abrupt process termination may still leave an incomplete registration, which fails to load. Local initialization can persist `server.json` before publishing the Local marker; a marker failure reports that partial success, and a missing marker still defaults to Local. A completed atomic write is not rolled back after cancellation or connection loss; inspect `server info` before retrying an uncertain result.
 
@@ -280,19 +282,15 @@ needed and remote does not depend on business implementations. Handlers define t
 to decode payloads. Remote selects only handshake/global-error types and never
 interprets business fields. Handlers use checkpoint for cancellation.
 
-SSH lives in shared `src/ssh/`. `--ssh` and `--ssh-mcpm` are top-level global options,
-accepted before/after subcommands. Supported commands are mods list/info/deps/source identify, server init/info, and server mods list/info/cache/deps/source search/files/identify. List and source browsing keep their TUI local; inspection supports Console/Raw. Server mods check and dep-graph reject SSH. ssh-mcpm requires ssh and defaults
-to mcpm-tools on the remote PATH. There is no legacy mods list --remote entry point.
+SSH lives in shared `src/ssh/`. `--ssh` and `--ssh-mcpmd` are top-level global options, accepted before or after subcommands. Migrated commands select their target through operation placement. Cache, stash, backup and client are not migrated yet and reject SSH at their command entry points.
 
-The SSH server's default shell directly starts `mcpm-tools remote`. Windows connections
-require cmd as the default shell; executable paths are double-quoted and must not
-contain double quotes, line breaks, NUL, `%` or `!`. POSIX executables use shell
-quoting. Business arguments are sent as JSON, independently of shell syntax.
+The holder starts the selected `mcpmd` executable with `serve` and reuses the connection; no legacy CLI session is started. Windows connections require cmd as the default shell; executable paths are double-quoted and must not contain double quotes, line breaks, NUL, `%` or `!`. POSIX executables use shell quoting. Business arguments are sent as operation frames.
 
 ```sh
 mcpm-tools --ssh 'ssh -i key user@host' mods list mods/ --no-ui
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw mods list 'C:\mods'
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpmd.exe' --raw mods list 'C:\mods'
 ```
+
 
 [Command reference](README.md) · [简体中文](../docs-zh/remote.md)
 
@@ -326,8 +324,8 @@ Server commands use the Server runtime cache. Server list scopes and source-sele
 - FileMatch contains `reference {project:{source,id},id}`, `filename`, `size`, `hashes` (`{algorithm,value}`), and `role` (`primary`/`additional`). All CurseForge configurations persist `source:"curseforge"`.
 - Cache records add `metadata_requested`, source-keyed `identification` outcomes (`matched`, `unmatched`, or `failed` with `error` and `remote`), and `error_remote` for the primary error. File failures are counted once even if several sources fail. Console reports each source error with its actual origin.
 
-### Branched diagnostics (protocol 5)
+### Branched diagnostics (protocol 6)
 
 - Errors preserve `message` and ordered `causes`. An optional `branches` array contains further error reports for independent failures, recursively.
 - An aggregate root may have an empty message and contain only branches. The first branch uses the current error/cause label; subsequent branches use `and:`. Causes within each branch indent one additional level.
-- Both endpoints must support protocol 5 so that nested failures are never silently discarded.
+- Both endpoints must support protocol 6 so that nested failures are never silently discarded.

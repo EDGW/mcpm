@@ -43,15 +43,24 @@ pub(crate) enum CommandOutcome {
 
 
 pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandOutcome> {
-    if ssh.is_requested() && !matches!(command, Command::Mods(_) | Command::Server(_)) {
-        anyhow::bail!("--ssh and --ssh-mcpmd are supported only by {} mods and {} server commands", crate::program::roots().tools, crate::program::roots().server);
-    }
     let result = match command {
-        Command::Customize(args) => customize::run(args),
-        Command::Debug(args) => debug::run(args),
+        Command::Customize(args) => {
+            anyhow::ensure!(!ssh.is_requested(), "customize does not support SSH yet; this command has not been migrated");
+            customize::run(args)
+        }
+        Command::Debug(args) => {
+            anyhow::ensure!(!ssh.is_requested(), "debug does not support SSH yet; this command has not been migrated");
+            debug::run(args)
+        }
         Command::Mods(args) => mods::run(args, ssh),
-        Command::Client(args) => client::run(args),
-        Command::Cache(args) => cache::run(args),
+        Command::Client(args) => {
+            anyhow::ensure!(!ssh.is_requested(), "client does not support SSH yet; this command has not been migrated");
+            client::run(args)
+        }
+        Command::Cache(args) => {
+            anyhow::ensure!(!ssh.is_requested(), "cache does not support SSH yet; this command has not been migrated");
+            cache::run(args)
+        }
         Command::Server(args) => return server::run(args, ssh),
     };
     result.map(|()| CommandOutcome::Completed)

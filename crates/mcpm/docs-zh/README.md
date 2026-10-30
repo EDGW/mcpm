@@ -1,16 +1,14 @@
 # mcpm 命令参考
 
-所有入口共享同一套实现和配置：
+所有入口共享同一套实现和配置。独立的 `mcpmd` 提供 `serve`、`link`、`shim`；旧 CLI 会话已删除。
 
 | 可执行文件 | 命令 |
 | --- | --- |
 | `mcpm`、`mcpm-server` | `init`、`info`、`launch`、`mods`、`stash` |
 | `mcpmc`、`mcpm-client` | `list`、`check`、`launch` |
-| `mcpm-tools` | `cache`、`remote`、`customize`、`debug`、`mods`、`server`、`client` |
+| `mcpm-tools` | `cache`、`customize`、`debug`、`mods`、`server`、`client` |
 
-长短名称的行为相同，帮助和命令提示使用所选名称。Tools 也保留 `mcpm-tools server info`、`mcpm-tools client list`。服务端和客户端入口只接受各自命令族；远程会话使用 `mcpm-tools remote`。
-
-检查命令只读取 Mod 归档；`mcpm-tools mods cache` 显式存储文件与摘要，可选择硬链接保护。依赖图可另存为文件。
+远端服务由独立的 `mcpmd serve` 提供。
 
 [客户端列表](client/list.md) · [完整性检查](client/check.md) · [启动客户端](client/launch.md)
 
@@ -49,9 +47,7 @@ cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpmc -- list
 cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpm-tools -- mods list
 ```
 
-## 全局选项
-
-`--ssh`、`--ssh-mcpm`、`--remote-logs` 仅在服务端和 Tools 入口提供。SSH 默认调用远端的 `mcpm-tools`；显式配置的 `--ssh-mcpm` 路径保持原样。`--ssh` 和 `--ssh-mcpm` 为顶层全局参数，`mods list`、`mods info`、`mods deps`、`mods source identify`、`server init`、`server info` 和 `server mods list/info/cache/deps/source search/files/identify` 支持使用。详见 [Remote 会话](remote.md)。
+`--ssh`、`--ssh-mcpmd`、`--remote-logs` 仅在服务端和 Tools 入口提供。SSH 默认调用远端的 `mcpmd`；显式配置的 `--ssh-mcpmd` 路径保持原样。已迁移命令由 operation placement 决定 target；cache/stash/backup/client 尚未迁移并在命令入口明确拒绝 SSH。详见 [Remote 会话](remote.md)。
 
 ```text
 mcpm-tools [OPTIONS] <COMMAND>

@@ -45,9 +45,9 @@ Console 和 Raw 搜索全部声明（包括隐藏子项），再输出匹配行�
 
 ## SSH 列表
 
-使用 `--ssh 'ssh -i key -p 2222 user@host'` 从另一台机器加载 Mod，在本地显示。`--ssh-mcpm <PATH>` 指定远端 mcpm 可执行文件，未指定时直接使用远端 PATH 中的 `mcpm-tools`。这两个参数在最外层全局有效，可放在子命令前后；目前 `list` 的 TUI、Console、Raw 以及 [`mods source identify`](source-identify.md) 支持，其他命令明确报不支持。
+使用 `--ssh 'ssh -i key -p 2222 user@host'` 从另一台机器加载 Mod，在本地显示。`--ssh-mcpmd <PATH>` 指定远端 mcpmd 可执行文件，未指定时由 holder 启动 `mcpmd`。已迁移的 list/info/deps/source operation 使用相同 Local/Remote target；其他命令尚未迁移并明确拒绝 SSH。
 
-连接字符串只包含 SSH 可执行文件、选项和目标地址，不包含远端命令；其中的参数使用 shell 风格引号。mcpm 只建立一个非 PTY 的 SSH 连接，由 SSH 默认 shell 直接启动一个持续运行的 `mcpm-tools remote` 进程。支持 POSIX shell 和 Windows cmd。Windows 连接要求：
+连接字符串只包含 SSH 可执行文件、选项和目标地址，不包含旧远端命令。mcpm 通过 `mcpmd link` holder 建立非 PTY 连接，由 holder 启动 `mcpmd serve` 并复用连接。
 
 - SSH 默认 shell 必须为 cmd。
 - 指定自定义可执行文件时，使用 Windows 路径或以 `.exe` 结尾的名称，例如 `C:\Program Files\mcpm\mcpm-tools.exe`；mcpm 自动添加双引号。
@@ -61,7 +61,7 @@ Console 和 Raw 搜索全部声明（包括隐藏子项），再输出匹配行�
 
 ```sh
 mcpm-tools mods --ssh 'ssh -i key -p 2222 user@host' list mods/ --expanded --no-ui
-mcpm-tools --raw mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' -C NML
+mcpm-tools --raw mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpmd.exe' -C NML
 ```
 
 ## Remote 支持

@@ -6,7 +6,7 @@ Identify files by their contents on a configured provider in Console, Raw or SSH
 mcpm-tools mods source identify --source modrinth --parallelism 4 a.jar b.jar
 mcpm-tools --raw mods source identify --source curseforge a.jar b.jar
 mcpm-tools --ssh 'ssh user@host' mods source identify --source modrinth /srv/mods/a.jar /srv/mods/b.jar
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' mods source identify --source curseforge 'D:\mods\a.jar'
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpmd.exe' mods source identify --source curseforge 'D:\mods\a.jar'
 ```
 
 `--source` accepts `modrinth`, `curseforge` (Curse.tools), or `curseforge@KEY` (official API). Inputs are literal file paths, with one additional path per stdin line. With SSH, paths, file reads and digest computation belong to the remote host. Size, SHA-1, requested MurmurHash2 fingerprints, validated cache matches and read errors cross the connection; JAR bytes stay remote. Provider requests and match verification run locally, using local proxies and API keys.

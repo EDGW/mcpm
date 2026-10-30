@@ -21,7 +21,7 @@ mcpm init ./server --force --minecraft-version 1.21.1 --loader vanilla --git
 mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
 
 # 在 host R 上识别/初始化服务端，并在 caller P 上登记 Remote placeholder
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' init ./workspace --remote 'D:\EDGW-26Summer' --start-script run.bat
+mcpm --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpmd.exe' init ./workspace --remote 'D:\EDGW-26Summer' --start-script run.bat
 
 # 创建工作目录后，后续命令自动使用保存的连接
 mcpm info ./workspace
@@ -96,11 +96,11 @@ Git 默认行为：
 `--remote` 有两个明确目录：P 是调用方机器上的 Remote workspace placeholder，只保存连接登记；R 是 SSH host 上的服务端目录，所有 recognize、`server.json`、`conf.toml`、`launch.toml`、配置发布和 Git detect/init 均在 R 上执行。
 
 ```text
-mcpm --ssh COMMAND [--ssh-mcpm EXE] init P --remote R [recognition options] [--force] [--replace]
+mcpm --ssh COMMAND [--ssh-mcpmd EXE] init P --remote R [recognition options] [--force] [--replace]
 ```
 
 完整手动元数据直接在 R 上注册；否则在 R 上识别，候选选择在 caller 执行。空 `--start-script` 由 host 平台选择默认脚本，不能使用 caller 平台推断。
 
-`--force` 只替换 host registration/config；`--replace` 只替换 P 的 Remote 登记。`--git` 与 `--no-git` 只作用于 R。P 的 Remote registration 文件是 `.mcpm/remote_info.json`，`.mcpm/server.json` 仍只属于 Local server metadata。
+SSH 连接和远端 mcpmd 程序均复用全局参数；远端服务入口为 `mcpmd serve`。
 
 如果 host 初始化成功但 P 登记失败，不回滚 R；命令会明确报告 host 已完成、P 尚未登记，并提示使用 `--replace` 重新登记或按现有 workspace registration 能力手工登记。

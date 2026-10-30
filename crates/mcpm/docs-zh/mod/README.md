@@ -19,11 +19,7 @@ mcpm-tools mods [OPTIONS] <COMMAND>
 
 ## SSH 连接
 
-`--ssh <COMMAND>` 和 `--ssh-mcpm <PATH>` 在最外层全局有效，可以放在子命令前后。`list` 的 TUI、Console 和 Raw，`info`、`deps` 的 Console 和 Raw，以及 `source identify` 支持；其他命令会明确拒绝。`--ssh-mcpm` 需要配合 `--ssh`，用于指定远端可执行文件，默认使用远端 PATH 中的 `mcpm-tools`。
-
-```sh
-mcpm-tools mods --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
-mcpm-tools mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' --raw
+`--ssh <COMMAND>` 和 `--ssh-mcpmd <PATH>` 在最外层全局有效，可以放在子命令前后。已迁移的 `list`、`info`、`deps`、`source identify` 使用相同 operation target；cache、backup、dep-graph 尚未迁移并在命令入口拒绝 SSH。`--ssh-mcpmd` 需要配合 `--ssh`，默认使用远端 PATH 中的 `mcpmd`。
 ```
 
 传输与本地展示行为见 [SSH 列表](list.md#ssh-列表)。

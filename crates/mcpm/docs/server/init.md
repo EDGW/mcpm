@@ -21,7 +21,7 @@ mcpm init ./server --force --minecraft-version 1.21.1 --loader vanilla --git
 mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
 
 # Initialize host R and register caller placeholder P
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' init ./workspace --remote 'D:\EDGW-26Summer' --start-script run.bat
+mcpm --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpmd.exe' init ./workspace --remote 'D:\EDGW-26Summer' --start-script run.bat
 
 # Subsequent commands use the saved connection automatically
 mcpm info ./workspace
@@ -95,7 +95,7 @@ Local imports publish complete configuration for the selected candidate:
 With `--remote`, P is the caller-side Remote workspace placeholder and R is the server directory on the SSH host. P stores only SSH, executable, and host-path registration. Recognition, `server.json`, `conf.toml`, `launch.toml`, configuration publication, and Git detection/initialization all run on host R.
 
 ```text
-mcpm --ssh COMMAND [--ssh-mcpm EXE] init P --remote R [recognition options] [--force] [--replace]
+mcpm --ssh COMMAND [--ssh-mcpmd EXE] init P --remote R [recognition options] [--force] [--replace]
 ```
 
 Complete manual metadata registers directly on R. Otherwise recognition runs on R and candidate selection runs on the caller. An empty `--start-script` lets the host select its platform default; the caller platform is never used.

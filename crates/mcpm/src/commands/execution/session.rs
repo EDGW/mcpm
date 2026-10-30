@@ -36,9 +36,9 @@ pub(crate) fn local_session() -> Result<Session> {
     build(Target::Local)
 }
 
-/// The remote executable used when neither the caller nor a registration names one.
+/// The remote executable used when a workspace does not override it.
 pub(crate) fn default_executable() -> &'static str {
-    crate::program::Program::McpmTools.name()
+    "mcpmd"
 }
 
 fn build(target: Target) -> Result<Session> {

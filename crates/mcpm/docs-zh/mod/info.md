@@ -19,7 +19,7 @@ SSH 同样使用这两种模式，由本地控制输出格式：
 
 ```sh
 mcpm-tools --ssh 'ssh user@host' mods info --directory /srv/mods --modid example
-mcpm-tools --ssh 'ssh user@windows' --ssh-mcpm 'D:\mcpm-tools.exe' --raw mods info --directory 'D:\mods' --all
+mcpm-tools --ssh 'ssh user@windows' --ssh-mcpmd 'D:\mcpmd.exe' --raw mods info --directory 'D:\mods' --all
 ```
 
 输入依次按文件名、精确 Mod ID、精确名称匹配。可重复使用 `--file`、`--modid`、
