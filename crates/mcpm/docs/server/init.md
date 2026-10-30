@@ -1,6 +1,6 @@
 ## `mcpm init`
 
-Register an existing Local Server, or create a local Remote workspace that points to an existing remote Local Server. This command neither installs server software nor starts Minecraft.
+Register a Local Server, or with `--remote`, initialize server R on the SSH host and register a Remote workspace placeholder P on the caller. P stores only connection registration; all server business data remains on R.
 
 ```sh
 # Recognize and register a server on this machine
@@ -20,8 +20,8 @@ mcpm init ./server --force --minecraft-version 1.21.1 --loader vanilla --git
 # Initialize a Local Server on the SSH host; the positional path is remote
 mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
 
-# Create a Remote workspace here; the positional path is local, --remote is remote
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' init ./workspace --remote 'D:\EDGW-26Summer'
+# Initialize host R and register caller placeholder P
+mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' init ./workspace --remote 'D:\EDGW-26Summer' --start-script run.bat
 
 # Subsequent commands use the saved connection automatically
 mcpm info ./workspace
@@ -30,16 +30,15 @@ mcpm mods list --server ./workspace
 
 ## Arguments
 
-- `[PATH]`: An existing directory, default `.`. Normally the server directory; with global `--ssh`, the remote server directory; with `--remote`, a local workspace directory.
-- `--remote <REMOTE_PATH>`: Register local `PATH` as a Remote workspace pointing to this remote directory. Requires global `--ssh`; global `--ssh-mcpm` is optional. The target must already be a loadable Local Server. Conflicts with `--start-script`, `--minecraft-version`, `--loader`, and `--loader-version`.
-- `--start-script <FILE>`: Statically recognize this startup script. The path must be relative to and contained within the actual server directory; absolute paths are rejected. Conflicts with all manual version and loader arguments.
-- `--minecraft-version <VERSION>`: Minecraft version; alias `--mc-version`. Complete manual metadata registers directly; otherwise this filters recognized candidates. Whitespace-only values are rejected.
-- `--loader <LOADER>`: One of `forge`, `neoforge`, `fabric`, or `vanilla`. Known vanilla servers require explicit `vanilla`; missing loader evidence does not imply vanilla.
-- `--loader-version <VERSION>`: Loader version, distinct from Minecraft and FML versions. Required for complete manual modded-server registration; prohibited with `vanilla`. Whitespace-only values are rejected.
-- `--force`: Replace an existing registration, including a damaged `server.json`. Normal initialization replaces server metadata; `--remote` replaces the connection saved locally. Does not convert between Local and Remote types or replace a directory at the configuration path.
-- `--foverride-conf`: With `--force`, regenerate local `conf.toml`, replacing settings and comments. Unsupported with SSH or `--remote`.
-- `--git`: Require a repository in the target itself, creating one even inside a parent repository. An existing target repository or worktree is reused without deletion or recreation. Conflicts with `--no-git`. Applies to the remote Server for SSH initialization, or the local workspace when using `--remote`.
-- `--no-git`: Skip Git repository detection and automatic initialization. `.mcpm/.gitignore` is still generated normally. Conflicts with `--git`. Applies to the remote Server for SSH initialization, or the local workspace when using `--remote`.
+- `[PATH]`: An existing directory, default `.`. With `--remote`, this is caller placeholder P; the `REMOTE_PATH` is host server R.
+- `--remote <REMOTE_PATH>`: Recognize and register R on the SSH host, then register P locally. `REMOTE_PATH` is interpreted by the host platform.
+- `--start-script <FILE>` and metadata filters: Passed to host recognition; allowed with `--remote`. Complete metadata registers directly on R; incomplete filters recognize on R and select candidates on the caller.
+- `--force`: Controls only host R server registration/config replacement.
+- `--replace`: Controls only caller P Remote registration replacement; valid only with `--remote`.
+- `--foverride-conf`: Regenerates host R `conf.toml`, still requires `--force`, and may be combined with `--remote`.
+- `--git` / `--no-git`: Apply only to host R; caller P never performs Git setup.
+- `--no-ui`: Disable candidate selection TUI; multiple host candidates require more specific filters.
+- `--full-command`: Show the complete startup command when an older snapshot is available.
 - `--no-ui`: Disable candidate selection TUI and use Console mode. Multiple candidates require more specific recognition filters. Combined with global `--raw`, uses Raw mode.
 - `--full-command`: Show the complete startup command in the result. Console output normally fits one line with `(+N)` for omitted characters; Raw output always retains the complete command.
 
@@ -93,33 +92,14 @@ Local imports publish complete configuration for the selected candidate:
 
 ### Remote behavior
 
-These commands share the same global SSH options but perform different operations:
+With `--remote`, P is the caller-side Remote workspace placeholder and R is the server directory on the SSH host. P stores only SSH, executable, and host-path registration. Recognition, `server.json`, `conf.toml`, `launch.toml`, configuration publication, and Git detection/initialization all run on host R.
 
 ```text
-mcpm --ssh COMMAND [--ssh-mcpm EXE] init <REMOTE_PATH>
-mcpm --ssh COMMAND [--ssh-mcpm EXE] init <PATH> --remote <REMOTE_PATH>
+mcpm --ssh COMMAND [--ssh-mcpm EXE] init P --remote R [recognition options] [--force] [--replace]
 ```
 
-| Invocation | Positional path | `--remote` value | Registration destination |
-|---|---|---|---|
-| Without `--remote` | Remote server directory | None | Remote directory, as Local |
-| With `--remote` | Local workspace directory | Existing remote Local Server directory | Local directory, as Remote |
+Complete manual metadata registers directly on R. Otherwise recognition runs on R and candidate selection runs on the caller. An empty `--start-script` lets the host select its platform default; the caller platform is never used.
 
-Without `--remote`, scripts, platform defaults, and metadata operations belong to the SSH host. Selection and output remain local. Recognition and complete manual arguments work as they do for local initialization.
+`--force` replaces only host registration/configuration; `--replace` replaces only P's Remote registration. `--git` and `--no-git` apply only to R. P's codec is `.mcpm/remote_info.json`; `.mcpm/server.json` remains Local server metadata only.
 
-With `--remote`, mcpm validates the existing remote Local Server and saves its connection locally, without initializing or modifying the remote server. `.mcpm/mcpm.json` contains `{"version":1,"type":"remote"}`. mcpm owns the Remote `.mcpm/server.json`, for example:
-
-```json
-{
-  "version": 2,
-  "ssh": "ssh user@host",
-  "ssh_mcpm": null,
-  "path": "/srv/minecraft"
-}
-```
-
-Omitted or null `ssh_mcpm` uses `mcpm-tools` from the remote PATH. Relative SSH option paths, such as `-i keys/key`, resolve from the local workspace. The remote directory retains its remote-platform interpretation.
-
-Later `server init/info` and supported `server mods list/info/deps/source` commands use the saved connection when no global SSH options are supplied. Thus `server init ./workspace --force ...` reinitializes the remote Local Server. To replace the connection saved locally, use the complete `--ssh ... server init ./workspace --remote ... --force` invocation again. Explicit `--ssh` takes precedence and makes the positional path remote; `--ssh-mcpm` alone remains invalid.
-
-`mcpm-tools remote` only opens Local Servers and rejects Remote workspaces, preventing chained Remote references. `server mods check/dep-graph` do not yet support Remote workspaces. Invalid configuration or connection failure reports an error without falling back to local execution.
+If host initialization succeeds but P registration fails, host files are not rolled back. The command reports that R completed while P remains unregistered and suggests retrying registration with `--replace` or using the existing workspace registration capability manually.

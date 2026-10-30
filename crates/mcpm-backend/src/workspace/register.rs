@@ -1,8 +1,8 @@
-//! `workspace.remote.register`: records an existing remote Local Server in a local workspace.
+//! `workspace.remote.register`: records caller-side connection data for a Remote placeholder.
 //!
-//! The registration file is always written on the machine presenting the workspace. The
-//! remote server itself is validated by the caller through `server.info` before this
-//! operation runs.
+//! This surface operation writes only the caller workspace marker and
+//! `.mcpm/remote_info.json`. It does not inspect or modify host server business data and never
+//! performs Git setup; host initialization and Git belong to `server.register` on the host.
 
 use std::{fs, future::Future, path::PathBuf};
 
@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use crate::data::workspace::{RegistrationWriter, RemoteRegistration};
 use crate::env::SurfaceEnv;
 
-use super::git;
 use super::types::{ConnectionSpec, RemoteView};
 
 /// Registers one Remote workspace.
@@ -49,35 +48,23 @@ pub struct RegisterInput {
     pub path: PathBuf,
     pub connection: ConnectionSpec,
     pub remote_path: String,
+    /// Replace an existing caller-side connection registration.
     #[serde(default)]
-    pub force: bool,
-    #[serde(default)]
-    pub no_git: bool,
-    #[serde(default)]
-    pub git: bool,
-    /// Remote executable used when the connection does not name one.
-    pub default_executable: String,
+    pub replace: bool,
 }
 
-/// What the registration wrote and which Git setup ran.
+/// What the registration wrote.
 #[derive(Debug)]
 pub struct RegisterOutput {
     pub remote: RemoteView,
-    pub git: Option<git::Outcome>,
 }
 
 fn register(input: RegisterInput) -> Result<RegisterOutput> {
-    git::validate_options(input.git, input.no_git)?;
     let directory = fs::canonicalize(&input.path)
         .context("Remote workspace PATH must be an existing local directory")?;
-    let executable = input
-        .connection
-        .executable
-        .clone()
-        .unwrap_or_else(|| input.default_executable.clone());
-    input
-        .connection
-        .connection(&input.default_executable)
+    let default_executable = "mcpm-tools".to_owned();
+    let executable = input.connection.executable.clone().unwrap_or_else(|| default_executable.clone());
+    input.connection.connection(&default_executable)
         .map_err(|error| anyhow::anyhow!("invalid SSH settings: {error}"))?;
     let registration = RemoteRegistration::new(
         input.connection.ssh.clone(),
@@ -87,19 +74,13 @@ fn register(input: RegisterInput) -> Result<RegisterOutput> {
     let view = RemoteView {
         path: input.remote_path,
         ssh: input.connection.ssh.clone(),
-        destination: mcpm_exec::ssh::Connection::new(input.connection.ssh, executable.clone())
-            .destination(),
+        destination: mcpm_exec::ssh::Connection::new(input.connection.ssh, executable.clone()).destination(),
         executable,
     };
     tracing::info!(workspace = %input.path.display(), "Registering Remote workspace");
     let writer = RegistrationWriter::acquire(&directory)?;
-    let git = if input.no_git {
-        None
-    } else {
-        Some(git::ensure_repository(&directory, input.git)?)
-    };
-    writer.remote(&registration, input.force)?;
-    Ok(RegisterOutput { remote: view, git })
+    writer.remote(&registration, input.replace)?;
+    Ok(RegisterOutput { remote: view })
 }
 
 /// A Remote registration could not be written.

@@ -266,7 +266,7 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
         br#"{"version":1,"type":"remote"}"#,
     )
     .unwrap();
-    fs::write(workspace.join(".mcpm/server.json"), serde_json::to_vec(&json!({"version":2,"ssh":connection,"ssh_mcpm":env!("CARGO_BIN_EXE_mcpm-tools"),"path":"server"})).unwrap()).unwrap();
+    fs::write(workspace.join(".mcpm/remote_info.json"), serde_json::to_vec(&json!({"version":2,"ssh":connection,"ssh_mcpm":env!("CARGO_BIN_EXE_mcpm-tools"),"path":"server"})).unwrap()).unwrap();
     let repeated = run(
         &client,
         &[

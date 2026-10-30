@@ -1,4 +1,4 @@
-//! Sole codec for a Remote workspace registration stored in `.mcpm/server.json`.
+//! Sole codec for a Remote workspace registration stored in `.mcpm/remote_info.json`.
 //!
 //! The registration carries connection data only; remote Minecraft and loader metadata is
 //! never copied into it. The file is always located on the machine presenting the
@@ -51,7 +51,7 @@ impl RemoteRegistration {
 
     /// Reads and validates a registration from a workspace root.
     pub fn load(root: &Path) -> Result<Self> {
-        let path = root.join(".mcpm/server.json");
+        let path = root.join(".mcpm/remote_info.json");
         let bytes = fs::read(&path)
             .with_context(|| format!("failed to read Remote registration {path:?}"))?;
         let registration: Self = serde_json::from_slice(&bytes)
@@ -63,7 +63,7 @@ impl RemoteRegistration {
     pub(crate) fn validate(&self) -> Result<()> {
         ensure!(
             self.version == VERSION,
-            "unsupported Remote server.json version {}; expected {VERSION}",
+            "unsupported Remote remote_info.json version {}; expected {VERSION}",
             self.version
         );
         ensure!(

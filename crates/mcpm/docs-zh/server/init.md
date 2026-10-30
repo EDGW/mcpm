@@ -1,6 +1,6 @@
 ## `mcpm init`
 
-为现有服务端建立 Local 登记，或者在本机建立指向远端 Local Server 的 Remote 工作目录。此命令不安装服务端，也不启动游戏进程。
+为现有服务端建立 Local 登记，或者执行 `server init --remote`：先在 SSH 主机上的 R 目录完成服务端识别与初始化，再在调用方机器上的 P 目录登记 Remote placeholder。此命令不安装服务端，也不启动游戏进程。
 
 ```sh
 # 在本机识别并登记服务端
@@ -20,8 +20,8 @@ mcpm init ./server --force --minecraft-version 1.21.1 --loader vanilla --git
 # 在远端目录初始化 Local Server，位置参数是远端路径
 mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla
 
-# 在本机目录创建 Remote 工作目录：位置参数是本地路径，--remote 后是远端路径
-mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' init ./workspace --remote 'D:\EDGW-26Summer'
+# 在 host R 上识别/初始化服务端，并在 caller P 上登记 Remote placeholder
+mcpm --ssh 'ssh user@windows' --ssh-mcpm 'C:\mcpm-tools.exe' init ./workspace --remote 'D:\EDGW-26Summer' --start-script run.bat
 
 # 创建工作目录后，后续命令自动使用保存的连接
 mcpm info ./workspace
@@ -30,16 +30,16 @@ mcpm mods list --server ./workspace
 
 ## 参数解释
 
-- `[PATH]`：已存在的目录，默认 `.`。普通初始化时是服务端目录；使用全局 `--ssh` 时是远端服务端目录；同时指定 `--remote` 时则是本地工作目录。
-- `--remote <REMOTE_PATH>`：在本地 `PATH` 创建 Remote 工作目录，指向指定的远端目录。必须配合全局 `--ssh`；全局 `--ssh-mcpm` 可选。目标必须已经是可打开的 Local Server。此选项与 `--start-script`、`--minecraft-version`、`--loader`、`--loader-version` 互斥。
-- `--start-script <FILE>`：静态识别指定启动脚本。必须使用相对于实际服务端目录的路径，不接受绝对路径或越界路径。与所有手动版本及 Loader 参数互斥。
-- `--minecraft-version <VERSION>`：Minecraft 版本，别名 `--mc-version`。信息完整时直接登记；不完整时作为自动识别候选的筛选条件。不能为空白。
-- `--loader <LOADER>`：服务端加载器，支持 `forge`、`neoforge`、`fabric`、`vanilla`。已知原版必须显式填写 `vanilla`，不能通过缺少 Loader 证据推断原版。
-- `--loader-version <VERSION>`：Loader 版本，与 Minecraft/FML 版本区分。模组加载器的完整手动登记需要此参数；`vanilla` 禁止指定此参数。不能为空白。
-- `--force`：允许替换已有登记，包括损坏的 `server.json`。本地导入替换服务端元数据和 `launch.toml`，已有 `conf.toml` 逐字节保留；`--remote` 模式替换本地保存的连接配置。不能用它切换 Local/Remote 类型，也不能替换配置路径上的目录。
-- `--foverride-conf`：与 `--force` 同时使用，重新生成本地 `conf.toml`，覆盖已有设置和注释；不支持 SSH 或 `--remote`。
-- `--git`：要求目标目录有自身的 Git 仓库，即使属于父目录仓库也会在目标目录创建。目标已有仓库或 worktree 时直接复用，不删除或重建。与 `--no-git` 互斥。SSH 初始化时作用于远端 Server；使用 `--remote` 时作用于本地工作目录。
-- `--no-git`：跳过 Git 仓库检测与自动初始化，仍按正常规则生成 `.mcpm/.gitignore`。与 `--git` 互斥。SSH 初始化时作用于远端 Server；使用 `--remote` 时作用于本地工作目录。
+- `[PATH]`：已存在的目录，默认 `.`。普通初始化时是服务端目录；使用全局 `--ssh` 时是 host 上的 R；同时指定 `--remote` 时是调用方机器上的 P placeholder。
+- `--remote <REMOTE_PATH>`：在 host 的 R 上执行识别与服务端注册，然后在 caller 的 P 上登记 Remote workspace。必须配合全局 `--ssh`；`REMOTE_PATH` 由 host 平台解释。
+- `--start-script <FILE>`：传给 host recognition；`--remote` 下允许使用，空值时由 host 平台选择默认脚本。
+- `--minecraft-version`、`--loader`、`--loader-version`：传给 host recognition；完整组合直接在 host 注册，不完整组合由 host 识别并由 caller 选择候选。
+- `--force`：只控制 host R 的 server registration/config replacement；不能替换 caller P 的 Remote registration。
+- `--replace`：只控制 caller P 的 Remote registration replacement；仅对 `--remote` 有效。
+- `--foverride-conf`：host R 重新生成 `conf.toml`，仍要求 `--force`，可与 `--remote` 同用。
+- `--git` / `--no-git`：只作用于 host R；caller P 不执行 Git。
+- `--no-ui`：关闭候选选择 TUI。多个候选必须通过更具体的 host recognition 条件消除歧义。
+- `--full-command`：存在旧命令快照时显示完整内容；新本地导入不在元数据中保存完整命令。
 - `--no-ui`：关闭候选选择 TUI，使用 Console 模式。多个候选必须通过更具体的识别条件消除歧义；与全局 `--raw` 同用时使用 Raw 模式。
 - `--full-command`：存在旧命令快照时显示完整内容；新本地导入不在元数据中保存完整命令。
 
@@ -93,33 +93,14 @@ Git 默认行为：
 
 ### 远程行为
 
-以下两条命令使用相同的全局 SSH 参数，作用不同：
+`--remote` 有两个明确目录：P 是调用方机器上的 Remote workspace placeholder，只保存连接登记；R 是 SSH host 上的服务端目录，所有 recognize、`server.json`、`conf.toml`、`launch.toml`、配置发布和 Git detect/init 均在 R 上执行。
 
 ```text
-mcpm --ssh COMMAND [--ssh-mcpm EXE] init <REMOTE_PATH>
-mcpm --ssh COMMAND [--ssh-mcpm EXE] init <PATH> --remote <REMOTE_PATH>
+mcpm --ssh COMMAND [--ssh-mcpm EXE] init P --remote R [recognition options] [--force] [--replace]
 ```
 
-| 用法 | 位置参数 | `--remote` 参数 | 登记写入位置 |
-|---|---|---|---|
-| 不带 `--remote` | 远端服务端目录 | 无 | 远端目录，登记为 Local |
-| 带 `--remote` | 本地工作目录 | 已登记的远端 Local Server 目录 | 本地目录，登记为 Remote |
+完整手动元数据直接在 R 上注册；否则在 R 上识别，候选选择在 caller 执行。空 `--start-script` 由 host 平台选择默认脚本，不能使用 caller 平台推断。
 
-不带 `--remote` 时，脚本、默认入口与元数据读写属于 SSH 主机，候选选择和输出在本地。可以使用原有识别参数或完整手动参数；已有 Remote 协议只登记身份，不传输新的配置草稿，不会生成两份本地启动配置。
+`--force` 只替换 host registration/config；`--replace` 只替换 P 的 Remote 登记。`--git` 与 `--no-git` 只作用于 R。P 的 Remote registration 文件是 `.mcpm/remote_info.json`，`.mcpm/server.json` 仍只属于 Local server metadata。
 
-带 `--remote` 时，只验证远端 Local Server 并保存本地连接，不初始化或修改远端。生成的 `.mcpm/mcpm.json` 为 `{"version":1,"type":"remote"}`，`.mcpm/server.json` 由 mcpm 管理，例如：
-
-```json
-{
-  "version": 2,
-  "ssh": "ssh user@host",
-  "ssh_mcpm": null,
-  "path": "/srv/minecraft"
-}
-```
-
-`ssh_mcpm` 省略或为 `null` 时使用远端 PATH 中的 `mcpm-tools`。SSH 命令中的相对路径（例如 `-i keys/key`）以本地工作目录为基准；远端目录按远端系统解释。
-
-后续 `server init/info` 和已支持远程的 `server mods list/info/deps/source` 在没有显式全局 SSH 参数时自动使用保存的连接。`server init ./workspace --force ...` 因此会重新登记远端 Local Server；若要修改本地保存的连接，应重新使用完整的 `--ssh ... server init ./workspace --remote ... --force`。显式 `--ssh` 优先，位置参数直接按远端路径处理；单独指定 `--ssh-mcpm` 仍然报错。
-
-`mcpm-tools remote` 只打开 Local Server，目标为 Remote 工作目录时拒绝执行，禁止多段 Remote 引用。`server mods check/dep-graph` 暂不支持 Remote 工作目录。配置损坏或连接失败会明确报错，不回退为本地操作。
+如果 host 初始化成功但 P 登记失败，不回滚 R；命令会明确报告 host 已完成、P 尚未登记，并提示使用 `--replace` 重新登记或按现有 workspace registration 能力手工登记。

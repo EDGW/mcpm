@@ -151,7 +151,7 @@ pub struct Initialized {
     pub publication: Option<Published>,
 }
 
-/// Local candidates carry complete drafts; the wire schema carries its snapshot only.
+/// Candidates carry the complete configuration draft needed by host-side registration.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Candidate {
@@ -159,7 +159,6 @@ pub struct Candidate {
     pub metadata: MinecraftServerMetadata,
     pub line: usize,
     pub main_class: String,
-    #[serde(skip)]
     pub configuration: Option<ConfigurationDraft>,
 }
 

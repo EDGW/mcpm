@@ -157,7 +157,9 @@ impl Fixture {
         fs::write(workspace.join("keys/key"), "test credential").unwrap();
         let host = root.path().join("host");
         fs::create_dir(&host).unwrap();
-        local(&host.join("server ' 中文"));
+        let server = host.join("server ' 中文");
+        write(&server, "mcpm.json", json!({"version":1,"type":"local"}));
+        fs::write(server.join("run.sh"), "#!/bin/sh\nexec java -jar server.jar\n").unwrap();
         let ssh = workspace.join("ssh");
         fs::write(&ssh, format!("#!/bin/sh\ntest -f keys/key || exit 91\npwd >> {}\ncd {} || exit 1\nfor last do :; done\nexec /bin/sh -c \"$last\"\n",
             shlex::try_quote(root.path().join("cwd.log").to_str().unwrap()).unwrap(),
@@ -188,6 +190,13 @@ impl Fixture {
             workspace.to_str().unwrap(),
             "--remote",
             "server ' 中文",
+            "--minecraft-version",
+            "1.21.1",
+            "--loader",
+            "fabric",
+            "--loader-version",
+            "0.16.10",
+            "--force",
         ];
         args.extend_from_slice(extra);
         run(self.root.path(), &args)
@@ -199,17 +208,16 @@ impl Fixture {
 fn remote_registration_is_read_only_then_routes_commands_from_any_client_directory() {
     let fixture = Fixture::new();
     let server = fixture.host().join("server ' 中文");
-    let original = fs::read(server.join(".mcpm/server.json")).unwrap();
     success(&fixture.register(&[]));
-    assert_eq!(
-        fs::read(server.join(".mcpm/server.json")).unwrap(),
-        original
-    );
+    let host_metadata: Value = serde_json::from_slice(&fs::read(server.join(".mcpm/server.json")).unwrap()).unwrap();
+    assert_eq!(host_metadata["minecraft_version"], "1.21.1");
+    assert_eq!(host_metadata["loader"]["type"], "fabric");
+    assert_eq!(host_metadata["loader"]["version"], "0.16.10");
     assert!(!server.join("mods").exists());
     let workspace = fixture.workspace();
     assert!(!workspace.join("mods").exists());
     let settings: Value =
-        serde_json::from_slice(&fs::read(workspace.join(".mcpm/server.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(workspace.join(".mcpm/remote_info.json")).unwrap()).unwrap();
     assert_eq!(
         settings,
         json!({"version":2,"ssh":fixture.connection,"ssh_mcpm":env!("CARGO_BIN_EXE_mcpm-tools"),"path":"server ' 中文"})
@@ -222,12 +230,10 @@ fn remote_registration_is_read_only_then_routes_commands_from_any_client_directo
     success(&info);
     assert!(String::from_utf8_lossy(&info.stdout).contains("1.21.1"));
     assert!(!server.join("mods").exists());
-    let stored = fs::read(workspace.join(".mcpm/server.json")).unwrap();
-    let info_again = fixture.register(&[]);
-    failure(&info_again, "already exists");
-    success(&fixture.register(&["--force"]));
+    let stored = fs::read(workspace.join(".mcpm/remote_info.json")).unwrap();
+    success(&fixture.register(&["--replace"]));
     assert_eq!(
-        fs::read(workspace.join(".mcpm/server.json")).unwrap(),
+        fs::read(workspace.join(".mcpm/remote_info.json")).unwrap(),
         stored
     );
 
@@ -317,7 +323,7 @@ fn remote_registration_is_read_only_then_routes_commands_from_any_client_directo
         ],
     ));
     assert_eq!(
-        fs::read(workspace.join(".mcpm/server.json")).unwrap(),
+        fs::read(workspace.join(".mcpm/remote_info.json")).unwrap(),
         stored
     );
     let updated: Value =
@@ -400,7 +406,7 @@ fn explicit_ssh_initializes_on_host_and_never_reads_local_marker_or_converts_typ
     local(&fixture.workspace());
     let old = fs::read(fixture.workspace().join(".mcpm/server.json")).unwrap();
     failure(
-        &fixture.register(&["--force"]),
+        &fixture.register(&[]),
         "cannot convert a Local workspace",
     );
     assert_eq!(

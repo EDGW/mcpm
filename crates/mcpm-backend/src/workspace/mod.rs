@@ -7,12 +7,14 @@ pub mod git;
 pub mod register;
 pub mod resolve;
 pub mod types;
+pub mod validate;
 
 use std::path::Path;
 
 pub use register::{RegisterError, RegisterInput, RegisterOutput, RemoteRegister};
 pub use resolve::{Resolve, ResolveError, ResolveInput};
 pub use types::{ConnectionSpec, RemoteView, ResolvedWorkspace};
+pub use validate::{Validate, ValidateError, ValidateInput, ValidateOutput};
 
 /// Rejects a Remote workspace for a command that only supports Local Servers.
 ///

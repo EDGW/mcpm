@@ -9,15 +9,13 @@ use std::{
 use anyhow::{Context, Result};
 use clap::Args;
 use mcpm_backend::server::{
-    Candidate, Info, InfoInput, Initialized, Initialize, Phase, Recognize, RecognizeEvent,
-    Recognition, Register, RegisterEvent,
+    Candidate, Initialized, Initialize, Phase, Recognize, RecognizeEvent, Recognition, Register,
+    RegisterEvent,
 };
-use mcpm_backend::workspace::{RegisterInput, RemoteRegister};
+use mcpm_backend::workspace::{RegisterInput, RemoteRegister, Validate, ValidateInput};
 use mcpm_backend::ConnectionSpec;
 use super::target;
-use crate::commands::execution::{
-    default_executable, failure as operation_failure, local_session, Runtime,
-};
+use crate::commands::execution::{failure as operation_failure, local_session, Runtime};
 use crate::progress::Progress;
 use crate::ssh::SshArgs;
 
@@ -26,14 +24,14 @@ mod selector;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = format!("Modes: TUI (candidate selection), Console (--no-ui), Raw (--raw or redirected stdout). Console and Raw require an unambiguous candidate or complete manual arguments.\n\nTwo different SSH operations:\n  {server} --ssh COMMAND [--ssh-mcpm EXE] init <REMOTE_PATH>\n    Initialize a Local Server on the SSH host. The positional path is remote.\n  {server} --ssh COMMAND [--ssh-mcpm EXE] init <PATH> --remote <REMOTE_PATH>\n    Create a Remote workspace locally. PATH is local; --remote points to an existing remote Local Server.\n\nComplete --minecraft-version and --loader (plus --loader-version unless vanilla) initialize directly without reading scripts. Otherwise, recognition returns candidates before initialization.", server = crate::program::roots().server)
+    after_help = format!("Modes: TUI (candidate selection), Console (--no-ui), Raw (--raw or redirected stdout). Console and Raw require an unambiguous candidate or complete manual arguments.\n\nTwo SSH init flows:\n  {server} --ssh COMMAND [--ssh-mcpm EXE] init <REMOTE_PATH>\n    Initialize a Local Server on the SSH host.\n  {server} --ssh COMMAND [--ssh-mcpm EXE] init <PATH> --remote <REMOTE_PATH>\n    Initialize/register host server R, then register local placeholder P. PATH is local; --remote is the host path.\n\nComplete metadata initializes directly on the host; otherwise host recognition returns candidates for caller selection.", server = crate::program::roots().server)
 )]
 pub(super) struct InitArgs {
-    /// Existing server directory; with --ssh it is remote, but with --remote it is a local workspace.
+    /// Existing server directory; with --ssh it is remote, but with --remote it is local placeholder P.
     #[arg(value_name = "PATH", default_value = ".")]
     path: PathBuf,
-    /// Register PATH locally as a Remote workspace pointing to this existing remote Local Server.
-    #[arg(long, value_name = "REMOTE_PATH", conflicts_with_all = ["start_script", "minecraft_version", "loader", "loader_version"])]
+    /// Initialize host server R, then register PATH as a local Remote workspace placeholder P.
+    #[arg(long, value_name = "REMOTE_PATH")]
     remote: Option<String>,
     /// Statically inspect a script inside the server directory, using a relative path; conflicts with manual version/loader options.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["minecraft_version", "loader", "loader_version"])]
@@ -50,9 +48,11 @@ pub(super) struct InitArgs {
     /// Replace local registration and launch.toml; preserve existing conf.toml unless --foverride-conf is also set.
     #[arg(long)]
     force: bool,
-    /// Regenerate conf.toml, including active settings and comments; requires --force.
-    #[arg(long, requires = "force", conflicts_with = "remote")]
+    #[arg(long, requires = "force")]
     foverride_conf: bool,
+    /// Replace caller-side Remote workspace registration; only valid with --remote.
+    #[arg(long)]
+    replace: bool,
     /// Skip Git repository detection and automatic initialization.
     #[arg(long)]
     no_git: bool,
@@ -72,6 +72,7 @@ pub(super) fn run(mut args: InitArgs, ssh: SshArgs) -> Result<()> {
     if let Some(remote_path) = args.remote.take() {
         return create_remote(args, remote_path, ssh);
     }
+    anyhow::ensure!(!args.replace, "--replace is only valid with --remote");
     let resolved = target::resolve(args.path, ssh)?;
     let remote = resolved.session.target().is_remote();
     anyhow::ensure!(
@@ -137,60 +138,94 @@ pub(super) fn run(mut args: InitArgs, ssh: SshArgs) -> Result<()> {
     write_info(&info, args.full_command)
 }
 
-fn create_remote(args: InitArgs, remote_path: String, ssh: SshArgs) -> Result<()> {
+fn create_remote(mut args: InitArgs, remote_path: String, ssh: SshArgs) -> Result<()> {
     anyhow::ensure!(ssh.is_requested(), "--remote requires global --ssh");
     let (command, executable) = ssh.settings()?;
-    let directory = std::fs::canonicalize(&args.path)
-        .context("Remote workspace PATH must be an existing local directory")?;
     let runtime = Runtime::new()?;
-    let resolved = mcpm_backend::ResolvedWorkspace {
-        path: args.path.clone(),
+    let caller_directory = std::fs::canonicalize(&args.path)
+        .context("Remote workspace PATH must be an existing local directory")?;
+    let surface = local_session()?;
+    runtime.block_on(async {
+        let handle = surface
+            .start::<Validate>(ValidateInput {
+                path: caller_directory.clone(),
+                replace: args.replace,
+            })
+            .await
+            .map_err(validate_failure)?;
+        handle.finish().await.map_err(validate_failure)
+    })?;
+    let host_workspace = mcpm_backend::ResolvedWorkspace {
+        path: PathBuf::from(&remote_path),
         connection: Some(ConnectionSpec {
             ssh: command.clone(),
             executable: executable.clone(),
-            directory: Some(directory),
+            directory: Some(caller_directory),
         }),
         remote: None,
     };
-    let remote_session = crate::commands::execution::session_for_workspace(&resolved)?;
-    let info = runtime.block_on(async {
-        let handle = remote_session
-            .start::<Info>(InfoInput {
-                path: PathBuf::from(&remote_path),
-            })
-            .await
-            .map_err(|error| operation_failure(error, true))?;
-        handle
-            .finish()
-            .await
-            .map_err(|error| operation_failure(error, true))
-    })?;
-    let surface = local_session()?;
+    let host_session = crate::commands::execution::session_for_workspace(&host_workspace)?;
+    let recognition = Recognize {
+        path: PathBuf::from(&remote_path),
+        start_script: args.start_script.take(),
+        minecraft_version: args.minecraft_version.take(),
+        loader: args.loader.take(),
+        loader_version: args.loader_version.take(),
+    };
+    recognition.validate()?;
+    let progress = RefCell::new(None);
+    let (metadata, configuration) = match recognition.manual_metadata() {
+        Some(metadata) => (metadata, None),
+        None => {
+            let candidates = runtime.block_on(recognize(&host_session, recognition, &progress, true))?;
+            progress.borrow_mut().take();
+            let index = if candidates.len() == 1 {
+                0
+            } else {
+                let Some(index) = selector::select(&candidates, args.no_ui)? else {
+                    return Ok(());
+                };
+                index
+            };
+            let candidate = candidates.into_iter().nth(index).expect("selected candidate");
+            (candidate.metadata, candidate.configuration)
+        }
+    };
+    let initialized = runtime.block_on(register(
+        &host_session,
+        Initialize {
+            path: PathBuf::from(&remote_path),
+            metadata,
+            force: args.force,
+            no_git: args.no_git,
+            git: args.git,
+            configuration,
+            replace_conf: args.foverride_conf,
+        },
+        &progress,
+        true,
+    ))?;
+    progress.borrow_mut().take();
     let registration = runtime.block_on(async {
         let handle = surface
             .start::<RemoteRegister>(RegisterInput {
-                path: args.path,
+                path: args.path.clone(),
                 connection: ConnectionSpec {
                     ssh: command,
                     executable,
                     directory: None,
                 },
                 remote_path,
-                force: args.force,
-                no_git: args.no_git,
-                git: args.git,
-                default_executable: default_executable().to_owned(),
+                replace: args.replace,
             })
             .await
             .map_err(surface_failure)?;
         handle.finish().await.map_err(surface_failure)
-    })?;
-    crate::commands::execution::finish(&runtime, &remote_session)?;
-    let initialized = Initialized {
-        server: info,
-        git: registration.git,
-        publication: None,
-    };
+    });
+    if let Err(error) = registration {
+        return Err(error.context("Host server initialized successfully, but caller Remote workspace registration failed; host files were not rolled back. Re-run with --replace to register the placeholder or inspect the workspace and register it manually."));
+    }
+    crate::commands::execution::finish(&runtime, &host_session)?;
     write_info(&initialized, args.full_command)
 }
 
@@ -203,6 +238,14 @@ fn surface_failure(failure: mcpm_exec::Failure<mcpm_backend::workspace::Register
     }
 }
 
+fn validate_failure(failure: mcpm_exec::Failure<mcpm_backend::workspace::ValidateError>) -> anyhow::Error {
+    match failure {
+        mcpm_exec::Failure::Operation(error) => anyhow::Error::new(error),
+        mcpm_exec::Failure::Dispatch(error) => anyhow::Error::new(error),
+        mcpm_exec::Failure::Transport(error) => anyhow::Error::new(error),
+        mcpm_exec::Failure::Cancelled => anyhow::anyhow!("Remote workspace validation was cancelled"),
+    }
+}
 async fn recognize(
     session: &mcpm_backend::Session,
     request: Recognize,
