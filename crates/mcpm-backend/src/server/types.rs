@@ -19,8 +19,8 @@ pub struct ServerInfo {
     pub minecraft_version: String,
     pub loader: Option<LoaderInfo>,
     pub start: Option<StartCommand>,
-    /// Configuration presence is only requested by a local caller.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Complete configuration presence from the host owning this server.
+    #[serde(default)]
     pub configuration: Option<ConfigurationFiles>,
 }
 
@@ -120,7 +120,7 @@ impl Recognize {
     }
 }
 
-/// Complete metadata is sufficient to initialize; no prior recognition is required.
+/// Complete metadata and configuration draft for host-side registration.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Initialize {
@@ -134,15 +134,9 @@ pub struct Initialize {
     pub no_git: bool,
     #[serde(default)]
     pub git: bool,
-    /// Local configuration import is deliberately excluded from the Remote protocol.
-    #[serde(skip)]
-    pub local: Option<LocalImport>,
-}
-
-/// Configuration draft applied when the server lives in the calling process.
-#[derive(Debug)]
-pub struct LocalImport {
+    #[serde(default)]
     pub configuration: Option<ConfigurationDraft>,
+    #[serde(default)]
     pub replace_conf: bool,
 }
 

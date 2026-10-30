@@ -9,12 +9,11 @@ use std::{
 use anyhow::{Context, Result};
 use clap::Args;
 use mcpm_backend::server::{
-    Candidate, Info, InfoInput, Initialized, Initialize, LocalImport, Phase, Recognize,
-    RecognizeEvent, Recognition, Register, RegisterEvent,
+    Candidate, Info, InfoInput, Initialized, Initialize, Phase, Recognize, RecognizeEvent,
+    Recognition, Register, RegisterEvent,
 };
 use mcpm_backend::workspace::{RegisterInput, RemoteRegister};
 use mcpm_backend::ConnectionSpec;
-
 use super::target;
 use crate::commands::execution::{
     default_executable, failure as operation_failure, local_session, Runtime,
@@ -51,7 +50,7 @@ pub(super) struct InitArgs {
     /// Replace local registration and launch.toml; preserve existing conf.toml unless --foverride-conf is also set.
     #[arg(long)]
     force: bool,
-    /// Regenerate conf.toml, including active settings and comments; requires --force (local only).
+    /// Regenerate conf.toml, including active settings and comments; requires --force.
     #[arg(long, requires = "force", conflicts_with = "remote")]
     foverride_conf: bool,
     /// Skip Git repository detection and automatic initialization.
@@ -76,8 +75,8 @@ pub(super) fn run(mut args: InitArgs, ssh: SshArgs) -> Result<()> {
     let resolved = target::resolve(args.path, ssh)?;
     let remote = resolved.session.target().is_remote();
     anyhow::ensure!(
-        !args.foverride_conf || !remote,
-        "--foverride-conf is supported only for local configuration import"
+        !args.foverride_conf || args.force,
+        "--foverride-conf requires --force"
     );
     let recognition = Recognize {
         path: resolved.path.clone(),
@@ -124,10 +123,8 @@ pub(super) fn run(mut args: InitArgs, ssh: SshArgs) -> Result<()> {
         force: args.force,
         no_git: args.no_git,
         git: args.git,
-        local: (!remote).then_some(LocalImport {
-            configuration,
-            replace_conf: args.foverride_conf,
-        }),
+        configuration,
+        replace_conf: args.foverride_conf,
     };
     let info = runtime.block_on(register(
         &resolved.session,
@@ -160,7 +157,6 @@ fn create_remote(args: InitArgs, remote_path: String, ssh: SshArgs) -> Result<()
         let handle = remote_session
             .start::<Info>(InfoInput {
                 path: PathBuf::from(&remote_path),
-                include_configuration: false,
             })
             .await
             .map_err(|error| operation_failure(error, true))?;

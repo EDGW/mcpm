@@ -49,7 +49,6 @@ pub(super) fn run(
         return inspect::prompt_for_input();
     }
     let session = execution::session_for(&ssh)?;
-    let remote = session.target().is_remote();
     let request = SelectInput {
         scope: ModsScope::Paths {
             directory,
@@ -62,7 +61,7 @@ pub(super) fn run(
             Some(selection) => ModsCachePolicy::Select { selection },
             None => ModsCachePolicy::Disabled,
         },
-        hide_unrecognized: loaders.is_filtered() || remote,
+        hide_unrecognized: loaders.is_filtered(),
     };
     let runtime = Runtime::new()?;
     let result = inspect::present_operation(&runtime, &session, request, display);

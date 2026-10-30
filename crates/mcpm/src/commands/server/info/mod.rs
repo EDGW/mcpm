@@ -31,10 +31,7 @@ pub(super) fn run(args: InfoArgs, ssh: SshArgs) -> Result<()> {
     let target = target::resolve(args.path, ssh)?;
     let remote_target = target.session.target().is_remote();
     let runtime = Runtime::new()?;
-    let request = InfoInput {
-        path: target.path,
-        include_configuration: !remote_target,
-    };
+    let request = InfoInput { path: target.path };
     let info = runtime.block_on(async {
         let handle = target
             .session

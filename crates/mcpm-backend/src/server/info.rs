@@ -45,17 +45,13 @@ impl Operation for Info {
     }
 }
 
-/// One snapshot request.
+/// One snapshot request. Configuration files are always included in the host-owned snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InfoInput {
     #[serde(default = "default_path")]
     pub path: PathBuf,
-    /// Read launch.toml/conf.toml presence; only meaningful for a local target.
-    #[serde(default)]
-    pub include_configuration: bool,
 }
-
 fn info(input: InfoInput) -> Result<ServerInfo, InfoFailure> {
     match workspace::kind(&input.path) {
         Ok(Kind::Local) => {}
@@ -67,11 +63,9 @@ fn info(input: InfoInput) -> Result<ServerInfo, InfoFailure> {
     tracing::info!(path = %input.path.display(), "Reading server metadata");
     let server = MinecraftServer::inspect(input.path.clone()).map_err(InfoFailure::Server)?;
     let mut info = ServerInfo::from_server(&server);
-    if input.include_configuration {
-        info.configuration = Some(
-            config::configuration_files(server.path()).map_err(InfoFailure::Configuration)?,
-        );
-    }
+    info.configuration = Some(
+        config::configuration_files(server.path()).map_err(InfoFailure::Configuration)?,
+    );
     tracing::debug!(name = %info.name, "Loaded server metadata");
     Ok(info)
 }

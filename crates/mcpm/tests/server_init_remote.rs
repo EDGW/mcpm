@@ -19,7 +19,7 @@ fn persisted(mut metadata: Value) -> Value {
 
 fn no_local_configuration(root: &Path) {
     assert!(!root.join("launch.toml").exists());
-    assert!(!root.join("conf.toml").exists());
+    assert!(root.join("conf.toml").exists());
 }
 
 fn metadata(version: &str) -> Value {
@@ -167,6 +167,7 @@ fn initialization_accepts_foreign_legacy_snapshot_without_opening_or_persisting_
     let events = data(&replies);
     assert!(!events.iter().any(|event| event["phase"] == "recognizing"));
     let initialized = &outputs(&replies)[0]["server"];
+    assert!(initialized["configuration"].is_object());
     let replies = remote(root.path(), &[("server.info", json!({}))]);
     succeeded(&replies);
     let info = outputs(&replies)[0];

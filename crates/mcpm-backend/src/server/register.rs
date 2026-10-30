@@ -113,18 +113,14 @@ fn register(
     } else {
         Some(git::ensure_repository(&args.path, args.git).map_err(RegisterFailure::Git)?)
     };
-    let publication = if let Some(local) = args.local {
-        let policy = OverwritePolicy {
-            replace_registration: args.force,
-            replace_conf: local.replace_conf,
-        };
-        Some(
-            config::publish(&args.path, &args.metadata, local.configuration.as_ref(), policy)
-                .map_err(RegisterFailure::Configuration)?,
-        )
-    } else {
-        None
+    let policy = OverwritePolicy {
+        replace_registration: args.force,
+        replace_conf: args.replace_conf,
     };
+    let publication = Some(
+        config::publish(&args.path, &args.metadata, args.configuration.as_ref(), policy)
+            .map_err(RegisterFailure::Configuration)?,
+    );
     let server = if let Some(publication) = &publication {
         publication.server.clone()
     } else if args.force {

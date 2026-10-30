@@ -74,6 +74,9 @@ fn snapshot_retains_source_paths_loader_identity_and_windows_argv() {
     for field in ["executable", "arguments", "windows"] {
         assert_eq!(snapshot["start"][field], metadata["start"][field]);
     }
+    assert!(snapshot["configuration"].is_object());
+    assert!(snapshot["configuration"]["launch"].is_boolean());
+    assert!(snapshot["configuration"]["conf"].is_boolean());
     assert_eq!(replies[replies.len() - 2]["status"], "finished");
     assert_eq!(replies.last().unwrap()["status"], "closed");
     // Path ownership belongs to the handler; an invalid or missing server fails the invocation.
