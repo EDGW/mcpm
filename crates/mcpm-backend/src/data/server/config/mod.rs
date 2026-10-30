@@ -17,8 +17,7 @@ mod overrides;
 pub use overrides::ConfigurationOverrides;
 mod publication;
 pub(crate) use publication::ConfigurationLock;
-pub use publication::PublicationRecoveryError;
-pub use publication::{OverwritePolicy, Published, publish};
+pub use publication::{OverwritePolicy, PublicationSummary, Published, publish};
 
 /// Local configuration file presence for informational views; no Java probe or legacy migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

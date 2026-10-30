@@ -14,7 +14,7 @@ use crate::{
 /// Import diagnostics stay on stderr, including Raw mode, leaving server records unchanged.
 pub(super) fn write_publication(
     output: &mut impl Write,
-    publication: &mcpm_backend::data::server::config::Published,
+    publication: &mcpm_backend::data::server::config::PublicationSummary,
 ) -> io::Result<()> {
     let style = OutputStyle::stderr();
     let mut output = ConsoleWriter::new(output);
@@ -29,9 +29,17 @@ pub(super) fn write_publication(
                 output,
                 "{} {}",
                 style.muted(action),
-                style.muted(text(&path.display().to_string()))
+                style.muted(text(path))
             )?;
         }
+    }
+    for setting in &publication.imported {
+        writeln!(
+            output,
+            "{} {}",
+            style.muted("Imported"),
+            style.muted(&setting.field)
+        )?;
     }
     if !publication.entry_configured {
         writeln!(output, "{}", style.warning("No launch entry is configured; explicitly import a start script before using launch."))?;

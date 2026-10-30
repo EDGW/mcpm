@@ -40,6 +40,35 @@ pub struct Published {
     pub entry_configured: bool,
 }
 
+/// Serializable publication facts returned to a caller on any host.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublicationSummary {
+    pub created: Vec<String>,
+    pub replaced: Vec<String>,
+    pub preserved: Vec<String>,
+    pub removed: Vec<String>,
+    pub imported: Vec<ImportedSetting>,
+    pub entry_configured: bool,
+}
+
+impl Published {
+    pub fn summary(&self) -> PublicationSummary {
+        PublicationSummary {
+            created: paths(&self.created),
+            replaced: paths(&self.replaced),
+            preserved: paths(&self.preserved),
+            removed: paths(&self.removed),
+            imported: self.imported.clone(),
+            entry_configured: self.entry_configured,
+        }
+    }
+}
+
+fn paths(values: &[PathBuf]) -> Vec<String> {
+    values.iter().map(|path| path.display().to_string()).collect()
+}
+
 /// Publishes local registration and configuration under the backend's own coordination lock.
 /// A journal is removed only after all files have been installed. An interrupted publication
 /// is rolled back on the next explicit import; launch refuses a pending journal.

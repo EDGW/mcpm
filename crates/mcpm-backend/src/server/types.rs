@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::data::server::config::{ConfigurationDraft, ConfigurationFiles, Published};
+use crate::data::server::config::{ConfigurationDraft, ConfigurationFiles};
 use crate::data::server::{
     MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerCandidate, ServerModLoader,
 };
@@ -140,15 +140,15 @@ pub struct Initialize {
     pub replace_conf: bool,
 }
 
-/// Registration result and optional Git outcome.
+/// Registration result and optional Git/publication outcome.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Initialized {
     pub server: ServerInfo,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git: Option<git::Outcome>,
-    #[serde(skip)]
-    pub publication: Option<Published>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication: Option<crate::data::server::config::PublicationSummary>,
 }
 
 /// Candidates carry the complete configuration draft needed by host-side registration.

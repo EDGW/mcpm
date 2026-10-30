@@ -145,7 +145,7 @@ fn register(
     Ok(Initialized {
         server: info,
         git,
-        publication,
+        publication: publication.map(|value| value.summary()),
     })
 }
 
