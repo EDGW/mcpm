@@ -41,39 +41,123 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
-
 ## API
 
-| Item | Behavior |
-| --- | --- |
-| `Session::new(carrier)` | Starts the reader and writer tasks. Requires a Tokio runtime. |
-| `Session::open()` | Creates a channel with a fresh UUID v4. Nothing is sent until its first message. |
-| `Session::accept()` | Next channel opened by the peer. `Ok(None)` after a clean close; `Err` with the cause otherwise. |
-| `Channel::id()` | GUID shared by both ends. |
-| `Channel::send(body)` | Queues a message; does not wait for the carrier. |
-| `Channel::finish(body)` | Finishes the channel for both sides, with an optional final message. |
-| `Channel::recv()` | `Ok(Some(body))` per message, `Ok(None)` once finished and drained. |
-| `drop(Channel)` | Finishes an unfinished channel without a final message. |
+### `Session`
 
-## Behavior
+```rust,ignore
+impl Session {
+    pub fn new(carrier: impl Carrier) -> Self;
+    pub fn open(&self) -> Channel;
+    pub async fn accept(&mut self) -> Result<Option<Channel>, SessionError>;
+}
+```
 
-- **Opening**: a frame with an unknown GUID opens a new channel on the receiving side, returned
-  by `accept`. A locally opened channel finished before any message is never seen by the peer.
-- **Reuse**: every frame with an open channel's GUID goes to that channel.
-- **Ordering**: messages of one channel arrive in send order; channels interleave freely.
-- **FINISH**: sent or received, it ends the channel for both sides.
-  - The receiving side gets the final message (if any), then `Ok(None)`.
-  - Later `send`/`finish` fail with `ChannelError::Finished`.
-  - GUIDs of finished channels are remembered for the whole session. Frames for them, such as
-    a message that crossed a FINISH, are dropped instead of opening a new channel.
-- **Session end**: the peer closes its writing side, sends an invalid frame, or the carrier fails.
-  - Open channels yield their received messages, then `ChannelError::SessionClosed`.
-  - `accept` yields channels already opened, then `Ok(None)` or the `SessionError`.
-  - Dropping the `Session` and every `Channel` closes this side's writer after queued frames
-    are written. Exception: Tokio's `Stdout` stays open, so the peer sees EOF when the process
-    exits.
-- **Buffering**: send and inbound queues are unbounded, so a slow channel never blocks the
-  others.
+#### `Session::new(carrier) -> Session`
+
+Starts two independent tasks: a reader that decodes frames from the carrier and routes them to
+channels, and a writer that encodes queued frames and writes them to the carrier. Requires a
+Tokio runtime.
+
+The session runs until the peer closes its writing side, an invalid frame is received, the carrier
+fails, or every handle (`Session` itself and all `Channel`s) is dropped.
+
+#### `Session::open() -> Channel`
+
+Creates a channel with a fresh UUID v4 and returns it immediately. The peer is not notified until
+the first message is sent on this channel.
+
+If the session has already ended, the returned channel is born closed: `send`/`finish` fail with
+`ChannelError::SessionClosed`, and `recv` returns `Err(SessionClosed)`.
+
+#### `Session::accept() -> Result<Option<Channel>, SessionError>`
+
+Waits for the next channel opened by the peer. A channel opens when a frame arrives with a GUID
+not seen before.
+
+Returns:
+- `Ok(Some(channel))`: a new channel from the peer. The first message may already be in the
+  channel's queue.
+- `Ok(None)`: the peer closed its writing side cleanly (EOF on the carrier).
+- `Err(SessionError)`: the session ended due to a protocol error or carrier failure. The cause
+  is in the error. Channels already `accept`ed can still be read until drained.
+
+### `Channel`
+
+```rust,ignore
+impl Channel {
+    pub fn id(&self) -> Uuid;
+    pub fn send(&self, body: Value) -> Result<(), ChannelError>;
+    pub fn finish(self, body: Option<Value>) -> Result<(), ChannelError>;
+    pub async fn recv(&mut self) -> Result<Option<Value>, ChannelError>;
+}
+
+impl Drop for Channel;
+```
+
+A handle for one conversation inside a session. Each channel is identified by a GUID shared by
+both sides.
+
+#### `Channel::id() -> Uuid`
+
+Returns the channel's GUID. Both sides see the same UUID.
+
+#### `Channel::send(body) -> Result<(), ChannelError>`
+
+Queues `body` for the peer. The message is added to the session's send queue and the function
+returns immediately; it does not wait for the carrier to write the frame or for the peer to
+receive it.
+
+The first message of a locally opened channel opens it on the peer: the peer's `accept()` will
+return this channel.
+
+Returns:
+- `Ok(())`: the message was queued. It will be written unless the session ends before the writer
+  reaches it.
+- `Err(ChannelError::Finished(id))`: the channel was already finished by either side. Messages
+  sent before the remote FINISH arrived were queued and may still be in flight; the peer drops
+  frames for finished channels.
+- `Err(ChannelError::Aborted(id))`: the peer aborted the channel (dropped it without finishing).
+  The same race applies: frames queued before learning about the abort are in flight.
+- `Err(ChannelError::SessionClosed)`: the session ended. The writer task is no longer running.
+
+#### `Channel::finish(body) -> Result<(), ChannelError>`
+
+Finishes the channel for both sides, with an optional final message. After this call:
+- This side: `send` and `finish` fail with `Finished`. `recv` drains already-received messages,
+  then returns `Ok(None)`.
+- Peer: `recv` receives all messages including the final one, then returns `Ok(None)`. `send` and
+  `finish` fail with `Finished` once the peer's reader processes the FINISH frame.
+
+Consumes the channel. If `body` is `None` and the channel was locally opened but never sent a
+message, nothing is written: the peer never learns about this channel.
+
+Returns the same errors as `send`, with the same races.
+
+#### `Channel::recv() -> Result<Option<Value>, ChannelError>`
+
+Receives the next message from the peer. Waits if no message is available yet.
+
+Returns:
+- `Ok(Some(body))`: a message from the peer. `null` is a valid message.
+- `Ok(None)`: the peer finished the channel and every received message was consumed. The peer may
+  have sent a final message, which would have been the last `Ok(Some(_))`.
+- `Err(ChannelError::Aborted(id))`: the peer aborted the channel and every received message was
+  consumed. Use this to distinguish "the peer gave up" from "the peer completed".
+- `Err(ChannelError::SessionClosed(cause))`: the session ended and every received message was
+  consumed. `cause` is `None` for a clean close (peer sent EOF), `Some(error)` for a protocol
+  error or carrier failure.
+
+Messages are delivered in send order within one channel. Messages of different channels interleave
+freely.
+
+#### `drop(Channel)`
+
+If the channel is still open (not finished by either side), dropping it sends FINISH with the
+`abort` flag. The peer's `recv` will return `ChannelError::Aborted` after draining received
+messages, and the peer's `send`/`finish` will fail with `Aborted`.
+
+If the channel was already finished or the session ended, drop is silent.
 
 ## Wire format
 
@@ -94,11 +178,12 @@ UTF-8, one compact JSON object per line, terminated by `\n`.
 | Flag | Meaning |
 | --- | --- |
 | `finish` | Last frame of the channel, for both sides. |
+| `abort` | The sender dropped the channel without finishing it. Only valid with `finish`. |
 
 ## Errors
 
 | Type | Variants |
 | --- | --- |
 | `SessionError` | `Read`, `Write` (carrier I/O), `Encode`, `Protocol` (`FrameError`) |
-| `FrameError` | `Json` (invalid JSON or unknown flag), `MissingBody` |
-| `ChannelError` | `Finished(id)`, `SessionClosed(cause)`; `cause` is `None` after a clean close |
+| `FrameError` | `Json` (invalid JSON or unknown flag), `MissingBody`, `AbortWithoutFinish` |
+| `ChannelError` | `Finished(id)`, `Aborted(id)`, `SessionClosed(cause)`; `cause` is `None` after a clean close |
