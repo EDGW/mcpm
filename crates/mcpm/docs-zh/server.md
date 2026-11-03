@@ -212,45 +212,4 @@ mcpm init ./workspace --force --minecraft-version 1.21.1 --loader vanilla --no-g
 
 本机工作区只保存 SSH 命令、可选 mcpmd 路径和远端目录。远端服务端必须已登记为 Local Server；未登记时先执行远端初始化。
 
-## `mcpmd link`
-
-### 前台 link
-
-```text
-mcpmd link [--mcpmd <PATH>] [--idle-timeout <SECONDS>] SSH
-```
-
-| 参数或选项 | 说明 |
-| --- | --- |
-| `[SSH]` | SSH 连接命令，格式同 `--ssh`。 |
-| `--mcpmd <PATH>` | 远端 mcpmd 可执行文件；省略时使用远端环境变量 PATH 中的 `mcpmd`。 |
-| `--idle-timeout <SECONDS>` | 无客户端且无在途调用时，经过该秒数后退出；`0` 表示不按空闲退出。默认 `600`。 |
-
-### `mcpmd link list`
-
-```text
-mcpmd link list [--raw]
-```
-
-| 选项 | 说明 |
-| --- | --- |
-| `--raw` | 强制输出 TSV。 |
-
-无响应的记录标记为 stale 并清理。
-
-### `mcpmd link stop`
-
-```text
-mcpmd link stop (SSH | --all) [--force] [--mcpmd <PATH>]
-```
-
-| 参数或选项 | 说明 |
-| --- | --- |
-| `[SSH]` | SSH 连接命令，格式同 `--ssh`。省略时需 `--all`。 |
-| `--all` | 停止全部 link。 |
-| `--force` | 立即中止在途调用，不等待完成。 |
-| `--mcpmd <PATH>` | 指定远端 mcpmd 路径；省略时按 SSH 命令匹配已登记的 link。 |
-
-重编译不会替换已运行的 link。版本不兼容时停止对应 link，再用匹配构建重试。
-
-[Backend Server](../../mcpm-backend/docs-zh/server.md) · [Workspace](../../mcpm-backend/docs-zh/workspace.md) · [尚未迁移命令](legacy/README.md)
+[mcpmd 守护进程](../../mcpmd/docs-zh/README.md) · [Backend Server](../../mcpm-backend/docs-zh/server.md) · [Workspace](../../mcpm-backend/docs-zh/workspace.md) · [尚未迁移命令](legacy/README.md)

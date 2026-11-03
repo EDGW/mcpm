@@ -212,45 +212,4 @@ Creating a Remote workspace runs Git against the remote server directory; the lo
 
 The local workspace stores only the SSH command, optional mcpmd path, and remote directory. The remote server must already be registered as a Local Server; initialize it first otherwise.
 
-## `mcpmd link`
-
-### Foreground link
-
-```text
-mcpmd link [--mcpmd <PATH>] [--idle-timeout <SECONDS>] SSH
-```
-
-| Argument or option | Description |
-| --- | --- |
-| `SSH` | SSH connection command, in the same form as `--ssh`. |
-| `--mcpmd <PATH>` | Remote mcpmd executable; defaults to `mcpmd` on the remote environment PATH. |
-| `--idle-timeout <SECONDS>` | Exit after this many seconds without clients or calls; `0` disables idle exit. Default `600`. |
-
-### `mcpmd link list`
-
-```text
-mcpmd link list [--raw]
-```
-
-| Option | Description |
-| --- | --- |
-| `--raw` | Force TSV output. |
-
-Unresponsive records are marked stale and removed.
-
-### `mcpmd link stop`
-
-```text
-mcpmd link stop (SSH | --all) [--force] [--mcpmd <PATH>]
-```
-
-| Argument or option | Description |
-| --- | --- |
-| `SSH` | SSH connection command, in the same form as `--ssh`. Omit only with `--all`. |
-| `--all` | Stop all links. |
-| `--force` | Abort active calls immediately instead of waiting. |
-| `--mcpmd <PATH>` | Remote mcpmd path; when omitted, match a registered link by SSH command. |
-
-Rebuilding does not replace a running link. On an incompatible version, stop the matching link and retry with matching builds.
-
-[Backend Server](../../mcpm-backend/docs/server.md) · [Workspace](../../mcpm-backend/docs/workspace.md) · [Unmigrated commands](legacy/README.md)
+[mcpmd daemon](../../mcpmd/docs/README.md) · [Backend Server](../../mcpm-backend/docs/server.md) · [Workspace](../../mcpm-backend/docs/workspace.md) · [Unmigrated commands](legacy/README.md)
