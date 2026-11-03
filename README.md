@@ -4,7 +4,7 @@
 
 This project is still in early development.
 
-[Command reference](crates/mcpm/docs/README.md) · [Developer guide](crates/mcpm/docs/dev/README.md)
+[Command reference](crates/mcpm/docs/README.md) · [Legacy developer guide — not yet migrated](crates/mcpm/docs/legacy/dev/README.md) · [Backend operations](crates/mcpm-backend/docs/README.md)
 
 The command reference is currently difficult to read and will be improved over time.
 
@@ -12,7 +12,7 @@ The command reference is currently difficult to read and will be improved over t
 
 Install pre-release [v0.1.0-dev.26w43d](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d).
 The installer supports **v0.1.0-dev.26w43c and newer**; older tags are rejected before downloading.
-All five executables are installed together: `mcpm`, `mcpm-server`, `mcpmc`, `mcpm-client`, and `mcpm-tools`.
+All six executables are installed together: `mcpm`, `mcpm-server`, `mcpmc`, `mcpm-client`, `mcpm-tools`, and `mcpmd`.
 
 | System | Architectures | Program location | PATH entry |
 | --- | --- | --- | --- |
@@ -73,7 +73,7 @@ curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts
 - Previous Windows installations at `%LOCALAPPDATA%\Programs\mcpm\mcpm.exe` and their PATH entries are kept. The installer warns when this executable still takes precedence; remove the old executable and old PATH entry explicitly after checking the new suite.
 - An untracked `bin` directory is never silently adopted or replaced. Resolve a reported conflict before installing.
 - These scripts manage the new layout only; they do not uninstall the old single-file layout.
-- Noninteractive SSH sessions may not load your shell configuration. If the remote `mcpm-tools` is unavailable on PATH, use `--ssh-mcpm` with its absolute path, for example `/home/alice/.local/share/mcpm/bin/mcpm-tools`.
+- Noninteractive SSH sessions may not load your shell configuration. `server info` and `server init` require remote `mcpmd`; use `--ssh-mcpmd` with its absolute path if it is not on PATH. Unmigrated mods/cache commands still require `mcpm-tools` remotely during the transition.
 
 ### Manual installation
 

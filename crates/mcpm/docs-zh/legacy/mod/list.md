@@ -1,0 +1,189 @@
+> 尚未迁移到新文档体系。此处保留旧文档；已迁移命令以文档根目录中的新版本为准。
+
+# `mcpm-tools mods list`
+
+```text
+mcpm-tools mods list [OPTIONS] [PATH]...
+```
+
+列出 Mod 文件，可混合传入多个文件和目录。不传路径时使用当前目录（`.`）。
+
+Help 依次将选项分为全局参数（Global options）、模式参数（Mode options）、加载参数（Loading options）、Filter、样式参数（Style options）和 Console 模式专有参数（Console-only options）。`--identify-parallelism` 放在 Loading options 中并注明 TUI only。模式专有参数在其他模式中仍可传入，但会被忽略。`--expanded` 属于样式参数：TUI 中初始展开全部分支，Console 和 Raw 中输出全部声明，Console 还会列出被忽略的文件名。
+
+`--parallelism <COUNT>` 控制外层 JAR 的加载与 loader 元数据解析并发，默认 10，必须为正整数；设为 1 可顺序加载。TUI、Console、Raw 和 SSH 均生效；SSH 时在远端执行并行扫描。不同文件可同时加载，同一文件内部的 loader 和内嵌 JAR 仍顺序解析。进度按实际完成数推进，最终列表与编号保留输入顺序及目录内的路径排序，全部元数据加载完成后才打开 TUI。重复规范化路径共享扫描结果（包括失败），但每个输入仍保留独立位置；`.jar` 与 `.jar.disabled` 不合并。缓存仅在本次扫描会话内有效，不检测文件修改。
+
+加载并行度与 `--identify-parallelism` 分别设置，互不覆盖。平台识别由独立的 identify 业务接口处理；并发默认值、运行时、stdin 与终端进度设施归命令公共层，list 不依赖 identify 的配置或传输数据包。
+
+终端中默认打开 TUI：上方是可滚动的 Mod 树，下方是紧凑的 Details 卡片。每个 Mod 占两行，File 移到第二行并与 Mod ID 左对齐，第一行不再单列 File；选中项的两行以背景色标识；`>` 表示可展开分支，`v` 表示已展开，叶子不显示箭头。→ 展开一级，← 收起当前分支或移至父项，Space 切换当前分支，`e` 展开全部。`--expanded` 会在启动时展开全部分支。
+
+仅 TUI 会自动按列表顺序识别外层 JAR：每个文件查询 Modrinth，并通过 Curse.tools 查询 CurseForge。默认最多同时执行 10 个平台反查请求，期间仍可操作列表；`--identify-parallelism <COUNT>` 指定正整数并行度，设为 `1` 则顺序识别。Index 下方的第一位对应 Modrinth，第二位对应 CurseForge；识别时显示加载动画，验证匹配后显示平台色勾选。Details 中各平台占两行：首行显示状态，成功时的 Project ID 和 File ID 使用 dimmed；第二行在匹配成功时显示英文入口 `Enter to view release files →`，否则说明不可用原因。两行作为一个字段整体选择；复制仍包含文件名、匹配类型和大小等完整结果。单次请求失败后继续处理其他文件，退出 TUI 会取消剩余请求。重复文件路径共享识别结果。嵌套 JAR 不参与识别，也不会继承外层文件的成功标记。Console 和 Raw 不执行远程识别。
+
+识别期间，Filter 与 Details 之间显示 Identification 进度卡片，按已完成的平台查询数推进；无匹配和失败也计为完成，所有查询结束后自动隐藏。
+
+在 Details 中选中已识别成功的 Modrinth 或 CurseForge 字段，按 Enter 进入该项目的 files，自动将识别到的版本置顶为 `Selected`。命令行的 `--loader/--loaders` 筛选会一并传递，多选按任意匹配；未指定时不限制 loader。Esc 或 q 返回原列表，保留选中行、Details 字段和筛选条件。加载时可按 Esc 取消；请求失败会返回列表并显示错误。尚未匹配的来源和嵌套 JAR 不提供此入口。
+
+平台颜色从 `~/.mcpm/source_colors.toml` 读取，缺失项使用 `mcpm/config/source_colors.toml` 默认值。`source_colors.tui` 和 `source_colors.console` 表包含 `modrinth`、`curseforge` 的颜色；这些颜色不属于 `mcpm-tools customize` 编辑项。
+
+↑/↓、PageUp/PageDown、Home/End 和触控板用于导航。`F` 在 Mods 和 Details 之间打开 Filter 卡片。`-F/--filter <FILTER>` 使用同一 Filter 类型设置初始条件，也适用于 Console 和 Raw：
+
+```sh
+mcpm-tools mods list mods/ -F "@modid 'Fabric'"
+mcpm-tools mods list mods/ -F "@loaders (=Forge | =Fabric) & @name ~'API$'"
+```
+
+普通文本或引号文本默认进行不区分大小写的包含匹配，`=` 表示完整值精确匹配，`~` 后跟带引号的 Rust 正则。空格或 `&` 表示 AND，`|` 表示 OR，AND 优先于 OR，括号改变优先级。支持 `@name`、`@modid`、`@file`、`@loaders`，Index 不参与搜索。字段限定紧随其后的一个值或括号组：`@loaders (Forge | Fabric)` 两项都限定于 Loaders；`@loaders Forge | Fabric` 的第二项不限定字段。组内显式字段覆盖继承字段，短语需要引号，例如 `@name "Fabric API"`。完整转义和正则规则见 [Filter 语法](filter.md) 或 `--help`。
+
+字段使用主色，匹配值使用附色，运算符使用重要文字样式，引号和括号使用陪衬样式，转义使用主色。非法表达式会提示错误及字符列号，并给错误 token 加下划线，此时不匹配任何行。语法高亮、命令行校验和结果高亮共用解析器；只有成立的布尔分支贡献匹配高亮。
+
+Console 和 Raw 搜索全部声明（包括隐藏子项），再输出匹配行；没有 `--expanded` 时，每个输入文件只输出首个匹配声明。空 Filter 保持原来的列表输出。
+
+搜索只自动展开通往匹配项的祖先路径；仅父项自身匹配时，不会连带自动展开其子项。普通列表原有的展开、折叠状态始终保留，分支不再处于匹配路径时立即恢复，无需清空筛选。搜索中仍可用 ←/→、Space、鼠标箭头逐级折叠/展开，`e` 展开全部；这些手动操作优先于自动展开，在分支退出搜索结果后失效。清空筛选后恢复普通列表状态。
+
+匹配内容使用附色，并反转原有粗体：普通文字变粗体，已有粗体变普通字形。如果命中会被截断隐藏，单元格会保留开头，并用省略号连接第一个命中附近的上下文；优先完整显示命中，只有命中本身超过可用宽度时才截断。表格、File 第二行和 Details 使用相同规则，复制仍保留完整原文。
+
+筛选实时生效。Enter 应用并返回 Mods 焦点；Esc 或大写 `Q` 关闭筛选卡片并保留条件，小写 `q` 作为普通筛选文本输入。在筛选框外按 `r` 清空条件。Tab/Shift-Tab 在可见的 Mods、Filter、Details 卡片间切换；Details 内用 ↑/↓ 选择字段，`c` 复制完整字段值，即使显示内容已被 `...` 截断。状态栏反馈复制成功或失败。除已匹配的来源字段外，Enter 打开/关闭完整 Details，`i` 查看跳过的文件；筛选框外按 `q`、Esc 或 Ctrl-C 退出。鼠标点击可选择行和字段，点击箭头可切换分支。
+
+`--no-ui` 使用 Console 列表；`--raw` 或 stdout 重定向使用 TSV 原始输出，`--no-ui --raw` 同样使用 Raw。TUI 和 Console 分别使用与当前终端深浅模式对应的配色，NO_COLOR 关闭颜色。
+
+## SSH 列表
+
+使用 `--ssh 'ssh -i key -p 2222 user@host'` 从另一台机器加载 Mod，在本地显示。`--ssh-mcpmd <PATH>` 指定远端 mcpm 可执行文件，未指定时直接使用远端 PATH 中的 `mcpm-tools`。这两个参数在最外层全局有效，可放在子命令前后；目前 `list` 的 TUI、Console、Raw 以及 [`mods source identify`](source-identify.md) 支持，其他命令明确报不支持。
+
+连接字符串只包含 SSH 可执行文件、选项和目标地址，不包含远端命令；其中的参数使用 shell 风格引号。mcpm 只建立一个非 PTY 的 SSH 连接，由 SSH 默认 shell 直接启动一个持续运行的 `mcpm-tools remote` 进程。支持 POSIX shell 和 Windows cmd。Windows 连接要求：
+
+- SSH 默认 shell 必须为 cmd。
+- 指定自定义可执行文件时，使用 Windows 路径或以 `.exe` 结尾的名称，例如 `C:\Program Files\mcpm\mcpm-tools.exe`；mcpm 自动添加双引号。
+- 可执行文件路径不能包含双引号、换行、NUL、`%` 或 `!`，不支持在其中展开环境变量。
+
+只有可执行文件的启动经过远端 shell，请求使用 command ID 和不透明 `contents`，通过 stdin 上的 JSON 传输，可保留空格、引号和 shell 特殊字符。路径与 Loader 选择被序列化传输，显示参数留在本地；stdin 路径在本地追加后作为远端路径传递。所有输入路径及默认的 `.` 都指远端机器。
+
+每项加载完成后立即传送结果，并推进本地进度条。结果交给相同的本地 TUI、Console 和 Raw 渲染器，保留筛选、列选择、Loader 选择和嵌套声明展示。接收端校验协议版本、请求 GUID、结果数量、索引范围与唯一性、JSON 换行、完成状态和进程退出状态。部分文件失败时仍展示成功结果，最终返回失败状态。SSH 数据的 TUI 在同一 Session 上提交 `mod.source.identify` 请求，由远端一次读取文件并返回 SHA-1、大小和所需的 MurmurHash2 指纹，本地通过共享 identify 流程查询两个平台，使用本地代理和 API key；`--identify-parallelism` 控制整体网络并发度。本地复用原有状态展示和匹配文件浏览；退出面板时取消剩余识别。
+
+单次 CLI 列表调用持有会话，直到本地界面关闭。需要执行多条命令的调用方可自行持有同一个 SSH 子进程，向同一个远端 mcpm 进程连续发送请求；见[持久远程会话](../remote.md)。不需要本地常驻进程，也不需要为每条命令重新握手。
+
+```sh
+mcpm-tools mods --ssh 'ssh -i key -p 2222 user@host' list mods/ --expanded --no-ui
+mcpm-tools --raw mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpm-tools.exe' -C NML
+```
+
+## Remote 支持
+
+注册的 command ID 为 `mod.list`。[Remote 子系统](../remote.md) 接受结构化路径和 Loader 选择，并为每个输入项流式返回一条结果。筛选、列选择、展开和排版均由本地前端负责。
+
+路径按参数顺序处理。目录只提供其直接包含的 `.jar` 和 `.jar.disabled` 文件，并按路径排序；跳过子目录和其他文件，不进行递归扫描。直接传入的文件也必须使用上述后缀，后缀区分大小写。支持跟随指向普通文件和目录的符号链接。
+
+重复路径会重复处理。例如，一个文件同时作为独立参数传入并通过目录扫描发现时，会出现两次。文件编号按合并后的显示顺序分配。
+
+```sh
+mcpm-tools mods list first.jar mods/ second.jar other-mods/
+mcpm-tools mods list --expanded mods/ --loaders forge,neoforge
+mcpm-tools mods list --no-ui --width 100 mods/
+mcpm-tools mods list -- -leading-dash.jar
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `-F, --filter <FILTER>` | 使用共享的 [Filter 类型](filter.md) 筛选输出，并设置 TUI Filter 卡片的可编辑初始条件。 |
+| `--no-ui` | 使用 Console 列表，不打开 TUI。 |
+| `-p, --parallelism <COUNT>` | 外层 JAR 加载并行度，默认 10，必须为正整数；所有模式生效，SSH 时传给远端。 |
+| `-P, --identify-parallelism <COUNT>` | TUI 平台反查并行度，默认 10，必须为正整数。Console 和 Raw 忽略此项。 |
+| `-E, --expanded` | 显示全部 Mod 声明，包括已识别的嵌套 Mod。在终端输出中还列出因 Loader 筛选而跳过的文件名。 |
+| `--index-type <TYPE>` | `flat`（默认）显示完整且左对齐的编号；`tree` 对齐文件编号后的第一项，其余层级紧凑缩进，并缩进嵌套 Mod 名称。 |
+| `--width <WIDTH>` | 覆盖 Console 排版宽度，范围为 1–65535 列。TUI、原始输出或重定向时忽略此选项。 |
+| `--path-style <STYLE>` | 使用 `inner`、`full`（默认）或 `outer` 格式化嵌套归档路径，详见[归档路径样式](README.md#归档路径样式)。 |
+| `-C <LETTERS>` | 使用大写字母选择列，可重复指定或与长选项组合。 |
+| `--columns <COLUMNS>` | 使用逗号分隔的列名选择多列。 |
+| `--column <COLUMN>` | 选择一列，可重复指定。 |
+
+## 列
+
+| 字母 | 名称 | 内容 |
+| --- | --- | --- |
+| `I` | `index` | 根据文件、Loader、原生 Mod 和嵌套 JAR 位置生成的层级编号。 |
+| `N` | `name` | Mod 显示名称；无法识别时为去除扩展名的文件名。 |
+| `M` | `modid` | Mod 标识符。 |
+| `F` | `filename` | 外层文件名；嵌套归档默认显示完整的 `outer-jar-path!inner-jar-path` 链。 |
+| `L` | `loaders` | 识别成功的 Loader 及识别失败标记。 |
+
+默认显示全部列。显式选择取并集，并始终按 `I`、`N`、`M`、`F`、`L` 的固定顺序显示，与参数选择顺序无关。
+
+```sh
+mcpm-tools mods list mods/ -C NML
+mcpm-tools mods list mods/ --columns name,filename --column loaders
+mcpm-tools --raw mods list mods/ -C MF
+```
+
+默认视图使用第一个已识别声明作为文件摘要，并附带其他声明数量和 Loader 名称。`--expanded` 分别显示每个声明，并为失败的 Loader 尝试添加行。
+
+## 声明编号
+
+所有数字位置均从 **1** 开始，编号在当前显示的文件序列中标识声明：
+
+1. 按显示顺序分配文件编号 `X`。
+2. 成功的 Loader 元数据记录与失败的 Loader 尝试一起计数。总数为一时，成功元数据的前缀为 `X`；大于一时附加 Loader ID，例如 `X-forge` 或 `X-neoforge`，包括仅一个成功、另一个失败的情况。未识别文件且没有报错的 Loader 不计入。
+3. 对于元数据前缀 `Y`，只有一个直接声明的 Mod 时使用 `Y`；多个直接声明的 Mod 分别使用 `Y-1`、`Y-2` 等。
+4. 子 JAR 元数据使用 `Y+1`、`Y+2` 等，与原生 Mod 编号独立。对子 JAR 递归应用相同规则。
+
+例如，`1-neoforge+2-3` 表示文件 1 的 NeoForge 记录中，第二个子 JAR 直接声明的第三个 Mod。`1-fabric+1+1` 表示孙级 JAR 中唯一的 Mod。文件 144 只有一个 Loader 记录且其中只有一个 Mod 时，编号就是 `144`。
+
+子 JAR 位置按声明顺序编号，包括保留在结构中但不产生 Mod 输出行的纯库 JAR。`--path-style` 不影响编号。
+
+摘要视图保留第一个显示声明的编号。展开视图中每个 Mod 行都有独立编号；失败的 Loader 行使用 `X-loader`。
+
+`--index-type flat` 保留完整编号并左对齐。两种编号格式中的 Loader 名称均使用与 Loaders 列相同的颜色，周围的数字编号不着色。
+
+`--index-type tree` 用 `[X]` 表示文件，多个 Loader 记录时用 `[loader]`，一个 JAR 直接声明多个 Mod 时用 `[N]`，子 JAR 位置用 `<N>`。文件编号后的第一项始终从同一列开始，无论它是 Loader 标签、原生 Mod 编号还是嵌套 JAR 编号。为此会补齐文件标签宽度，其他标签不补齐到相同宽度。更深的重复祖先位置每层仅占两格，不保留完整标签的宽度。每个文件开始新的层级。单个 Loader 或单个直接声明的 Mod 无需额外标签，省略规则与完整编号一致。
+
+重复祖先的位置用灰色 `·` 标记，保持原有对齐和紧凑间距。原始输出和无颜色输出仍保留这些引导字符。
+
+例如，Forge 和 NeoForge 记录可以显示为：
+
+```text
+[1][forge][1]
+·  · [2]
+·  · <1>[1]
+·  · · [2]
+·  [neoforge]
+```
+
+只有一个 Loader 且直接声明多个 Mod 时，同样适用：
+
+```text
+[144][1]
+·    [2]
+·    <1>[1]
+·    · [2]
+```
+
+使用 `--expanded` 显示完整层级，仅更改编号格式不会展开摘要。树形模式下，外层声明的名称从 Name 列正常位置开始，每嵌套一层 JAR，名称前增加两格。换行后的续行保持此缩进。Loader 和原生 Mod 编号不增加名称缩进。
+
+两种编号格式都支持列选择、路径样式和原始输出。原始输出保留编号字段内的首项对齐和紧凑层级，以及 Name 字段内的嵌套缩进，制表符分隔的列之间不添加终端排版的填充。
+
+```sh
+mcpm-tools mods list mods/ --expanded --index-type flat
+mcpm-tools mods list mods/ --expanded --index-type tree
+```
+
+未指定 Loader 筛选时，所有 Loader 都无法识别的归档显示为 `[unrecognized]`。指定筛选时，没有已识别声明且没有识别错误的文件会被跳过。识别失败会报告错误，不视为被筛选掉的文件。
+
+输入路径无效或不可读时报告错误，并继续处理其他路径。目录扫描失败时，不使用该目录的任何条目。只要发生输入路径错误或 Loader 识别错误，即使已经显示其他结果，命令仍返回失败状态。
+
+通用选项见 [Loader 选择](README.md#loader-选择)，忽略文件提示及 `--raw` 行为见[终端输出](../README.md#终端输出)。
+
+## 识别缓存
+
+- 默认查询 `~/.mcpm/cache/mods`。`--cache-dir PATH` 改用指定的已初始化目录；`--no-cache` 关闭缓存查询并直接识别文件；两者互斥。
+- 默认目录不存在或为空时自动初始化；指定目录必须合法，可先运行 `mcpm-tools cache init --directory PATH`。非空无标记目录、manifest 损坏或不支持的目录版本均失败。
+- 先使用 imohash 候选索引和当前原生文件身份匹配硬链接；没有身份匹配时计算完整 BLAKE3，因此内容相同的独立副本也能复用。
+- 已缓存的“未识别”也会复用。缺失、过期或无效结果正常识别。检查只读取已有缓存，不导入文件、不建立硬链接、不写回 metadata；存储结果可显式调用 [mods cache](cache.md)，或分别使用 cache import 和 refresh。
+- Console 空一行后展示 `A fully cached · B partially cached · C total items`。全部命中指所有请求 Loader 结果均来自缓存，包括“未识别”；部分命中指只有部分结果来自缓存。总数按规范化路径统计实际检查的独立文件，含未识别和失败项，筛选前计算；重复查询、嵌套声明不增加总数。关闭缓存时命中数均为 0，Raw 文本输出不添加统计行。
+- TUI 在 skipped 状态行下分别展示 `Metadata cache` 和 `Identification cache`。Metadata 使用上述 Loader 统计；Identification 随每个外层文件的缓存检查实时更新，Modrinth 和 CurseForge 均有校验通过的缓存匹配为全部命中，仅一个有匹配为部分命中。`checked` 为目前已处理的独立文件数，重复物理路径和嵌套声明不增加计数；本次网络查询得到的匹配不计为缓存命中。`--no-cache` 时 Identification 显示 `disabled`。
+- SSH 模式下，缓存选择与路径在远端解释；普通缓存管理命令仍在本地执行。
+
+```sh
+mcpm-tools mods list example.jar
+mcpm-tools mods list example.jar --no-cache
+mcpm-tools mods list example.jar --cache-dir /path/to/cache
+```
+
+[命令参考](../README.md) · [mod 概览](README.md) · [English](../../../docs/legacy/mod/list.md)
