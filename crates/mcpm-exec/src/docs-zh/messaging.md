@@ -14,6 +14,8 @@
 - **Channel**：一段会话，由双方共享的 GUID 标识。
 - **Frame（帧）**：线上的一条消息，即一行紧凑 JSON。
 
+Session、Channel 句柄创建和销毁时均产生 debug 日志。日志包含进程内 `session` 标识，Channel 还包含 GUID。句柄生命周期日志与载体读写任务的关闭日志分开；仍有 Channel 持有载体时，销毁 Session 不会立即关闭传输。
+
 ## 用法
 
 ```rust
@@ -49,7 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 impl Session {
     pub fn new(carrier: impl Carrier) -> Self;
     pub fn open(&self) -> Channel;
-    pub async fn accept(&mut self) -> Result<Option<Channel>, SessionError>;
+    pub async fn accept(&mut self) -> Result<Option<Channel>, std::sync::Arc<SessionError>>;
+    pub async fn closed(&self) -> Result<(), std::sync::Arc<SessionError>>;
 }
 ```
 

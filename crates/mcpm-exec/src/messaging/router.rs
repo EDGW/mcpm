@@ -20,12 +20,18 @@ use super::{ChannelError, SessionError};
 /// Shared channel table. Locks are held only for table updates, never across `.await`.
 pub(crate) struct Router {
     table: Mutex<Table>,
+    closed: tokio::sync::Notify,
 }
 
 impl Router {
     pub fn new() -> Self {
         Self {
-            table: Mutex::new(Table { open: HashMap::new(), ended: HashMap::new(), closure: None }),
+            table: Mutex::new(Table {
+                open: HashMap::new(),
+                ended: HashMap::new(),
+                closure: None,
+            }),
+            closed: tokio::sync::Notify::new(),
         }
     }
 
@@ -38,7 +44,13 @@ impl Router {
         let id = Uuid::new_v4();
         let mut table = self.table();
         if table.closure.is_none() {
-            table.open.insert(id, Entry { inbound, announced: false });
+            table.open.insert(
+                id,
+                Entry {
+                    inbound,
+                    announced: false,
+                },
+            );
         }
         (id, receiver)
     }
@@ -57,7 +69,11 @@ impl Router {
             debug!(channel = %id, "dropped frame for an ended channel");
             return None;
         }
-        let ending = flags.finish.then_some(if flags.abort { Ending::Aborted } else { Ending::Finished });
+        let ending = flags.finish.then_some(if flags.abort {
+            Ending::Aborted
+        } else {
+            Ending::Finished
+        });
 
         let Some(entry) = table.open.get(&id) else {
             let Some(body) = body else {
@@ -73,7 +89,13 @@ impl Router {
                     table.ended.insert(id, ending);
                 }
                 None => {
-                    table.open.insert(id, Entry { inbound, announced: true });
+                    table.open.insert(
+                        id,
+                        Entry {
+                            inbound,
+                            announced: true,
+                        },
+                    );
                 }
             }
             return Some(receiver);
@@ -129,7 +151,9 @@ impl Router {
 
     /// Error for channel operations after the session ended.
     pub fn session_closed(&self) -> ChannelError {
-        self.table().session_closed().unwrap_or(ChannelError::SessionClosed(None))
+        self.table()
+            .session_closed()
+            .unwrap_or(ChannelError::SessionClosed(None))
     }
 
     /// Records how the session ended and disconnects every open channel. The first call wins.
@@ -138,12 +162,25 @@ impl Router {
         if table.closure.is_none() {
             table.closure = Some(result.map_err(Arc::new));
             table.open.clear();
+            self.closed.notify_waiters();
         }
     }
 
     /// How the session ended, if it did.
     pub fn closure(&self) -> Option<Result<(), Arc<SessionError>>> {
         self.table().closure.clone()
+    }
+
+    pub async fn closed(&self) -> Result<(), Arc<SessionError>> {
+        loop {
+            let notified = self.closed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if let Some(result) = self.closure() {
+                return result;
+            }
+            notified.await;
+        }
     }
 
     fn table(&self) -> MutexGuard<'_, Table> {

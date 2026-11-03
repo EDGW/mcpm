@@ -12,6 +12,8 @@
 - **Registry**：执行方可运行的操作，按 `ID` 索引。
 - **Reply**：执行方发送结果的句柄。
 
+`execute::<O>(input)` 是统一的类型化执行入口：开始时记录包含 operation ID、`SHALLOW` 分类的 INFO 日志，再直接调用 `O::run`，不经过 serde。本地 Executor、Shallow 工作区解析、远端已注册处理器共用此入口。远端 Executor 也在派发请求时记录 INFO；主机实际执行日志仍属于远端诊断。
+
 ## 用法
 
 ```rust

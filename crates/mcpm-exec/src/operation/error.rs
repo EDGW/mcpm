@@ -30,9 +30,15 @@ impl From<&anyhow::Error> for RemoteError {
     fn from(error: &anyhow::Error) -> Self {
         let mut messages: Vec<String> = error.chain().map(ToString::to_string).collect();
         // `chain` always yields the error itself, so the vector is non-empty.
-        let mut remote = Self { message: messages.pop().unwrap_or_default(), source: None };
+        let mut remote = Self {
+            message: messages.pop().unwrap_or_default(),
+            source: None,
+        };
         while let Some(message) = messages.pop() {
-            remote = Self { message, source: Some(Box::new(remote)) };
+            remote = Self {
+                message,
+                source: Some(Box::new(remote)),
+            };
         }
         remote
     }

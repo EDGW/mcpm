@@ -70,7 +70,11 @@ async fn initiate(rally: usize, mut channel: Channel) {
     channel.send(json!(sent)).expect("send failed");
     loop {
         let received = next_number(&mut channel).await;
-        assert_eq!(received, sent + 1, "rally {rally}: A received an unexpected number");
+        assert_eq!(
+            received,
+            sent + 1,
+            "rally {rally}: A received an unexpected number"
+        );
         debug!(rally, received, "A received");
         sent = received + 1;
         if sent == LAST {
@@ -88,7 +92,10 @@ async fn respond(mut channel: Channel) {
     let mut expected = 0;
     loop {
         let received = next_number(&mut channel).await;
-        assert_eq!(received, expected, "channel {id}: B received an unexpected number");
+        assert_eq!(
+            received, expected,
+            "channel {id}: B received an unexpected number"
+        );
         debug!(%id, received, "B received");
         if received == LAST {
             break;
@@ -96,11 +103,19 @@ async fn respond(mut channel: Channel) {
         channel.send(json!(received + 1)).expect("send failed");
         expected = received + 2;
     }
-    assert_eq!(channel.recv().await.expect("session failed"), None, "channel {id}: not finished");
+    assert_eq!(
+        channel.recv().await.expect("session failed"),
+        None,
+        "channel {id}: not finished"
+    );
     info!(%id, "rally finished on B");
 }
 
 async fn next_number(channel: &mut Channel) -> u64 {
-    let body = channel.recv().await.expect("session failed").expect("channel finished early");
+    let body = channel
+        .recv()
+        .await
+        .expect("session failed")
+        .expect("channel finished early");
     body.as_u64().expect("body is not a number")
 }

@@ -44,7 +44,9 @@ impl<T: Send + 'static> StreamingOutput<T> {
         F: FnOnce(StreamSender<T>) -> Fut + Send + 'static,
         Fut: Future<Output = Result<()>> + Send + 'static,
     {
-        Self { source: Source::Pending(Box::new(move |sender| Box::pin(producer(sender)))) }
+        Self {
+            source: Source::Pending(Box::new(move |sender| Box::pin(producer(sender)))),
+        }
     }
 
     /// Next item; `None` once the stream ended. An error ends the stream.
@@ -81,13 +83,20 @@ impl<T: Send + 'static> StreamingOutput<T> {
         let task = tokio::spawn({
             let sender = sender.clone();
             async move {
-                if let Err(error) = producer(StreamSender { items: sender.clone() }).await {
+                if let Err(error) = producer(StreamSender {
+                    items: sender.clone(),
+                })
+                .await
+                {
                     // Fails only when the consumer is gone, which needs no report.
                     let _ = sender.send(Err(error)).await;
                 }
             }
         });
-        self.source = Source::Local { items, producer: Producer(task) };
+        self.source = Source::Local {
+            items,
+            producer: Producer(task),
+        };
     }
 }
 
@@ -127,20 +136,26 @@ impl<T: Serialize + DeserializeOwned + Send + 'static> OperationOutput for Strea
     fn receive(value: Value, channel: Channel) -> Result<Self> {
         serde_json::from_value::<Handshake>(value)
             .map_err(|error| ProtocolError::Invalid("stream handshake", error))?;
-        Ok(Self { source: Source::Remote(channel) })
+        Ok(Self {
+            source: Source::Remote(channel),
+        })
     }
 }
 
 enum Source<T> {
     /// Producer not started yet.
     Pending(PendingProducer<T>),
-    Local { items: mpsc::Receiver<Result<T>>, producer: Producer },
+    Local {
+        items: mpsc::Receiver<Result<T>>,
+        producer: Producer,
+    },
     Remote(Channel),
     Ended,
 }
 
 /// Type-erased producer passed to [`StreamingOutput::new`].
-type PendingProducer<T> = Box<dyn FnOnce(StreamSender<T>) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send>;
+type PendingProducer<T> =
+    Box<dyn FnOnce(StreamSender<T>) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send>;
 
 /// Producer task of a local stream, aborted with the stream.
 struct Producer(JoinHandle<()>);
@@ -149,7 +164,9 @@ impl Producer {
     /// After the item queue disconnected: the error to report when the producer panicked.
     async fn panicked(&mut self) -> Option<anyhow::Error> {
         match (&mut self.0).await {
-            Err(error) if error.is_panic() => Some(anyhow::Error::new(error).context("stream producer panicked")),
+            Err(error) if error.is_panic() => {
+                Some(anyhow::Error::new(error).context("stream producer panicked"))
+            }
             _ => None,
         }
     }
@@ -177,7 +194,9 @@ impl<T> StreamSender<T> {
 
 impl<T> Clone for StreamSender<T> {
     fn clone(&self) -> Self {
-        Self { items: self.items.clone() }
+        Self {
+            items: self.items.clone(),
+        }
     }
 }
 
@@ -228,6 +247,7 @@ impl Message {
     }
 
     fn decode(body: Value) -> Result<Self, ProtocolError> {
-        serde_json::from_value(body).map_err(|error| ProtocolError::Invalid("stream message", error))
+        serde_json::from_value(body)
+            .map_err(|error| ProtocolError::Invalid("stream message", error))
     }
 }

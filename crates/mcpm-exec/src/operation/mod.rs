@@ -28,17 +28,28 @@ pub use serve::*;
 mod streaming;
 pub use streaming::*;
 
+mod target;
+pub use target::*;
+
 /// An operation that the peer of a session can run.
 ///
 /// The executing side registers it in a [`Registry`]; the calling side runs it with [`call`].
 pub trait Operation: 'static {
     /// Name on the wire, unique within a registry.
     const ID: &'static str;
+    /// Workspace registration operations always execute on the calling host.
+    const SHALLOW: bool = false;
     type Input: Serialize + DeserializeOwned + Send + 'static;
     type Output: OperationOutput;
 
     /// Runs the operation on the executing side. Dropped when the caller cancels.
     fn run(input: Self::Input) -> impl Future<Output = Result<Self::Output>> + Send;
+}
+
+/// Executes a typed operation locally, recording its start without serializing its data.
+pub async fn execute<O: Operation>(input: O::Input) -> Result<O::Output> {
+    tracing::info!(op = O::ID, shallow = O::SHALLOW, "operation started");
+    O::run(input).await
 }
 
 /// Result of an operation and the rest of its channel.
@@ -60,6 +71,7 @@ impl<T: Serialize + DeserializeOwned + Send + 'static> OperationOutput for T {
     }
 
     fn receive(value: Value, _channel: Channel) -> Result<Self> {
-        Ok(serde_json::from_value(value).map_err(|error| ProtocolError::Invalid("output", error))?)
+        Ok(serde_json::from_value(value)
+            .map_err(|error| ProtocolError::Invalid("output", error))?)
     }
 }

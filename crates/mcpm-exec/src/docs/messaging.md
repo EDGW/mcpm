@@ -15,6 +15,8 @@ every frame.
 - **Channel**: one conversation, identified by a GUID shared by both sides.
 - **Frame**: one message on the wire, one line of compact JSON.
 
+Session and Channel handles emit debug events when created and dropped. Each event includes a process-local `session` identifier; Channel events also include its GUID. These handle-lifetime events are distinct from the reader/writer transport-shutdown diagnostics. Dropping a Session does not terminate channels that still own the carrier.
+
 ## Usage
 
 ```rust
@@ -49,7 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 impl Session {
     pub fn new(carrier: impl Carrier) -> Self;
     pub fn open(&self) -> Channel;
-    pub async fn accept(&mut self) -> Result<Option<Channel>, SessionError>;
+    pub async fn accept(&mut self) -> Result<Option<Channel>, std::sync::Arc<SessionError>>;
+    pub async fn closed(&self) -> Result<(), std::sync::Arc<SessionError>>;
 }
 ```
 

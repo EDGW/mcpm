@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tracing::debug;
 use uuid::Uuid;
 
 use super::ChannelError;
@@ -21,6 +22,7 @@ pub struct Channel {
     router: Arc<Router>,
     outbound: UnboundedSender<Frame>,
     inbound: UnboundedReceiver<Value>,
+    prefetched: Option<Value>,
 }
 
 impl Channel {
@@ -30,7 +32,14 @@ impl Channel {
         outbound: UnboundedSender<Frame>,
         inbound: UnboundedReceiver<Value>,
     ) -> Self {
-        Self { id, router, outbound, inbound }
+        debug!(session = ?Arc::as_ptr(&router), channel = %id, "channel started");
+        Self {
+            id,
+            router,
+            outbound,
+            inbound,
+            prefetched: None,
+        }
     }
 
     /// GUID shared by both ends of this channel.
@@ -59,10 +68,19 @@ impl Channel {
     /// consumed. After those messages, fails with [`ChannelError::Aborted`] when the peer aborted
     /// it, or [`ChannelError::SessionClosed`] when the session ended first.
     pub async fn recv(&mut self) -> Result<Option<Value>, ChannelError> {
+        if let Some(body) = self.prefetched.take() {
+            return Ok(Some(body));
+        }
         match self.inbound.recv().await {
             Some(body) => Ok(Some(body)),
             None => self.router.ended(self.id).map(|()| None),
         }
+    }
+
+    /// Restores the request inspected by the operation dispatcher before forwarding.
+    pub(crate) fn unread(&mut self, body: Value) {
+        debug_assert!(self.prefetched.is_none());
+        self.prefetched = Some(body);
     }
 
     fn end(&mut self, frame: Frame) -> Result<(), ChannelError> {
@@ -75,7 +93,9 @@ impl Channel {
     }
 
     fn push(&self, frame: Frame) -> Result<(), ChannelError> {
-        self.outbound.send(frame).map_err(|_| self.router.session_closed())
+        self.outbound
+            .send(frame)
+            .map_err(|_| self.router.session_closed())
     }
 }
 
@@ -83,5 +103,6 @@ impl Drop for Channel {
     fn drop(&mut self) {
         // Already ended by either side, or the session ended: nothing to tell the peer.
         let _ = self.end(Frame::abort(self.id));
+        debug!(session = ?Arc::as_ptr(&self.router), channel = %self.id, "channel ended");
     }
 }

@@ -19,6 +19,9 @@ pub use frame::FrameError;
 mod session;
 pub use session::*;
 
+mod relay;
+pub use relay::*;
+
 // Private Modules
 
 mod router;

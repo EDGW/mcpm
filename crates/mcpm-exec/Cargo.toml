@@ -1,17 +1,28 @@
 [package]
 name = "mcpm-exec"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
+build = "../../scripts/build.rs"
 
 [dependencies]
 anyhow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "io-util", "net", "macros"] }
+tokio = { workspace = true, features = ["rt", "sync", "io-util", "net", "macros", "process", "time"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
+blake3 = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tracing-subscriber = { workspace = true, features = ["fmt"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading"] }
+
+[build-dependencies]
+anyhow = { workspace = true }

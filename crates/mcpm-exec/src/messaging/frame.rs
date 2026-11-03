@@ -21,24 +21,46 @@ pub(crate) struct Frame {
     pub id: Uuid,
     #[serde(default, skip_serializing_if = "Flags::is_empty")]
     pub flags: Flags,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
     pub body: Option<Value>,
 }
 
 impl Frame {
     /// A regular message on channel `id`.
     pub fn message(id: Uuid, body: Value) -> Self {
-        Self { id, flags: Flags::default(), body: Some(body) }
+        Self {
+            id,
+            flags: Flags::default(),
+            body: Some(body),
+        }
     }
 
     /// The last frame of channel `id`, optionally carrying a final message.
     pub fn finish(id: Uuid, body: Option<Value>) -> Self {
-        Self { id, flags: Flags { finish: true, abort: false }, body }
+        Self {
+            id,
+            flags: Flags {
+                finish: true,
+                abort: false,
+            },
+            body,
+        }
     }
 
     /// The last frame of channel `id`, sent when its handle is dropped unfinished.
     pub fn abort(id: Uuid) -> Self {
-        Self { id, flags: Flags { finish: true, abort: true }, body: None }
+        Self {
+            id,
+            flags: Flags {
+                finish: true,
+                abort: true,
+            },
+            body: None,
+        }
     }
 
     /// Appends this frame to `line` as compact JSON followed by `\n`.

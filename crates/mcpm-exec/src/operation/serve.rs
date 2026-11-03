@@ -19,15 +19,48 @@ use crate::messaging::{Channel, Session, SessionError};
 /// Runs every operation the peer requests on `session` until the session ends.
 ///
 /// Each operation runs in its own task. Returns how the session ended.
-pub async fn serve(session: &mut Session, registry: Arc<Registry>) -> Result<(), Arc<SessionError>> {
+pub async fn serve(
+    session: &mut Session,
+    registry: Arc<Registry>,
+) -> Result<(), Arc<SessionError>> {
+    serve_or_forward(session, registry, |channel| {
+        tokio::spawn(async move {
+            let mut channel = channel;
+            let Some(body) = channel.recv().await.ok().flatten() else {
+                return;
+            };
+            let error = match Request::decode(body) {
+                Ok(request) => anyhow!("unknown operation `{}`", request.op),
+                Err(error) => error.into(),
+            };
+            fail(channel, &error);
+        });
+    })
+    .await
+}
+
+/// Runs registered operations locally and hands unknown operation channels to `forward`.
+/// The callback receives the original request as the channel's first body.
+pub async fn serve_or_forward(
+    session: &mut Session,
+    registry: Arc<Registry>,
+    forward: impl Fn(Channel) + Send + Sync + 'static,
+) -> Result<(), Arc<SessionError>> {
+    let forward = Arc::new(forward);
     while let Some(channel) = session.accept().await? {
-        tokio::spawn(execute(channel, registry.clone()));
+        let registry = registry.clone();
+        let forward = forward.clone();
+        tokio::spawn(async move { execute(channel, registry, forward).await });
     }
     Ok(())
 }
 
 /// Decodes the request of a new channel and dispatches it.
-async fn execute(mut channel: Channel, registry: Arc<Registry>) {
+async fn execute(
+    mut channel: Channel,
+    registry: Arc<Registry>,
+    forward: Arc<impl Fn(Channel) + Send + Sync + 'static>,
+) {
     // A channel opened by the peer always starts with a message.
     let body = match channel.recv().await {
         Ok(Some(body)) => body,
@@ -37,6 +70,13 @@ async fn execute(mut channel: Channel, registry: Arc<Registry>) {
             return;
         }
     };
+    if let Some(op) = body.get("op").and_then(Value::as_str)
+        && !registry.handlers.contains_key(op)
+    {
+        channel.unread(body);
+        forward(channel);
+        return;
+    }
     let request = match Request::decode(body) {
         Ok(request) => request,
         Err(error) => return fail(channel, &error.into()),
@@ -70,6 +110,13 @@ impl Registry {
             }
         }
     }
+
+    /// Registered IDs in stable order, for daemon capability negotiation.
+    pub fn ids(&self) -> Vec<&'static str> {
+        let mut ids: Vec<_> = self.handlers.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
 }
 
 /// Two operations share one ID.
@@ -85,13 +132,12 @@ type Handler = fn(Value, Channel) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 /// Runs `O` until it completes or the caller ends the channel, then delivers the result.
 async fn run<O: Operation>(input: Value, mut channel: Channel) {
     let id = channel.id();
-    debug!(op = O::ID, channel = %id, "operation started");
     let input = match serde_json::from_value::<O::Input>(input).context("invalid operation input") {
         Ok(input) => input,
         Err(error) => return fail(channel, &error),
     };
     let output = tokio::select! {
-        output = O::run(input) => output,
+        output = super::execute::<O>(input) => output,
         message = channel.recv() => {
             match message {
                 Ok(Some(_)) => fail(channel, &ProtocolError::Unexpected.into()),
@@ -103,7 +149,9 @@ async fn run<O: Operation>(input: Value, mut channel: Channel) {
     match output {
         Ok(output) => match output.deliver(Reply::new(channel)).await {
             Ok(()) => debug!(op = O::ID, channel = %id, "operation finished"),
-            Err(error) => debug!(op = O::ID, channel = %id, error = format!("{error:#}"), "operation delivery stopped"),
+            Err(error) => {
+                debug!(op = O::ID, channel = %id, error = format!("{error:#}"), "operation delivery stopped")
+            }
         },
         Err(error) => {
             debug!(op = O::ID, channel = %id, error = format!("{error:#}"), "operation failed");

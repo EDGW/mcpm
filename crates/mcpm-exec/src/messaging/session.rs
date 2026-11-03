@@ -38,6 +38,7 @@ impl Session {
     pub fn new(carrier: impl Carrier) -> Self {
         let (reader, writer) = carrier.split();
         let router = Arc::new(Router::new());
+        debug!(session = ?Arc::as_ptr(&router), "session started");
         let (outbound, frames) = unbounded_channel();
         let (accepted, incoming) = unbounded_channel();
 
@@ -46,13 +47,25 @@ impl Session {
             let outbound = outbound.downgrade();
             async move {
                 let result = read_frames(reader, &router, &outbound, &accepted).await;
-                debug!(error = result.as_ref().err().map(tracing::field::display), "session reader ended");
+                debug!(
+                    error = result.as_ref().err().map(tracing::field::display),
+                    "session reader ended"
+                );
                 router.close(result);
             }
         });
-        tokio::spawn(write_frames(writer, frames, router.clone(), reader.abort_handle()));
+        tokio::spawn(write_frames(
+            writer,
+            frames,
+            router.clone(),
+            reader.abort_handle(),
+        ));
 
-        Self { router, outbound, incoming }
+        Self {
+            router,
+            outbound,
+            incoming,
+        }
     }
 
     /// Opens a channel with a fresh GUID. The peer sees it with the first message sent on it.
@@ -72,6 +85,17 @@ impl Session {
         // The reader records the closure before the accept queue disconnects.
         self.router.closure().transpose().map(|_| None)
     }
+
+    /// Waits for carrier closure without consuming incoming channels.
+    pub async fn closed(&self) -> Result<(), Arc<SessionError>> {
+        self.router.closed().await
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        debug!(session = ?Arc::as_ptr(&self.router), "session ended");
+    }
 }
 
 async fn read_frames(
@@ -84,7 +108,12 @@ async fn read_frames(
     let mut line = Vec::new();
     loop {
         line.clear();
-        if reader.read_until(b'\n', &mut line).await.map_err(SessionError::Read)? == 0 {
+        if reader
+            .read_until(b'\n', &mut line)
+            .await
+            .map_err(SessionError::Read)?
+            == 0
+        {
             return Ok(());
         }
         let frame = Frame::decode(&line).map_err(SessionError::Protocol)?;
@@ -122,7 +151,10 @@ async fn write_frames(
                 let Ok(frame) = frames.try_recv() else { break };
                 frame.encode(&mut lines).map_err(SessionError::Encode)?;
             }
-            writer.write_all(&lines).await.map_err(SessionError::Write)?;
+            writer
+                .write_all(&lines)
+                .await
+                .map_err(SessionError::Write)?;
             writer.flush().await.map_err(SessionError::Write)?;
         }
         writer.shutdown().await.map_err(SessionError::Write)

@@ -14,6 +14,8 @@ else happens on that channel.
 - **Registry**: the operations the executing side runs, by `ID`.
 - **Reply**: the executing side's handle for sending the result.
 
+`execute::<O>(input)` is the shared typed execution entry. It records one INFO start event with the operation ID and `SHALLOW` classification, then calls `O::run` without serde. Local Executor calls, Shallow workspace resolution, and registered peer handlers use this entry. A remote Executor also records INFO when dispatching the request; peer execution logs remain remote diagnostics.
+
 ## Usage
 
 ```rust,ignore

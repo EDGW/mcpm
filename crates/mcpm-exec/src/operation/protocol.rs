@@ -25,7 +25,10 @@ pub(crate) struct Request {
 impl Request {
     pub fn encode(op: &'static str, input: &impl Serialize) -> Result<Value> {
         let input = serde_json::to_value(input).context("failed to encode operation input")?;
-        Ok(serde_json::to_value(Self { op: Cow::Borrowed(op), input })?)
+        Ok(serde_json::to_value(Self {
+            op: Cow::Borrowed(op),
+            input,
+        })?)
     }
 
     pub fn decode(body: Value) -> Result<Self, ProtocolError> {
@@ -79,7 +82,8 @@ impl Reply {
 
     /// Sends `error` as the result and finishes the channel.
     pub(crate) fn fail(self, error: &anyhow::Error) -> Result<()> {
-        self.channel.finish(Some(Response::Error(error.into()).encode()))?;
+        self.channel
+            .finish(Some(Response::Error(error.into()).encode()))?;
         Ok(())
     }
 
