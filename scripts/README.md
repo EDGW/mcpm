@@ -17,6 +17,7 @@ file=mcpm-client
 file=mcpm-server
 file=mcpm-tools
 file=mcpmc
+file=mcpmd
 ```
 
 - `format`, `version`, and `asset` occur exactly once. `file` repeats for each executable basename under `bin/`; no paths, duplicates, or undeclared archive files are accepted.

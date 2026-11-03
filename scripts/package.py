@@ -21,7 +21,13 @@ def package(binary_dir, output_dir, asset, target, tag=None):
     ]))
     crate = next(item for item in metadata['packages'] if item['name'] == 'mcpm')
     version = crate['version']
-    names = sorted(item['name'] for item in crate['targets'] if item['kind'] == ['bin'])
+    names = sorted(
+        item['name']
+        for package in metadata['packages']
+        if package['name'] in {'mcpm', 'mcpmd'}
+        for item in package['targets']
+        if item['kind'] == ['bin']
+    )
     windows = 'windows' in target
     filenames = [name + ('.exe' if windows else '') for name in names]
     build_version = None

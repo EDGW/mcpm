@@ -44,7 +44,7 @@ read_manifest() {
             version) [ -z "$manifest_version" ] && [ -n "$value" ] || fail 'empty or duplicate manifest version'; manifest_version=$value ;;
             asset) [ -z "$manifest_asset" ] && [ -n "$value" ] || fail 'empty or duplicate manifest asset'; manifest_asset=$value ;;
             file)
-                case "$value" in mcpm|mcpmc|mcpm-*) ;; *) fail 'invalid manifest executable' ;; esac
+                case "$value" in mcpm|mcpmc|mcpmd|mcpm-*) ;; *) fail 'invalid manifest executable' ;; esac
                 case "$value" in *[!a-zA-Z0-9-]*|*..*) fail 'invalid manifest executable' ;; esac
                 case " $manifest_files " in *" $value "*) fail 'duplicate manifest executable' ;; esac
                 manifest_files="${manifest_files:+$manifest_files }$value"
@@ -150,7 +150,7 @@ main() {
     [ "${actual%% *}" = "$expected" ] || fail 'archive SHA-256 mismatch'
     tar -tzf "$stage/package.tar.gz" > "$stage/entries"
     while IFS= read -r entry; do
-        case "$entry" in manifest|bin/mcpm|bin/mcpmc|bin/mcpm-*) ;; *) fail "unexpected archive entry: $entry" ;; esac
+        case "$entry" in manifest|bin/mcpm|bin/mcpmc|bin/mcpmd|bin/mcpm-*) ;; *) fail "unexpected archive entry: $entry" ;; esac
         entry_name=${entry#bin/}
         case "$entry_name" in */*|*..*|*[!a-zA-Z0-9-]*) fail 'invalid archive entry' ;; esac
     done < "$stage/entries"

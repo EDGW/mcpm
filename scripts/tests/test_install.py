@@ -20,7 +20,7 @@ METADATA = json.loads(subprocess.check_output([
     'cargo', 'metadata', '--manifest-path', str(REPO / 'crates/mcpm/Cargo.toml'),
     '--no-deps', '--format-version', '1', '--locked',
 ]))
-NAMES = sorted(t['name'] for p in METADATA['packages'] if p['name'] == 'mcpm'
+NAMES = sorted(t['name'] for p in METADATA['packages'] if p['name'] in {'mcpm', 'mcpmd'}
                for t in p['targets'] if t['kind'] == ['bin'])
 
 

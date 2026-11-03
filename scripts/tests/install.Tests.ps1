@@ -55,6 +55,8 @@ try {
     $testState.ReleaseDir = Join-Path $testRoot 'release'
     python $packageScript --binary-dir $BinaryDir --output-dir $testState.ReleaseDir --asset mcpm-windows-x86_64 --target x86_64-pc-windows-msvc --tag $testState.ReleaseVersion
     if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare Windows fixture archive.' }
+    $metadata = cargo metadata --manifest-path (Join-Path $repo 'Cargo.toml') --no-deps --format-version 1 --locked | ConvertFrom-Json
+    $expectedFiles = @($metadata.packages | Where-Object { $_.name -in @('mcpm', 'mcpmd') } | ForEach-Object { $_.targets } | Where-Object { $_.kind -contains 'bin' }).Count
     $env:LOCALAPPDATA = Join-Path $testRoot 'local app data'
     $installDir = Join-Path $env:LOCALAPPDATA 'Programs\mcpm'
     $binDir = Join-Path $installDir 'bin'
@@ -71,16 +73,16 @@ try {
     $env:Path = "$originalProcessPath;$installDir"
     Invoke-Installer
     $files = @(Get-ChildItem -LiteralPath $binDir)
-    Assert-True ($files.Count -eq 5) 'The complete suite was not installed.'
+    Assert-True ($files.Count -eq $expectedFiles) 'The complete suite was not installed.'
     Assert-True (Test-Path -LiteralPath $legacy) 'Legacy executable was removed.'
     $originalManifest = [IO.File]::ReadAllText($manifestPath)
     Remove-Item -LiteralPath $files[0].FullName
     Invoke-Installer
-    Assert-True ((Get-ChildItem -LiteralPath $binDir).Count -eq 5) 'Repair did not restore a missing binary.'
+    Assert-True ((Get-ChildItem -LiteralPath $binDir).Count -eq $expectedFiles) 'Repair did not restore a missing binary.'
     $testState.FailCommit = $true
     Invoke-Installer -ExpectFailure
     Assert-True ([IO.File]::ReadAllText($manifestPath) -ceq $originalManifest) 'Rollback did not restore the manifest.'
-    Assert-True ((Get-ChildItem -LiteralPath $binDir).Count -eq 5) 'Rollback did not restore all binaries.'
+    Assert-True ((Get-ChildItem -LiteralPath $binDir).Count -eq $expectedFiles) 'Rollback did not restore all binaries.'
     $lock = [IO.File]::Open((Join-Path $installDir '.install-lock'), 'Open', 'ReadWrite', 'None')
     try { Invoke-Installer -ExpectFailure } finally { $lock.Dispose() }
     $checksum = Join-Path $testState.ReleaseDir 'mcpm-windows-x86_64.zip.sha256'

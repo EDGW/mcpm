@@ -56,7 +56,7 @@ function Read-Manifest {
         if ($pair.Count -ne 2) { throw 'Invalid manifest record.' }
         $key, $value = $pair
         if ($key -eq 'file') {
-            if ($value -cnotmatch '^(mcpm|mcpmc|mcpm-[a-zA-Z0-9-]+)\.exe$' -or $value -in $files) {
+            if ($value -cnotmatch '^(mcpm|mcpmc|mcpmd|mcpm-[a-zA-Z0-9-]+)\.exe$' -or $value -in $files) {
                 throw 'Invalid or duplicate manifest executable.'
             }
             $files += $value
@@ -193,7 +193,7 @@ function Invoke-Install {
         try {
             $entries = @()
             foreach ($entry in $archive.Entries) {
-                if ($entry.FullName -cnotmatch '^(manifest|bin/(mcpm|mcpmc|mcpm-[a-zA-Z0-9-]+)\.exe)$' -or $entry.FullName -in $entries) {
+                if ($entry.FullName -cnotmatch '^(manifest|bin/(mcpm|mcpmc|mcpmd|mcpm-[a-zA-Z0-9-]+)\.exe)$' -or $entry.FullName -in $entries) {
                     throw "Unexpected or duplicate archive entry: $($entry.FullName)"
                 }
                 $entries += $entry.FullName
