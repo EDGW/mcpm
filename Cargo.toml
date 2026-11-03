@@ -1,9 +1,10 @@
 [workspace]
-members = ["crates/mcpm", "crates/mcpm-backend", "crates/mcpm-exec"]
+members = ["crates/mcpm", "crates/mcpm-lib", "crates/mcpm-backend", "crates/mcpmd", "crates/mcpm-exec"]
 resolver = "3"
 
 [workspace.package]
 edition = "2024"
+version = "0.1.0-dev.26w43d"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.104" }
@@ -21,7 +22,9 @@ indicatif = { version = "0.18" }
 inventory = { version = "0.3" }
 lazy_static = { version = "1.5.1" }
 libc = { version = "0.2.190" }
+mcpm-lib = { path = "crates/mcpm-lib" }
 mcpm-backend = { path = "crates/mcpm-backend" }
+mcpm-exec = { path = "crates/mcpm-exec" }
 md-5 = { version = "0.10" }
 murmur3 = { version = "0.5" }
 owo-colors = { version = "4" }

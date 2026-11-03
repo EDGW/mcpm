@@ -2,8 +2,8 @@
 
 use crate::commands::supports::mods::reuse::HostEnvironment;
 use anyhow::{Context, Result, ensure};
-use mcpm_backend::local::modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta};
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta};
+use mcpm_lib::local::runtime::RuntimeEnvironment;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

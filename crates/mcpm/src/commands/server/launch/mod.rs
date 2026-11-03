@@ -3,10 +3,10 @@
 use crate::{commands::CommandOutcome, ssh::SshArgs};
 use anyhow::{Result, ensure};
 use clap::{Args, ValueEnum};
-use mcpm_backend::download::{DownloadConfig, sources};
-use mcpm_backend::local::mc::server::authlib_injector::JarPolicy;
-use mcpm_backend::local::mc::server::config::ConfigurationOverrides;
-use mcpm_backend::local::mc::server::launch::{self, ForegroundStreams};
+use mcpm_lib::download::{DownloadConfig, sources};
+use mcpm_lib::local::mc::server::authlib_injector::JarPolicy;
+use mcpm_lib::local::mc::server::config::ConfigurationOverrides;
+use mcpm_lib::local::mc::server::launch::{self, ForegroundStreams};
 use std::{cell::RefCell, path::PathBuf, sync::mpsc};
 
 mod signals;

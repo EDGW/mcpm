@@ -6,8 +6,8 @@ use super::super::{
 };
 use crate::diagnostics::ErrorReport;
 use anyhow::Result;
-use mcpm_backend::local::modloader::{LoaderId, ModLoaderMeta};
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::modloader::{LoaderId, ModLoaderMeta};
+use mcpm_lib::local::runtime::RuntimeEnvironment;
 use std::collections::HashMap;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

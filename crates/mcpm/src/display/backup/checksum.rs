@@ -3,7 +3,7 @@
 use std::{io::Write, path::Path};
 
 use anyhow::Result;
-use mcpm_backend::local::mcmod::backup::{Comparison, DirectoryChecksum, FileDifference};
+use mcpm_lib::local::mcmod::backup::{Comparison, DirectoryChecksum, FileDifference};
 
 use crate::{
     display::{

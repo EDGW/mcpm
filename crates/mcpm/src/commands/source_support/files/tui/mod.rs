@@ -8,7 +8,7 @@ use crate::{
 };
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyEventKind};
-use mcpm_backend::source::{FilePage, FileQuery, FileRef, ProjectFile, ProjectRef, Source};
+use mcpm_lib::source::{FilePage, FileQuery, FileRef, ProjectFile, ProjectRef, Source};
 use ratatui::{layout::Rect, widgets::TableState};
 use std::{io, time::Duration};
 use tokio::runtime::Runtime;

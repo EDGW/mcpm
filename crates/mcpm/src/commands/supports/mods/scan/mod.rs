@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::Result;
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     mcmod::{ModDirectory, ModFile},
     modloader::{LoaderId, ModLoaderMeta},
     runtime::RuntimeEnvironment,

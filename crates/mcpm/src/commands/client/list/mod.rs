@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     mc::client::{MinecraftDirectory, MinecraftModLoader, MinecraftVersion},
     modloader::BUILTIN_LOADERS,
 };

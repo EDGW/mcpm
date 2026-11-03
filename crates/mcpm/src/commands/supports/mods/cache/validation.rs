@@ -3,7 +3,7 @@
 use super::{Event, Stage, Status};
 use crate::commands::supports::mods::scan::{self, ProgressState};
 use anyhow::{Result, ensure};
-use mcpm_backend::local::cache::hash::Blake3Hash;
+use mcpm_lib::local::cache::hash::Blake3Hash;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]

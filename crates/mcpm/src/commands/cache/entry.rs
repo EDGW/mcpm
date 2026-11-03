@@ -1,7 +1,7 @@
 //! Cache observation for selected fields; decoding remains in the Mod cache owner.
 
 use anyhow::{Context, Result};
-use mcpm_backend::local::cache::{
+use mcpm_lib::local::cache::{
     CacheFileKind, CacheInspection,
     hash::Blake3Hash,
     mods::{CacheStatus, ModsCacheDir, ident, meta},

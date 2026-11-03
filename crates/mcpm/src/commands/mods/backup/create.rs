@@ -4,7 +4,7 @@ use std::{io, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     cache::mods::ModsCacheSelection,
     mcmod::backup::{self, CreateOptions},
     runtime::RuntimeEnvironment,

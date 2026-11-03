@@ -2,14 +2,14 @@
 
 use super::*;
 use crate::commands::supports::mods::selection::{Scope, SelectionInput};
-use mcpm_backend::local::cache::mods::CacheStatus;
-use mcpm_backend::local::cache::mods::CacheUnavailableReason;
-use mcpm_backend::local::cache::mods::ModsCacheDir;
-use mcpm_backend::local::{cache::mods::ModsCacheSelection, runtime::RuntimeEnvironment};
-use mcpm_backend::source::FileSummary;
-use mcpm_backend::source::SourceId;
-use mcpm_backend::source::curseforge::CurseForgeSource;
-use mcpm_backend::source::modrinth::ModrinthSource;
+use mcpm_lib::local::cache::mods::CacheStatus;
+use mcpm_lib::local::cache::mods::CacheUnavailableReason;
+use mcpm_lib::local::cache::mods::ModsCacheDir;
+use mcpm_lib::local::{cache::mods::ModsCacheSelection, runtime::RuntimeEnvironment};
+use mcpm_lib::source::FileSummary;
+use mcpm_lib::source::SourceId;
+use mcpm_lib::source::curseforge::CurseForgeSource;
+use mcpm_lib::source::modrinth::ModrinthSource;
 use serde_json::json;
 use std::{
     fs,
@@ -166,7 +166,7 @@ fn explicit_enrichment_publishes_successes_despite_other_sources_failing_and_ide
         .timeout(std::time::Duration::from_secs(2))
         .build()
         .unwrap();
-    let modrinth: Arc<dyn mcpm_backend::source::Source> = Arc::new(
+    let modrinth: Arc<dyn mcpm_lib::source::Source> = Arc::new(
         ModrinthSource::with_endpoint(
             SourceId("modrinth".into()),
             client.clone(),

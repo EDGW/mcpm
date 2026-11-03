@@ -5,7 +5,7 @@ use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, 
 
 pub(super) enum Update {
     Quit,
-    OpenFiles(mcpm_backend::source::FileRef),
+    OpenFiles(mcpm_lib::source::FileRef),
     Redraw,
     Ignore,
 }

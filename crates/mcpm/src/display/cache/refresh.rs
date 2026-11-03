@@ -3,12 +3,12 @@
 use std::{io::Write, path::Path};
 
 use anyhow::Result;
-use mcpm_backend::local::cache::mods::meta::CacheEntry;
-use mcpm_backend::local::cache::{
+use mcpm_lib::local::cache::mods::meta::CacheEntry;
+use mcpm_lib::local::cache::{
     hash::Blake3Hash,
     mods::ident::{CacheIdentInfo, RefreshStatus},
 };
-use mcpm_backend::source::{FileMatch, SourceId};
+use mcpm_lib::source::{FileMatch, SourceId};
 
 use crate::display::{
     console::ConsoleWriter,

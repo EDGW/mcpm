@@ -9,7 +9,7 @@ use crate::{
     },
     widgets::browser::{self, BrowserLayout, TableColumns, panel, short_line},
 };
-use mcpm_backend::source::{FilePage, FileQuery, ProjectFile, ProjectRef, ReleaseType};
+use mcpm_lib::source::{FilePage, FileQuery, ProjectFile, ProjectRef, ReleaseType};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -45,7 +45,7 @@ pub(super) fn field_value(file: &ProjectFile, field: usize) -> (&'static str, St
             file.dependencies
                 .iter()
                 .map(|dependency| {
-                    use mcpm_backend::source::DependencyTarget;
+                    use mcpm_lib::source::DependencyTarget;
                     let target = match &dependency.target {
                         DependencyTarget::Project(project) => {
                             format!("{} / {}", project.source.0, project.id.0)
@@ -72,7 +72,7 @@ pub(super) fn field_value(file: &ProjectFile, field: usize) -> (&'static str, St
             file.hashes
                 .iter()
                 .map(|hash| {
-                    use mcpm_backend::source::FileHash;
+                    use mcpm_lib::source::FileHash;
                     match hash {
                         FileHash::Sha1(value) => format!("SHA1 {value}"),
                         FileHash::Sha512(value) => format!("SHA512 {value}"),

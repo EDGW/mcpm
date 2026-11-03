@@ -1,9 +1,9 @@
 //! Adapts library identification reports to command-local scan results and diagnostics.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::runtime::RuntimeEnvironment;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     mcmod::{self, IdentificationErrorAction, ModCacheReuse, ModEntry},
     modloader::{LoaderId, ModLoaderMeta},
 };

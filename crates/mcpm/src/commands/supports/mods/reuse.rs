@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::Args;
-use mcpm_backend::local::{cache::mods::ModsCacheSelection, runtime::RuntimeEnvironment};
+use mcpm_lib::local::{cache::mods::ModsCacheSelection, runtime::RuntimeEnvironment};
 
 #[derive(Debug, Args)]
 pub(in crate::commands) struct CacheArgs {

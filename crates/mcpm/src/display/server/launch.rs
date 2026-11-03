@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use mcpm_backend::{
+use mcpm_lib::{
     download::{Event as DownloadEvent, RequestKind},
     local::mc::server::{
         authlib_injector::Event as AuthEvent,

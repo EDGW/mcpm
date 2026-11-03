@@ -1,6 +1,6 @@
 //! Shared file-operation progress for backup and workflows that compose its operations.
 
-use mcpm_backend::local::mcmod::backup::{Event, Stage};
+use mcpm_lib::local::mcmod::backup::{Event, Stage};
 
 use crate::{progress::Progress, terminal};
 

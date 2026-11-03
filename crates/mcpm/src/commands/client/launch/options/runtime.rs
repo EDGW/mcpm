@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
-use mcpm_backend::local::mc::client::launch::{JavaVersionCheck, LaunchOptions};
+use mcpm_lib::local::mc::client::launch::{JavaVersionCheck, LaunchOptions};
 
 #[derive(Clone, Copy, ValueEnum, Debug)]
 enum VersionCheck {

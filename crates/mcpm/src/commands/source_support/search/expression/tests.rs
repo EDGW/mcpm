@@ -1,6 +1,6 @@
 //! Expression regressions for precedence, exact alternatives, quoting and error columns.
 
-use mcpm_backend::source::{SearchQuery, SearchSort};
+use mcpm_lib::source::{SearchQuery, SearchSort};
 
 use super::Expression;
 use super::{CompletionField, completion_context};

@@ -3,7 +3,7 @@
 use std::io;
 
 use clap::ValueEnum;
-use mcpm_backend::source::{ProjectInfo, SearchPage, SearchQuery};
+use mcpm_lib::source::{ProjectInfo, SearchPage, SearchQuery};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},

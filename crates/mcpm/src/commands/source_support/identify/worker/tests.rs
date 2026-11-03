@@ -1,9 +1,9 @@
 //! Local HTTP regression tests for lookup ordering, concurrency, deduplication and failures.
 
 use super::*;
-use mcpm_backend::local::{cache::mods::ModsCacheSelection, runtime::RuntimeEnvironment};
-use mcpm_backend::source::Source;
-use mcpm_backend::source::{SourceId, curseforge::CurseForgeSource, modrinth::ModrinthSource};
+use mcpm_lib::local::{cache::mods::ModsCacheSelection, runtime::RuntimeEnvironment};
+use mcpm_lib::source::Source;
+use mcpm_lib::source::{SourceId, curseforge::CurseForgeSource, modrinth::ModrinthSource};
 use std::sync::{Arc, mpsc::channel};
 use std::{
     io::{Read, Write},
@@ -492,7 +492,7 @@ printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"closed"
         };
         assert_eq!(file.size, 3);
         if *source == 0 {
-            assert_eq!(file.role, mcpm_backend::source::MatchedFileRole::Additional);
+            assert_eq!(file.role, mcpm_lib::source::MatchedFileRole::Additional);
         } else {
             assert_eq!(file.reference.id.0, "456");
         }
@@ -507,7 +507,7 @@ printf '%s\n' '{{"guid":"00000000-0000-0000-0000-000000000000","status":"closed"
 
 #[test]
 fn cache_events_preserve_hit_provenance_and_group_duplicate_physical_files() {
-    use mcpm_backend::{
+    use mcpm_lib::{
         local::cache::{CacheLinkPreference, mods::ModsCacheDir},
         source::{FileHash, FileId, FileMatch, FileRef, MatchedFileRole, ProjectId, ProjectRef},
     };

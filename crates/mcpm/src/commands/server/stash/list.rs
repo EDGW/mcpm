@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use anyhow::{Result, ensure};
-use mcpm_backend::local::mc::server::stash::StashStore;
+use mcpm_lib::local::mc::server::stash::StashStore;
 
 use super::{Context, columns, query};
 use crate::display::stash;

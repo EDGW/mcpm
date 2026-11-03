@@ -7,14 +7,14 @@ use std::{
 };
 
 use anyhow::Result;
-use mcpm_backend::local::cache::CacheLinkPreference;
-use mcpm_backend::local::cache::ImportOutcome;
-use mcpm_backend::local::cache::mods::MetadataRefresh;
-use mcpm_backend::local::cache::mods::meta::CacheEntry;
-use mcpm_backend::local::mcmod::ModEntry;
-use mcpm_backend::local::modloader::LoaderId;
-use mcpm_backend::local::modloader::ModLoaderMeta;
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::cache::CacheLinkPreference;
+use mcpm_lib::local::cache::ImportOutcome;
+use mcpm_lib::local::cache::mods::MetadataRefresh;
+use mcpm_lib::local::cache::mods::meta::CacheEntry;
+use mcpm_lib::local::mcmod::ModEntry;
+use mcpm_lib::local::modloader::LoaderId;
+use mcpm_lib::local::modloader::ModLoaderMeta;
+use mcpm_lib::local::runtime::RuntimeEnvironment;
 
 use super::{
     scan,

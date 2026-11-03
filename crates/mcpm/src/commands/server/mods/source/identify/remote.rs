@@ -2,7 +2,7 @@
 
 use crate::commands::supports::mods::reuse::HostEnvironment;
 use crate::commands::supports::mods::reuse::QueryArgs;
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::runtime::RuntimeEnvironment;
 use std::{num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};

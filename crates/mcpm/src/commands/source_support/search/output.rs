@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use mcpm_backend::source::SearchPage;
+use mcpm_lib::source::SearchPage;
 use unicode_width::UnicodeWidthStr;
 
 use super::columns::Column;

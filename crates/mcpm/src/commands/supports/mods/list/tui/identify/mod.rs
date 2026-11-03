@@ -2,7 +2,7 @@
 
 use crate::commands::source_support::identify::{self as acquisition, Event, Location, Outcome};
 use anyhow::Result;
-use mcpm_backend::source::{FileMatch, MatchedFileRole};
+use mcpm_lib::source::{FileMatch, MatchedFileRole};
 use std::{
     path::PathBuf,
     sync::mpsc::{Receiver, channel},

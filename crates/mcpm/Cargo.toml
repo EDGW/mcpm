@@ -1,8 +1,9 @@
 [package]
 name = "mcpm"
-version = "0.1.0-dev.26w43d"
+version.workspace = true
 edition.workspace = true
 default-run = "mcpm"
+build = "../../scripts/build.rs"
 
 [[bin]]
 name = "mcpm"
@@ -37,7 +38,9 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 terminal-colorsaurus = { workspace = true }
 ratatui = { workspace = true, features = ["crossterm_0_29", "unstable-rendered-line-info"] }
 regex = { workspace = true }
+mcpm-lib = { workspace = true }
 mcpm-backend = { workspace = true }
+mcpm-exec = { workspace = true }
 owo-colors = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
