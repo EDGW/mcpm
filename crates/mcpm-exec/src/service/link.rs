@@ -102,7 +102,7 @@ async fn start(connection: &Connection, idle_timeout: u64, endpoint: &Endpoint) 
         }
         Ready::Error(error) => {
             let _ = child.wait().await;
-            Err(error).context("failed to initialize SSH link")
+            Err(error.into_error()).context("failed to initialize SSH link")
         }
     }
 }

@@ -8,7 +8,8 @@ use std::{
 use anyhow::{Context, Result, ensure};
 
 use super::manifest::validate_path;
-use crate::{error::CombinedError, local::files::FileIdentity};
+use crate::local::files::FileIdentity;
+use mcpm_exec::error::CombinedError;
 
 pub(super) struct Inventory {
     pub files: Vec<String>,

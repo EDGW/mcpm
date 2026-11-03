@@ -1332,6 +1332,7 @@ dependencies = [
  "imohash",
  "lazy_static",
  "libc",
+ "mcpm-exec",
  "md-5",
  "murmur3",
  "regex",

@@ -11,7 +11,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{ProtocolError, RemoteError};
+use super::ProtocolError;
+use crate::error::ErrorReport;
 use crate::messaging::Channel;
 
 /// First message of an operation channel, sent by the caller.
@@ -41,7 +42,7 @@ impl Request {
 #[serde(rename_all = "lowercase", deny_unknown_fields)]
 pub(crate) enum Response {
     Ok(Value),
-    Error(RemoteError),
+    Error(ErrorReport),
 }
 
 impl Response {
@@ -83,7 +84,7 @@ impl Reply {
     /// Sends `error` as the result and finishes the channel.
     pub(crate) fn fail(self, error: &anyhow::Error) -> Result<()> {
         self.channel
-            .finish(Some(Response::Error(error.into()).encode()))?;
+            .finish(Some(Response::Error(ErrorReport::capture(error)).encode()))?;
         Ok(())
     }
 

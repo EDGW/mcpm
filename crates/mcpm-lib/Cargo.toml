@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+mcpm-exec = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true, features = ["std", "serde"] }
 lazy_static = { workspace = true }

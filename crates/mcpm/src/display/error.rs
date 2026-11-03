@@ -15,7 +15,8 @@ pub(crate) fn diagnostic(
     error: &anyhow::Error,
     remote: bool,
 ) -> io::Result<()> {
-    let has_branches = mcpm_lib::error::contains::<mcpm_lib::error::CombinedError>(error.as_ref());
+    let has_branches =
+        mcpm_exec::error::contains::<mcpm_exec::error::CombinedError>(error.as_ref());
     let report = ErrorReport::capture_with(error.as_ref(), |cause| {
         if cause.is::<crate::diagnostics::RemoteError>() {
             return None;
@@ -107,7 +108,7 @@ pub(crate) fn lines(error: &ErrorReport, remote: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mcpm_lib::error::CombinedError;
+    use mcpm_exec::error::CombinedError;
 
     #[test]
     fn nested_aggregate_layout_keeps_linear_causes_at_each_branch_depth() {

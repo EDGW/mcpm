@@ -209,7 +209,7 @@ impl Completion {
         })();
         if let Err(error) = operation {
             let remote =
-                mcpm_lib::error::contains::<crate::diagnostics::RemoteError>(error.as_ref());
+                mcpm_exec::error::contains::<crate::diagnostics::RemoteError>(error.as_ref());
             fail(&mut record, ErrorReport::capture(&error), remote);
         }
         record

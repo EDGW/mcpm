@@ -2,6 +2,7 @@
 //! on top of it.
 
 pub mod endpoint;
+pub mod error;
 pub mod messaging;
 pub mod operation;
 pub mod service;

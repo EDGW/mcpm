@@ -124,7 +124,7 @@ where
 }
 
 pub(crate) fn record_error(error: &anyhow::Error) {
-    tracing::error!(target: DIAGNOSTIC_TARGET, error = ?mcpm_lib::error::ErrorReport::capture(error), "operation failed");
+    tracing::error!(target: DIAGNOSTIC_TARGET, error = ?mcpm_exec::error::ErrorReport::capture(error), "operation failed");
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]

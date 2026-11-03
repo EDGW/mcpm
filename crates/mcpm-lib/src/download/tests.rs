@@ -56,7 +56,7 @@ fn fallback_resets_bytes_and_completion_requires_a_verified_published_file() {
             result.unwrap();
             assert_eq!(events.last(), Some(&Recorded::Completed));
         } else {
-            assert!(result.unwrap_err().is::<crate::error::CombinedError>());
+            assert!(result.unwrap_err().is::<mcpm_exec::error::CombinedError>());
             assert!(!events.contains(&Recorded::Completed));
             assert!(!target.exists());
             assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
@@ -97,9 +97,11 @@ fn observer_failure_during_transfer_aborts_without_fallback_or_publication() {
                     }),
             )
             .unwrap_err();
-        assert!(crate::error::contains::<ConsumerFailed>(error.as_ref()));
+        assert!(mcpm_exec::error::contains::<ConsumerFailed>(error.as_ref()));
         if fail_on_notification {
-            assert!(crate::error::contains::<ChecksumMismatch>(error.as_ref()));
+            assert!(mcpm_exec::error::contains::<ChecksumMismatch>(
+                error.as_ref()
+            ));
         }
         assert!(
             !events

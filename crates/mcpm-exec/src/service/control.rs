@@ -1,6 +1,7 @@
 //! Shared link control envelopes and typed client operation identifiers.
 
-use crate::operation::{Operation, RemoteError, StreamingOutput};
+use crate::error::ErrorReport;
+use crate::operation::{Operation, StreamingOutput};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +45,7 @@ pub struct LogRecord {
 pub enum Ready {
     Ready,
     AlreadyRunning,
-    Error(RemoteError),
+    Error(ErrorReport),
 }
 
 /// The endpoint, rather than the local executor, owns context-dependent control operations.

@@ -17,7 +17,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::debug;
 
-use super::{OperationOutput, ProtocolError, RemoteError, Reply};
+use super::{OperationOutput, ProtocolError, Reply};
+use crate::error::{ErrorReport, RemoteError};
 use crate::messaging::{Channel, ChannelError};
 
 /// Items buffered between a producer and the stream reader.
@@ -128,7 +129,7 @@ impl<T: Serialize + DeserializeOwned + Send + 'static> OperationOutput for Strea
                     return Ok(());
                 }
             };
-            channel.finish(Some(Message::Error((&error).into()).encode()))?;
+            channel.finish(Some(Message::Error(ErrorReport::capture(&error)).encode()))?;
             return Err(error);
         }
     }
@@ -217,7 +218,9 @@ async fn next_remote<T: DeserializeOwned>(channel: &mut Channel) -> Option<Resul
     Some(match Message::decode(body) {
         Ok(Message::Item(value)) => serde_json::from_value(value)
             .map_err(|error| ProtocolError::Invalid("stream item", error).into()),
-        Ok(Message::Error(error)) => Err(anyhow::Error::new(error).context("remote stream failed")),
+        Ok(Message::Error(error)) => {
+            Err(RemoteError::wrap(error.into_error()).context("remote stream failed"))
+        }
         Err(error) => Err(error.into()),
     })
 }
@@ -237,7 +240,7 @@ struct Handshake {}
 #[serde(rename_all = "lowercase", deny_unknown_fields)]
 enum Message {
     Item(Value),
-    Error(RemoteError),
+    Error(ErrorReport),
 }
 
 impl Message {

@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 
 use super::protocol::{Request, Response};
 use super::{Operation, OperationOutput, ProtocolError};
-use crate::messaging::Session;
+use crate::{error::RemoteError, messaging::Session};
 
 /// Runs `O` on the peer of `session` and returns its output.
 ///
@@ -27,6 +27,6 @@ async fn request<O: Operation>(session: &Session, input: &O::Input) -> Result<O:
         .ok_or(ProtocolError::Missing("response"))?;
     match Response::decode(body)? {
         Response::Ok(value) => O::Output::receive(value, channel),
-        Response::Error(error) => Err(error.into()),
+        Response::Error(error) => Err(RemoteError::wrap(error.into_error())),
     }
 }

@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn selected_records_preserve_nested_diagnostics_across_transport() {
         use crate::diagnostics::ErrorReport;
-        use mcpm_lib::error::CombinedError;
+        use mcpm_exec::error::CombinedError;
 
         let error = anyhow::Error::new(CombinedError::new(
             anyhow::anyhow!("archive corrupt").context("cannot read fabric metadata"),

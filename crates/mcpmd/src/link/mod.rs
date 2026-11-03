@@ -4,8 +4,9 @@ use crate::{LinkArgs, LinkCommand};
 use anyhow::{Context, Result, ensure};
 use mcpm_exec::{
     endpoint::{AlreadyRunning, Endpoint},
+    error::ErrorReport,
     messaging::{Channel, Session, relay},
-    operation::{self, Connection, RemoteError},
+    operation::{self, Connection},
     service::control::{DaemonHello, Ready, Status, Stop, StopInput, VERSION},
 };
 use serde::{Deserialize, Serialize};
@@ -77,7 +78,7 @@ pub async fn run(args: LinkArgs) -> Result<()> {
         && !announced
         && let Some(output) = readiness.as_mut()
     {
-        report(output, &Ready::Error(RemoteError::from(error)))?;
+        report(output, &Ready::Error(ErrorReport::capture(error)))?;
     }
     result
 }

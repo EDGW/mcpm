@@ -1,4 +1,9 @@
-//! Shared aggregate errors and lossless diagnostic snapshots, independent of presentation.
+//! Shared aggregate errors, remote failure identity and lossless diagnostic snapshots.
+//!
+//! Business producers, operation transport and presentation share this model. Capture an
+//! [`ErrorReport`] to retain independent [`CombinedError`] branches across process boundaries;
+//! ordinary `Error::source` traversal only visits a linear chain. Received errors restore the
+//! tree under a [`RemoteError`] marker, without preserving concrete remote error types.
 
 use std::{error::Error as StdError, fmt};
 

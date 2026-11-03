@@ -262,8 +262,8 @@ TODO.
 错误统一经 `diagnostics::error` 报告；有进度条时使用 `Progress::report`。诊断入口负责日志记录、
 远端错误标记和进度协调，`src/display/error.rs` 负责 `error:` / `remote error:` 与逐层
 `caused by:` 的显示。保留错误上下文，不要直接打印错误或将错误链拼成单行。
-独立失败使用后端公共 `error::CombinedError`，通过统一 `ErrorReport` 捕获保留递归分支；
-显示、日志和远端传输复用这一结构。命令不为第二条错误链提前单独输出。
+独立失败使用 `mcpm_exec::error::CombinedError`，通过同模块的 `ErrorReport` 捕获保留递归分支；
+显示、日志和远端传输复用这一结构，`RemoteError` 统一标记远端失败。命令不为第二条错误链提前单独输出。
 
 Console 渲染使用 `src/display/console` 的 `ConsoleWriter`：
 

@@ -46,7 +46,7 @@ impl StashStore<'_> {
                 }
                 Err(cleanup) => Err(CreateCleanupError {
                     backup: outcome.destination().to_owned(),
-                    errors: crate::error::CombinedError::new(
+                    errors: mcpm_exec::error::CombinedError::new(
                         error,
                         cleanup.context("failed to clean up the unpublished stash backup"),
                     ),
@@ -67,7 +67,7 @@ impl StashStore<'_> {
 pub struct CreateCleanupError {
     backup: PathBuf,
     #[source]
-    errors: crate::error::CombinedError,
+    errors: mcpm_exec::error::CombinedError,
 }
 
 impl CreateCleanupError {

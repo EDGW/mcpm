@@ -81,10 +81,9 @@ async fn main() -> Result<()> {
     }
     assert_eq!(received, [0, 1, 2]);
 
-    // The remote cause chain survives: operation, context, I/O error.
+    // Capture the remote diagnostic tree without its transport marker.
     let error = call::<Load>(&client, &"/missing".to_owned()).await.unwrap_err();
-    assert_eq!(error.chain().count(), 3);
-    assert!(format!("{error:#}").starts_with("operation `load` failed: failed to read /missing: "));
+    eprintln!("{:?}", mcpm_exec::error::ErrorReport::capture(&error));
     Ok(())
 }
 ```
@@ -260,8 +259,8 @@ Returns the next item from the stream.
   `next()` calls return `None`.
 - `None`: the producer returned `Ok(())`. The stream has ended.
 
-On the calling side, `error` is a `RemoteError` when the items come from the peer. On the
-executing side (local stream), `error` is the producer's `anyhow::Error`.
+On the calling side, peer failures contain the `mcpm_exec::error::RemoteError` marker with
+their reconstructed diagnostic tree as its source. Local streams retain the producer's original error.
 
 Dropping the stream before it ends aborts the producer task (local) or aborts the channel (remote).
 
@@ -276,18 +275,24 @@ aborted.
 
 ### Error propagation
 
-Every `anyhow::Error` from the executing side reaches the calling side with its full cause chain:
+`mcpm_exec::error` owns the shared diagnostic model, independent of business crates:
 
-- `run` returns `Err(e)`: the chain of `e` is serialized into nested `{"message","source"}` and
-  sent as `{"error":{...}}`. The caller reconstructs it as a `RemoteError` and wraps it with
+- `CombinedError` groups ordered independent failures, including nested groups.
+- `ErrorReport` captures and restores context chains and recursive branches. Other error types
+  retain their standard `source()` chain; concrete remote error types are not preserved.
+- `RemoteError` marks a received failure. Capturing it omits the marker but preserves its tree.
+
+- `run` returns `Err(e)`: `ErrorReport::capture(&e)` is sent as `{"error":{...}}`.
+  The caller restores the error tree, adds the `RemoteError` marker, and wraps it with
   ``operation `ID` failed``.
 - Stream producer returns `Err(e)` or panics: same serialization, sent as a stream error
   `{"error":{...}}` with `finish`. The caller's `next()` returns `Some(Err(e))` wrapped with
   `remote stream failed`.
 
-Example chain: ``operation `load` failed: failed to read /missing: No such file or directory``.
-The outer context is added by `call`, the middle context by `run`, the inner error by the I/O
-operation.
+Use `error::contains::<RemoteError>` to recognize peer failures, including inside independent
+branches. Render `ErrorReport` recursively; `anyhow::Error::chain()` alone cannot enumerate branches.
+The error envelope replaces the previous `message/source` chain; clients, links, and daemons
+must use matching builds.
 
 ### Cancellation
 

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::error::ErrorReport;
+use mcpm_exec::error::ErrorReport;
 
 /// A skipped identification failure, retained as snapshot diagnostics.
 #[derive(Debug, Serialize, Deserialize)]
@@ -37,7 +37,7 @@ fn diagnostic<'de, D: Deserializer<'de>>(deserializer: D) -> Result<ErrorReport,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::CombinedError;
+    use mcpm_exec::error::CombinedError;
 
     #[test]
     fn diagnostics_roundtrip_branches_and_read_legacy_strings_as_opaque_messages() {

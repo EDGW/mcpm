@@ -134,7 +134,7 @@ fn startup_failure_keeps_ssh_stderr_and_exit_status_in_the_readiness_cause_chain
     let Ready::Error(error) = ready else {
         panic!("expected a startup error")
     };
-    let error = anyhow::Error::new(error);
+    let error = error.into_error();
     let chain = format!("{error:#}");
     assert!(
         chain.contains("authentication-denied-regression"),

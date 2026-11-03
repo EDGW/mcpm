@@ -52,7 +52,7 @@ pub fn build_with_progress(
                 graph.identification_failures.push(IdentificationFailure {
                     path: entry.path().to_owned(),
                     loader: loader.id().as_str().to_owned(),
-                    error: crate::error::ErrorReport::capture(error),
+                    error: mcpm_exec::error::ErrorReport::capture(error),
                 });
                 IdentificationErrorAction::Skip
             },

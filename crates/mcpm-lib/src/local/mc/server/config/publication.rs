@@ -122,7 +122,7 @@ pub fn publish(
     if let Err(source) = commit {
         if let Err(recovery) = recover(root) {
             return Err(PublicationRecoveryError {
-                errors: crate::error::CombinedError::new(source, recovery),
+                errors: mcpm_exec::error::CombinedError::new(source, recovery),
                 journal: journal_path,
             }
             .into());
@@ -163,7 +163,7 @@ pub fn publish(
 #[error("configuration publication and recovery failed; retry import to recover from {journal:?}")]
 pub struct PublicationRecoveryError {
     #[source]
-    pub errors: crate::error::CombinedError,
+    pub errors: mcpm_exec::error::CombinedError,
     pub journal: PathBuf,
 }
 
