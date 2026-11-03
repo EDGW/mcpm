@@ -29,6 +29,9 @@ pub enum ChannelError {
     /// Either side finished the channel.
     #[error("channel {0} is finished")]
     Finished(Uuid),
+    /// The peer dropped the channel without finishing it.
+    #[error("channel {0} was aborted by the peer")]
+    Aborted(Uuid),
     /// The session ended while the channel was open. The source is absent when the peer closed
     /// the session cleanly.
     #[error("session closed")]

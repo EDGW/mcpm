@@ -92,8 +92,8 @@ async fn read_frames(
         let Some(inbound) = router.route(frame) else {
             continue;
         };
-        // An unaccepted channel finishes when dropped. Once every sender is gone the writer has
-        // shut down, so the channel is only finished locally.
+        // An unaccepted channel aborts when dropped. Once every sender is gone the writer has
+        // shut down, so the channel only ends locally.
         if let Some(outbound) = outbound.upgrade() {
             let _ = accepted.send(Channel::new(id, router.clone(), outbound, inbound));
         } else {
@@ -114,10 +114,12 @@ async fn write_frames(
     let mut lines = Vec::new();
     let result = async {
         while let Some(frame) = frames.recv().await {
-            // Batch every queued frame into one write.
+            // Batch the frames already queued into one write. Frames queued meanwhile wait for
+            // the next batch, so a busy sender cannot hold the write back.
             lines.clear();
             frame.encode(&mut lines).map_err(SessionError::Encode)?;
-            while let Ok(frame) = frames.try_recv() {
+            for _ in 0..frames.len() {
+                let Ok(frame) = frames.try_recv() else { break };
                 frame.encode(&mut lines).map_err(SessionError::Encode)?;
             }
             writer.write_all(&lines).await.map_err(SessionError::Write)?;

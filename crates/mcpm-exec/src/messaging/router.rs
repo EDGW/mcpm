@@ -1,12 +1,12 @@
 //! Channel table of a session.
 //!
 //! The router is the single source of truth for channel state: open channels and their inbound
-//! queues, finished channel GUIDs, and how the session ended. Session tasks and channel handles
+//! queues, how each channel ended, and how the session ended. Session tasks and channel handles
 //! share one router and never keep a second copy of this state.
 
 // Imports
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde_json::Value;
@@ -25,11 +25,7 @@ pub(crate) struct Router {
 impl Router {
     pub fn new() -> Self {
         Self {
-            table: Mutex::new(Table {
-                open: HashMap::new(),
-                finished: HashSet::new(),
-                closure: None,
-            }),
+            table: Mutex::new(Table { open: HashMap::new(), ended: HashMap::new(), closure: None }),
         }
     }
 
@@ -57,24 +53,28 @@ impl Router {
         if table.closure.is_some() {
             return None;
         }
-        if table.finished.contains(&id) {
-            debug!(channel = %id, "dropped frame for a finished channel");
+        if table.ended.contains_key(&id) {
+            debug!(channel = %id, "dropped frame for an ended channel");
             return None;
         }
+        let ending = flags.finish.then_some(if flags.abort { Ending::Aborted } else { Ending::Finished });
 
         let Some(entry) = table.open.get(&id) else {
             let Some(body) = body else {
-                debug!(channel = %id, "peer finished a channel it never used");
-                table.finished.insert(id);
+                debug!(channel = %id, "peer ended a channel it never used");
+                table.ended.extend(ending.map(|ending| (id, ending)));
                 return None;
             };
             let (inbound, receiver) = unbounded_channel();
             // The receiver is alive, so this send cannot fail.
             let _ = inbound.send(body);
-            if flags.finish {
-                table.finished.insert(id);
-            } else {
-                table.open.insert(id, Entry { inbound, announced: true });
+            match ending {
+                Some(ending) => {
+                    table.ended.insert(id, ending);
+                }
+                None => {
+                    table.open.insert(id, Entry { inbound, announced: true });
+                }
             }
             return Some(receiver);
         };
@@ -84,9 +84,9 @@ impl Router {
             // of a registered channel is always connected.
             let _ = entry.inbound.send(body);
         }
-        if flags.finish {
+        if let Some(ending) = ending {
             table.open.remove(&id);
-            table.finished.insert(id);
+            table.ended.insert(id, ending);
         }
         None
     }
@@ -103,13 +103,13 @@ impl Router {
         }
     }
 
-    /// Finishes an open channel locally. Returns whether the peer knows the channel, which
-    /// decides whether a FINISH frame must be sent.
+    /// Ends an open channel locally. Returns whether the peer knows the channel, which decides
+    /// whether a final frame must be sent.
     pub fn finish(&self, id: Uuid) -> Result<bool, ChannelError> {
         let mut table = self.table();
         match table.open.remove(&id) {
             Some(entry) => {
-                table.finished.insert(id);
+                table.ended.insert(id, Ending::Finished);
                 Ok(entry.announced)
             }
             None => Err(table.not_open(id)),
@@ -117,13 +117,14 @@ impl Router {
     }
 
     /// Explains a disconnected inbound queue: `Ok` when the channel was finished, otherwise the
-    /// session end.
+    /// abort or the session end.
     pub fn ended(&self, id: Uuid) -> Result<(), ChannelError> {
         let table = self.table();
-        if table.finished.contains(&id) {
-            return Ok(());
+        match table.ended.get(&id) {
+            Some(Ending::Finished) => Ok(()),
+            Some(Ending::Aborted) => Err(ChannelError::Aborted(id)),
+            None => table.session_closed().map_or(Ok(()), Err),
         }
-        table.session_closed().map_or(Ok(()), Err)
     }
 
     /// Error for channel operations after the session ended.
@@ -154,18 +155,19 @@ impl Router {
 struct Table {
     /// Every open channel. Empty once the session has ended.
     open: HashMap<Uuid, Entry>,
-    /// GUIDs finished by either side, kept for the whole session so late frames are not taken
+    /// How each ended channel ended, kept for the whole session so late frames are not taken
     /// for new channels.
-    finished: HashSet<Uuid>,
+    ended: HashMap<Uuid, Ending>,
     closure: Option<Result<(), Arc<SessionError>>>,
 }
 
 impl Table {
     fn not_open(&self, id: Uuid) -> ChannelError {
-        if self.finished.contains(&id) {
-            return ChannelError::Finished(id);
+        match self.ended.get(&id) {
+            Some(Ending::Finished) => ChannelError::Finished(id),
+            Some(Ending::Aborted) => ChannelError::Aborted(id),
+            None => self.session_closed().unwrap_or(ChannelError::Finished(id)),
         }
-        self.session_closed().unwrap_or(ChannelError::Finished(id))
     }
 
     fn session_closed(&self) -> Option<ChannelError> {
@@ -178,4 +180,11 @@ struct Entry {
     inbound: UnboundedSender<Value>,
     /// Whether the peer has seen a frame of this channel.
     announced: bool,
+}
+
+/// How a channel ended. Only the peer can abort: a local abort drops the only handle.
+#[derive(Clone, Copy)]
+enum Ending {
+    Finished,
+    Aborted,
 }

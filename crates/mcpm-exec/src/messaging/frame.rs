@@ -7,7 +7,6 @@
 use std::fmt;
 
 use serde::de::{SeqAccess, Visitor};
-use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use thiserror::Error;
@@ -15,7 +14,8 @@ use uuid::Uuid;
 
 /// One message on the wire.
 ///
-/// `id` is the channel GUID. A frame without a body is only valid when it finishes the channel.
+/// `id` is the channel GUID. A frame without a body is only valid when it finishes the channel,
+/// and only a finishing frame may abort it.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Frame {
     pub id: Uuid,
@@ -33,7 +33,12 @@ impl Frame {
 
     /// The last frame of channel `id`, optionally carrying a final message.
     pub fn finish(id: Uuid, body: Option<Value>) -> Self {
-        Self { id, flags: Flags { finish: true }, body }
+        Self { id, flags: Flags { finish: true, abort: false }, body }
+    }
+
+    /// The last frame of channel `id`, sent when its handle is dropped unfinished.
+    pub fn abort(id: Uuid) -> Self {
+        Self { id, flags: Flags { finish: true, abort: true }, body: None }
     }
 
     /// Appends this frame to `line` as compact JSON followed by `\n`.
@@ -49,6 +54,9 @@ impl Frame {
         if frame.body.is_none() && !frame.flags.finish {
             return Err(FrameError::MissingBody(frame.id));
         }
+        if frame.flags.abort && !frame.flags.finish {
+            return Err(FrameError::AbortWithoutFinish(frame.id));
+        }
         Ok(frame)
     }
 }
@@ -60,6 +68,8 @@ pub enum FrameError {
     Json(#[source] serde_json::Error),
     #[error("frame on channel {0} has no body and does not finish the channel")]
     MissingBody(Uuid),
+    #[error("frame on channel {0} aborts the channel without finishing it")]
+    AbortWithoutFinish(Uuid),
 }
 
 /// Distinguishes `"body": null` (a null message) from a missing body.
@@ -72,11 +82,19 @@ fn present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, 
 pub(crate) struct Flags {
     /// The channel is unusable after this frame, for both sides.
     pub finish: bool,
+    /// The sender gave up on the channel instead of completing it. Requires `finish`.
+    pub abort: bool,
 }
 
 impl Flags {
     fn is_empty(&self) -> bool {
-        !self.finish
+        !self.finish && !self.abort
+    }
+
+    fn names(&self) -> impl Iterator<Item = Flag> {
+        [(self.finish, Flag::Finish), (self.abort, Flag::Abort)]
+            .into_iter()
+            .filter_map(|(set, flag)| set.then_some(flag))
     }
 }
 
@@ -84,15 +102,12 @@ impl Flags {
 #[serde(rename_all = "lowercase")]
 enum Flag {
     Finish,
+    Abort,
 }
 
 impl Serialize for Flags {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(usize::from(self.finish)))?;
-        if self.finish {
-            seq.serialize_element(&Flag::Finish)?;
-        }
-        seq.end()
+        serializer.collect_seq(self.names())
     }
 }
 
@@ -112,6 +127,7 @@ impl<'de> Deserialize<'de> for Flags {
                 while let Some(flag) = seq.next_element()? {
                     match flag {
                         Flag::Finish => flags.finish = true,
+                        Flag::Abort => flags.abort = true,
                     }
                 }
                 Ok(flags)

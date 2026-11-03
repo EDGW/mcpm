@@ -15,7 +15,7 @@ use super::router::Router;
 /// A channel of a [`Session`](super::Session), identified by its GUID.
 ///
 /// Messages on one channel arrive in order; messages of different channels interleave freely.
-/// Dropping an unfinished channel finishes it without a final message.
+/// Dropping an unfinished channel aborts it.
 pub struct Channel {
     id: Uuid,
     router: Arc<Router>,
@@ -47,16 +47,17 @@ impl Channel {
 
     /// Finishes the channel for both sides, optionally sending a final message.
     ///
-    /// Fails with [`ChannelError::Finished`] when the peer finished it first; messages already
-    /// received are lost with the handle in that case.
+    /// Fails with [`ChannelError::Finished`] or [`ChannelError::Aborted`] when the peer ended it
+    /// first; messages already received are lost with the handle in that case.
     pub fn finish(mut self, body: Option<Value>) -> Result<(), ChannelError> {
-        self.finish_with(body)
+        self.end(Frame::finish(self.id, body))
     }
 
     /// Receives the next message from the peer.
     ///
-    /// Returns `Ok(None)` after the channel is finished and every received message was consumed,
-    /// and [`ChannelError::SessionClosed`] when the session ended first.
+    /// Returns `Ok(None)` after the peer finished the channel and every received message was
+    /// consumed. After those messages, fails with [`ChannelError::Aborted`] when the peer aborted
+    /// it, or [`ChannelError::SessionClosed`] when the session ended first.
     pub async fn recv(&mut self) -> Result<Option<Value>, ChannelError> {
         match self.inbound.recv().await {
             Some(body) => Ok(Some(body)),
@@ -64,11 +65,11 @@ impl Channel {
         }
     }
 
-    fn finish_with(&mut self, body: Option<Value>) -> Result<(), ChannelError> {
-        // A channel the peer never saw is finished silently, unless it carries a message.
+    fn end(&mut self, frame: Frame) -> Result<(), ChannelError> {
+        // A channel the peer never saw ends silently, unless the frame carries a message.
         let announced = self.router.finish(self.id)?;
-        if announced || body.is_some() {
-            self.push(Frame::finish(self.id, body))?;
+        if announced || frame.body.is_some() {
+            self.push(frame)?;
         }
         Ok(())
     }
@@ -80,7 +81,7 @@ impl Channel {
 
 impl Drop for Channel {
     fn drop(&mut self) {
-        // Already finished by either side, or the session ended: nothing to tell the peer.
-        let _ = self.finish_with(None);
+        // Already ended by either side, or the session ended: nothing to tell the peer.
+        let _ = self.end(Frame::abort(self.id));
     }
 }
