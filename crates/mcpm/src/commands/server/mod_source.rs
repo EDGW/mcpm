@@ -3,7 +3,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     mc::server::MinecraftServer,
     mcmod::ModContainer,
     modloader::{LoaderId, ModLoaderMeta},
@@ -21,7 +21,7 @@ pub(super) struct ServerMods {
 
 impl ServerMods {
     pub(super) fn load(path: PathBuf) -> Result<Self> {
-        let server = super::workspace::load_local(path)?;
+        let server = mcpm_backend::workspace::load_local(path)?;
         server
             .mods()
             .ok_or_else(|| match &server.metadata().loader {

@@ -5,9 +5,7 @@ use std::{
     path::Path,
 };
 
-use mcpm_backend::local::mc::client::{
-    CheckOptionValue, CheckReport, CheckTarget, FileCheckStatus,
-};
+use mcpm_lib::local::mc::client::{CheckOptionValue, CheckReport, CheckTarget, FileCheckStatus};
 
 use super::super::output::text;
 use crate::{

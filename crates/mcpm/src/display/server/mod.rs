@@ -9,9 +9,10 @@ use crate::{
         console::ConsoleWriter,
         style::{OutputStyle, text},
     },
-    server::{RemoteInfo, ServerInfo, StartCommand},
+    server::RemoteInfo,
     terminal,
 };
+use mcpm_backend::operations::server::info::{ServerInfo, StartCommand};
 
 const COMMAND_LABEL: &str = "Legacy command snapshot (not used by launch): ";
 
@@ -55,7 +56,7 @@ pub(crate) fn write_snapshot(
         for (label, value) in [
             ("Remote path: ", text(&remote.path)),
             ("Remote SSH: ", text(&remote_ssh(remote))),
-            ("Remote mcpm: ", text(remote.executable.as_str())),
+            ("Remote mcpmd: ", text(remote.executable.as_str())),
         ] {
             writeln!(output, "{}{}", style.muted(label), style.muted(value))?;
         }

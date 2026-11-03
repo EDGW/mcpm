@@ -7,10 +7,11 @@ use std::{
 
 use anyhow::{Context as _, Result, ensure};
 use clap::{Args, Subcommand};
-use mcpm_backend::local::mc::server::MinecraftServer;
+use mcpm_lib::local::mc::server::MinecraftServer;
 
-use super::{target, workspace};
+use super::target;
 use crate::ssh::SshArgs;
+use mcpm_backend::workspace;
 
 mod columns;
 mod create;

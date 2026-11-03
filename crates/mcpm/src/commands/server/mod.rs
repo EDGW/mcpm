@@ -6,12 +6,10 @@ use clap::{Args, Subcommand};
 mod info;
 mod init;
 mod launch;
-mod metadata;
 mod mod_source;
 mod mods;
 mod stash;
 mod target;
-mod workspace;
 
 #[derive(Args, Debug)]
 pub(crate) struct ServerArgs {

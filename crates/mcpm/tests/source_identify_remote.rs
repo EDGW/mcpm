@@ -190,7 +190,7 @@ mod transport {
                 "off",
                 "--ssh",
                 &connection,
-                "--ssh-mcpm",
+                "--ssh-mcpmd",
             ])
             .arg(root.path().join("remote"))
             .args([
@@ -267,7 +267,7 @@ mod transport {
             let root = tempfile::tempdir().unwrap();
             let connection = setup(root.path(), events);
             let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-                .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
+                .args(["--raw", "--ssh", &connection, "--ssh-mcpmd"])
                 .arg(root.path().join("remote"))
                 .args([
                     "mods", "source", "identify", "--source", "modrinth", "one.jar",

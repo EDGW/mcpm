@@ -92,7 +92,7 @@ mod transport {
                     ),
                 );
             if let Some(remote_executable) = remote_executable {
-                command.arg("--ssh-mcpm").arg(remote_executable);
+                command.arg("--ssh-mcpmd").arg(remote_executable);
             }
             let mut child = command
                 .stdin(Stdio::piped())
@@ -147,7 +147,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             )).unwrap();
             fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
             let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-                .args(["--raw", "mods", "list", "--no-cache", "--ssh", &connection, "--ssh-mcpm"])
+                .args(["--raw", "mods", "list", "--no-cache", "--ssh", &connection, "--ssh-mcpmd"])
                 .arg(&remote)
                 .stdin(Stdio::null())
                 .output()
@@ -246,7 +246,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             fs::write(&remote, body).unwrap();
             fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
             let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-                .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
+                .args(["--raw", "--ssh", &connection, "--ssh-mcpmd"])
                 .arg(&remote)
                 .args([
                     "mods",

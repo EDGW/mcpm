@@ -176,7 +176,7 @@ fn ssh_resolves_queries_on_remote_host_and_preserves_local_presentation() {
             process.args([
                 "--ssh",
                 &connection,
-                "--ssh-mcpm",
+                "--ssh-mcpmd",
                 env!("CARGO_BIN_EXE_mcpm-tools"),
             ]);
         } else {

@@ -1,8 +1,8 @@
 //! Server cache integration: scoped selection, declared loaders, read-only reuse and host routing.
 
-use mcpm_backend::local::cache::mods::ModsCacheDir;
-use mcpm_backend::local::cache::mods::meta::CachedIdentification;
-use mcpm_backend::local::modloader::BUILTIN_LOADERS;
+use mcpm_lib::local::cache::mods::ModsCacheDir;
+use mcpm_lib::local::cache::mods::meta::CachedIdentification;
+use mcpm_lib::local::modloader::BUILTIN_LOADERS;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -238,7 +238,7 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
         &[
             "--ssh",
             &connection,
-            "--ssh-mcpm",
+            "--ssh-mcpmd",
             env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "mods",
@@ -261,7 +261,7 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
         br#"{"version":1,"type":"remote"}"#,
     )
     .unwrap();
-    fs::write(workspace.join(".mcpm/server.json"), serde_json::to_vec(&json!({"version":2,"ssh":connection,"ssh_mcpm":env!("CARGO_BIN_EXE_mcpm-tools"),"path":"server"})).unwrap()).unwrap();
+    fs::write(workspace.join(".mcpm/server.json"), serde_json::to_vec(&json!({"version":3,"ssh":connection,"ssh_mcpmd":env!("CARGO_BIN_EXE_mcpm-tools"),"path":"server"})).unwrap()).unwrap();
     let repeated = run(
         &client,
         &[
@@ -325,7 +325,7 @@ fn ssh_and_saved_remote_use_source_home_and_ignore_client_server_and_cache() {
         &[
             "--ssh",
             &connection,
-            "--ssh-mcpm",
+            "--ssh-mcpmd",
             env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "mods",

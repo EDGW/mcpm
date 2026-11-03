@@ -39,6 +39,37 @@ fn remote_logs_enabled() -> bool {
     REMOTE_LOGS.get().copied().unwrap_or(false)
 }
 
+/// Replays daemon records through the same remote console filter and file sink as legacy logs.
+pub(crate) async fn subscribe_executor(executor: &mcpm_exec::service::Executor) -> Result<()> {
+    let selected = if level() == LogLevel::Trace {
+        "trace"
+    } else {
+        "debug"
+    };
+    if let Some(mut logs) = executor.subscribe_logs(selected.into()).await? {
+        tokio::spawn(async move {
+            while let Some(record) = logs.next().await {
+                let record = match record {
+                    Ok(record) => record,
+                    Err(error) => {
+                        tracing::debug!(error = %error, "remote log subscription ended");
+                        break;
+                    }
+                };
+                let message = format!("{}: {}", record.target, record.message);
+                match record.level.as_str() {
+                    "ERROR" => tracing::error!(target: REMOTE_TARGET, "{message}"),
+                    "WARN" => tracing::warn!(target: REMOTE_TARGET, "{message}"),
+                    "INFO" => tracing::info!(target: REMOTE_TARGET, "{message}"),
+                    "TRACE" => tracing::trace!(target: REMOTE_TARGET, "{message}"),
+                    _ => tracing::debug!(target: REMOTE_TARGET, "{message}"),
+                }
+            }
+        });
+    }
+    Ok(())
+}
+
 pub(crate) fn init(
     level: LogLevel,
     started: SystemTime,
@@ -93,7 +124,7 @@ where
 }
 
 pub(crate) fn record_error(error: &anyhow::Error) {
-    tracing::error!(target: DIAGNOSTIC_TARGET, error = ?mcpm_backend::error::ErrorReport::capture(error), "operation failed");
+    tracing::error!(target: DIAGNOSTIC_TARGET, error = ?mcpm_lib::error::ErrorReport::capture(error), "operation failed");
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]

@@ -46,15 +46,32 @@ const DEFAULTS: [(&str, &str); 4] = [
 pub(crate) struct Config {
     documents: BTreeMap<String, Value>,
     settings: Settings,
+    link: LinkSettings,
     styles: BTreeMap<String, Palette>,
     loaders: ColorMap,
     sources: ColorMap,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct LinkSettings {
+    idle_timeout: u64,
+}
+
+impl Default for LinkSettings {
+    fn default() -> Self {
+        Self { idle_timeout: 600 }
+    }
+}
+
 impl Config {
+    pub(crate) fn link_idle_timeout(&self) -> u64 {
+        self.link.idle_timeout
+    }
     /// Compare effective values without treating a move to custom.toml as an edit.
     pub(crate) fn same_values(&self, other: &Self) -> bool {
         self.settings == other.settings
+            && self.link == other.link
             && self.styles == other.styles
             && self.loaders == other.loaders
             && self.sources == other.sources
@@ -110,6 +127,8 @@ impl Config {
         #[derive(Deserialize, Debug)]
         struct SettingsFile {
             settings: Settings,
+            #[serde(default)]
+            link: LinkSettings,
         }
         #[derive(Deserialize, Debug)]
         struct LoadersFile {
@@ -119,10 +138,11 @@ impl Config {
         struct SourcesFile {
             source_colors: ColorMap,
         }
-        let settings = documents["settings.toml"]
+        let file = documents["settings.toml"]
             .clone()
-            .try_into::<SettingsFile>()?
-            .settings;
+            .try_into::<SettingsFile>()?;
+        let settings = file.settings;
+        let link = file.link;
         ensure!(
             settings.version == 1,
             "unsupported settings version {}",
@@ -170,6 +190,7 @@ impl Config {
         Ok(Self {
             documents,
             settings,
+            link,
             styles,
             loaders,
             sources,
