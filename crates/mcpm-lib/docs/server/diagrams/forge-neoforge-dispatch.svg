@@ -1,0 +1,205 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="2396" viewBox="0 0 1120 2396" role="img" aria-labelledby="title desc" xml:lang="en">
+  <title id="title">Forge / NeoForge identification flow</title>
+  <desc id="desc">Forge and NeoForge start from two independent entries. Forge dispatches Shim separately; the rest enter the common FML flow, checking entry, loader family, group, launch target, and version evidence in order.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="arrow" />
+    </marker>
+  </defs>
+  <style>
+    svg { --bg: #ffffff; --fg: #17212f; --muted: #536174; --surface: #f6f8fb; --line: #a8b4c3; --decision: #edf3fb; --good: #edf7f0; --bad: #fff1ef; --route: #f2effa; background: var(--bg); }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #151b23; --fg: #e6edf5; --muted: #b2bfd1; --surface: #202a37; --line: #738197; --decision: #233449; --good: #203a2d; --bad: #432c2c; --route: #312c45; }
+    }
+    text { fill: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .heading { font-size: 26px; font-weight: 600; }
+    .subtitle { font-size: 18px; fill: var(--muted); }
+    .node-title { font-size: 20px; font-weight: 600; }
+    .body { font-size: 18px; }
+    .code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 17px; }
+    rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+    .decision rect { fill: var(--decision); }
+    .success rect { fill: var(--good); }
+    .error rect { fill: var(--bad); }
+    .route rect { fill: var(--route); }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.6; marker-end: url(#arrow); }
+    .arrow { fill: var(--line); }
+    .edge-label { fill: var(--muted); font-size: 17px; }
+
+    .flow-group &gt; rect { fill: none; stroke: var(--line); stroke-width: 1.3; }
+    .group-title { font-size: 21px; font-weight: 600; }
+    .group-subtitle { font-size: 17px; fill: var(--muted); }
+
+</style>
+  <g id="ordinary-fml" class="flow-group">
+    <rect x="6" y="652.0" width="1108" height="1720" rx="14" />
+    <text class="group-title" x="26" y="684.0">Common FML identification</text>
+    <text class="group-subtitle" x="26" y="713.0">Shared flow; identify by each entry family.</text>
+  </g>
+  <g id="family-checks" class="flow-group">
+    <rect x="16" y="782.0" width="1088" height="548.0" rx="14" />
+    <text class="group-title" x="36" y="814.0">Confirm entry and loader family</text>
+  </g>
+  <g id="declaration-checks" class="flow-group">
+    <rect x="16" y="1356.0" width="1088" height="354.0" rx="14" />
+    <text class="group-title" x="36" y="1388.0">Check launch declarations</text>
+  </g>
+  <g id="version-evidence" class="flow-group">
+    <rect x="16" y="1736.0" width="1088" height="492.0" rx="14" />
+    <text class="group-title" x="36" y="1768.0">Read and verify versions</text>
+  </g>
+  <text class="heading" x="28" y="42">Forge / NeoForge identification</text>
+  <text class="subtitle" x="28" y="77">Large frames show flow scope; nodes show steps; edges show execution and branches.</text>
+  <path class="edge" data-from="forge-entry" data-to="shim-condition" d="M 288 198 L 288 252" />
+  <path class="edge" data-from="shim-condition" data-to="shim-route" d="M 548 309 L 568 309 L 568 485 L 588 485" />
+  <text class="edge-label" x="551" y="333">Yes</text>
+  <path class="edge" data-from="main-class" data-to="main-class-exit" d="M 758 909 L 816 909" />
+  <text class="edge-label" x="768" y="897">No</text>
+  <path class="edge" data-from="main-class" data-to="family-evidence" d="M 393 980 L 393 1032" />
+  <text class="edge-label" x="409" y="1002">Yes</text>
+  <path class="edge" data-from="family-evidence" data-to="family-match" d="M 393 1174 L 393 1226" />
+  <path class="edge" data-from="family-match" data-to="family-match-exit" d="M 758 1269 L 816 1269" />
+  <text class="edge-label" x="768" y="1257">No</text>
+  <path class="edge" data-from="family-match" data-to="group-check" d="M 393 1312 L 393 1412" />
+  <text class="edge-label" x="409" y="1334">Yes</text>
+  <path class="edge" data-from="group-check" data-to="group-check-exit" d="M 758 1469 L 816 1469" />
+  <text class="edge-label" x="768" y="1457">No</text>
+  <path class="edge" data-from="group-check" data-to="target-check" d="M 393 1526 L 393 1578" />
+  <text class="edge-label" x="409" y="1548">Yes</text>
+  <path class="edge" data-from="target-check" data-to="target-check-exit" d="M 758 1635 L 816 1635" />
+  <text class="edge-label" x="768" y="1623">Yes</text>
+  <path class="edge" data-from="target-check" data-to="mc-version" d="M 393 1692 L 393 1792" />
+  <text class="edge-label" x="409" y="1714">No</text>
+  <path class="edge" data-from="mc-version" data-to="mc-version-exit" d="M 758 1835 L 816 1835" />
+  <text class="edge-label" x="768" y="1823">Missing</text>
+  <path class="edge" data-from="mc-version" data-to="loader-version" d="M 393 1878 L 393 1930" />
+  <path class="edge" data-from="loader-version" data-to="loader-version-exit" d="M 758 1987 L 816 1987" />
+  <text class="edge-label" x="768" y="1975">Missing</text>
+  <path class="edge" data-from="loader-version" data-to="version-conflict" d="M 393 2044 L 393 2096" />
+  <path class="edge" data-from="version-conflict" data-to="version-conflict-exit" d="M 758 2153 L 816 2153" />
+  <text class="edge-label" x="768" y="2141">Yes</text>
+  <path class="edge" data-from="version-conflict" data-to="success" d="M 393 2210 L 393 2262" />
+  <text class="edge-label" x="409" y="2232">No</text>
+  <g id="forge-entry" class="node process">
+    <rect x="28" y="112" width="520" height="86" rx="10" />
+    <text class="node-title" x="48" y="144">Forge entry</text>
+    <text class="body" x="48" y="177">Start Forge server identification</text>
+  </g>
+  <g id="neo-entry" class="node process">
+    <rect x="588" y="112" width="504" height="86" rx="10" />
+    <text class="node-title" x="608" y="144">NeoForge entry</text>
+    <text class="body" x="608" y="177">Start NeoForge server identification</text>
+  </g>
+  <g id="shim-condition" class="node decision">
+    <rect x="28" y="252" width="520" height="114" rx="10" />
+    <text class="node-title" x="48" y="284">Is this a Forge Shim entry?</text>
+    <text class="body" x="48" y="317">The Java main class is:</text>
+    <text class="body" x="48" y="345">
+      <tspan class="code">net.minecraftforge.bootstrap.shim.Main</tspan>
+    </text>
+  </g>
+  <g id="shim-route" class="node route">
+    <rect x="588" y="428" width="504" height="114" rx="10" />
+    <text class="node-title" x="608" y="460">Enter Forge Shim identification</text>
+    <text class="body" x="608" y="493">Read version evidence from the launch JAR configuration.</text>
+    <text class="body" x="608" y="521">See the next diagram for details.</text>
+  </g>
+  <g id="main-class" class="node decision">
+    <rect x="28" y="838" width="730" height="142" rx="10" />
+    <text class="node-title" x="48" y="870">Is the Java main class a supported FML entry?</text>
+    <text class="body" x="48" y="903">
+      <tspan class="code">cpw.mods.bootstraplauncher.BootstrapLauncher</tspan>
+    </text>
+    <text class="body" x="48" y="931">
+      <tspan class="code">cpw.mods.modlauncher.Launcher</tspan>
+    </text>
+    <text class="body" x="48" y="959">
+      <tspan class="code">net.neoforged.fml.startup.Server</tspan>
+    </text>
+  </g>
+  <g id="main-class-exit" class="node route">
+    <rect x="816" y="866" width="278" height="86" rx="10" />
+    <text class="node-title" x="836" y="898">Not handled by this detector</text>
+    <text class="body" x="836" y="931">The FML entry does not match</text>
+  </g>
+  <g id="family-evidence" class="node process">
+    <rect x="28" y="1032" width="730" height="142" rx="10" />
+    <text class="node-title" x="48" y="1064">Determine the declared loader family</text>
+    <text class="body" x="48" y="1097">Any of these indicates NeoForge: --fml.neoForgeVersion,</text>
+    <text class="body" x="48" y="1125">--fml.forgeGroup is net.neoforged, or the main class starts with net.neoforged.</text>
+    <text class="body" x="48" y="1153">If none exist, treat it as Forge.</text>
+  </g>
+  <g id="family-match" class="node decision">
+    <rect x="28" y="1226" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="1258">Does the declared family match this entry?</text>
+    <text class="body" x="48" y="1291">The Forge entry accepts only Forge; the NeoForge entry accepts only NeoForge.</text>
+  </g>
+  <g id="family-match-exit" class="node route">
+    <rect x="816" y="1226" width="278" height="86" rx="10" />
+    <text class="node-title" x="836" y="1258">Not handled by this detector</text>
+    <text class="body" x="836" y="1291">This entry does not handle the family</text>
+  </g>
+  <g id="group-check" class="node decision">
+    <rect x="28" y="1412" width="730" height="114" rx="10" />
+    <text class="node-title" x="48" y="1444">Does the declared loader group match the family?</text>
+    <text class="body" x="48" y="1477">Passes when --fml.forgeGroup is absent; when present it must match:</text>
+    <text class="body" x="48" y="1505">Forge → <tspan class="code">net.minecraftforge</tspan>；NeoForge → <tspan class="code">net.neoforged</tspan>。</text>
+  </g>
+  <g id="group-check-exit" class="node error">
+    <rect x="816" y="1426" width="278" height="86" rx="10" />
+    <text class="node-title" x="836" y="1458">Identification failed</text>
+    <text class="body" x="836" y="1491">loader group conflicts with family</text>
+  </g>
+  <g id="target-check" class="node decision">
+    <rect x="28" y="1578" width="730" height="114" rx="10" />
+    <text class="node-title" x="48" y="1610">Is an explicit client launch target declared?</text>
+    <text class="body" x="48" y="1643">Check --launchTarget; reject known client targets.</text>
+    <text class="body" x="48" y="1671">An absent or unknown target does not block identification.</text>
+  </g>
+  <g id="target-check-exit" class="node error">
+    <rect x="816" y="1592" width="278" height="86" rx="10" />
+    <text class="node-title" x="836" y="1624">Identification failed</text>
+    <text class="body" x="836" y="1657">A client target is declared</text>
+  </g>
+  <g id="mc-version" class="node process">
+    <rect x="28" y="1792" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="1824">Read Minecraft version</text>
+    <text class="body" x="48" y="1857">Read --fml.mcVersion; this value is required.</text>
+  </g>
+  <g id="mc-version-exit" class="node error">
+    <rect x="816" y="1792" width="278" height="86" rx="10" />
+    <text class="node-title" x="836" y="1824">Identification failed</text>
+    <text class="body" x="836" y="1857">Minecraft version is missing</text>
+  </g>
+  <g id="loader-version" class="node process">
+    <rect x="28" y="1930" width="730" height="114" rx="10" />
+    <text class="node-title" x="48" y="1962">Read loader version</text>
+    <text class="body" x="48" y="1995">Prefer --fml.neoForgeVersion;</text>
+    <text class="body" x="48" y="2023">When absent, use --fml.forgeVersion; at least one must exist.</text>
+  </g>
+  <g id="loader-version-exit" class="node error">
+    <rect x="816" y="1944" width="278" height="86" rx="10" />
+    <text class="node-title" x="836" y="1976">Identification failed</text>
+    <text class="body" x="836" y="2009">loader version is missing</text>
+  </g>
+  <g id="version-conflict" class="node decision">
+    <rect x="28" y="2096" width="730" height="114" rx="10" />
+    <text class="node-title" x="48" y="2128">Do the loader version declarations conflict?</text>
+    <text class="body" x="48" y="2161">If --fml.neoForgeVersion and --fml.forgeVersion are both present,</text>
+    <text class="body" x="48" y="2189">they must agree; one value alone cannot conflict.</text>
+  </g>
+  <g id="version-conflict-exit" class="node error">
+    <rect x="816" y="2110" width="278" height="86" rx="10" />
+    <text class="node-title" x="836" y="2142">Identification failed</text>
+    <text class="body" x="836" y="2175">The version declarations disagree</text>
+  </g>
+  <g id="success" class="node success">
+    <rect x="28" y="2262" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="2294">Identification succeeded</text>
+    <text class="body" x="48" y="2327">Return the loader and Minecraft versions.</text>
+  </g>
+  <path class="edge" data-from="shim-condition" data-to="main-class" d="M 288 366 L 288 600 L 393 600 L 393 838" />
+  <text class="edge-label" x="304" y="400">No</text>
+  <path class="edge" data-from="neo-entry" data-to="main-class" d="M 840 198 L 840 224 L 1110 224 L 1110 600 L 393 600 L 393 838" />
+</svg>

@@ -1,6 +1,6 @@
 # Forge · NeoForge 识别流程
 
-识别逻辑位于 `mcpm-backend`，输入为静态解析得到的 `ServerLaunch`。整个过程不执行脚本、Java 或安装器，也不下载依赖。
+识别逻辑位于 `mcpm-lib`，输入为静态解析得到的 `ServerLaunch`。整个过程不执行脚本、Java 或安装器，也不下载依赖。
 
 - `Ok(Some(identity))`：识别成功，返回 Minecraft 版本和 loader 版本。
 - `Ok(None)`：当前检测器不处理该入口或家族。
