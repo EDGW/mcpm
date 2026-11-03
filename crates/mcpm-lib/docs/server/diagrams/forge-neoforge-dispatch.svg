@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="2396" viewBox="0 0 1120 2396" role="img" aria-labelledby="title desc" xml:lang="en">
+<svg xmlns="http://www.w3.org/2000/svg" width="1272" height="2396" viewBox="0 0 1272 2396" role="img" aria-labelledby="title desc" xml:lang="en">
   <title id="title">Forge / NeoForge identification flow</title>
   <desc id="desc">Forge and NeoForge start from two independent entries. Forge dispatches Shim separately; the rest enter the common FML flow, checking entry, loader family, group, launch target, and version evidence in order.</desc>
   <defs>
@@ -33,51 +33,51 @@
 
 </style>
   <g id="ordinary-fml" class="flow-group">
-    <rect x="6" y="652.0" width="1108" height="1720" rx="14" />
+    <rect x="6" y="652.0" width="1260" height="1720" rx="14" />
     <text class="group-title" x="26" y="684.0">Common FML identification</text>
     <text class="group-subtitle" x="26" y="713.0">Shared flow; identify by each entry family.</text>
   </g>
   <g id="family-checks" class="flow-group">
-    <rect x="16" y="782.0" width="1088" height="548.0" rx="14" />
+    <rect x="16" y="782.0" width="1240" height="548.0" rx="14" />
     <text class="group-title" x="36" y="814.0">Confirm entry and loader family</text>
   </g>
   <g id="declaration-checks" class="flow-group">
-    <rect x="16" y="1356.0" width="1088" height="354.0" rx="14" />
+    <rect x="16" y="1356.0" width="1240" height="354.0" rx="14" />
     <text class="group-title" x="36" y="1388.0">Check launch declarations</text>
   </g>
   <g id="version-evidence" class="flow-group">
-    <rect x="16" y="1736.0" width="1088" height="492.0" rx="14" />
+    <rect x="16" y="1736.0" width="1240" height="492.0" rx="14" />
     <text class="group-title" x="36" y="1768.0">Read and verify versions</text>
   </g>
   <text class="heading" x="28" y="42">Forge / NeoForge identification</text>
   <text class="subtitle" x="28" y="77">Large frames show flow scope; nodes show steps; edges show execution and branches.</text>
   <path class="edge" data-from="forge-entry" data-to="shim-condition" d="M 288 198 L 288 252" />
   <path class="edge" data-from="shim-condition" data-to="shim-route" d="M 548 309 L 568 309 L 568 485 L 588 485" />
-  <text class="edge-label" x="551" y="333">Yes</text>
-  <path class="edge" data-from="main-class" data-to="main-class-exit" d="M 758 909 L 816 909" />
+  <text class="edge-label" x="580" y="333">Yes</text>
+  <path class="edge" data-from="main-class" data-to="main-class-exit" d="M 758 909 L 890 909" />
   <text class="edge-label" x="768" y="897">No</text>
   <path class="edge" data-from="main-class" data-to="family-evidence" d="M 393 980 L 393 1032" />
   <text class="edge-label" x="409" y="1002">Yes</text>
   <path class="edge" data-from="family-evidence" data-to="family-match" d="M 393 1174 L 393 1226" />
-  <path class="edge" data-from="family-match" data-to="family-match-exit" d="M 758 1269 L 816 1269" />
+  <path class="edge" data-from="family-match" data-to="family-match-exit" d="M 758 1269 L 890 1269" />
   <text class="edge-label" x="768" y="1257">No</text>
   <path class="edge" data-from="family-match" data-to="group-check" d="M 393 1312 L 393 1412" />
   <text class="edge-label" x="409" y="1334">Yes</text>
-  <path class="edge" data-from="group-check" data-to="group-check-exit" d="M 758 1469 L 816 1469" />
+  <path class="edge" data-from="group-check" data-to="group-check-exit" d="M 758 1469 L 890 1469" />
   <text class="edge-label" x="768" y="1457">No</text>
   <path class="edge" data-from="group-check" data-to="target-check" d="M 393 1526 L 393 1578" />
   <text class="edge-label" x="409" y="1548">Yes</text>
-  <path class="edge" data-from="target-check" data-to="target-check-exit" d="M 758 1635 L 816 1635" />
+  <path class="edge" data-from="target-check" data-to="target-check-exit" d="M 758 1635 L 890 1635" />
   <text class="edge-label" x="768" y="1623">Yes</text>
   <path class="edge" data-from="target-check" data-to="mc-version" d="M 393 1692 L 393 1792" />
   <text class="edge-label" x="409" y="1714">No</text>
-  <path class="edge" data-from="mc-version" data-to="mc-version-exit" d="M 758 1835 L 816 1835" />
+  <path class="edge" data-from="mc-version" data-to="mc-version-exit" d="M 758 1835 L 890 1835" />
   <text class="edge-label" x="768" y="1823">Missing</text>
   <path class="edge" data-from="mc-version" data-to="loader-version" d="M 393 1878 L 393 1930" />
-  <path class="edge" data-from="loader-version" data-to="loader-version-exit" d="M 758 1987 L 816 1987" />
+  <path class="edge" data-from="loader-version" data-to="loader-version-exit" d="M 758 1987 L 890 1987" />
   <text class="edge-label" x="768" y="1975">Missing</text>
   <path class="edge" data-from="loader-version" data-to="version-conflict" d="M 393 2044 L 393 2096" />
-  <path class="edge" data-from="version-conflict" data-to="version-conflict-exit" d="M 758 2153 L 816 2153" />
+  <path class="edge" data-from="version-conflict" data-to="version-conflict-exit" d="M 758 2153 L 890 2153" />
   <text class="edge-label" x="768" y="2141">Yes</text>
   <path class="edge" data-from="version-conflict" data-to="success" d="M 393 2210 L 393 2262" />
   <text class="edge-label" x="409" y="2232">No</text>
@@ -100,10 +100,10 @@
     </text>
   </g>
   <g id="shim-route" class="node route">
-    <rect x="588" y="428" width="504" height="114" rx="10" />
-    <text class="node-title" x="608" y="460">Enter Forge Shim identification</text>
-    <text class="body" x="608" y="493">Read version evidence from the launch JAR configuration.</text>
-    <text class="body" x="608" y="521">See the next diagram for details.</text>
+    <rect x="588" y="414" width="504" height="142" rx="10" />
+    <text class="node-title" x="608" y="446">Enter Forge Shim identification</text>
+    <text class="body" x="608" y="479"><tspan x="608">Read version evidence from the launch JAR</tspan><tspan x="608" dy="28">configuration.</tspan></text>
+    <text class="body" x="608" y="535">See the next diagram for details.</text>
   </g>
   <g id="main-class" class="node decision">
     <rect x="28" y="838" width="730" height="142" rx="10" />
@@ -119,9 +119,9 @@
     </text>
   </g>
   <g id="main-class-exit" class="node route">
-    <rect x="816" y="866" width="278" height="86" rx="10" />
-    <text class="node-title" x="836" y="898">Not handled by this detector</text>
-    <text class="body" x="836" y="931">The FML entry does not match</text>
+    <rect x="890" y="866" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="898">Not handled by this detector</text>
+    <text class="body" x="910" y="931">The FML entry does not match</text>
   </g>
   <g id="family-evidence" class="node process">
     <rect x="28" y="1032" width="730" height="142" rx="10" />
@@ -136,9 +136,9 @@
     <text class="body" x="48" y="1291">The Forge entry accepts only Forge; the NeoForge entry accepts only NeoForge.</text>
   </g>
   <g id="family-match-exit" class="node route">
-    <rect x="816" y="1226" width="278" height="86" rx="10" />
-    <text class="node-title" x="836" y="1258">Not handled by this detector</text>
-    <text class="body" x="836" y="1291">This entry does not handle the family</text>
+    <rect x="890" y="1226" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="1258">Not handled by this detector</text>
+    <text class="body" x="910" y="1291">This entry does not handle the family</text>
   </g>
   <g id="group-check" class="node decision">
     <rect x="28" y="1412" width="730" height="114" rx="10" />
@@ -147,9 +147,9 @@
     <text class="body" x="48" y="1505">Forge → <tspan class="code">net.minecraftforge</tspan>；NeoForge → <tspan class="code">net.neoforged</tspan>。</text>
   </g>
   <g id="group-check-exit" class="node error">
-    <rect x="816" y="1426" width="278" height="86" rx="10" />
-    <text class="node-title" x="836" y="1458">Identification failed</text>
-    <text class="body" x="836" y="1491">loader group conflicts with family</text>
+    <rect x="890" y="1426" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="1458">Identification failed</text>
+    <text class="body" x="910" y="1491">loader group conflicts with family</text>
   </g>
   <g id="target-check" class="node decision">
     <rect x="28" y="1578" width="730" height="114" rx="10" />
@@ -158,9 +158,9 @@
     <text class="body" x="48" y="1671">An absent or unknown target does not block identification.</text>
   </g>
   <g id="target-check-exit" class="node error">
-    <rect x="816" y="1592" width="278" height="86" rx="10" />
-    <text class="node-title" x="836" y="1624">Identification failed</text>
-    <text class="body" x="836" y="1657">A client target is declared</text>
+    <rect x="890" y="1592" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="1624">Identification failed</text>
+    <text class="body" x="910" y="1657">A client target is declared</text>
   </g>
   <g id="mc-version" class="node process">
     <rect x="28" y="1792" width="730" height="86" rx="10" />
@@ -168,9 +168,9 @@
     <text class="body" x="48" y="1857">Read --fml.mcVersion; this value is required.</text>
   </g>
   <g id="mc-version-exit" class="node error">
-    <rect x="816" y="1792" width="278" height="86" rx="10" />
-    <text class="node-title" x="836" y="1824">Identification failed</text>
-    <text class="body" x="836" y="1857">Minecraft version is missing</text>
+    <rect x="890" y="1792" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="1824">Identification failed</text>
+    <text class="body" x="910" y="1857">Minecraft version is missing</text>
   </g>
   <g id="loader-version" class="node process">
     <rect x="28" y="1930" width="730" height="114" rx="10" />
@@ -179,9 +179,9 @@
     <text class="body" x="48" y="2023">When absent, use --fml.forgeVersion; at least one must exist.</text>
   </g>
   <g id="loader-version-exit" class="node error">
-    <rect x="816" y="1944" width="278" height="86" rx="10" />
-    <text class="node-title" x="836" y="1976">Identification failed</text>
-    <text class="body" x="836" y="2009">loader version is missing</text>
+    <rect x="890" y="1944" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="1976">Identification failed</text>
+    <text class="body" x="910" y="2009">loader version is missing</text>
   </g>
   <g id="version-conflict" class="node decision">
     <rect x="28" y="2096" width="730" height="114" rx="10" />
@@ -190,9 +190,9 @@
     <text class="body" x="48" y="2189">they must agree; one value alone cannot conflict.</text>
   </g>
   <g id="version-conflict-exit" class="node error">
-    <rect x="816" y="2110" width="278" height="86" rx="10" />
-    <text class="node-title" x="836" y="2142">Identification failed</text>
-    <text class="body" x="836" y="2175">The version declarations disagree</text>
+    <rect x="890" y="2110" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="2142">Identification failed</text>
+    <text class="body" x="910" y="2175">The version declarations disagree</text>
   </g>
   <g id="success" class="node success">
     <rect x="28" y="2262" width="730" height="86" rx="10" />
