@@ -1,13 +1,42 @@
 //! Shared aggregate errors, remote failure identity and lossless diagnostic snapshots.
-//!
-//! Business producers, operation transport and presentation share this model. Capture an
-//! [`ErrorReport`] to retain independent [`CombinedError`] branches across process boundaries;
-//! ordinary `Error::source` traversal only visits a linear chain. Received errors restore the
-//! tree under a [`RemoteError`] marker, without preserving concrete remote error types.
+#![doc = include_str!("docs/error.md")]
 
 use std::{error::Error as StdError, fmt};
 
 use serde::{Deserialize, Serialize};
+
+/// An error carried inside operation data; local execution keeps the original error.
+///
+/// Serialization uses [`ErrorReport`]; deserialization restores the error tree under a
+/// [`RemoteError`] marker. Concrete error types are preserved only without serialization.
+#[derive(Debug)]
+pub struct PortableError(anyhow::Error);
+
+impl PortableError {
+    /// Returns the original local error or the restored, marked remote error.
+    pub fn into_inner(self) -> anyhow::Error {
+        self.0
+    }
+}
+
+impl From<anyhow::Error> for PortableError {
+    fn from(error: anyhow::Error) -> Self {
+        Self(error)
+    }
+}
+
+impl Serialize for PortableError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        ErrorReport::capture(&self.0).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for PortableError {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let report = ErrorReport::deserialize(deserializer)?;
+        Ok(Self(RemoteError::wrap(report.into_error())))
+    }
+}
 
 /// Independent failures in their original order; branches may contain further aggregates.
 #[derive(Debug)]

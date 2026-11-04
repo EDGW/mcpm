@@ -259,21 +259,20 @@ panic 消息结束。
 
 ### 错误传播
 
-`mcpm_exec::error` 拥有通用诊断模型，不依赖业务 crate：
+- `run` 返回 `Err(e)`：发送 `ErrorReport::capture(&e)`，包裹在 `{"error":{...}}` 中。调用方恢复
+  错误树、添加 `RemoteError` 标记，并包裹在 ``operation `ID` failed`` 下。
+- 流 producer 返回 `Err(e)` 或 panic：同样序列化，作为流错误带 `finish` 发送。调用方的
+  `next()` 返回 `Some(Err(e))`，包裹在 `remote stream failed` 下。
+- 错误信封替换了旧的 `message`/`source` 线路链；客户端、link 和 daemon 必须使用匹配构建。
 
-- `CombinedError` 保存有序的独立失败，允许嵌套。
-- `ErrorReport` 统一捕获和恢复上下文链与递归分支；其他错误保留标准 `source()` 链，
-  不保留远端具体错误类型。
-- `RemoteError` 标记收到的远端失败；捕获诊断时跳过标记本身，保留其错误树。
+共同模型（独立分支、无损捕获、远端标记、数据内错误）见 [错误模块](crate::error)。
+使用 `error::contains::<RemoteError>` 检查对端失败，也能检查独立分支。
 
-- `run` 返回 `Err(e)`：发送 `ErrorReport::capture(&e)`，包裹在 `{"error":{...}}` 中。
-  调用方恢复错误树、添加 `RemoteError` 标记，并包裹在 ``operation `ID` failed`` 下。
-- 流 producer 返回 `Err(e)` 或 panic：同样序列化，作为流错误 `{"error":{...}}` 带 `finish`
-  发送。调用方的 `next()` 返回 `Some(Err(e))`，包裹在 `remote stream failed` 下。
+### 作为操作数据承载的错误
 
-使用 `error::contains::<RemoteError>` 检查远端失败，也能检查独立分支。展示时递归遍历
-`ErrorReport`；只调用 `anyhow::Error::chain()` 无法枚举独立分支。
-错误信封替换了原有 `message/source` 链；客户端、link 和 daemon 必须使用匹配构建。
+单项失败不应中断整个操作时使用 `PortableError`，例如 `Vec<Result<Entry, PortableError>>`，
+或 `StreamingOutput<T>` 中的失败事件。调用方只需 `into_inner()`。整体失败仍由 `run` 或流
+producer 返回 `Err`，其自动传输同上。
 
 ### 取消
 

@@ -275,24 +275,24 @@ aborted.
 
 ### Error propagation
 
-`mcpm_exec::error` owns the shared diagnostic model, independent of business crates:
-
-- `CombinedError` groups ordered independent failures, including nested groups.
-- `ErrorReport` captures and restores context chains and recursive branches. Other error types
-  retain their standard `source()` chain; concrete remote error types are not preserved.
-- `RemoteError` marks a received failure. Capturing it omits the marker but preserves its tree.
-
-- `run` returns `Err(e)`: `ErrorReport::capture(&e)` is sent as `{"error":{...}}`.
-  The caller restores the error tree, adds the `RemoteError` marker, and wraps it with
+- `run` returns `Err(e)`: `ErrorReport::capture(&e)` is sent as `{"error":{...}}`. The caller
+  restores the error tree, adds the `RemoteError` marker, and wraps it with
   ``operation `ID` failed``.
-- Stream producer returns `Err(e)` or panics: same serialization, sent as a stream error
-  `{"error":{...}}` with `finish`. The caller's `next()` returns `Some(Err(e))` wrapped with
-  `remote stream failed`.
+- Stream producer returns `Err(e)` or panics: same serialization, sent as a stream error with
+  `finish`. The caller's `next()` returns `Some(Err(e))` wrapped with `remote stream failed`.
+- The error envelope replaces the previous `message/source` chain; clients, links, and daemons
+  must use matching builds.
 
-Use `error::contains::<RemoteError>` to recognize peer failures, including inside independent
-branches. Render `ErrorReport` recursively; `anyhow::Error::chain()` alone cannot enumerate branches.
-The error envelope replaces the previous `message/source` chain; clients, links, and daemons
-must use matching builds.
+The shared model — independent branches, lossless capture, remote markers, and item errors — is
+documented in the [error module](crate::error). Use `error::contains::<RemoteError>` to recognize
+peer failures, including inside independent branches.
+
+### Errors carried inside operation data
+
+Use `PortableError` for an item failure that must not fail the whole operation, for example
+`Vec<Result<Entry, PortableError>>` or a failure event in `StreamingOutput<T>`. The caller only
+needs `into_inner()`. Return `Err` from `run` or the stream producer for whole-operation failures;
+their automatic transport is described above.
 
 ### Cancellation
 
