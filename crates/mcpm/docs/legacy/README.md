@@ -10,15 +10,13 @@ The executables share one implementation and configuration:
 | `mcpmc`, `mcpm-client` | `list`, `check`, `launch` |
 | `mcpm-tools` | `cache`, `remote`, `customize`, `debug`, `mods`, `server`, `client` |
 
-Each long name has the same behavior as its short name; help uses the selected name. Tools also exposes server and client command roots. Migrated server info/init use `mcpmd`; unmigrated mods/cache retain `mcpm-tools remote`.
+Each long name has the same behavior as its short name; help uses the selected name. Tools also exposes server and client command roots. Migrated server info/init/stash use `mcpmd`; unmigrated mods/cache retain `mcpm-tools remote`.
 
 Inspection commands read mod archives without modifying them. `mcpm-tools mods cache` explicitly stores files and metadata, with optional hard-link protection. Graph snapshots can be written to a separate file.
 
 [Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
 
 [Server init](server/init.md) · [server info](server/info.md) · [server launch](server/launch.md) · [server mods](server/mods.md) · [server mod sources](server/source.md)
-
-[Server Mod snapshots and switching](server/stash.md)
 
 [Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [cache](mod/cache.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
@@ -53,7 +51,7 @@ cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpm-tools -- mods list
 
 ## Global options
 
-`--ssh`, `--ssh-mcpmd`, and `--remote-logs` are global options in server and tools executables. Explicit `--ssh` always takes precedence over workspace registration. Server info/init run through reusable mcpmd links; unmigrated mods/cache and server mods retain the legacy tools transport. See [Remote execution](remote.md).
+`--ssh`, `--ssh-mcpmd`, and `--remote-logs` are global options in server and tools executables. Explicit `--ssh` always takes precedence over workspace registration. Server info/init/stash run through reusable mcpmd links; unmigrated mods/cache and server mods retain the legacy tools transport. See [Remote execution](remote.md).
 
 ```text
 mcpm-tools [OPTIONS] <COMMAND>

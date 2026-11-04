@@ -4,7 +4,7 @@ Backend defines operations and codecs for mcpm's own data. Operations do not cho
 
 | Module | Content |
 | --- | --- |
-| [Server operations](server.md) | Server information, recognition, initialization, and Remote stub preparation |
+| [Server operations](server/README.md) | Server information, initialization, Remote stub preparation, and Mod snapshots |
 | [Workspace operations](workspace.md) | Local workspace inspection and Remote connection registration |
 
 Current operations cover server and workspace; other commands remain on mcpm's legacy path.

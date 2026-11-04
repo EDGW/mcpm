@@ -1,14 +1,6 @@
-# Server 命令族
+# 基础命令
 
-入口：
-
-| 入口 | 命令格式 |
-| --- | --- |
-| `mcpm` | `mcpm <命令>` |
-| `mcpm-server` | `mcpm-server <命令>` |
-| `mcpm-tools` | `mcpm-tools server <命令>` |
-
-以下以 `mcpm` 展示。通用术语、全局选项和输出模式见 [README](README.md)。
+登记与检查命令。目标选择见 [README](README.md)。
 
 ## `mcpm info`
 
@@ -211,5 +203,3 @@ mcpm init ./workspace --force --minecraft-version 1.21.1 --loader vanilla --no-g
 创建 Remote 工作区时，Git 操作针对远端服务端目录，本机工作区不创建 Git 仓库。
 
 本机工作区只保存 SSH 命令、可选 mcpmd 路径和远端目录。远端服务端必须已登记为 Local Server；未登记时先执行远端初始化。
-
-[mcpmd 守护进程](../../mcpmd/docs-zh/README.md) · [Backend Server](../../mcpm-backend/docs-zh/server.md) · [Workspace](../../mcpm-backend/docs-zh/workspace.md) · [尚未迁移命令](legacy/README.md)

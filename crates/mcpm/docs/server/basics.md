@@ -1,14 +1,6 @@
-# Server commands
+# Basics
 
-Entry points:
-
-| Entry point | Command form |
-| --- | --- |
-| `mcpm` | `mcpm <command>` |
-| `mcpm-server` | `mcpm-server <command>` |
-| `mcpm-tools` | `mcpm-tools server <command>` |
-
-Examples use `mcpm`. General terms, global options, and output modes are defined in [README](README.md).
+Registration and inspection commands. Target selection is defined in [README](README.md).
 
 ## `mcpm info`
 
@@ -211,5 +203,3 @@ mcpm init ./workspace --force --minecraft-version 1.21.1 --loader vanilla --no-g
 Creating a Remote workspace runs Git against the remote server directory; the local workspace does not create a Git repository.
 
 The local workspace stores only the SSH command, optional mcpmd path, and remote directory. The remote server must already be registered as a Local Server; initialize it first otherwise.
-
-[mcpmd daemon](../../mcpmd/docs/README.md) · [Backend Server](../../mcpm-backend/docs/server.md) · [Workspace](../../mcpm-backend/docs/workspace.md) · [Unmigrated commands](legacy/README.md)

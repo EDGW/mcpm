@@ -10,15 +10,13 @@
 | `mcpmc`、`mcpm-client` | `list`、`check`、`launch` |
 | `mcpm-tools` | `cache`、`remote`、`customize`、`debug`、`mods`、`server`、`client` |
 
-长短名称行为一致，帮助使用所选名称。Tools 仍提供 server/client 命令根；已迁移的 server info/init 使用 mcpmd，未迁移的 mods/cache 保留 mcpm-tools remote。
+长短名称行为一致，帮助使用所选名称。Tools 仍提供 server/client 命令根；已迁移的 server info/init/stash 使用 mcpmd，未迁移的 mods/cache 保留 mcpm-tools remote。
 
 检查命令只读取 Mod 归档；`mcpm-tools mods cache` 显式存储文件与摘要，可选择硬链接保护。依赖图可另存为文件。
 
 [客户端列表](client/list.md) · [完整性检查](client/check.md) · [启动客户端](client/launch.md)
 
 [初始化服务端](server/init.md) · [服务端信息](server/info.md) · [启动服务端](server/launch.md) · [服务端 Mod 来源](server/source.md)
-
-[服务端 Mod 快照与切换](server/stash.md)
 
 [Mod 命令](mod/README.md)：[list](mod/list.md) · [info](mod/info.md) · [cache](mod/cache.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 
@@ -53,7 +51,7 @@ cargo run --manifest-path crates/mcpm/Cargo.toml --bin mcpm-tools -- mods list
 
 ## 全局选项
 
-`--ssh`、`--ssh-mcpmd`、`--remote-logs` 是服务端和 Tools 的全局选项。显式 `--ssh` 始终优先于 workspace 登记。server info/init 使用可复用 mcpmd link；未迁移的 mods/cache、server mods 保留旧 tools 传输。参见[远程执行](remote.md)。
+`--ssh`、`--ssh-mcpmd`、`--remote-logs` 是服务端和 Tools 的全局选项。显式 `--ssh` 始终优先于 workspace 登记。server info/init/stash 使用可复用 mcpmd link；未迁移的 mods/cache、server mods 保留旧 tools 传输。参见[远程执行](remote.md)。
 
 ```text
 mcpm-tools [OPTIONS] <COMMAND>
