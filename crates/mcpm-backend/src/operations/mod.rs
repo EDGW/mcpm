@@ -3,6 +3,7 @@
 use anyhow::Result;
 use mcpm_exec::operation::Registry;
 
+pub mod cache;
 pub mod server;
 pub mod workspace;
 
@@ -22,5 +23,13 @@ pub fn registry() -> Result<Registry> {
     registry.register::<server::stash::Rename>()?;
     registry.register::<server::stash::Delete>()?;
     registry.register::<server::stash::Verify>()?;
+    registry.register::<cache::Init>()?;
+    registry.register::<cache::List>()?;
+    registry.register::<cache::Info>()?;
+    registry.register::<cache::Import>()?;
+    registry.register::<cache::Export>()?;
+    registry.register::<cache::Remove>()?;
+    registry.register::<cache::Verify>()?;
+    registry.register::<cache::RebuildIndex>()?;
     Ok(registry)
 }
