@@ -2,24 +2,34 @@
 
 use std::io::Write;
 
-use anyhow::Result;
-use mcpm_lib::local::mc::server::stash::StashStore;
+use anyhow::{Context as _, Result};
+use mcpm_backend::operations::server::stash::{Status, StatusEvent, StatusInput};
 
 use super::{Context, options::WorkArgs};
-use crate::display::{backup::FileProgress, stash};
+use crate::display::stash::{self, FileProgress};
 
-pub(super) fn run(args: StatusArgs, context: &Context, mut out: &mut impl Write) -> Result<()> {
-    let server = context.server()?;
-    let store = StashStore::read(&server)?;
+pub(super) async fn run(
+    args: StatusArgs,
+    context: &Context,
+    mut out: &mut impl Write,
+) -> Result<()> {
+    let mut stream = context
+        .executor
+        .call::<Status>(StatusInput {
+            path: context.path.clone(),
+            parallelism: args.work.parallelism,
+        })
+        .await?;
     let mut progress = FileProgress::default();
-    let mut emit = |event| {
-        progress.event(event);
-        Ok(())
-    };
-    let result = store.status(args.work.parallelism, &mut emit);
+    let mut result = None;
+    while let Some(event) = stream.next().await {
+        match event? {
+            StatusEvent::Progress(event) => progress.event(event),
+            StatusEvent::Status(status) => result = Some(status),
+        }
+    }
     progress.clear();
-    let status = result?;
-    drop(store);
+    let status = result.context("stash status stream ended without its result")?;
     stash::status(&mut out, &status, context.headers)?;
     Ok(())
 }

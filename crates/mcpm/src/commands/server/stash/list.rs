@@ -1,33 +1,41 @@
-//! Read and order lightweight stash records, releasing the lease before confirmation and rendering.
+//! Present lightweight host inventory, confirming only after the operation has released its lease.
 
 use std::io::Write;
 
 use anyhow::{Result, ensure};
-use mcpm_lib::local::mc::server::stash::StashStore;
+use mcpm_backend::operations::server::stash::{List, ListInput};
 
 use super::{Context, columns, query};
 use crate::display::stash;
 
-pub(super) fn run(list: ListArgs, context: &Context, mut out: &mut impl Write) -> Result<()> {
+pub(super) async fn run(list: ListArgs, context: &Context, mut out: &mut impl Write) -> Result<()> {
     let columns = list.columns.selected(list.details)?;
-    let server = context.server()?;
-    let store = StashStore::read(&server)?;
+    let result = context
+        .executor
+        .call::<List>(ListInput {
+            path: context.path.clone(),
+        })
+        .await?;
     let mut failures = 0;
-    let head = query::observed_head(&store, &mut failures);
+    let head = query::observed_head(result.head, &mut failures);
     let mut entries = Vec::new();
-    for result in store.list()? {
+    for result in result.entries {
         match result {
-            Ok(stash) => entries.push(query::entry(&store, stash, head, false)?),
-            Err(error) => query::report(&error, &mut failures),
+            Ok(entry) => entries.push(stash::Entry {
+                head: head.map(|head| head == Some(entry.stash.id)),
+                stash: entry.stash,
+                backup: entry.backup_path,
+                manifest: None,
+            }),
+            Err(error) => query::report(error, &mut failures),
         }
     }
     entries.sort_by(|a, b| {
         b.stash
-            .created_at()
-            .cmp(&a.stash.created_at())
-            .then_with(|| a.stash.id().cmp(&b.stash.id()))
+            .created_at
+            .cmp(&a.stash.created_at)
+            .then_with(|| a.stash.id.cmp(&b.stash.id))
     });
-    drop(store);
     if crate::commands::confirm::reading(entries.len(), "stashes")? {
         stash::entries(
             &mut out,

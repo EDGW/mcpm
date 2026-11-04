@@ -3,17 +3,24 @@
 use std::io::Write;
 
 use anyhow::{Result, ensure};
-use mcpm_lib::local::mc::server::stash::StashStore;
+use mcpm_backend::operations::server::stash::{Delete, DeleteInput};
 
 use super::{Context, input, query};
 use crate::display::stash;
 
-pub(super) fn run(args: DeleteArgs, context: &Context, mut out: &mut impl Write) -> Result<()> {
+pub(super) async fn run(
+    args: DeleteArgs,
+    context: &Context,
+    mut out: &mut impl Write,
+) -> Result<()> {
     let selectors = args.selection.read()?;
-    let server = context.server()?;
-    let mut store = StashStore::write(&server)?;
-    let results = store.delete(&selectors)?;
-    drop(store);
+    let results = context
+        .executor
+        .call::<Delete>(DeleteInput {
+            path: context.path.clone(),
+            selectors,
+        })
+        .await?;
     let mut failures = 0;
     for (index, deletion) in results.into_iter().enumerate() {
         let label = input::label(&deletion.selector);
@@ -27,7 +34,7 @@ pub(super) fn run(args: DeleteArgs, context: &Context, mut out: &mut impl Write)
                 context.headers && index == 0,
             )?,
             Err(error) => {
-                query::report(&error, &mut failures);
+                query::report(error, &mut failures);
                 stash::operation(
                     &mut out,
                     "delete",

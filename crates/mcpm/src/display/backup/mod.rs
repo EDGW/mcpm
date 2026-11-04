@@ -24,7 +24,6 @@ mod summary;
 pub(crate) use summary::{file, summary};
 
 mod checksum;
-pub(crate) use checksum::file_difference;
 mod progress;
 pub(crate) use progress::FileProgress;
 

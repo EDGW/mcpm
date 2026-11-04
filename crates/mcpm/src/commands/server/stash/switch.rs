@@ -1,40 +1,43 @@
-//! Verify and switch a local workspace; force and HEAD behavior stay in the backend.
+//! Consume host switch progress and render the committed result; force and HEAD stay in the backend.
 
 use std::io::Write;
 
-use anyhow::Result;
-use mcpm_lib::local::mc::server::stash::StashStore;
+use anyhow::{Context as _, Result};
+use mcpm_backend::operations::server::stash::{Switch, SwitchEvent, SwitchInput};
 
 use super::{Context, input, options::WorkArgs};
-use crate::display::{backup::FileProgress, stash};
+use crate::display::stash::{self, FileProgress};
 
-pub(super) fn run(switch: SwitchArgs, context: &Context, mut out: &mut impl Write) -> Result<()> {
-    let server = context.server()?;
-    let mut store = StashStore::write(&server)?;
+pub(super) async fn run(
+    switch: SwitchArgs,
+    context: &Context,
+    mut out: &mut impl Write,
+) -> Result<()> {
+    let mut stream = context
+        .executor
+        .call::<Switch>(SwitchInput {
+            path: context.path.clone(),
+            selector: switch.selection.selector(),
+            force: switch.force,
+            parallelism: switch.work.parallelism,
+        })
+        .await?;
     let mut progress = FileProgress::default();
-    let mut emit = |event| {
-        progress.event(event);
-        Ok(())
-    };
-    let result = store.switch(
-        &switch.selection.selector(),
-        switch.force,
-        switch.work.parallelism,
-        &mut emit,
-    );
+    let mut outcome = None;
+    while let Some(event) = stream.next().await {
+        match event? {
+            SwitchEvent::Progress(event) => progress.event(event),
+            SwitchEvent::Switched { stash, changed } => outcome = Some((stash, changed)),
+        }
+    }
     progress.clear();
-    let outcome = result?;
-    drop(store);
+    let (snapshot, changed) = outcome.context("stash switch stream ended without its result")?;
     stash::operation(
         &mut out,
         "switch",
-        Some(&outcome.stash),
-        &outcome.stash.id().to_string(),
-        if outcome.changed {
-            "switched"
-        } else {
-            "unchanged"
-        },
+        Some(&snapshot),
+        &snapshot.id.to_string(),
+        if changed { "switched" } else { "unchanged" },
         context.headers,
     )?;
     Ok(())

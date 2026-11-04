@@ -2,29 +2,40 @@
 
 use std::io::Write;
 
-use anyhow::Result;
-use mcpm_lib::local::mc::server::stash::StashStore;
+use anyhow::{Context as _, Result};
+use mcpm_backend::operations::server::stash::{Create, CreateEvent, CreateInput};
 
 use super::{Context, options::WorkArgs};
-use crate::display::{backup::FileProgress, stash};
+use crate::display::stash::{self, FileProgress};
 
-pub(super) fn run(create: CreateArgs, context: &Context, mut out: &mut impl Write) -> Result<()> {
-    let server = context.server()?;
-    let mut store = StashStore::write(&server)?;
+pub(super) async fn run(
+    create: CreateArgs,
+    context: &Context,
+    mut out: &mut impl Write,
+) -> Result<()> {
+    let mut stream = context
+        .executor
+        .call::<Create>(CreateInput {
+            path: context.path.clone(),
+            name: create.name,
+            parallelism: create.work.parallelism,
+        })
+        .await?;
     let mut progress = FileProgress::default();
-    let mut emit = |event| {
-        progress.event(event);
-        Ok(())
-    };
-    let result = store.create(create.name, create.work.parallelism, &mut emit);
+    let mut created = None;
+    while let Some(event) = stream.next().await {
+        match event? {
+            CreateEvent::Progress(event) => progress.event(event),
+            CreateEvent::Created(stash) => created = Some(stash),
+        }
+    }
     progress.clear();
-    let stash = result?;
-    drop(store);
+    let stash = created.context("stash create stream ended without its result")?;
     stash::operation(
         &mut out,
         "create",
         Some(&stash),
-        &stash.id().to_string(),
+        &stash.id.to_string(),
         "created",
         context.headers,
     )?;

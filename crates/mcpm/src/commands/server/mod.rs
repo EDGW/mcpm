@@ -27,7 +27,7 @@ enum ServerCommand {
     Info(info::InfoArgs),
     /// Inspect mods associated with a registered server.
     Mods(mods::ModsArgs),
-    /// Save, inspect and switch complete Mod snapshots (Console, Raw; local only).
+    /// Save, inspect and switch complete Mod snapshots (Console, Raw).
     Stash(stash::StashArgs),
 }
 

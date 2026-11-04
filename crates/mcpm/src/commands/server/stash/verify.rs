@@ -1,55 +1,66 @@
-//! Verify selected backups while retaining a shared lease and continuing after individual failures.
+//! Present sequential host verification and report independent failures without interrupting later items.
 
 use std::io::Write;
 
 use anyhow::{Result, ensure};
-use mcpm_lib::local::mc::server::stash::{Selector, StashStore};
+use mcpm_backend::operations::server::stash::{Verify, VerifyEvent, VerifyInput};
 
 use super::{Context, input, options::WorkArgs, query};
-use crate::display::{backup::FileProgress, stash};
+use crate::display::stash::{self, FileProgress};
 
-pub(super) fn run(verify: VerifyArgs, context: &Context, mut out: &mut impl Write) -> Result<()> {
+pub(super) async fn run(
+    verify: VerifyArgs,
+    context: &Context,
+    mut out: &mut impl Write,
+) -> Result<()> {
     let selectors = verify.selection.read()?;
-    let server = context.server()?;
-    let store = StashStore::read(&server)?;
+    let mut stream = context
+        .executor
+        .call::<Verify>(VerifyInput {
+            path: context.path.clone(),
+            selectors,
+            parallelism: verify.work.parallelism,
+        })
+        .await?;
     let mut progress = FileProgress::default();
     let mut failures = 0;
-    // HEAD failures do not prevent independent backup verification.
-    let _head = query::observed_head(&store, &mut failures);
-    for (index, (label, result)) in input::resolve(&store, selectors).into_iter().enumerate() {
-        let result = result.and_then(|stash| {
-            store.verify(
-                &Selector::Id(stash.id()),
-                verify.work.parallelism,
-                |event| {
-                    progress.event(event);
-                    Ok(())
-                },
-            )
-        });
-        progress.clear();
-        match result {
-            Ok(stash) => stash::operation(
-                &mut out,
-                "verify",
-                Some(&stash),
-                &label,
-                "valid",
-                context.headers && index == 0,
-            )?,
-            Err(error) => {
-                query::report(&error, &mut failures);
-                stash::operation(
-                    &mut out,
-                    "verify",
-                    None,
-                    &label,
-                    "failed",
-                    context.headers && index == 0,
-                )?;
+    let mut printed = false;
+    while let Some(event) = stream.next().await {
+        match event? {
+            VerifyEvent::Progress(event) => progress.event(event),
+            VerifyEvent::HeadFailed(error) => {
+                progress.clear();
+                query::report(error, &mut failures);
+            }
+            VerifyEvent::Item { selector, result } => {
+                progress.clear();
+                let label = input::label(&selector);
+                match result {
+                    Ok(snapshot) => stash::operation(
+                        &mut out,
+                        "verify",
+                        Some(&snapshot),
+                        &label,
+                        "valid",
+                        context.headers && !printed,
+                    )?,
+                    Err(error) => {
+                        query::report(error, &mut failures);
+                        stash::operation(
+                            &mut out,
+                            "verify",
+                            None,
+                            &label,
+                            "failed",
+                            context.headers && !printed,
+                        )?;
+                    }
+                }
+                printed = true;
             }
         }
     }
+    progress.clear();
     ensure!(failures == 0, "{failures} stash checks failed");
     Ok(())
 }
