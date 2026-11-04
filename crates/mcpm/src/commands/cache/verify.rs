@@ -1,19 +1,13 @@
 //! Content-only batch verification with optional cleanup, progress and final statistics.
 
-use super::{
-    batch::{self, FailurePolicy, Parallelism},
-    input::Inputs,
-};
+use super::{batch::Parallelism, input::Inputs};
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use mcpm_lib::local::cache::{VerificationMode, hash::Blake3Hash, mods::ModsCacheSelection};
+use mcpm_backend::operations::cache::{ContentStatus, Verify, VerifyEvent, VerifyInput};
 use std::io::{self, Write};
 
 use crate::{
-    display::{
-        cache::operations::{self, RemovalSummary, VerificationSummary},
-        console::ConsoleWriter,
-    },
+    display::{cache::operations, console::ConsoleWriter},
     progress::Progress,
 };
 
@@ -37,84 +31,58 @@ pub(super) struct VerifyArgs {
     autoremove: bool,
 }
 
-impl VerifyArgs {
-    pub(super) fn autoremove(&self) -> bool {
-        self.autoremove
-    }
-}
-
-pub(super) fn run(
+pub(super) async fn run(
     args: VerifyArgs,
-    selection: ModsCacheSelection,
+    context: &super::Context,
     out: &mut impl Write,
-    headers: bool,
 ) -> Result<()> {
     let inputs = args.inputs.read()?;
-    let parallelism = args.parallelism.selected(inputs.is_all());
-    let cache = selection.open()?;
+    let parallelism = std::num::NonZeroUsize::new(args.parallelism.selected(inputs.is_all()))
+        .expect("positive parallelism");
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<Verify>(VerifyInput {
+            cache: context.cache.clone(),
+            selection: inputs.into(),
+            parallelism,
+            structure_only: args.structure_only,
+            autoremove: args.autoremove,
+        })
+        .await?;
     let progress = Progress::new("Selecting cache entries...", "Verifying cached mods");
-    let ids = inputs.resolve(&cache)?;
-    progress.set_total(ids.len());
-    let mode = if args.structure_only {
-        VerificationMode::Structure
-    } else {
-        VerificationMode::Content
-    };
     let mut first = true;
-    let mut summary = VerificationSummary {
-        removal: args.autoremove.then(RemovalSummary::default),
-        ..Default::default()
-    };
-    batch::run(
-        &ids,
-        parallelism,
-        FailurePolicy::Continue,
-        |id| {
-            cache
-                .verify(&id, mode)
-                .with_context(|| format!("failed to verify content {id}"))?
-                .ok_or_else(|| MissingContent(id).into())
-        },
-        |id, result| {
-            let status = match &result {
-                Ok(()) => "available",
-                Err(error) if error.is::<MissingContent>() => "not_found",
-                Err(_) => "unavailable",
-            };
-            match result {
-                Ok(()) => summary.available += 1,
-                Err(error) => {
-                    summary.failed += 1;
-                    progress.report(&error);
-                    if let Some(removal) = &mut summary.removal {
-                        match cache
-                            .remove(&id)
-                            .with_context(|| format!("failed to automatically remove {id}"))
-                        {
-                            Ok(true) => removal.removed += 1,
-                            Ok(false) => removal.absent += 1,
-                            Err(error) => {
-                                removal.failed += 1;
-                                progress.report(&error);
-                            }
-                        }
-                    }
+    let mut summary = None;
+    while let Some(event) = stream.next().await {
+        match event? {
+            VerifyEvent::Selected { total } => progress.set_total(total),
+            VerifyEvent::Item(item) => {
+                if let Some(error) = item.error {
+                    progress.report(&error.into_inner());
                 }
+                if let Some(Err(error)) = item.removal {
+                    progress.report(&error.into_inner());
+                }
+                if args.details || item.status != ContentStatus::Available {
+                    progress.suspend(|| -> Result<()> {
+                        operations::verification(
+                            out,
+                            item.id,
+                            item.status.as_str(),
+                            "",
+                            context.headers && first,
+                        )?;
+                        out.flush().context("failed to flush verification results")
+                    })?;
+                    first = false;
+                }
+                progress.advance();
             }
-            if args.details || status != "available" {
-                progress.suspend(|| -> Result<()> {
-                    operations::verification(out, id, status, "", headers && first)?;
-                    out.flush().context("failed to flush verification results")
-                })?;
-                first = false;
-            }
-            progress.advance();
-            Ok(())
-        },
-    )?;
-    out.flush()
-        .context("failed to flush verification results")?;
+            VerifyEvent::Finished(result) => summary = Some(result),
+        }
+    }
     drop(progress);
+    let summary = summary.context("cache verification ended without a summary")?;
     operations::verification_summary(&mut ConsoleWriter::new(&mut io::stderr().lock()), &summary)?;
     ensure!(
         summary.failed == 0,
@@ -123,7 +91,3 @@ pub(super) fn run(
     );
     Ok(())
 }
-
-#[derive(Debug, thiserror::Error)]
-#[error("cached content {0} does not exist")]
-struct MissingContent(Blake3Hash);

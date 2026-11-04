@@ -52,9 +52,14 @@ pub(crate) enum CommandOutcome {
 }
 
 pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandOutcome> {
-    if ssh.is_requested() && !matches!(command, Command::Mods(_) | Command::Server(_)) {
+    if ssh.is_requested()
+        && !matches!(
+            command,
+            Command::Mods(_) | Command::Server(_) | Command::Cache(_)
+        )
+    {
         anyhow::bail!(
-            "--ssh and --ssh-mcpm are currently supported only by {} mods list/info/deps/source identify and {} init/info/mods list/info/cache/deps/source",
+            "--ssh and --ssh-mcpmd are supported by {} cache (except refresh), mods list/info/deps/source identify and {} init/info/stash/mods list/info/cache/deps/source",
             crate::program::roots().tools,
             crate::program::roots().server
         );
@@ -68,7 +73,7 @@ pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandO
         Command::Debug(args) => debug::run(args),
         Command::Mods(args) => mods::run(args, ssh),
         Command::Client(args) => client::run(args),
-        Command::Cache(args) => cache::run(args),
+        Command::Cache(args) => cache::run(args, ssh),
         Command::Server(args) => return server::run(args, ssh),
     };
     result.map(|()| CommandOutcome::Completed)

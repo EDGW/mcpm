@@ -31,7 +31,6 @@ pub(super) fn run(
     batch::run(
         &ids,
         parallelism,
-        batch::FailurePolicy::Stop,
         |id| {
             cache
                 .refresh_metadata(id, &loaders, mode)

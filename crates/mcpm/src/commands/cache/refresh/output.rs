@@ -11,7 +11,6 @@ use mcpm_lib::{
     source::SourceId,
 };
 
-use super::super::entry;
 use crate::{
     display::{
         cache::{Entry, refresh},
@@ -19,6 +18,7 @@ use crate::{
     },
     terminal,
 };
+use mcpm_backend::operations::cache::{ReadOptions, observe};
 
 const SHORT_THRESHOLD: usize = 3;
 
@@ -93,8 +93,7 @@ impl<'a> Presentation<'a> {
                     .cache
                     .inspect(&id)
                     .with_context(|| format!("failed to inspect refreshed cache content {id}"))?;
-                let content =
-                    entry::observe(self.cache, id, Ok(inspection), &refresh::COLUMNS, false)?;
+                let content = observe(self.cache, id, Ok(inspection), ReadOptions::default())?;
                 let mut out = ConsoleWriter::new(self.out);
                 if self.written {
                     writeln!(out)?;

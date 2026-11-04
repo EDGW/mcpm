@@ -190,6 +190,16 @@ fn batch_refresh_and_queries_keep_content_and_named_metadata_independent() {
 }
 
 #[test]
+fn failed_query_preflight_does_not_emit_result_headers() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = root.path().join("missing-cache");
+    let output = batch(root.path(), &cache, &["info", "--all", "--headers"], "");
+    assert!(!output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    assert!(!cache.exists());
+}
+
+#[test]
 fn all_selection_rejects_mixed_inputs_and_includes_orphan_and_invalid_entries() {
     use mcpm_lib::local::cache::{
         CacheDir, CacheLinkPreference,
@@ -409,7 +419,23 @@ fn remove_all_deletes_content_and_orphan_metadata_through_cache_inventory() {
     fs::remove_file(cache.content_path(&orphan)).unwrap();
     assert_eq!(cache.scan().unwrap().len(), 2);
 
-    let removed = batch(root.path(), cache.path(), &["remove", "--all"], "");
+    let unconfirmed = batch(root.path(), cache.path(), &["remove", "--all"], "");
+    assert!(!unconfirmed.status.success(), "{unconfirmed:?}");
+    assert!(unconfirmed.stdout.is_empty(), "{unconfirmed:?}");
+    assert_eq!(
+        cache
+            .scan()
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.key)
+            .collect::<Vec<_>>(),
+        {
+            let mut ids = vec![content, orphan];
+            ids.sort();
+            ids
+        },
+    );
+    let removed = batch(root.path(), cache.path(), &["remove", "--all", "--yes"], "");
     assert!(removed.status.success(), "{removed:?}");
     let mut expected = [content, orphan];
     expected.sort();
@@ -422,7 +448,7 @@ fn remove_all_deletes_content_and_orphan_metadata_through_cache_inventory() {
     assert!(cache.scan().unwrap().is_empty());
     assert!(!cache.content_path(&content).exists());
 
-    let empty = batch(root.path(), cache.path(), &["remove", "--all"], "");
+    let empty = batch(root.path(), cache.path(), &["remove", "--all", "--yes"], "");
     assert!(empty.status.success(), "{empty:?}");
     assert!(empty.stdout.is_empty());
     let mixed = batch(

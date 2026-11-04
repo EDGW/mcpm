@@ -1,9 +1,10 @@
 //! Ordered export of one cached object's bytes to absent destination files.
 
 use crate::commands::cache_support::FileStrategy;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
-use mcpm_lib::local::cache::{hash::Blake3Hash, mods::ModsCacheSelection};
+use mcpm_backend::operations::cache::{Export, ExportInput};
+use mcpm_lib::local::cache::hash::Blake3Hash;
 use std::{io::Write, path::PathBuf};
 
 #[derive(Debug, Args)]
@@ -20,30 +21,33 @@ pub(super) struct ExportArgs {
     mode: FileStrategy,
 }
 
-impl ExportArgs {
-    pub(super) fn destinations(&self) -> &[PathBuf] {
-        &self.destinations
-    }
-}
-
-pub(super) fn run(
+pub(super) async fn run(
     args: ExportArgs,
-    selection: ModsCacheSelection,
+    context: &super::Context,
     out: &mut impl Write,
-    headers: bool,
 ) -> Result<()> {
-    let cache = selection.open()?;
-    for (index, path) in args.destinations.into_iter().enumerate() {
-        let method = cache
-            .export_file(&args.id, &path, args.mode.into())
-            .with_context(|| format!("failed to export {} to {path:?}", args.id))?;
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<Export>(ExportInput {
+            cache: context.cache.clone(),
+            id: args.id,
+            destinations: args.destinations,
+            mode: args.mode.into(),
+        })
+        .await?;
+    let mut first = true;
+    while let Some(receipt) = stream.next().await {
+        let receipt = receipt?;
         crate::display::cache::operations::exported(
             out,
-            args.id,
-            &path,
-            method,
-            headers && index == 0,
+            receipt.id,
+            &receipt.destination,
+            receipt.method.into(),
+            context.headers && first,
         )?;
+        out.flush()?;
+        first = false;
     }
     Ok(())
 }

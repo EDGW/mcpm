@@ -4,7 +4,7 @@ use std::io::Write;
 
 use anyhow::Result;
 use clap::ValueEnum;
-use mcpm_lib::local::cache::mods::{CacheStatus, CacheUnavailableReason};
+use mcpm_backend::operations::cache::{ContentStatus, MetadataState};
 
 use super::{
     console::ConsoleWriter,
@@ -13,10 +13,7 @@ use super::{
 };
 use crate::terminal;
 
-mod model;
-pub(crate) use model::{Entry, Metadata};
-mod notice;
-pub(crate) use notice::stash_protection_notice;
+pub(crate) use mcpm_backend::operations::cache::{Entry, Metadata};
 pub(crate) mod operations;
 pub(crate) mod refresh;
 pub(crate) mod write;
@@ -93,7 +90,7 @@ pub(crate) fn list_entry(out: &mut impl Write, entry: &Entry, columns: &[Column]
                 Column::File => entry.file.to_string_lossy().into_owned(),
                 Column::Size => entry.size.map(|size| size.to_string()).unwrap_or_default(),
                 Column::Sha256 => entry.sha256.clone().unwrap_or_default(),
-                Column::Status => entry.status.to_owned(),
+                Column::Status => entry.status.as_str().into(),
                 Column::Metadatas => entry
                     .metadatas
                     .iter()
@@ -130,7 +127,7 @@ fn write_single(out: &mut ConsoleWriter<'_>, entry: &Entry, column: Column) -> R
             "{}",
             style.muted(entry.sha256.as_deref().unwrap_or(""))
         )?,
-        Column::Status => writeln!(out, "{}", entry.status)?,
+        Column::Status => writeln!(out, "{}", entry.status.as_str())?,
         Column::Metadatas => write_metadatas(out, entry)?,
     }
     Ok(())
@@ -178,10 +175,10 @@ fn write_console(out: &mut ConsoleWriter<'_>, entry: &Entry, columns: &[Column])
                 ))
             )?,
             Column::Status => {
-                let status = if entry.status == "available" {
-                    style.success(entry.status)
+                let status = if entry.status == ContentStatus::Available {
+                    style.success(entry.status.as_str())
                 } else {
-                    style.warning(entry.status)
+                    style.warning(entry.status.as_str())
                 };
                 writeln!(out, "{}{status}", style.muted("Status: "))?;
                 if let Some(reason) = &entry.reason {
@@ -209,35 +206,41 @@ fn write_metadatas(out: &mut ConsoleWriter<'_>, entry: &Entry) -> Result<()> {
         let mut details = out.subwriter();
         match metadata {
             Metadata::Meta(meta) => {
-                let (status, reason) = state(meta.status());
+                let (status, reason) = state(&meta.state);
                 writeln!(details, "{status}")?;
                 if let Some(reason) = reason {
                     writeln!(details, "{}", style.muted(text(reason)))?;
                 }
-                if meta.status() == &CacheStatus::Available
-                    && let Some(digest) = meta.digest()
-                {
-                    for (loader, result) in digest.identifications() {
-                        mod_meta::write(
-                            &mut details,
-                            &entry.file,
-                            mod_meta::View::cached(loader, result),
-                        )?;
-                    }
+                for (loader, result) in &meta.identifications {
+                    let result = match result {
+                        Some(meta) => {
+                            mcpm_lib::local::cache::mods::meta::CachedIdentification::Recognized(
+                                meta,
+                            )
+                        }
+                        None => {
+                            mcpm_lib::local::cache::mods::meta::CachedIdentification::Unrecognized
+                        }
+                    };
+                    mod_meta::write(
+                        &mut details,
+                        &entry.file,
+                        mod_meta::View::cached(loader, result),
+                    )?;
                 }
             }
             Metadata::Ident(info) => {
-                let (status, reason) = state(info.status());
+                let (status, reason) = state(&info.state);
                 writeln!(details, "{status}")?;
                 if let Some(reason) = reason {
                     writeln!(details, "{}", style.muted(text(reason)))?;
                 }
-                for (source, file) in info.matches() {
+                for (source, file) in &info.matches {
                     writeln!(details)?;
                     source_match::View::new(
                         0,
                         &entry.file,
-                        &mcpm_lib::source::SourceId(source.into()),
+                        &mcpm_lib::source::SourceId(source.clone()),
                         Some(file),
                     )
                     .write_console(
@@ -259,17 +262,6 @@ fn write_metadatas(out: &mut ConsoleWriter<'_>, entry: &Entry) -> Result<()> {
     Ok(())
 }
 
-fn state(status: &CacheStatus) -> (&'static str, Option<&str>) {
-    match status {
-        CacheStatus::Available => ("available", None),
-        CacheStatus::NotFound => ("not_found", None),
-        CacheStatus::Unavailable(reason) => (
-            "unavailable",
-            Some(match reason {
-                CacheUnavailableReason::MissingDigest => "missing_digest",
-                CacheUnavailableReason::InvalidData => "invalid_data",
-                CacheUnavailableReason::UnexpectedError(_) => "unexpected_error",
-            }),
-        ),
-    }
+fn state(state: &MetadataState) -> (&'static str, Option<&str>) {
+    (state.status.as_str(), state.reason.as_deref())
 }

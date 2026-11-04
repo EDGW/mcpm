@@ -66,3 +66,12 @@ impl Selection {
         }
     }
 }
+
+impl From<Selection> for mcpm_backend::operations::cache::Selection {
+    fn from(selection: Selection) -> Self {
+        match selection {
+            Selection::Ids(ids) => Self::Ids(ids),
+            Selection::All => Self::All,
+        }
+    }
+}

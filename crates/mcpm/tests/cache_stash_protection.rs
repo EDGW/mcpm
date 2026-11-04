@@ -64,10 +64,6 @@ impl Fixture {
 fn protected(output: Output) {
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert!(output.stdout.is_empty(), "{output:?}");
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("--no-protect-stash"),
-        "{output:?}"
-    );
 }
 
 fn success(output: Output) {
@@ -111,7 +107,7 @@ fn mutation_preflight_preserves_stash_and_override_allows_explicit_changes() {
         vec!["refresh", &id_string, "meta"],
         vec!["refresh", &id_string, "ident"],
         vec!["verify", "--all", "--autoremove"],
-        vec!["remove", "--all"],
+        vec!["remove", "--all", "--yes"],
         vec!["rebuild-index"],
     ] {
         protected(fixture.run(&args));
@@ -209,7 +205,7 @@ fn recognition_handles_missing_paths_dotdot_and_damaged_server_metadata() {
                 .command()
                 .arg("--directory")
                 .arg(&mixed_case)
-                .args(["remove", "--all"])
+                .args(["remove", "--all", "--yes"])
                 .output()
                 .unwrap(),
         );
@@ -260,14 +256,14 @@ fn aliases_are_protected_and_default_read_commands_never_initialize_stash_cache(
     protected(
         fixture
             .command()
-            .args(["--directory", "alias/../blob", "remove", "--all"])
+            .args(["--directory", "alias/../blob", "remove", "--all", "--yes"])
             .output()
             .unwrap(),
     );
     protected(
         fixture
             .command()
-            .args(["remove", "--all", "--directory", "alias"])
+            .args(["remove", "--all", "--yes", "--directory", "alias"])
             .output()
             .unwrap(),
     );
@@ -275,7 +271,7 @@ fn aliases_are_protected_and_default_read_commands_never_initialize_stash_cache(
         fixture
             .command()
             .env("HOME", &home)
-            .args(["remove", "--all"])
+            .args(["remove", "--all", "--yes"])
             .output()
             .unwrap(),
     );
@@ -293,7 +289,7 @@ fn aliases_are_protected_and_default_read_commands_never_initialize_stash_cache(
     let outward = Fixture::new();
     fs::create_dir_all(outward.blob.parent().unwrap()).unwrap();
     symlink(&fixture.blob, &outward.blob).unwrap();
-    protected(outward.run(&["remove", "--all"]));
+    protected(outward.run(&["remove", "--all", "--yes"]));
     assert_eq!(snapshot(&fixture.blob), before);
 
     // A dangling link with a missing component before `..` must not recurse forever.

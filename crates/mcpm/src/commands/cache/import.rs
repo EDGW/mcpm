@@ -1,9 +1,9 @@
 //! Ordered content import; no Mod metadata is read, calculated or published.
 
 use crate::commands::cache_support::FileStrategy;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
-use mcpm_lib::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::operations::cache::{Import, ImportInput};
 use std::{io::Write, path::PathBuf};
 
 #[derive(Debug, Args)]
@@ -18,23 +18,35 @@ pub(super) struct ImportArgs {
     mode: FileStrategy,
 }
 
-pub(super) fn run(
+pub(super) async fn run(
     args: ImportArgs,
-    selection: ModsCacheSelection,
+    context: &super::Context,
     out: &mut impl Write,
-    headers: bool,
 ) -> Result<()> {
-    let cache = selection.open()?;
-    for (index, path) in args.paths.into_iter().enumerate() {
-        let outcome = cache
-            .import_with_outcome(&path, args.mode.into())
-            .with_context(|| format!("failed to import {path:?}"))?;
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<Import>(ImportInput {
+            cache: context.cache.clone(),
+            paths: args.paths,
+            mode: args.mode.into(),
+        })
+        .await?;
+    let mut first = true;
+    while let Some(receipt) = stream.next().await {
+        let receipt = receipt?;
         crate::display::cache::operations::imported(
             out,
-            &cache.content_path(&outcome.key),
-            outcome,
-            headers && index == 0,
+            &receipt.file,
+            mcpm_lib::local::cache::ImportOutcome {
+                key: receipt.id,
+                published: receipt.published,
+                method: receipt.method.map(Into::into),
+            },
+            context.headers && first,
         )?;
+        out.flush()?;
+        first = false;
     }
     Ok(())
 }
