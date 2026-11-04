@@ -14,5 +14,13 @@ pub fn registry() -> Result<Registry> {
     registry.register::<server::init::RecognizeServer>()?;
     registry.register::<server::init::Init>()?;
     registry.register::<server::init::prepare_remote::PrepareRemote>()?;
+    registry.register::<server::stash::Create>()?;
+    registry.register::<server::stash::Switch>()?;
+    registry.register::<server::stash::Status>()?;
+    registry.register::<server::stash::List>()?;
+    registry.register::<server::stash::Info>()?;
+    registry.register::<server::stash::Rename>()?;
+    registry.register::<server::stash::Delete>()?;
+    registry.register::<server::stash::Verify>()?;
     Ok(registry)
 }
