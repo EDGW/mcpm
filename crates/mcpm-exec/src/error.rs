@@ -13,6 +13,11 @@ use serde::{Deserialize, Serialize};
 pub struct PortableError(anyhow::Error);
 
 impl PortableError {
+    /// Borrow the original local error or its restored remote error tree.
+    pub fn as_inner(&self) -> &anyhow::Error {
+        &self.0
+    }
+
     /// Returns the original local error or the restored, marked remote error.
     pub fn into_inner(self) -> anyhow::Error {
         self.0

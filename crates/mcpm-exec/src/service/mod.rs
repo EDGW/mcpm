@@ -6,21 +6,29 @@ use crate::{
     operation::{self, Operation},
 };
 use anyhow::Result;
+use std::sync::Arc;
 
 pub mod control;
 mod link;
 
 /// One flow's execution session; all remote calls share one IPC connection.
+#[derive(Clone)]
 pub struct Executor {
     inner: Inner,
 }
 
+#[derive(Clone)]
 enum Inner {
     Local,
-    Remote(Session),
+    Remote(Arc<Session>),
 }
 
 impl Executor {
+    /// Whether Host operations in this flow execute on a remote daemon.
+    pub fn is_remote(&self) -> bool {
+        matches!(self.inner, Inner::Remote(_))
+    }
+
     pub async fn open(target: Target) -> Result<Self> {
         Self::open_with_idle_timeout(target, 600).await
     }
@@ -30,7 +38,7 @@ impl Executor {
         let inner = match target {
             Target::Local => Inner::Local,
             Target::Remote(connection) => {
-                Inner::Remote(link::open(&connection, idle_timeout).await?)
+                Inner::Remote(Arc::new(link::open(&connection, idle_timeout).await?))
             }
         };
         Ok(Self { inner })

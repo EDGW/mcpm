@@ -16,7 +16,7 @@ use uuid::Uuid;
 ///
 /// `id` is the channel GUID. A frame without a body is only valid when it finishes the channel,
 /// and only a finishing frame may abort it.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub(crate) struct Frame {
     pub id: Uuid,
     #[serde(default, skip_serializing_if = "Flags::is_empty")]
@@ -27,6 +27,16 @@ pub(crate) struct Frame {
         deserialize_with = "present"
     )]
     pub body: Option<Value>,
+}
+
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Frame")
+            .field("id", &self.id)
+            .field("flags", &self.flags)
+            .field("has_body", &self.body.is_some())
+            .finish()
+    }
 }
 
 impl Frame {
@@ -157,5 +167,21 @@ impl<'de> Deserialize<'de> for Flags {
         }
 
         deserializer.deserialize_seq(FlagsVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_never_exposes_nested_untyped_payloads() {
+        let frame = Frame::message(
+            Uuid::nil(),
+            serde_json::json!({"nested": [{"key": "PRIVATE_PAYLOAD_SENTINEL"}]}),
+        );
+        for rendered in [format!("{frame:?}"), format!("{frame:#?}")] {
+            assert!(!rendered.contains("PRIVATE_PAYLOAD_SENTINEL"));
+        }
     }
 }

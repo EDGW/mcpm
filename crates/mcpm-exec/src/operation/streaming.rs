@@ -187,6 +187,15 @@ pub struct StreamSender<T> {
 }
 
 impl<T> StreamSender<T> {
+    /// Checks cancellation without producing an item or changing progress.
+    pub fn checkpoint(&self) -> Result<(), StreamClosed> {
+        if self.items.is_closed() {
+            Err(StreamClosed)
+        } else {
+            Ok(())
+        }
+    }
+
     /// Sends one item, waiting while the buffer is full. Fails once the consumer is gone.
     pub async fn send(&self, item: T) -> Result<(), StreamClosed> {
         self.items.send(Ok(item)).await.map_err(|_| StreamClosed)

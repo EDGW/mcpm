@@ -6,6 +6,7 @@
 // Imports
 
 use std::borrow::Cow;
+use std::fmt;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -16,11 +17,19 @@ use crate::error::ErrorReport;
 use crate::messaging::Channel;
 
 /// First message of an operation channel, sent by the caller.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Request {
     pub op: Cow<'static, str>,
     pub input: Value,
+}
+
+impl fmt::Debug for Request {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Request")
+            .field("op", &self.op)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Request {
@@ -38,11 +47,20 @@ impl Request {
 }
 
 /// First reply of an operation channel, sent by the executing side.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "lowercase", deny_unknown_fields)]
 pub(crate) enum Response {
     Ok(Value),
     Error(ErrorReport),
+}
+
+impl fmt::Debug for Response {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ok(_) => f.debug_tuple("Ok").finish_non_exhaustive(),
+            Self::Error(error) => f.debug_tuple("Error").field(error).finish(),
+        }
+    }
 }
 
 impl Response {
@@ -97,6 +115,29 @@ impl Reply {
                 self.fail(&error)?;
                 Err(error)
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn envelope_debug_does_not_expose_serialized_credentials() {
+        let input = serde_json::json!({"source": "curseforge@PRIVATE_ENVELOPE_SENTINEL"});
+        let request = Request {
+            op: Cow::Borrowed("mod.source.search"),
+            input: input.clone(),
+        };
+        let response = Response::Ok(input);
+        for rendered in [
+            format!("{request:?}"),
+            format!("{request:#?}"),
+            format!("{response:?}"),
+            format!("{response:#?}"),
+        ] {
+            assert!(!rendered.contains("PRIVATE_ENVELOPE_SENTINEL"));
         }
     }
 }
