@@ -5,6 +5,7 @@ pub(crate) mod build_info;
 pub(crate) mod cache;
 pub(crate) mod console;
 pub(crate) mod dependency;
+pub(crate) mod digest;
 pub(crate) mod error;
 pub(crate) mod mod_meta;
 pub(crate) mod size;

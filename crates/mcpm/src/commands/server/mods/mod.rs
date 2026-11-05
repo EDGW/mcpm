@@ -7,6 +7,7 @@ mod cache;
 mod check;
 mod dep_graph;
 mod deps;
+mod digest;
 mod graph_input;
 mod info;
 mod input;
@@ -34,6 +35,8 @@ enum ModsCommand {
     Info(info::InfoArgs),
     /// Show direct dependency declarations from server mod files.
     Deps(deps::DepsArgs),
+    /// Compute file size and digests for selected server mod archives (Console, Raw).
+    Digest(digest::DigestArgs),
     /// Search remote sources, browse compatible files, and identify server mods.
     Source(source::SourceArgs),
 }
@@ -46,6 +49,7 @@ pub(super) fn run(args: ModsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         ModsCommand::List(args) => list::run(args, ssh),
         ModsCommand::Info(args) => info::run(args, ssh),
         ModsCommand::Deps(args) => deps::run(args, ssh),
+        ModsCommand::Digest(args) => digest::run(args, ssh),
         ModsCommand::Source(args) => source::run(args, ssh),
     }
 }

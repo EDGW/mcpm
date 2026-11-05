@@ -2,6 +2,7 @@
 
 pub(in crate::commands) mod cache;
 pub(in crate::commands) mod dep_graph;
+pub(in crate::commands) mod digest;
 pub(in crate::commands) mod ignored_output;
 pub(in crate::commands) mod inspect;
 pub(in crate::commands) mod list;
