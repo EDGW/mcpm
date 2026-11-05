@@ -1,42 +1,25 @@
-//! Shared inspection acquisition, data and local presentation for file and server commands.
+//! Shared metadata and dependency presentation over Host inspection operations.
 
-use mcpm_lib::local::runtime::RuntimeEnvironment;
-use std::{
-    collections::HashMap,
-    io::{self, Write},
-};
-
+use super::source_path::PathArgs;
 use anyhow::{Context, Result};
-use mcpm_lib::local::modloader::{LoaderId, ModLoaderMeta};
-
-use super::{
-    selection::{Scope, Selection},
-    source_path::PathArgs,
+use mcpm_backend::operations::mods::{
+    self,
+    loading::inspection::{Event, File, Input, Validator},
 };
+use std::io::{self, Write};
 
 mod deps;
 mod info;
-mod load;
 mod loading;
-mod model;
 mod output;
-mod remote;
-pub(in crate::commands) use output::Presentation;
-pub(in crate::commands) use remote::run_ssh;
-mod validation;
-pub(in crate::commands) use validation::Validator;
-
-pub(in crate::commands) use load::load;
 pub(in crate::commands) use loading::LoadingArgs;
-pub(in crate::commands) use model::{Event, File};
+use output::Presentation;
 
-/// Selects the presentation without changing identification or input semantics.
 #[derive(Clone, Copy)]
 pub(in crate::commands) enum Display<'a> {
     Info,
     Dependencies(&'a PathArgs),
 }
-
 impl Display<'_> {
     fn description(self) -> &'static str {
         match self {
@@ -46,34 +29,27 @@ impl Display<'_> {
     }
 }
 
-/// The local frontend consumes the same acquisition events as the SSH frontend.
-#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(in crate::commands) fn run(
-    selection: Selection,
-    scope: Scope,
-    loaders: HashMap<LoaderId, ModLoaderMeta>,
-    hide_unrecognized: bool,
-    environment: &RuntimeEnvironment,
-    loading: impl Into<super::scan::Options>,
+    mut input: Input,
     display: Display<'_>,
+    ssh: crate::ssh::SshArgs,
 ) -> Result<()> {
-    let mut presentation = Presentation::new(display, false);
-    let mut validator = Validator::default();
-    load(
-        selection,
-        scope,
-        loaders,
-        hide_unrecognized,
-        environment,
-        loading,
-        || Ok(()),
-        |event| {
+    crate::commands::execution::Runtime::new()?.block_on(async {
+        let executor = super::target::executor(&mut input.scope, ssh).await?;
+        let mut stream = match display {
+            Display::Info => executor.call::<mods::info::Info>(input).await?,
+            Display::Dependencies(_) => executor.call::<mods::deps::Deps>(input).await?,
+        };
+        let mut presentation = Presentation::new(display, executor.is_remote());
+        let mut validator = Validator::default();
+        while let Some(event) = stream.next().await {
+            let event = event?;
             validator.accept(&event)?;
-            presentation.event(event)
-        },
-    )?;
-    validator.finish()?;
-    presentation.finish()
+            presentation.event(event)?;
+        }
+        validator.finish()?;
+        presentation.finish()
+    })
 }
 
 /// Empty selection succeeds without scanning; interactive users receive guidance.

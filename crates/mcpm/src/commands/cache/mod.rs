@@ -1,4 +1,4 @@
-//! Cache CLI flows over Executor; metadata refresh retains its local-only execution path.
+//! Cache CLI flows over Executor; file operations and provider requests run on Host.
 
 use std::{
     io::{self, Write},
@@ -29,7 +29,7 @@ mod verify;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Modes: Console and Raw (--raw or redirected stdout). Raw list, info and simple operations use TSV; refresh succeeds silently.\n\nDefault directory: ~/.mcpm/cache/mods on the selected host. --ssh selects remote cache management; refresh meta/ident remain local only. Import and export paths belong to the selected host, not the calling computer. Import stores content only; info/list read saved metadata without identifying or requesting providers. Verify checks content only. Exports never overwrite or create parent directories. No automatic eviction.\n\nCommands that modify a server stash cache are refused, including verify --autoremove. Do not manage stash caches manually: snapshots depend on their contents. --no-protect-stash bypasses this protection. Read-only list, info, verify and exports outside stash caches remain available. remove --all requires confirmation; use --yes in Raw or non-interactive mode."
+    after_help = "Modes: Console and Raw (--raw or redirected stdout). Raw list, info and simple operations use TSV; refresh succeeds silently.\n\nDefault directory: ~/.mcpm/cache/mods on the selected host. --ssh selects remote cache management, including metadata refresh and provider requests. Import and export paths belong to the selected host, not the calling computer. Import stores content only; info/list read saved metadata without identifying or requesting providers. Verify checks content only. Exports never overwrite or create parent directories. No automatic eviction.\n\nCommands that modify a server stash cache are refused, including verify --autoremove. Do not manage stash caches manually: snapshots depend on their contents. --no-protect-stash bypasses this protection. Read-only list, info, verify and exports outside stash caches remain available. remove --all requires confirmation; use --yes in Raw or non-interactive mode."
 )]
 pub(crate) struct CacheArgs {
     /// Cache root; explicit directories must already be initialized.
@@ -73,23 +73,7 @@ pub(crate) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
         None => ModsCacheSelection::Default,
     };
     let mut out = io::stdout().lock();
-    let command = match args.command {
-        Command::Refresh(refresh) => {
-            anyhow::ensure!(
-                !ssh.is_requested(),
-                "cache refresh meta/ident are local only; --ssh is not supported"
-            );
-            let selection = mcpm_backend::operations::cache::check_protection(
-                selection,
-                true,
-                &[],
-                args.no_protect_stash,
-            )?;
-            refresh::run(refresh, selection, &mut out)?;
-            return out.flush().map_err(Into::into);
-        }
-        command => command,
-    };
+    let command = args.command;
     let target = if ssh.is_requested() {
         match ssh.destination() {
             Some(destination) => format!(
@@ -121,7 +105,7 @@ pub(crate) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
             Command::Export(args) => export::run(args, &context, &mut out).await?,
             Command::Remove(args) => remove::run(args, &context, &mut out).await?,
             Command::RebuildIndex => rebuild_index::run(&context, &mut out).await?,
-            Command::Refresh(_) => unreachable!("refresh was dispatched before opening a runtime"),
+            Command::Refresh(args) => refresh::run(args, &context, &mut out).await?,
         }
         out.flush().map_err(Into::into)
     })

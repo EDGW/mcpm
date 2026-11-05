@@ -35,6 +35,23 @@ fn fields_override_defaults_and_star_clears_each_filter_independently() {
     let query = Expression::parse("").unwrap().apply(&defaults);
     assert_eq!(query.game_versions, defaults.game_versions);
     assert_eq!(query.loaders, defaults.loaders);
+    let server = mcpm_backend::operations::mods::source::server::Context {
+        path: ".".into(),
+        default_version: true,
+        default_loader: true,
+    };
+    for (expression, expected) in [
+        ("", (true, true)),
+        ("@version *", (false, true)),
+        ("@loader *", (true, false)),
+        ("@version 1.21.1 @loader *", (false, false)),
+    ] {
+        let context = Expression::parse(expression)
+            .unwrap()
+            .server_context(Some(&server))
+            .unwrap();
+        assert_eq!((context.default_version, context.default_loader), expected);
+    }
 }
 
 #[test]

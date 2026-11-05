@@ -154,6 +154,12 @@ impl<T> Progress<T> {
     }
     fn emit(&mut self, event: backup::Event) -> Result<()> {
         let event = match event {
+            backup::Event::BeforeCommit => {
+                return self.sender.checkpoint().map_err(|error| {
+                    self.closed = true;
+                    error.into()
+                });
+            }
             backup::Event::Progress {
                 stage,
                 completed,

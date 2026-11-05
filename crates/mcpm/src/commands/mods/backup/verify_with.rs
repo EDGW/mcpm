@@ -4,7 +4,9 @@ use std::{collections::HashSet, io, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use clap::{Args, ValueEnum};
-use mcpm_lib::local::mcmod::backup::{self, Comparison, DirectoryChecksum};
+use mcpm_backend::operations::mods::backup::{
+    Target, VerifyWith, VerifyWithEvent, VerifyWithInput,
+};
 
 use super::DisplayArgs;
 use crate::{
@@ -42,48 +44,48 @@ pub(super) struct VerifyWithArgs {
     display: DisplayArgs,
 }
 
-pub(super) fn run(args: VerifyWithArgs) -> Result<()> {
+pub(super) async fn run(args: VerifyWithArgs, context: &super::Context) -> Result<()> {
     let targets = targets(&args)?;
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<VerifyWith>(VerifyWithInput {
+            directory: args.directory.clone(),
+            targets,
+            parallelism: args.parallelism,
+        })
+        .await?;
     let mut display = Presentation::new(
         io::stdout().lock(),
         args.display.details,
         args.display.headers,
     );
-    let computed = backup::checksum(&args.directory, args.parallelism, |event| {
-        display.event(event)
-    })
-    .with_context(|| {
-        format!(
-            "failed to compute directory checksum for {:?}",
-            args.directory
-        )
-    });
-    let mut failed = 0_usize;
-    let mut mismatched = 0_usize;
-    for target in targets {
-        let result = computed
-            .as_ref()
-            .ok()
-            .map(|computed| target.compare(computed));
-        display.compared(
-            (target.kind(), &target.value()),
-            &args.directory,
-            computed.as_ref().ok(),
-            result.as_ref().and_then(|result| result.as_ref().ok()),
-        )?;
-        match result {
-            Some(Ok(comparison)) if !comparison.matches() => mismatched += 1,
-            Some(Err(error)) => {
-                failed += 1;
-                crate::diagnostics::error(&error);
+    let mut computed = None;
+    let mut summary = None;
+    while let Some(event) = stream.next().await {
+        match event? {
+            VerifyWithEvent::Progress(event) => display.event(event.into())?,
+            VerifyWithEvent::Computed(result) => computed = result,
+            VerifyWithEvent::Item { target, result } => {
+                display.compared(
+                    (target.kind(), &target.value()),
+                    &args.directory,
+                    computed.as_ref(),
+                    result.as_ref().and_then(|result| result.as_ref().ok()),
+                )?;
+                if let Some(Err(error)) = result {
+                    crate::diagnostics::error(&error.into_inner());
+                }
             }
-            None => failed += 1,
-            Some(Ok(_)) => {}
+            VerifyWithEvent::ComputationFailed(error) => {
+                crate::diagnostics::error(&error.into_inner())
+            }
+            VerifyWithEvent::Finished { failed, mismatched } => {
+                summary = Some((failed, mismatched))
+            }
         }
     }
-    if let Err(error) = computed {
-        crate::diagnostics::error(&error);
-    }
+    let (failed, mismatched) = summary.context("backup comparison ended without a summary")?;
     ensure!(
         failed == 0 && mismatched == 0,
         "{mismatched} targets did not match; {failed} targets could not be compared"
@@ -129,39 +131,4 @@ fn targets(args: &VerifyWithArgs) -> Result<Vec<Target>> {
 enum InputType {
     Backup,
     Checksum,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum Target {
-    Backup(PathBuf),
-    Checksum(String),
-}
-
-impl Target {
-    fn compare(&self, computed: &DirectoryChecksum) -> Result<Comparison> {
-        match self {
-            Self::Backup(path) => computed
-                .compare_with_backup(path)
-                .with_context(|| format!("failed to compare with backup {path:?}")),
-            Self::Checksum(value) => Ok(computed.compare_checksum(
-                value
-                    .parse()
-                    .with_context(|| format!("invalid expected checksum {value:?}"))?,
-            )),
-        }
-    }
-
-    fn kind(&self) -> &'static str {
-        match self {
-            Self::Backup(_) => "backup",
-            Self::Checksum(_) => "checksum",
-        }
-    }
-
-    fn value(&self) -> String {
-        match self {
-            Self::Backup(path) => path.to_string_lossy().into_owned(),
-            Self::Checksum(value) => value.clone(),
-        }
-    }
 }

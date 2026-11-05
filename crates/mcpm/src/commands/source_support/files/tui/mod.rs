@@ -1,5 +1,6 @@
 //! Remote file browsing with shared list/detail widgets and cancellable pagination.
 
+use super::super::config;
 use super::super::request;
 use crate::{
     display::style::text,
@@ -8,7 +9,11 @@ use crate::{
 };
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyEventKind};
-use mcpm_lib::source::{FilePage, FileQuery, FileRef, ProjectFile, ProjectRef, Source};
+use mcpm_backend::operations::mods::source::{
+    Configuration, files::Project, server::Context as ServerContext,
+};
+use mcpm_exec::service::Executor;
+use mcpm_lib::source::{FilePage, FileQuery, FileRef, ProjectFile, ProjectRef};
 use ratatui::{layout::Rect, widgets::TableState};
 use std::{io, time::Duration};
 use tokio::runtime::Runtime;
@@ -19,18 +24,22 @@ mod tests;
 mod view;
 
 pub(in crate::commands::source_support) fn run(
-    source: &dyn Source,
+    executor: &Executor,
+    source: &Configuration,
     runtime: &Runtime,
     query: FileQuery,
     projects: Vec<(String, ProjectRef, FilePage)>,
     selected_file: Option<ProjectFile>,
+    server: Option<&ServerContext>,
 ) -> Result<()> {
     browse(
+        executor,
         source,
         runtime,
         query,
         projects,
         selected_file,
+        server,
         Screen::new()?,
     )
 }
@@ -38,10 +47,11 @@ pub(in crate::commands::source_support) fn run(
 /// Opens an identified publication without resolving its already canonical project.
 pub(in crate::commands) fn open_selected(
     runtime: &Runtime,
+    executor: &Executor,
+    source: &Configuration,
     reference: &FileRef,
     loaders: &[String],
 ) -> Result<()> {
-    let source = super::super::build_source(&reference.project.source.0)?;
     let query = FileQuery {
         loaders: loaders.to_vec(),
         ..Default::default()
@@ -49,11 +59,14 @@ pub(in crate::commands) fn open_selected(
     let mut screen = Screen::new()?;
     let result = request::wait(
         runtime,
-        async {
-            let selected = source.get_file(reference).await?;
-            let page = source.list_files(&reference.project, &query).await?;
-            Ok((selected, page))
-        },
+        config::files(
+            executor,
+            source,
+            Project::Known(reference.project.clone()),
+            &query,
+            Some(reference.id.0.clone()),
+            None,
+        ),
         "Fetching selected file and project files...",
         |status| {
             screen.terminal.draw(|frame| {
@@ -62,17 +75,19 @@ pub(in crate::commands) fn open_selected(
             Ok(())
         },
     )?;
-    if let Some((selected, page)) = result {
+    if let Some(result) = result {
         browse(
-            source.as_ref(),
+            executor,
+            source,
             runtime,
             query,
             vec![(
                 reference.project.id.0.clone(),
                 reference.project.clone(),
-                page,
+                result.page,
             )],
-            Some(selected),
+            result.selected,
+            None,
             screen,
         )?;
     }
@@ -191,11 +206,13 @@ impl Browser {
 }
 
 fn browse(
-    source: &dyn Source,
+    executor: &Executor,
+    source: &Configuration,
     runtime: &Runtime,
     mut query: FileQuery,
     mut projects: Vec<(String, ProjectRef, FilePage)>,
     selected_file: Option<ProjectFile>,
+    server: Option<&ServerContext>,
     mut screen: Screen,
 ) -> Result<()> {
     let mut current = 0;
@@ -268,7 +285,7 @@ fn browse(
         let backwards = offset < page.offset;
         match request::wait(
             runtime,
-            source.list_files(reference, &pending),
+            config::file_page(executor, source, reference, &pending, server),
             "Fetching files...",
             |loading| {
                 browser.status = Some((loading.to_owned(), Role::Muted).into());

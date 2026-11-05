@@ -1,66 +1,64 @@
-//! Builds graph snapshots and registers optionally versioned external components.
+//! Calls Host graph construction and writes the exported artifact on the caller.
 
+use super::selector::ExternalSelector;
+use crate::progress::Progress;
+use anyhow::{Context, Result};
+use clap::Args;
+use mcpm_backend::operations::mods::{
+    dep_graph::{
+        Build, BuildEvent, BuildInput, BuildOutput, ExternalInput, Identifier, write_export,
+    },
+    loading::ScopeInput,
+};
+use mcpm_exec::service::Executor;
 use std::{
-    collections::{HashMap, HashSet},
     fs::File,
     io::{self, BufWriter, Write},
     path::PathBuf,
 };
 
-use anyhow::{Context, Result};
-use clap::Args;
-use mcpm_lib::local::{
-    mcmod::{
-        ModDirectory,
-        dependency::graph::{DependencyGraph, build, candidate::ExternalCandidate, storage},
-    },
-    modloader::{LoaderId, ModLoaderMeta},
-};
-
-use super::selector::ExternalSelector;
-use crate::progress::Progress;
-
 #[derive(Args, Debug)]
 pub(in crate::commands) struct BuildOptions {
-    /// Write JSON to this file instead of stdout; overwrite an existing file.
+    /// Write JSON to this local file instead of stdout; overwrite an existing file.
     #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
     /// Add an external candidate as loader:modid[:version]; repeat to add more.
     #[arg(long, value_name = "LOADER:MODID[:VERSION]")]
     external: Vec<ExternalSelector>,
 }
-
 impl BuildOptions {
-    pub(in crate::commands) fn run(
+    pub(in crate::commands) async fn run(
         self,
-        directory: &ModDirectory,
-        loaders: &HashMap<LoaderId, ModLoaderMeta>,
-        external: impl IntoIterator<Item = ExternalCandidate>,
+        scope: ScopeInput,
+        executor: &Executor,
     ) -> Result<()> {
-        let external = external
-            .into_iter()
-            .chain(
-                self.external
+        let graph = build_graph(
+            executor,
+            BuildInput {
+                scope,
+                external: self
+                    .external
                     .into_iter()
-                    .map(|candidate| ExternalCandidate {
-                        identifier: candidate.identifier,
+                    .map(|candidate| ExternalInput {
+                        identifier: Identifier::from(&candidate.identifier),
                         version: candidate.version,
-                    }),
-            );
-        let graph = build_graph(directory, loaders, external)?;
-
+                    })
+                    .collect(),
+            },
+        )
+        .await?;
         if let Some(path) = self.output {
             let file = File::create(&path)
                 .with_context(|| format!("failed to create dependency graph output {path:?}"))?;
             let mut output = BufWriter::new(file);
-            storage::write_json(&graph, &mut output)
+            write_export(&graph.snapshot, &mut output)
                 .with_context(|| format!("failed to write dependency graph to {path:?}"))?;
             output
                 .flush()
                 .with_context(|| format!("failed to flush dependency graph output {path:?}"))?;
         } else {
             let mut output = io::stdout().lock();
-            storage::write_json(&graph, &mut output)
+            write_export(&graph.snapshot, &mut output)
                 .context("failed to write dependency graph to stdout")?;
             output
                 .flush()
@@ -69,36 +67,24 @@ impl BuildOptions {
         Ok(())
     }
 }
-
-/// Builds a graph and deduplicates automatic and manually supplied externals together.
-pub(in crate::commands) fn build_graph(
-    directory: &ModDirectory,
-    loaders: &HashMap<LoaderId, ModLoaderMeta>,
-    external: impl IntoIterator<Item = ExternalCandidate>,
-) -> Result<DependencyGraph> {
+pub(in crate::commands) async fn build_graph(
+    executor: &Executor,
+    input: BuildInput,
+) -> Result<BuildOutput> {
+    let mut stream = executor.call::<Build>(input).await?;
     let progress = Progress::new("Scanning mod directory...", "Identifying mods");
-    let mut graph = build::build_with_progress(
-        directory,
-        loaders,
-        |error| progress.report(error),
-        |completed, total| {
-            if completed == 0 {
-                progress.set_total(total);
+    let mut result = None;
+    while let Some(event) = stream.next().await {
+        match event? {
+            BuildEvent::Progress { completed, total } => {
+                if completed == 0 {
+                    progress.set_total(total);
+                }
+                progress.set_position(completed);
             }
-            progress.set_position(completed);
-        },
-    )?;
-    drop(progress);
-    let mut added = HashSet::new();
-    for candidate in external {
-        let ExternalCandidate {
-            identifier,
-            version,
-        } = &candidate;
-        if added.insert((identifier.clone(), version.clone())) {
-            graph.add_external(candidate);
+            BuildEvent::Diagnostic(error) => progress.report(&error.into_inner()),
+            BuildEvent::Finished(output) => result = Some(output),
         }
     }
-
-    Ok(graph)
+    result.context("dependency graph build ended without a result")
 }

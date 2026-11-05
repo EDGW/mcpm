@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::{ArgMatches, Args, Command, FromArgMatches, ValueEnum};
 use thiserror::Error;
 
-use super::{Query, QueryKind, Selection};
+use mcpm_backend::operations::mods::loading::selection::{Query, QueryKind, Selection};
 
 /// Shared ordered selectors and stdin interpretation for mod item commands.
 #[derive(Args, Debug)]

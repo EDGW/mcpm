@@ -31,10 +31,8 @@ pub(super) fn run(args: InfoArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         selection,
         args.directory,
         args.loaders,
-        &args.cache.environment(),
-        crate::commands::supports::mods::scan::Options {
-            parallelism: args.loading.parallelism(),
-        },
+        args.cache.selection(),
+        args.loading.parallelism(),
         inspect::Display::Info,
         ssh,
     )

@@ -3,10 +3,10 @@
 use std::io::Write;
 
 use anyhow::Result;
-use mcpm_lib::local::{
-    cache::TransferMethod,
-    mcmod::backup::{FileDisposition, FileRecord, FileSource, Operation, Outcome},
+use mcpm_backend::operations::mods::backup::{
+    BackupOperation as Operation, FileDisposition, FileRecord, FileSource, Outcome,
 };
+use mcpm_lib::local::cache::TransferMethod;
 
 use super::super::{
     console::ConsoleWriter,
@@ -25,6 +25,7 @@ pub(crate) fn summary(out: &mut impl Write, outcome: &Outcome, headers: bool) ->
         let bytes = u128::from(file.size());
         total += bytes;
         if let FileDisposition::Transferred { source, method } = disposition {
+            let method: TransferMethod = method.into();
             match method {
                 TransferMethod::Copy => copied += 1,
                 TransferMethod::HardLink => {

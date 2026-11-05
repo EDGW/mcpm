@@ -289,7 +289,7 @@ async fn refresh(
         });
     };
     matched.validate(&summary)?;
-    let matched = matched.for_cache(source)?;
+    let matched = matched.for_cache(source.id(), &source.identification_cache_id())?;
     // Publish the trusted successful result through the same byte/provenance checks.
     Ok(RefreshOutcome {
         status: RefreshStatus::Matched,

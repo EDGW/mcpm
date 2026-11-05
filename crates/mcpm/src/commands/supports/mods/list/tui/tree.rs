@@ -4,7 +4,7 @@ use super::super::{
     ListedFile,
     rows::{self, Row, RowOptions},
 };
-use crate::commands::supports::mods::mod_records;
+use mcpm_backend::operations::mods::loading::mod_records;
 
 #[derive(Debug)]
 pub(super) struct Node {

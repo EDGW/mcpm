@@ -1,72 +1,79 @@
-//! Ordered source refresh with per-source outcomes and the resulting stored snapshot.
+//! Host source refresh event consumption; credentials and all provider requests go to Host.
 
-use crate::commands::{
-    execution::Runtime,
-    source_support::{self, SourcesArgs},
-};
+use super::Presentation;
+use crate::commands::source_support::SourcesArgs;
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use mcpm_lib::local::cache::{
-    hash::Blake3Hash,
-    mods::{MetadataRefresh, ModsCacheDir},
+use mcpm_backend::operations::{
+    cache::{
+        Selection,
+        refresh::{Ident, IdentEvent, IdentInput},
+    },
+    mods::identification::QueryStatus,
 };
-use std::collections::HashSet;
-
-use super::super::batch;
-use super::Presentation;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = format!("Modes: Console and Raw (--raw or redirected stdout; silent on success, exit code 0).\n\nPlace HASH arguments before ident, pipe one HASH per nonblank stdin line, or use --all for the complete cache inventory. --all conflicts with HASH arguments and nonblank stdin. With --all, --parallelism COUNT limits concurrent entries (default 10; positive integers only). Use 1 for sequential work. Explicit HASH inputs stay sequential. Results retain BLAKE3 order. --sources accepts comma-separated providers; --source may be repeated. Defaults to modrinth,curseforge. curseforge@KEY uses the official API. Select each source once. Valid cached matches are reused unless --force is set. Only verified matches are stored; unmatched requests and errors preserve earlier matches. Sources run in selection order.\nConsole defaults to short output for more than three selected entries. --short shows only BLAKE3 and success/failed; --details shows BLAKE3, Status and File, then each source as reused, matched or unmatched alongside stored matches. These flags conflict. An unmatched result is successful and does not create metadata. --headers has no effect. Errors are reported to stderr with their cause chain.\n\nExamples:\n  {tools} cache refresh HASH1 HASH2 ident --sources modrinth,curseforge\n  {tools} cache refresh --all ident --short\n  printf '%s\\n' HASH1 HASH2 | {tools} cache refresh ident --source modrinth", tools = crate::program::roots().tools)
+    after_help = "Modes: Console and Raw (--raw or redirected stdout; silent on success). Cache files and provider requests belong to the selected Host.\n\nPlace HASH arguments before ident, pipe one BLAKE3 per line, or use --all. Explicit keys stay sequential; --all uses bounded --parallelism and BLAKE3 order. The first failure stops subsequent work; already in-flight files may have completed. Select providers with --sources or repeated --source; defaults to modrinth,curseforge. curseforge@KEY uses the official API. Each provider may be selected once.\n\nOnly missing providers are queried. Verified cache hits work without valid request credentials or provider connectivity. --force disables reuse. Only verified positive matches are saved; unmatched and failed queries retain existing records. Partial failures retain cache hits and report failure. Console details include current outcomes and the final saved snapshot."
 )]
 pub(super) struct IdentArgs {
     #[command(flatten)]
     sources: SourcesArgs,
 }
 
-pub(super) fn run(
+pub(super) async fn run(
     args: IdentArgs,
-    ids: Vec<Blake3Hash>,
-    cache: &ModsCacheDir,
-    mode: MetadataRefresh,
+    selection: Selection,
+    force: bool,
     parallelism: usize,
+    context: &super::super::Context,
     output: &mut Presentation<'_>,
 ) -> Result<()> {
-    Runtime::new()?.with_workers(|runtime| {
-        let selected = args.sources.selected()?;
-        let sources = selected
-            .iter()
-            .map(|spec| source_support::build_source(spec))
-            .collect::<Result<Vec<_>>>()?;
-        let mut seen = HashSet::new();
-        for source in &sources {
-            ensure!(
-                seen.insert(source.identification_cache_id()),
-                "select each identification source only once"
-            );
-        }
-        batch::run(
-            &ids,
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<Ident>(IdentInput {
+            cache: context.cache.clone(),
+            selection,
+            sources: args.sources.selected()?,
+            force,
             parallelism,
-            |id| {
-                runtime.block_on(async {
-                    let mut results = Vec::with_capacity(sources.len());
-                    for source in &sources {
-                        let outcome = cache
-                            .refresh_ident_info_with_outcome(id, source.as_ref(), mode)
-                            .await
-                            .with_context(|| {
-                                format!("failed to refresh source identification for {id}")
-                            })?;
-                        results.push((source.identification_cache_id(), outcome.status));
+        })
+        .await?;
+    let mut done = None;
+    let mut failed = false;
+    let mut publication_failed = 0;
+    while let Some(event) = stream.next().await {
+        match event? {
+            IdentEvent::Selected(total) => output.selected(total),
+            IdentEvent::Entry { id, result } => match result {
+                Ok(receipt) => {
+                    for error in receipt.errors() {
+                        crate::diagnostics::error(error.as_inner());
                     }
-                    Ok(results)
-                })
+                    failed |= receipt.overall_status() != QueryStatus::Success;
+                    publication_failed += usize::from(
+                        !receipt.publication_errors.is_empty() || receipt.observation.is_err(),
+                    );
+                    output.ident(id, &receipt)?;
+                }
+                Err(error) => {
+                    crate::diagnostics::error(error.as_inner());
+                    output.failed(id)?;
+                    failed = true;
+                }
             },
-            |id, result| {
-                let results = output.check(id, result)?;
-                output.ident(id, &results)
-            },
-        )
-    })
+            IdentEvent::Done(summary) => done = Some(summary),
+        }
+    }
+    let summary = done.context("missing source refresh completion")?;
+    ensure!(
+        !failed && !summary.has_failures(),
+        "source refresh completed with {} failed and {} partially failed identification(s), {} preparation failure(s), {} publication/observation failure(s)",
+        summary.failed,
+        summary.partial_failed,
+        summary.preparation_failed,
+        publication_failed
+    );
+    Ok(())
 }

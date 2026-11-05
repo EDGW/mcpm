@@ -16,14 +16,6 @@ impl Runtime {
             .map(|runtime| Self(Some(runtime)))
             .context("failed to create command runtime")
     }
-
-    /// Tokio drives I/O on its worker while synchronous callers use the shared handle.
-    pub(in crate::commands) fn with_workers<T>(
-        self,
-        work: impl FnOnce(&tokio::runtime::Handle) -> Result<T>,
-    ) -> Result<T> {
-        work(self.handle())
-    }
 }
 
 impl Deref for Runtime {

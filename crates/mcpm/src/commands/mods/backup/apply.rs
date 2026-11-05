@@ -4,10 +4,7 @@ use std::{io, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_lib::local::{
-    cache::mods::{ModsCacheDir, ModsCacheSelection},
-    mcmod::backup::{self, ApplyOptions},
-};
+use mcpm_backend::operations::mods::backup::{Apply, ApplyInput, PublicationEvent};
 
 use super::DisplayArgs;
 use crate::{
@@ -40,32 +37,30 @@ pub(super) struct ApplyArgs {
     display: DisplayArgs,
 }
 
-pub(super) fn run(args: ApplyArgs) -> Result<()> {
+pub(super) async fn run(args: ApplyArgs, context: &super::Context) -> Result<()> {
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<Apply>(ApplyInput {
+            backup: args.backup,
+            target: args.target,
+            cache_dir: args.cache_dir,
+            mode: args.mode.into(),
+            force: args.force,
+            parallelism: args.parallelism,
+        })
+        .await?;
     let mut display = Presentation::new(
         io::stdout().lock(),
         args.display.details,
         args.display.headers,
     );
-    let selection = args
-        .cache_dir
-        .map(|path| ModsCacheSelection::Directory { path })
-        .unwrap_or(ModsCacheSelection::Default);
-    let outcome = backup::apply_with_cache(
-        &args.backup,
-        &args.target,
-        || ModsCacheDir::new(selection.path()?),
-        ApplyOptions {
-            mode: args.mode.into(),
-            parallelism: args.parallelism,
-            force: args.force,
-        },
-        |event| display.event(event),
-    )
-    .with_context(|| {
-        format!(
-            "failed to apply backup {:?} to {:?}",
-            args.backup, args.target
-        )
-    })?;
-    display.finish(&outcome)
+    let mut result = None;
+    while let Some(event) = stream.next().await {
+        match event? {
+            PublicationEvent::Progress(event) => display.event(event.into())?,
+            PublicationEvent::Finished { outcome, .. } => result = Some(outcome),
+        }
+    }
+    display.finish(&result.context("backup application ended without a result")?)
 }

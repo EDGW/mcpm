@@ -29,7 +29,6 @@ pub(in crate::commands) struct Presentation {
     progress: Option<Progress>,
     failed: usize,
     details: bool,
-    remote: bool,
     remote_failure: bool,
     validator: super::validation::Validator,
 }
@@ -41,17 +40,8 @@ impl Presentation {
             progress: None,
             failed: 0,
             details: args.details,
-            remote: false,
             remote_failure: false,
             validator: Default::default(),
-        }
-    }
-
-    pub fn remote(args: DisplayArgs) -> Self {
-        Self {
-            scan: ScanOutput::remote(),
-            remote: true,
-            ..Self::new(args)
         }
     }
 
@@ -59,13 +49,12 @@ impl Presentation {
         self.validator.accept(&event)?;
         match event {
             Event::Selection(event) => {
-                if self.remote
-                    && matches!(
-                        event,
-                        crate::commands::supports::mods::scan::Event::Diagnostic { .. }
-                    )
+                if let mcpm_backend::operations::mods::loading::scan::Event::Diagnostic { error } =
+                    &event
                 {
-                    self.remote_failure = true;
+                    self.remote_failure |= mcpm_exec::error::contains::<diagnostics::RemoteError>(
+                        error.as_inner().as_ref(),
+                    );
                 }
                 self.scan.event(event)?;
             }
@@ -109,27 +98,8 @@ impl Presentation {
                 }
             }
             Event::File(file) => {
-                let source_errors: Vec<_> = file
-                    .identification
-                    .values()
-                    .filter_map(|result| match result {
-                        super::record::IdentResult::Failed { error, remote } => {
-                            Some((error, *remote))
-                        }
-                        _ => None,
-                    })
-                    .collect();
-                // The primary error duplicates the first source failure only for the ident stage.
-                if (!matches!(file.failed_stage, Some(super::Stage::Ident))
-                    || source_errors.is_empty())
-                    && let Some(error) = &file.error
-                {
-                    let remote = file.error_remote
-                        || (self.remote && !matches!(file.failed_stage, Some(super::Stage::Ident)));
-                    self.report(error, remote);
-                }
-                for (error, remote) in source_errors {
-                    self.report(error, remote);
+                for error in file.errors() {
+                    self.report(error);
                 }
                 if self.details || !terminal::stdout_is_tty() {
                     write_file(&mut io::stdout().lock(), &file)?;
@@ -143,14 +113,10 @@ impl Presentation {
         Ok(())
     }
 
-    fn report(&mut self, error: &crate::diagnostics::ErrorReport, remote: bool) {
-        self.remote_failure |= remote;
-        let error = error.clone().into_error();
-        let error = if remote {
-            diagnostics::RemoteError::wrap(error)
-        } else {
-            error
-        };
+    fn report(&mut self, error: &mcpm_exec::error::PortableError) {
+        let error = error.as_inner();
+        self.remote_failure |=
+            mcpm_exec::error::contains::<diagnostics::RemoteError>(error.as_ref());
         match &self.progress {
             Some(progress) => progress.report(&error),
             None => diagnostics::error(&error),
@@ -185,17 +151,38 @@ fn write_file(out: &mut impl Write, file: &Record) -> Result<()> {
                 method: file.method.map(|method| method.as_str()),
                 failed_stage: file.failed_stage.map(|stage| stage.as_str()),
                 metadata_requested: file.metadata_requested,
+                overall_status: file.overall_status().as_str(),
+                query_status: file.identification.as_ref().map(|result| result.status().as_str()),
                 metadata_status: file.status.map(|status| status.as_str()),
                 reason: file.reason.as_deref(),
-                identifications: file
-                    .identification
-                    .iter()
-                    .map(|(source, result)| (source.as_str(), result.status()))
-                    .collect(),
+                identifications: file.identification.iter().flat_map(|result| &result.sources)
+                    .map(|source| (source.source.0.as_str(), match &source.resolution {
+                        mcpm_backend::operations::mods::identification::SourceResolution::Cached(_) => "cached",
+                        _ => source.match_status(),
+                    })).collect(),
             },
         )?;
     } else {
-        crate::display::cache::write::raw(out, file)?;
+        #[derive(serde::Serialize)]
+        struct RawFile<'a> {
+            #[serde(flatten)]
+            file: &'a Record,
+            overall_status: mcpm_backend::operations::mods::identification::QueryStatus,
+            query_status: Option<mcpm_backend::operations::mods::identification::QueryStatus>,
+            cache_coverage: Option<mcpm_backend::operations::mods::identification::CacheCoverage>,
+        }
+        crate::display::cache::write::raw(
+            out,
+            &RawFile {
+                file,
+                overall_status: file.overall_status(),
+                query_status: file.identification.as_ref().map(|result| result.status()),
+                cache_coverage: file
+                    .identification
+                    .as_ref()
+                    .map(|result| result.cache_coverage()),
+            },
+        )?;
     }
     out.flush()?;
     Ok(())
@@ -209,6 +196,7 @@ fn write_summary(out: &mut impl Write, summary: &Summary) -> Result<()> {
             summary.objects_added,
             summary.objects_reused,
             summary.failed_files,
+            summary.partial_failed_files,
             summary.selection_failures,
         )?;
     }

@@ -3,7 +3,7 @@
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::supports::mods::{inspect, reuse::QueryArgs, scan};
+use crate::commands::supports::mods::{inspect, reuse::QueryArgs};
 
 use super::input::FileArgs;
 
@@ -24,9 +24,7 @@ pub(super) fn run(args: InfoArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     super::inspection::run(
         args.files,
         args.cache,
-        scan::Options {
-            parallelism: args.loading.parallelism(),
-        },
+        args.loading.parallelism(),
         inspect::Display::Info,
         ssh,
     )

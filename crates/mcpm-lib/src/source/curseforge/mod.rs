@@ -49,6 +49,12 @@ impl std::fmt::Debug for CurseForgeSource {
 }
 
 impl CurseForgeSource {
+    /// Stable content-cache namespace, independent of endpoint credentials.
+    pub const IDENTIFICATION_CACHE_ID: &'static str = "curseforge";
+    /// Fingerprints required by this provider, available before a client exists.
+    pub const SUMMARY_REQUIREMENTS: super::SummaryRequirements =
+        super::SummaryRequirements { murmur2: true };
+
     /// Uses the official API with the supplied key.
     pub fn new(id: SourceId, api_key: &str) -> Result<Self> {
         Self::with_endpoint(
@@ -152,7 +158,7 @@ impl CurseForgeSource {
 #[async_trait]
 impl Source for CurseForgeSource {
     fn identification_cache_id(&self) -> SourceId {
-        SourceId("curseforge".to_owned())
+        SourceId(Self::IDENTIFICATION_CACHE_ID.to_owned())
     }
 
     fn id(&self) -> &SourceId {
@@ -164,7 +170,7 @@ impl Source for CurseForgeSource {
     }
 
     fn summary_requirements(&self) -> super::SummaryRequirements {
-        super::SummaryRequirements { murmur2: true }
+        Self::SUMMARY_REQUIREMENTS
     }
 
     async fn identify_summary(

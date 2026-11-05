@@ -5,16 +5,9 @@ use std::path::PathBuf;
 use crate::ssh::SshArgs;
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use serde::{Deserialize, Serialize};
-
-use super::super::{
-    mod_source::ServerMods,
-    target::{self, Target},
-};
 
 mod files;
 mod identify;
-mod remote;
 mod search;
 
 #[derive(Args, Debug)]
@@ -49,36 +42,17 @@ struct CompatibilityArgs {
     /// Registered server directory; defaults to the current directory.
     #[arg(long = "server", value_name = "PATH", default_value = ".")]
     path: PathBuf,
-    /// Disable both Minecraft version and loader compatibility filters.
-    #[arg(long, conflicts_with_all = ["game_version", "loader"])]
+    /// Disable automatic compatibility defaults without clearing explicit filters.
+    #[arg(long)]
     all_versions: bool,
 }
 
 impl CompatibilityArgs {
-    fn defaults(self, ssh: SshArgs, command: &'static str) -> Result<Option<Compatibility>> {
-        let Target { path, ssh, .. } = target::resolve(self.path, ssh)?;
-        let defaults = if ssh.is_requested() {
-            remote::defaults(ssh, path, command)?
-        } else {
-            Compatibility::load(path)?
-        };
-        Ok((!self.all_versions).then_some(defaults))
-    }
-}
-
-/// Server-owned compatibility data shared by local resolution and remote transport.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Compatibility {
-    version: String,
-    loader: String,
-}
-impl Compatibility {
-    fn load(path: PathBuf) -> Result<Self> {
-        let server = ServerMods::load(path)?;
-        Ok(Self {
-            version: server.minecraft_version().to_owned(),
-            loader: server.container().loader().loader.id().as_str().to_owned(),
-        })
+    fn context(self, path: PathBuf) -> mcpm_backend::operations::mods::source::server::Context {
+        mcpm_backend::operations::mods::source::server::Context {
+            path,
+            default_version: !self.all_versions,
+            default_loader: !self.all_versions,
+        }
     }
 }

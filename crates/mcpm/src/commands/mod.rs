@@ -23,8 +23,6 @@ use self::{client::ClientArgs, debug::DebugArgs, mods::ModsArgs, server::ServerA
 pub(crate) enum Command {
     /// Manage explicitly stored cache objects (Console, Raw).
     Cache(crate::commands::cache::CacheArgs),
-    /// Serve concurrent commands over one persistent stdin/stdout JSON session (Raw).
-    Remote(RemoteArgs),
     /// Customize terminal themes and loader colors (TUI, Console, Raw).
     Customize(crate::commands::customize::CustomizeArgs),
     /// Inspect mcpm's terminal presentation and diagnostics.
@@ -37,14 +35,6 @@ pub(crate) enum Command {
     Mods(ModsArgs),
 }
 
-/// Process startup options are CLI concerns; request arguments use command-owned schemas.
-#[derive(clap::Args, Debug)]
-pub(crate) struct RemoteArgs {
-    /// Maximum concurrent remote commands; excess requests return busy.
-    #[arg(long, default_value = "8")]
-    pub(crate) max_concurrency: std::num::NonZeroUsize,
-}
-
 /// A child process status remains a successful command operation with its own exit code.
 pub(crate) enum CommandOutcome {
     Completed,
@@ -52,6 +42,7 @@ pub(crate) enum CommandOutcome {
 }
 
 pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandOutcome> {
+    ssh.validate()?;
     if ssh.is_requested()
         && !matches!(
             command,
@@ -59,16 +50,12 @@ pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandO
         )
     {
         anyhow::bail!(
-            "--ssh and --ssh-mcpmd are supported by {} cache (except refresh), mods list/info/deps/source identify and {} init/info/stash/mods list/info/cache/deps/source",
+            "--ssh and --ssh-mcpmd are supported by {} cache/mods and {} init/info/stash/mods",
             crate::program::roots().tools,
             crate::program::roots().server
         );
     }
     let result = match command {
-        Command::Remote(args) => {
-            let registry = crate::remote::registry::registered();
-            crate::remote::server::run(args.max_concurrency, registry)
-        }
         Command::Customize(args) => customize::run(args),
         Command::Debug(args) => debug::run(args),
         Command::Mods(args) => mods::run(args, ssh),

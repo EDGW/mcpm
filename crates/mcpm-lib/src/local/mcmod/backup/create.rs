@@ -124,6 +124,7 @@ pub fn create_with_cache(
         let manifest_size = manifest.write(&manifest_path)?;
         files::protect_file_contents(&manifest_path)
             .context("failed to protect backup manifest contents")?;
+        emit(Event::BeforeCommit)?;
         destination.commit(&staged, &workspace.path().join("previous"))?;
         for protection in protections {
             protection.persist();

@@ -34,6 +34,8 @@ pub struct ServerInfo {
     pub name: String,
     pub path: String,
     pub minecraft_version: String,
+    /// Declaration retained even when no built-in loader supports it.
+    pub declared_loader: Option<String>,
     pub loader: Option<LoaderInfo>,
     pub start: Option<StartCommand>,
     pub configuration: Option<config::ConfigurationFiles>,
@@ -45,6 +47,10 @@ impl ServerInfo {
             name: server.name().into(),
             path: server.path().display().to_string(),
             minecraft_version: metadata.minecraft_version.clone(),
+            declared_loader: metadata
+                .loader
+                .as_ref()
+                .map(|loader| loader.loader_type.clone()),
             loader: server.loader().map(|info| LoaderInfo {
                 id: info.loader.id().as_str().into(),
                 name: info.loader.name().into(),

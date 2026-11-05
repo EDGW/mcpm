@@ -6,7 +6,7 @@ use url::Url;
 use super::SourceId;
 
 /// A project summary suitable for search results and list views.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectInfo {
     pub reference: ProjectRef,
     pub name: String,
@@ -73,7 +73,7 @@ pub struct ProjectId(pub String);
 /// Version and loader strings are
 /// interpreted by the source; an unfiltered search does not establish that a
 /// particular downloadable release is compatible with the caller's environment.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchQuery {
     pub query: String,
     /// Match any listed Minecraft version; empty means unrestricted.
@@ -101,7 +101,7 @@ impl Default for SearchQuery {
 }
 
 /// Search ordering, subject to support by the selected source.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchSort {
     /// Use the source's default ordering without assuming a relevance algorithm.
     #[default]
@@ -115,7 +115,7 @@ pub enum SearchSort {
 }
 
 /// One page of matching projects with optional total-count metadata.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchPage {
     pub projects: Vec<ProjectInfo>,
     /// Effective offset used for this page.

@@ -9,11 +9,13 @@ use super::{
 use crate::commands::{execution::Runtime, source_support::identify::Location};
 use anyhow::{Context, Result};
 use crossterm::event;
+use mcpm_backend::operations::mods::identification::{CacheCoverage, QueryResult, QuerySummary};
 use mcpm_lib::source::FileRef;
 use ratatui::widgets::TableState;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -33,7 +35,7 @@ pub(super) struct Summary<'a> {
     pub ignored_files: &'a [PathBuf],
     pub input_errors: usize,
     pub failed: usize,
-    pub cache: Option<crate::commands::supports::mods::scan::CacheSummary>,
+    pub cache: Option<mcpm_backend::operations::mods::loading::scan::CacheSummary>,
 }
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
@@ -124,6 +126,10 @@ pub(super) fn run(
         drop(screen);
         let result = crate::commands::source_support::files::open_selected(
             &runtime,
+            summary.location.executor,
+            &mcpm_backend::operations::mods::source::Configuration::from(
+                reference.project.source.0.clone(),
+            ),
             &reference,
             source_loaders,
         );
@@ -145,7 +151,11 @@ pub(super) fn run(
 struct Browser {
     nodes: Vec<tree::Node>,
     identification: Vec<[identify::State; 2]>,
-    identification_cache: HashMap<usize, Vec<identify::Platform>>,
+    identification_results:
+        HashMap<usize, std::result::Result<Arc<QueryResult>, identify::Failure>>,
+    identification_owners: Vec<usize>,
+    identification_total: usize,
+    identification_stopped: HashSet<usize>,
     tick: u64,
     detail_offset: usize,
     focus: Focus,
@@ -174,7 +184,8 @@ impl std::fmt::Debug for Browser {
         f.debug_struct("Browser")
             .field("nodes", &self.nodes)
             .field("identification", &self.identification)
-            .field("identification_cache", &self.identification_cache)
+            .field("identification_results", &self.identification_results)
+            .field("identification_total", &self.identification_total)
             .field("tick", &self.tick)
             .field("detail_offset", &self.detail_offset)
             .field("focus", &self.focus)
@@ -202,14 +213,15 @@ impl std::fmt::Debug for Browser {
 impl Browser {
     fn new(nodes: Vec<tree::Node>, filter: Filter) -> Self {
         let query = filter.as_str().to_owned();
-        let identification = vec![
-            [identify::State::Queued, identify::State::Queued];
-            nodes.iter().map(|node| node.file + 1).max().unwrap_or(0)
-        ];
+        let count = nodes.iter().map(|node| node.file + 1).max().unwrap_or(0);
+        let identification = vec![[identify::State::Queued, identify::State::Queued]; count];
         let mut browser = Self {
             nodes,
             identification,
-            identification_cache: HashMap::new(),
+            identification_results: HashMap::new(),
+            identification_owners: (0..count).collect(),
+            identification_total: count,
+            identification_stopped: HashSet::new(),
             tick: 0,
             detail_offset: 0,
             focus: Focus::Mods,
@@ -237,45 +249,101 @@ impl Browser {
     }
     fn apply_identification(&mut self, update: identify::Update) {
         match update {
-            identify::Update::State {
-                files,
-                platform,
-                state,
-            } => {
+            identify::Update::Loading { files } => {
+                self.identification_owner(&files);
                 for file in files {
-                    self.identification[file][platform.index()] = state.clone();
+                    let owner = self.identification_owners[file];
+                    if !self.identification_results.contains_key(&owner)
+                        && !self.identification_stopped.contains(&owner)
+                    {
+                        self.identification[file] =
+                            [identify::State::Loading, identify::State::Loading];
+                    }
                 }
             }
-            identify::Update::Cache { files, sources } => {
-                // Acquisition groups aliases of one physical file into one event.
-                if let Some(&file) = files.first() {
-                    self.identification_cache.insert(file, sources);
+            identify::Update::Item { files, result } => {
+                let Some(owner) = self.identification_owner(&files) else {
+                    return;
+                };
+                // One physical Host result settles all aliases once, independent of tree/filter state.
+                if self.identification_results.contains_key(&owner) {
+                    return;
                 }
+                let states = match &result {
+                    Ok(result) => identify::Platform::ALL.map(|platform| {
+                        result
+                            .sources
+                            .iter()
+                            .find(|source| source.source.0 == platform.id())
+                            .map(identify::State::for_source)
+                            .unwrap_or_default()
+                    }),
+                    Err(failure) => [failure.state(), failure.state()],
+                };
+                for file in files {
+                    self.identification[file] = states.clone();
+                }
+                self.identification_results.insert(owner, result);
+            }
+            identify::Update::Stopped { files, failure } => {
+                for file in files {
+                    let owner = self.identification_owners[file];
+                    if !self.identification_results.contains_key(&owner) {
+                        self.identification[file] = [failure.state(), failure.state()];
+                        self.identification_stopped.insert(owner);
+                    }
+                }
+                let error = failure.error.into_error();
+                self.status = Some(crate::widgets::Status::error(if failure.remote {
+                    crate::diagnostics::RemoteError::wrap(error)
+                } else {
+                    error
+                }));
             }
         }
     }
-    fn identification_cache_summary(&self) -> crate::commands::supports::mods::scan::CacheSummary {
-        use crate::commands::supports::mods::scan::CacheSummary;
-        self.identification_cache
+    fn identification_owner(&mut self, files: &[usize]) -> Option<usize> {
+        let first = *files.iter().min()?;
+        let owner = self.identification_owners[first];
+        for &file in files {
+            if self.identification_owners[file] != owner {
+                self.identification_total -= 1;
+                self.identification_owners[file] = owner;
+            }
+        }
+        Some(owner)
+    }
+    fn identification_summary(&self) -> QuerySummary {
+        let mut summary = QuerySummary::default();
+        for result in self.identification_results.values() {
+            summary.total += 1;
+            match result {
+                Ok(result) => summary.record(result),
+                Err(_) => summary.preparation_failed += 1,
+            }
+        }
+        summary
+    }
+    fn identification_cache_summary(
+        &self,
+    ) -> mcpm_backend::operations::mods::loading::scan::CacheSummary {
+        use mcpm_backend::operations::mods::loading::scan::CacheSummary;
+        self.identification_results
             .values()
-            .fold(CacheSummary::default(), |mut summary, sources| {
+            .filter_map(|result| result.as_ref().ok())
+            .fold(CacheSummary::default(), |mut summary, result| {
                 summary.total += 1;
-                if sources.len() == identify::Platform::ALL.len() {
-                    summary.fully_cached += 1;
-                } else if !sources.is_empty() {
-                    summary.partially_cached += 1;
+                match result.cache_coverage() {
+                    CacheCoverage::All => summary.fully_cached += 1,
+                    CacheCoverage::Partial => summary.partially_cached += 1,
+                    CacheCoverage::None => {}
                 }
                 summary
             })
     }
     fn identification_progress(&self) -> Option<(usize, usize)> {
-        let total = self.identification.len() * identify::Platform::ALL.len();
-        let completed = self
-            .identification
-            .iter()
-            .flatten()
-            .filter(|state| !matches!(state, identify::State::Queued | identify::State::Loading))
-            .count();
+        let completed = self.identification_results.len() + self.identification_stopped.len();
+        let total = self.identification_total;
         (completed < total).then_some((completed, total))
     }
     fn spinner(&self) -> String {
@@ -308,7 +376,7 @@ impl Browser {
             return None;
         }
         match &self.identification[node.file][platform.index()] {
-            identify::State::Matched(found) => Some(&found.reference),
+            identify::State::Matched { file, .. } => Some(&file.reference),
             _ => None,
         }
     }

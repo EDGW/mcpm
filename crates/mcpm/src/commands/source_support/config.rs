@@ -1,38 +1,75 @@
-//! Shared construction of configured remote sources for CLI commands.
-
-use std::time::Duration;
+//! Typed Host source requests shared by command output and interactive browsers.
 
 use anyhow::{Result, bail};
-use mcpm_lib::source::{Source, SourceId, curseforge::CurseForgeSource, modrinth::ModrinthSource};
+use mcpm_backend::operations::mods::source::{self, Configuration};
+use mcpm_exec::service::Executor;
+use mcpm_lib::source::{FileQuery, ProjectRef, SearchPage, SearchQuery};
 
-pub(in crate::commands) fn build_source(source: &str) -> Result<Box<dyn Source>> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
-    match source {
-        "modrinth" => Ok(Box::new(ModrinthSource::with_endpoint(
-            SourceId("modrinth".into()),
-            client,
-            "https://api.modrinth.com/v2/".parse()?,
-        )?)),
-        "curseforge" => Ok(Box::new(CurseForgeSource::with_endpoint(
-            SourceId("curseforge".into()),
-            client,
-            "https://api.curse.tools/v1/cf/".parse()?,
-            None,
-        )?)),
-        value if value.starts_with("curseforge@") => {
-            let key = &value["curseforge@".len()..];
-            if key.is_empty() {
-                bail!("curseforge@ requires a non-empty API key");
-            }
-            Ok(Box::new(CurseForgeSource::with_endpoint(
-                SourceId("curseforge".into()),
-                client,
-                "https://api.curseforge.com/v1/".parse()?,
-                Some(key),
-            )?))
-        }
-        _ => bail!("source must be modrinth, curseforge, or curseforge@KEY"),
+pub(in crate::commands) async fn search(
+    executor: &Executor,
+    configuration: &Configuration,
+    query: &SearchQuery,
+    server: Option<&source::server::Context>,
+) -> Result<SearchPage> {
+    match executor
+        .call::<source::search::Search>(source::search::Input::Search {
+            configuration: configuration.clone(),
+            query: query.clone(),
+            server: server.cloned(),
+        })
+        .await?
+    {
+        source::search::Output::Search(page) => Ok(page),
+        _ => bail!("unexpected source search response"),
     }
+}
+pub(in crate::commands) async fn versions(
+    executor: &Executor,
+    configuration: &Configuration,
+) -> Result<Vec<String>> {
+    match executor
+        .call::<source::search::Search>(source::search::Input::Versions {
+            configuration: configuration.clone(),
+        })
+        .await?
+    {
+        source::search::Output::Versions(versions) => Ok(versions),
+        _ => bail!("unexpected source version response"),
+    }
+}
+pub(in crate::commands) async fn files(
+    executor: &Executor,
+    configuration: &Configuration,
+    project: source::files::Project,
+    query: &FileQuery,
+    selected: Option<String>,
+    server: Option<&source::server::Context>,
+) -> Result<source::files::Output> {
+    executor
+        .call::<source::files::Files>(source::files::Input {
+            configuration: configuration.clone(),
+            project,
+            query: query.clone(),
+            selected,
+            server: server.cloned(),
+        })
+        .await
+}
+pub(in crate::commands) async fn file_page(
+    executor: &Executor,
+    configuration: &Configuration,
+    project: &ProjectRef,
+    query: &FileQuery,
+    server: Option<&source::server::Context>,
+) -> Result<mcpm_lib::source::FilePage> {
+    Ok(files(
+        executor,
+        configuration,
+        source::files::Project::Known(project.clone()),
+        query,
+        None,
+        server,
+    )
+    .await?
+    .page)
 }

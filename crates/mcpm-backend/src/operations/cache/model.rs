@@ -35,7 +35,10 @@ impl Selection {
         cache: &cache::mods::ModsCacheDir,
     ) -> anyhow::Result<Vec<Blake3Hash>> {
         match self {
-            Self::Ids(ids) => Ok(ids),
+            Self::Ids(ids) => {
+                let mut seen = std::collections::HashSet::new();
+                Ok(ids.into_iter().filter(|id| seen.insert(*id)).collect())
+            }
             Self::All => Ok(cache.scan()?.into_iter().map(|entry| entry.key).collect()),
         }
     }

@@ -1,8 +1,8 @@
 //! Cache-operation event validation shared by local and SSH presentation.
 
 use super::{Event, Stage, Status};
-use crate::commands::supports::mods::scan::{self, ProgressState};
 use anyhow::{Result, ensure};
+use mcpm_backend::operations::mods::loading::scan::{self, ProgressState};
 use mcpm_lib::local::cache::hash::Blake3Hash;
 use std::collections::{HashMap, HashSet};
 
@@ -19,6 +19,7 @@ pub(super) struct Validator {
     paths: HashSet<std::path::PathBuf>,
     objects: HashMap<Blake3Hash, bool>,
     failed: usize,
+    partial_failed: usize,
     done: bool,
 }
 impl Validator {
@@ -80,8 +81,7 @@ impl Validator {
                     "empty or duplicate cache file path"
                 );
                 ensure!(
-                    file.success == file.error.is_none()
-                        && file.error.is_some() == file.failed_stage.is_some(),
+                    file.error.is_some() == file.failed_stage.is_some(),
                     "inconsistent cache file failure"
                 );
                 ensure!(
@@ -120,22 +120,29 @@ impl Validator {
                     !matches!(file.failed_stage, Some(Stage::Metadata)) || file.metadata_requested,
                     "metadata failure without requesting metadata"
                 );
-                for (source, result) in &file.identification {
-                    ensure!(
-                        !source.is_empty() && !source.contains('@'),
-                        "invalid identification source key"
-                    );
-                    ensure!(
-                        !matches!(result, super::record::IdentResult::Failed { .. })
-                            || !file.success,
-                        "failed identification source in successful cache result"
-                    );
+                if let Some(identification) = &file.identification {
+                    for source in &identification.sources {
+                        ensure!(
+                            !source.source.0.is_empty() && !source.source.0.contains('@'),
+                            "invalid identification source key"
+                        );
+                    }
                 }
-                self.failed += usize::from(!file.success);
+                match file.overall_status() {
+                    mcpm_backend::operations::mods::identification::QueryStatus::Success => {}
+                    mcpm_backend::operations::mods::identification::QueryStatus::PartialFailed => {
+                        self.partial_failed += 1
+                    }
+                    mcpm_backend::operations::mods::identification::QueryStatus::Failed => {
+                        self.failed += 1
+                    }
+                }
             }
             Event::Done(summary) => {
                 ensure!(
-                    self.selection.is_complete() && self.progress.is_complete() && self.phase_done,
+                    self.selection.is_complete()
+                        && self.progress.is_complete()
+                        && (self.phase_done || (!self.started && summary.files == 0)),
                     "cache ended during processing"
                 );
                 ensure!(
@@ -148,6 +155,7 @@ impl Validator {
                 );
                 ensure!(
                     summary.failed_files == self.failed
+                        && summary.partial_failed_files == self.partial_failed
                         && (summary.selection_failures > 0) == self.selection_errors,
                     "cache failure counts disagree with diagnostics"
                 );
@@ -171,7 +179,8 @@ impl Validator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::supports::mods::cache::{Record, Summary, record::Method};
+    use crate::commands::supports::mods::cache::{Record, Summary};
+    use mcpm_backend::operations::mods::cache::record::Method;
 
     fn progress(completed: usize) -> Event {
         Event::Progress {
@@ -191,11 +200,11 @@ mod tests {
             data_path: Some("cache/aa/object.dat".into()),
             digest_path: Some("cache/aa/object.data.json".into()),
             metadata_requested: true,
-            identification: Default::default(),
-            success: true,
+            identification: None,
             failed_stage: None,
             error: None,
-            error_remote: false,
+            identification_error: None,
+            publication_errors: Vec::new(),
         }))
     }
     fn done() -> Event {

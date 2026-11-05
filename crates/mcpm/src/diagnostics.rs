@@ -8,9 +8,6 @@ use crate::display::{console::ConsoleWriter, error as display};
 
 pub(crate) fn error(error: &anyhow::Error) {
     crate::logging::record_error(error);
-    if crate::logging::stream::is_forwarding() {
-        return;
-    }
     display_error(error);
 }
 

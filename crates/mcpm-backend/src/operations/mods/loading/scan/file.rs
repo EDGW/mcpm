@@ -1,0 +1,85 @@
+//! Adapts library identification reports to command-local scan results and diagnostics.
+
+use mcpm_lib::local::runtime::RuntimeEnvironment;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
+
+use mcpm_lib::local::{
+    mcmod::{self, IdentificationErrorAction, ModCacheReuse, ModEntry},
+    modloader::{LoaderId, ModLoaderMeta},
+};
+
+use super::super::sort_metadata;
+use super::{FailedIdentification, ScannedFile};
+use mcpm_exec::error::ErrorReport;
+
+/// A cached inspection includes unsuccessful inputs and complete loader error chains.
+#[derive(Debug)]
+pub struct ScanResult {
+    pub file: Option<Arc<ScannedFile>>,
+    pub errors: Vec<ScanError>,
+    pub cache_reuse: ModCacheReuse,
+}
+impl ScanResult {
+    pub fn failed(&self) -> bool {
+        !self.errors.is_empty()
+    }
+}
+
+#[derive(Debug)]
+pub struct ScanError {
+    pub loader: Option<ModLoaderMeta>,
+    pub error: ErrorReport,
+}
+
+pub(super) fn read(
+    path: PathBuf,
+    loaders: &HashMap<LoaderId, ModLoaderMeta>,
+    environment: &RuntimeEnvironment,
+) -> ScanResult {
+    let started = std::time::Instant::now();
+    tracing::debug!(path = %path.display(), "Identifying mod file");
+    let mut errors = Vec::new();
+    let mut failures = Vec::new();
+    let result = ModEntry::new(path.clone()).and_then(|entry| {
+        mcmod::open(entry, loaders.clone(), environment, |_, loader, _, error| {
+            tracing::debug!(path = %path.display(), loader = %loader.id(), error = %format_args!("{error:#}"), "Mod loader identification failed");
+            let report = ErrorReport::capture(error);
+            failures.push(FailedIdentification {
+                loader: loader.clone(),
+                error: report.clone(),
+            });
+            errors.push(ScanError { loader: Some(loader.clone()), error: report });
+            IdentificationErrorAction::Skip
+        })
+    });
+    let mut cache_reuse = ModCacheReuse::None;
+    let file = match result {
+        Ok(report) => {
+            tracing::debug!(cache = ?report.cache, "Mod cache usage");
+            cache_reuse = report.cache.reuse();
+            let mut file = report.file;
+            sort_metadata(&mut file);
+            Some(Arc::new(ScannedFile { file, failures }))
+        }
+        Err(error) => {
+            tracing::debug!(path = %path.display(), error = %format_args!("{error:#}"), "Mod input inspection failed");
+            errors.push(ScanError {
+                loader: None,
+                error: ErrorReport::capture(&error),
+            });
+            None
+        }
+    };
+    errors.sort_by(|a, b| {
+        a.loader
+            .as_ref()
+            .map(|loader| loader.id())
+            .cmp(&b.loader.as_ref().map(|loader| loader.id()))
+    });
+    tracing::debug!(path = %path.display(), loaded = file.is_some(), errors = errors.len(), elapsed_ms = started.elapsed().as_millis(), "Mod identification completed");
+    ScanResult {
+        file,
+        errors,
+        cache_reuse,
+    }
+}

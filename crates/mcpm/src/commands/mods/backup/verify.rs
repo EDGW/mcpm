@@ -4,7 +4,7 @@ use std::{io, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use mcpm_lib::local::mcmod::backup;
+use mcpm_backend::operations::mods::backup::{Verify, VerifyEvent, VerifyInput};
 
 use super::{DisplayArgs, input};
 use crate::{commands::execution::default_parallelism, display::backup::Presentation};
@@ -24,23 +24,35 @@ pub(super) struct VerifyArgs {
     display: DisplayArgs,
 }
 
-pub(super) fn run(args: VerifyArgs) -> Result<()> {
+pub(super) async fn run(args: VerifyArgs, context: &super::Context) -> Result<()> {
     let backups = input::directories(args.backups)?;
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<Verify>(VerifyInput {
+            backups,
+            parallelism: args.parallelism,
+        })
+        .await?;
     let mut display = Presentation::new(
         io::stdout().lock(),
         args.display.details,
         args.display.headers,
     );
-    let mut failed = 0_usize;
-    for path in backups {
-        let result = backup::verify(&path, args.parallelism, |event| display.event(event))
-            .with_context(|| format!("failed to verify backup {path:?}"));
-        display.verified(&path, result.as_ref().ok())?;
-        if let Err(error) = result {
-            failed += 1;
-            crate::diagnostics::error(&error);
+    let mut failed = None;
+    while let Some(event) = stream.next().await {
+        match event? {
+            VerifyEvent::Progress(event) => display.event(event.into())?,
+            VerifyEvent::Item { path, result } => {
+                display.verified(&path, result.as_ref().ok())?;
+                if let Err(error) = result {
+                    crate::diagnostics::error(&error.into_inner());
+                }
+            }
+            VerifyEvent::Finished { failed: count } => failed = Some(count),
         }
     }
+    let failed = failed.context("backup verification ended without a summary")?;
     ensure!(failed == 0, "{failed} backups failed verification");
     Ok(())
 }

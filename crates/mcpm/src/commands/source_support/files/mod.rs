@@ -4,21 +4,24 @@ use std::io::{self, BufRead, IsTerminal, Write};
 
 use anyhow::{Context, Result, ensure};
 use clap::{Args, ValueEnum};
-use mcpm_lib::source::{FileId, FilePage, FileQuery, FileRef, ProjectFile, ReleaseType};
+use mcpm_backend::operations::mods::source::{
+    Configuration, files::Project, server::Context as ServerContext,
+};
+use mcpm_lib::source::{FilePage, FileQuery, ProjectFile, ReleaseType};
 
 mod columns;
 mod output;
 pub(super) mod tui;
 pub(in crate::commands) use tui::open_selected;
 
-#[derive(Args, Debug)]
+#[derive(Args)]
 #[command(
-    after_help = format!("Modes: TUI (default in terminals), Console (--no-ui), Raw (--raw or redirected stdout).\n\nExamples:\n  {tools} mods source files --source modrinth create ZzjhlDgM\n  {tools} mods source files --source curseforge 688231 create\n  {tools} mods source files --source 'curseforge@KEY' create-steam-n-rails\n  printf '%s\\n' create create-steam-n-rails | {tools} mods source files --source modrinth\n  {tools} mods source files --source modrinth create -N\n  {tools} mods source files --source modrinth sodium --selected yaoBL9D9\n  {tools} mods source files --source curseforge 688231 --columns id,filename,size\n  {tools} --raw mods source files --source curseforge 688231", tools = crate::program::roots().tools)
+    after_help = format!("Modes: TUI (default in terminals), Console (--no-ui), Raw (--raw or redirected stdout); Remote supported through --ssh.\n\nSource requests, selected files and pagination use the selected execution host.\n\nExamples:\n  {tools} mods source files --source modrinth create ZzjhlDgM\n  {tools} mods source files --source curseforge 688231 create\n  {tools} mods source files --source 'curseforge@KEY' create-steam-n-rails\n  printf '%s\\n' create create-steam-n-rails | {tools} mods source files --source modrinth\n  {tools} mods source files --source modrinth create -N\n  {tools} mods source files --source modrinth sodium --selected yaoBL9D9\n  {tools} mods source files --source curseforge 688231 --columns id,filename,size\n  {tools} --raw mods source files --source curseforge 688231", tools = crate::program::roots().tools)
 )]
 pub(in crate::commands) struct FilesArgs {
     /// modrinth, curseforge (Curse.tools), or curseforge@KEY (official API).
     #[arg(long, value_name = "SOURCE")]
-    source: String,
+    source: Configuration,
     /// Project IDs or exact slugs. Redirected stdin is appended, one per line.
     /// Multiple projects automatically use --no-ui list output.
     #[arg(value_name = "PROJECT", num_args = 0..)]
@@ -48,18 +51,25 @@ pub(in crate::commands) struct FilesArgs {
     columns: columns::ColumnArgs,
 }
 
-impl FilesArgs {
-    /// Fills omitted filters from the command's context.
-    pub(in crate::commands) fn apply_defaults(&mut self, game_version: &str, loader: &str) {
-        self.game_version
-            .get_or_insert_with(|| game_version.to_owned());
-        if self.loader.is_empty() {
-            self.loader.push(loader.to_owned());
-        }
+impl std::fmt::Debug for FilesArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FilesArgs")
+            .field("source", &self.source.label())
+            .finish_non_exhaustive()
     }
 }
 
-pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
+pub(in crate::commands) fn run(args: FilesArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+    let runtime = crate::commands::execution::Runtime::new()?;
+    let (executor, _, _) = runtime.block_on(ssh.create_executor(None))?;
+    run_at(args, &executor, None)
+}
+
+pub(in crate::commands) fn run_at(
+    mut args: FilesArgs,
+    executor: &mcpm_exec::service::Executor,
+    server: Option<ServerContext>,
+) -> Result<()> {
     let stdin = io::stdin();
     if !stdin.is_terminal() {
         for line in stdin.lock().lines() {
@@ -82,7 +92,7 @@ pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
         .enable_all()
         .build()?;
     let _guard = runtime.enter();
-    let source = super::config::build_source(&args.source)?;
+    let source = args.source;
     let mut failed = 0;
     let interactive = !args.no_ui
         && !args.columns.is_explicit()
@@ -104,30 +114,18 @@ pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
             "Resolving project {}...",
             crate::display::style::text(&value)
         ));
-        let result = runtime.block_on(async {
-            let reference = source.resolve_project(&value).await?;
-            drop(progress);
-            let _progress = super::progress::Progress::new(format!(
-                "Fetching files for {}...",
-                crate::display::style::text(&value)
-            ));
-            let selected = match &args.selected {
-                Some(id) => Some(
-                    source
-                        .get_file(&FileRef {
-                            project: reference.clone(),
-                            id: FileId(id.clone()),
-                        })
-                        .await
-                        .with_context(|| format!("failed to fetch selected file {id:?}"))?,
-                ),
-                None => None,
-            };
-            let page = source.list_files(&reference, &query).await?;
-            Ok::<_, anyhow::Error>((reference, page, selected))
-        });
+        let result = runtime.block_on(super::config::files(
+            &executor,
+            &source,
+            Project::Identifier(value.clone()),
+            &query,
+            args.selected.clone(),
+            server.as_ref(),
+        ));
+        drop(progress);
         match result {
-            Ok((reference, page, selected)) => {
+            Ok(result) => {
+                let (reference, page, selected) = (result.project, result.page, result.selected);
                 if interactive {
                     projects.push((value, reference, page));
                     selected_file = selected;
@@ -152,7 +150,15 @@ pub(in crate::commands) fn run(mut args: FilesArgs) -> Result<()> {
     output.flush()?;
     drop(output);
     if interactive && !projects.is_empty() {
-        tui::run(source.as_ref(), &runtime, query, projects, selected_file)?;
+        tui::run(
+            executor,
+            &source,
+            &runtime,
+            query,
+            projects,
+            selected_file,
+            server.as_ref(),
+        )?;
     }
     ensure!(failed == 0, "failed to list files for {failed} project(s)");
     Ok(())

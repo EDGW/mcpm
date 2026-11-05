@@ -1,26 +1,17 @@
 //! Server-scoped explicit mod caching; the file-owning host resolves selection and storage.
 
-use super::{
-    super::{
-        mod_source::ServerMods,
-        target::{self, Target},
-    },
-    input::FileArgs,
-};
+use super::input::FileArgs;
 use crate::{
     commands::source_support::SourcesArgs,
     commands::supports::mods::cache::{
         self,
         args::WriteArgs,
-        identification::Completion,
         output::{DisplayArgs, Presentation},
     },
     ssh::SshArgs,
 };
 use anyhow::Result;
 use clap::Args;
-
-mod remote;
 
 #[derive(Debug, Args)]
 #[command(
@@ -42,31 +33,26 @@ pub(super) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
     if selection.is_empty() {
         return crate::commands::supports::mods::inspect::prompt_for_input();
     }
-    let Target { path, ssh, .. } = target::resolve(path, ssh)?;
-    if ssh.is_requested() {
-        return remote::run(
-            ssh,
+    let specifications = args.sources.selected()?;
+    crate::commands::execution::Runtime::new()?.block_on(async {
+        let mut scope = mcpm_backend::operations::mods::loading::ScopeInput::Server {
             path,
+            no_cache: false,
+        };
+        let executor = crate::commands::supports::mods::target::executor(&mut scope, ssh).await?;
+        let selection =
+            mcpm_backend::operations::mods::loading::selection::SelectionInput::from_selection(
+                selection,
+            )?;
+        let output = Presentation::new(args.display);
+        cache::run(
+            &executor,
+            scope,
             selection,
             args.writing,
-            args.sources,
-            args.display,
-        );
-    }
-    let server = ServerMods::load(path)?;
-    let mut completion = Completion::new(&args.writing, &args.sources.selected()?)?;
-    let mut output = Presentation::new(args.display);
-    cache::run(
-        selection,
-        server.scope(),
-        server.runtime(),
-        args.writing.options(server.loaders())?,
-        || Ok(()),
-        |event| completion.accept(event, &mut |event| output.event(event)),
-    )?;
-    completion.finish(
-        crate::commands::source_support::identify::Location::Local(server.runtime()),
-        |event| output.event(event),
-    )?;
-    output.finish()
+            &specifications,
+            output,
+        )
+        .await
+    })
 }

@@ -2,8 +2,7 @@
 
 mod args;
 pub(super) use args::SourcesArgs;
-mod config;
-pub(super) use config::build_source;
+pub(in crate::commands) mod config;
 pub(super) mod files;
 pub(super) mod identify;
 mod progress;

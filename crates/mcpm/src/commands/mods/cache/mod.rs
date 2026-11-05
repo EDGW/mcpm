@@ -1,7 +1,6 @@
 //! CLI adapter for selecting and explicitly caching whole mod archives and metadata.
 
 use mcpm_lib::local::cache::mods::ModsCacheSelection;
-use mcpm_lib::local::runtime::RuntimeEnvironment;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -12,16 +11,16 @@ use crate::commands::supports::mods::{
     cache::{
         self,
         args::WriteArgs,
-        identification::Completion,
         output::{DisplayArgs, Presentation},
     },
     loaders::LoaderArgs,
-    selection::{ItemArgs, Scope},
+    selection::ItemArgs,
 };
+use mcpm_backend::operations::mods::loading::selection::SelectionInput;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Modes: Console (default in a terminal), Raw (--raw or redirected stdout; one JSON object per selected file). Console shows progress and a summary by default; --details adds per-file details. Local only.\n\nITEM matches a filename, then exact modid, then exact name. Redirected stdin appends one item per line; --input controls stdin interpretation. --all cannot be combined with queries.\n\nStores the whole outer JAR even when a nested mod matches. Imports deduplicate by BLAKE3. The default mode copies; hard-link modes share content protection with the source. Existing objects are reused without replacing or linking the source.\n\nMissing/outdated metadata is identified on the cached bytes. --metas/--meta select meta and/or ident (default both); --no-metas imports content only. Explicit selections replace defaults. --sources/--source select providers (default both); explicit selections replace defaults. Console shows separate import, meta and ident progress. --force refreshes requested results. Source matches are stored only on success; unmatched requests are not persisted. Successful non-recognition is cached. File failures are reported and later files continue; a failure returns a nonzero exit status. Completed writes are retained."
+    after_help = "Modes: Console (default in a terminal), Raw (--raw or redirected stdout; one JSON object per selected file). Console shows progress and a summary by default; --details adds per-file details. Mod paths, cache paths and provider requests belong to the selected Host.\n\nITEM matches a filename, then exact modid, then exact name. Redirected stdin appends one item per line; --input controls stdin interpretation. --all cannot be combined with queries.\n\nStores the whole outer JAR even when a nested mod matches. Imports deduplicate by BLAKE3. The default mode copies; hard-link modes share content protection with the source. Existing objects are reused without replacing or linking the source.\n\nMissing/outdated metadata is identified on the cached bytes. --metas/--meta select meta and/or ident (default both); --no-metas imports content only. Explicit selections replace defaults. --sources/--source select providers (default both); explicit selections replace defaults. Console shows separate import, meta and ident progress. --force refreshes requested results. Valid source matches are reused independently; only missing sources are requested. A full cache hit needs no network or usable request credentials. Positive source matches are stored independently; unmatched provider responses are successful but not persisted. Successful local-format non-recognition is cached. Failed and partially failed files are counted separately and return a nonzero exit status. Completed writes and usable matches are retained."
 )]
 pub(super) struct CacheArgs {
     #[command(flatten)]
@@ -42,26 +41,29 @@ pub(super) struct CacheArgs {
     loaders: LoaderArgs,
 }
 
-pub(super) fn run(args: CacheArgs) -> Result<()> {
-    let selection = args.items.read()?;
-    let environment = RuntimeEnvironment::new().with_mods_cache(Some(
-        args.cache_dir
-            .map(|path| ModsCacheSelection::Directory { path })
-            .unwrap_or(ModsCacheSelection::Default),
-    ));
-    let mut completion = Completion::new(&args.writing, &args.sources.selected()?)?;
-    let mut output = Presentation::new(args.display);
-    cache::run(
-        selection,
-        Scope::directory(args.directory),
-        &environment,
-        args.writing.options(args.loaders.select())?,
-        || Ok(()),
-        |event| completion.accept(event, &mut |event| output.event(event)),
-    )?;
-    completion.finish(
-        crate::commands::source_support::identify::Location::Local(&environment),
-        |event| output.event(event),
-    )?;
-    output.finish()
+pub(super) fn run(args: CacheArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+    let selection = SelectionInput::from_selection(args.items.read()?)?;
+    let mut scope = mcpm_backend::operations::mods::loading::ScopeInput::Directory {
+        directory: args.directory,
+        loaders: args.loaders.ids(),
+        cache: Some(
+            args.cache_dir
+                .map(|path| ModsCacheSelection::Directory { path })
+                .unwrap_or(ModsCacheSelection::Default),
+        ),
+    };
+    let specifications = args.sources.selected()?;
+    crate::commands::execution::Runtime::new()?.block_on(async {
+        let executor = crate::commands::supports::mods::target::executor(&mut scope, ssh).await?;
+        let output = Presentation::new(args.display);
+        cache::run(
+            &executor,
+            scope,
+            selection,
+            args.writing,
+            &specifications,
+            output,
+        )
+        .await
+    })
 }

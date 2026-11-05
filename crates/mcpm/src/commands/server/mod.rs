@@ -6,7 +6,6 @@ use clap::{Args, Subcommand};
 mod info;
 mod init;
 mod launch;
-mod mod_source;
 mod mods;
 mod stash;
 mod target;

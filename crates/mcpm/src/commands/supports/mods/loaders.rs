@@ -1,12 +1,6 @@
-//! CLI loader selection and stable ordering of identified metadata.
-
-use std::collections::HashMap;
+//! CLI loader identifiers; loader implementation selection belongs to the Host.
 
 use clap::{Args, ValueEnum};
-use mcpm_lib::local::{
-    mcmod::ModFile,
-    modloader::{BUILTIN_LOADERS, LoaderId, ModLoaderMeta},
-};
 
 #[derive(Args, Debug)]
 pub(in crate::commands) struct LoaderArgs {
@@ -48,41 +42,16 @@ impl Loader {
 }
 
 impl LoaderArgs {
-    pub(in crate::commands) fn is_filtered(&self) -> bool {
-        !self.loader.is_empty() || !self.loaders.is_empty()
-    }
-
-    pub(in crate::commands) fn select(&self) -> HashMap<LoaderId, ModLoaderMeta> {
-        if !self.is_filtered() {
-            return BUILTIN_LOADERS.clone();
-        }
-
-        self.loader
+    /// Carry only explicit loader choices; the Host resolves their implementations.
+    pub(in crate::commands) fn ids(&self) -> Vec<String> {
+        let mut ids: Vec<_> = self
+            .loader
             .iter()
             .chain(&self.loaders)
-            .filter_map(|loader| {
-                LoaderId::from(loader.id())
-                    .metadata(&BUILTIN_LOADERS)
-                    .map(|metadata| (metadata.id().clone(), metadata.clone()))
-            })
-            .collect()
-    }
-}
-
-/// Keeps console output stable independently of hash map iteration order.
-pub(in crate::commands) fn sort_metadata(file: &mut ModFile) {
-    file.metadata.sort_by(|left, right| {
-        display_order(left.loader.id())
-            .cmp(&display_order(right.loader.id()))
-            .then_with(|| left.loader.id().cmp(right.loader.id()))
-    });
-}
-
-fn display_order(id: &LoaderId) -> usize {
-    match id.as_str() {
-        "forge" => 0,
-        "neoforge" => 1,
-        "fabric" => 2,
-        _ => 4,
+            .map(|loader| loader.id().to_owned())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
     }
 }

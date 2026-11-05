@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::supports::mods::selection::{ItemArgs, Selection};
+use crate::commands::supports::mods::selection::ItemArgs;
+use mcpm_backend::operations::mods::loading::selection::Selection;
 
 /// Input selection for server mod information and dependency inspection.
 #[derive(Args, Debug)]

@@ -131,12 +131,17 @@ fn source_namespaces_reuse_successes_preserve_additional_files_and_never_cache_n
     assert_eq!(cached.role, MatchedFileRole::Additional);
     assert_eq!(cached.filename, "additional.jar");
     assert_eq!(
-        cached.for_source(&proxy).unwrap().reference.project.source,
+        cached
+            .for_source(proxy.id(), &proxy.identification_cache_id())
+            .unwrap()
+            .reference
+            .project
+            .source,
         proxy.id
     );
     assert!(
         cached
-            .for_source(&TestSource::new("other", "other", 0))
+            .for_source(&SourceId("other".into()), &SourceId("other".into()))
             .is_none()
     );
     let outcome = runtime

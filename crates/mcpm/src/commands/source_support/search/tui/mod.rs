@@ -2,9 +2,12 @@
 
 use std::time::Duration;
 
+use super::super::config;
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use mcpm_lib::source::{FileQuery, SearchPage, SearchQuery, Source};
+use mcpm_backend::operations::mods::source::{Configuration, server::Context as ServerContext};
+use mcpm_exec::service::Executor;
+use mcpm_lib::source::{FileQuery, SearchPage, SearchQuery};
 use tokio::runtime::Runtime;
 
 use super::super::request;
@@ -147,11 +150,16 @@ impl Browser {
             .unwrap_or(0);
     }
 
-    fn prepare(&mut self, defaults: &SearchQuery) -> Result<SearchQuery, ParseError> {
+    fn prepare(
+        &mut self,
+        defaults: &SearchQuery,
+        server: Option<&ServerContext>,
+    ) -> Result<(SearchQuery, Option<ServerContext>), ParseError> {
         match Expression::parse(&self.draft) {
             Ok(expression) => {
                 self.parse_error = None;
-                Ok(expression.apply(defaults))
+                let context = expression.server_context(server);
+                Ok((expression.apply(defaults), context))
             }
             Err(error) => {
                 self.cursor = self
@@ -167,12 +175,15 @@ impl Browser {
 }
 
 pub(super) fn run(
-    source: &dyn Source,
+    executor: &Executor,
+    source: &Configuration,
     runtime: &Runtime,
     defaults: SearchQuery,
     expression: String,
     mut query: SearchQuery,
     mut page: SearchPage,
+    server: Option<&ServerContext>,
+    mut query_server: Option<ServerContext>,
 ) -> Result<()> {
     let mut screen = Screen::new().context("failed to open search results")?;
     let mut browser = Browser::new(&expression);
@@ -182,7 +193,7 @@ pub(super) fn run(
         browser.refresh_completion();
         if browser.completion.needs_versions() {
             browser.completion.loading();
-            versions_request = Some(source.game_versions());
+            versions_request = Some(Box::pin(config::versions(executor, source)));
         }
         if let Some(pending) = versions_request.as_mut() {
             // Drive the borrowed request without spawning a task or blocking typing.
@@ -198,14 +209,7 @@ pub(super) fn run(
                 browser.refresh_completion();
             }
         }
-        view::render(
-            &mut screen,
-            source.id().0.as_str(),
-            &query,
-            &page,
-            &mut browser,
-            "",
-        )?;
+        view::render(&mut screen, source.label(), &query, &page, &mut browser, "")?;
         if versions_request.is_some() && !event::poll(Duration::ZERO)? {
             continue;
         }
@@ -240,8 +244,8 @@ pub(super) fn run(
             }
             Action::Search => {
                 held_page_key = Some(KeyCode::Enter);
-                let pending = match browser.prepare(&defaults) {
-                    Ok(query) => query,
+                let (pending, pending_server) = match browser.prepare(&defaults, server) {
+                    Ok(prepared) => prepared,
                     Err(error) => {
                         browser.status = Some(crate::widgets::Status::error(error.into()));
                         continue;
@@ -249,12 +253,12 @@ pub(super) fn run(
                 };
                 match request::wait(
                     runtime,
-                    source.search(&pending),
+                    config::search(executor, source, &pending, pending_server.as_ref()),
                     "Searching projects...",
                     |loading| {
                         view::render(
                             &mut screen,
-                            source.id().0.as_str(),
+                            source.label(),
                             &query,
                             &page,
                             &mut browser,
@@ -264,6 +268,7 @@ pub(super) fn run(
                 ) {
                     Ok(Some(next)) => {
                         query = pending;
+                        query_server = pending_server;
                         browser.committed = browser.draft.clone();
                         page = next;
                         browser.table = TableState::default();
@@ -286,7 +291,7 @@ pub(super) fn run(
                     };
                     view::render(
                         &mut screen,
-                        source.id().0.as_str(),
+                        source.label(),
                         &query,
                         &page,
                         &mut browser,
@@ -294,12 +299,18 @@ pub(super) fn run(
                     )?;
                     match request::wait(
                         runtime,
-                        source.list_files(&project.reference, &files_query),
+                        config::file_page(
+                            executor,
+                            source,
+                            &project.reference,
+                            &files_query,
+                            query_server.as_ref(),
+                        ),
                         "Fetching files...",
                         |loading| {
                             view::render(
                                 &mut screen,
-                                source.id().0.as_str(),
+                                source.label(),
                                 &query,
                                 &page,
                                 &mut browser,
@@ -312,11 +323,13 @@ pub(super) fn run(
                             // Reopen search after the file browser has restored them.
                             drop(screen);
                             let result = super::super::files::tui::run(
+                                executor,
                                 source,
                                 runtime,
                                 files_query,
                                 vec![(project.name.clone(), project.reference.clone(), files)],
                                 None,
+                                query_server.as_ref(),
                             );
                             screen = Screen::new().context("failed to restore search results")?;
                             if result.as_ref().err().is_some_and(request::is_interrupted) {
@@ -345,7 +358,7 @@ pub(super) fn run(
             };
             view::render(
                 &mut screen,
-                source.id().0.as_str(),
+                source.label(),
                 &query,
                 &page,
                 &mut browser,
@@ -356,12 +369,12 @@ pub(super) fn run(
             query.offset = offset;
             match request::wait(
                 runtime,
-                source.search(&query),
+                config::search(executor, source, &query, query_server.as_ref()),
                 "Searching projects...",
                 |loading| {
                     view::render(
                         &mut screen,
-                        source.id().0.as_str(),
+                        source.label(),
                         &query,
                         &page,
                         &mut browser,

@@ -1,50 +1,13 @@
-//! Builds connection processes with best-effort OpenSSH destination recognition.
+//! Best-effort OpenSSH destination recognition for redacted presentation.
 
 use std::path::Path;
-use std::process::Command;
-
-use anyhow::{Context, Result, ensure};
-
-#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
-pub(super) fn command(source: &str) -> Result<(Command, Option<String>)> {
-    let words = shlex::split(source).context("invalid quoting in --ssh connection command")?;
-    let executable = words.first().context("--ssh connection command is empty")?;
-    ensure!(!executable.is_empty(), "--ssh executable is empty");
-    let mut command = Command::new(executable);
-    let Some(target) = target(&words) else {
-        // Unknown connection tools and option syntax retain their original argv.
-        command.args(&words[1..]);
-        return Ok((command, None));
-    };
-    command.args(["-o", "RequestTTY=no"]);
-    let options = &words[1..target.index];
-    command.args(
-        options
-            .strip_suffix(&[String::from("--")])
-            .unwrap_or(options),
-    );
-    // -T must follow connection flags, so even bundled -tt cannot enable a PTY.
-    command.args(["-T", "--"]).arg(&words[target.index]);
-    tracing::debug!(
-        executable,
-        destination = target.name,
-        option_words = options.len(),
-        "Recognized SSH connection and disabled PTY allocation"
-    );
-    Ok((command, Some(target.name)))
-}
 
 pub(super) fn destination(source: &str) -> Option<String> {
-    target(&shlex::split(source)?).map(|target| target.name)
-}
-
-struct Target {
-    index: usize,
-    name: String,
+    target(&shlex::split(source)?)
 }
 
 /// Only recognize known OpenSSH syntax; display extraction never validates a command.
-fn target(words: &[String]) -> Option<Target> {
+fn target(words: &[String]) -> Option<String> {
     if !matches!(
         Path::new(words.first()?)
             .file_name()
@@ -104,39 +67,12 @@ fn target(words: &[String]) -> Option<Target> {
         }
         _ => destination.clone(),
     };
-    Some(Target { index, name })
+    Some(name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn retains_option_values_and_forces_non_pty_after_connection_flags() {
-        let (command, destination) =
-            command("ssh -4tt -i 'key with spaces' -p2222 -o RequestTTY=force user@host").unwrap();
-        assert_eq!(destination.as_deref(), Some("user@host"));
-        let args: Vec<_> = command
-            .get_args()
-            .map(|value| value.to_str().unwrap())
-            .collect();
-        assert_eq!(
-            args,
-            [
-                "-o",
-                "RequestTTY=no",
-                "-4tt",
-                "-i",
-                "key with spaces",
-                "-p2222",
-                "-o",
-                "RequestTTY=force",
-                "-T",
-                "--",
-                "user@host"
-            ]
-        );
-    }
 
     #[test]
     fn recognizes_destinations_without_confusing_option_values_with_hosts() {
@@ -159,32 +95,6 @@ mod tests {
             ("custom-ssh --profile production", None),
         ] {
             assert_eq!(destination(source).as_deref(), expected, "{source}");
-        }
-    }
-
-    #[test]
-    fn unrecognized_syntax_preserves_connection_argv_without_rejecting_it() {
-        for source in [
-            "custom-ssh --profile 'production host'",
-            "ssh -Z custom host",
-            "ssh host command",
-            "ssh -N host",
-            "ssh -i",
-        ] {
-            let words = shlex::split(source).unwrap();
-            let (command, destination) = command(source).unwrap();
-            assert!(destination.is_none(), "{source}");
-            assert_eq!(command.get_program(), words[0].as_str());
-            assert_eq!(
-                command
-                    .get_args()
-                    .map(|argument| argument.to_str().unwrap().to_owned())
-                    .collect::<Vec<_>>(),
-                &words[1..]
-            );
-        }
-        for invalid in ["", "''", "ssh 'host"] {
-            assert!(command(invalid).is_err(), "{invalid}");
         }
     }
 }

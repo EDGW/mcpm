@@ -37,21 +37,10 @@ enum ModsCommand {
 }
 
 pub(crate) fn run(args: ModsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if ssh.is_requested()
-        && matches!(
-            args.command,
-            ModsCommand::DepGraph(_) | ModsCommand::Cache(_) | ModsCommand::Backup(_)
-        )
-    {
-        anyhow::bail!(
-            "--ssh and --ssh-mcpm are currently supported only by {} mods list/info/deps/source identify",
-            crate::program::roots().tools
-        );
-    }
     match args.command {
-        ModsCommand::Cache(args) => cache::run(args),
-        ModsCommand::Backup(args) => backup::run(args),
-        ModsCommand::DepGraph(args) => dep_graph::run(args),
+        ModsCommand::Cache(args) => cache::run(args, ssh),
+        ModsCommand::Backup(args) => backup::run(args, ssh),
+        ModsCommand::DepGraph(args) => dep_graph::run(args, ssh),
         ModsCommand::Deps(args) => deps::run(args, ssh),
         ModsCommand::Info(args) => info::run(args, ssh),
         ModsCommand::List(list) => list::run(list, ssh),

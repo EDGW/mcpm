@@ -40,20 +40,8 @@ enum ModsCommand {
 
 pub(super) fn run(args: ModsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     match args.command {
-        ModsCommand::DepGraph(args) => {
-            anyhow::ensure!(
-                !ssh.is_requested(),
-                "server mods dep-graph does not support --ssh"
-            );
-            dep_graph::run(args)
-        }
-        ModsCommand::Check(args) => {
-            anyhow::ensure!(
-                !ssh.is_requested(),
-                "server mods check does not support --ssh"
-            );
-            check::run(args)
-        }
+        ModsCommand::DepGraph(args) => dep_graph::run(args, ssh),
+        ModsCommand::Check(args) => check::run(args, ssh),
         ModsCommand::Cache(args) => cache::run(args, ssh),
         ModsCommand::List(args) => list::run(args, ssh),
         ModsCommand::Info(args) => info::run(args, ssh),

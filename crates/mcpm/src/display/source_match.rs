@@ -5,6 +5,7 @@ use std::{
     path::Path,
 };
 
+use mcpm_backend::operations::mods::identification::{QueryResult, SourceResult};
 use mcpm_lib::source::{FileMatch, MatchedFileRole, SourceId};
 
 use clap::ValueEnum;
@@ -28,6 +29,11 @@ pub(crate) enum Column {
     Size,
     Role,
     Status,
+    #[value(name = "query_status")]
+    QueryStatus,
+    #[value(name = "cache_coverage")]
+    CacheCoverage,
+    Origin,
 }
 
 impl Column {
@@ -42,6 +48,8 @@ impl Column {
         Self::Role,
         Self::Status,
     ];
+
+    pub(crate) const OPTIONAL: [Self; 3] = [Self::QueryStatus, Self::CacheCoverage, Self::Origin];
 
     pub(crate) const DETAILS: [Self; 5] = [
         Self::Project,
@@ -62,6 +70,9 @@ impl Column {
             Self::Size => "size",
             Self::Role => "role",
             Self::Status => "status",
+            Self::QueryStatus => "query_status",
+            Self::CacheCoverage => "cache_coverage",
+            Self::Origin => "origin",
         }
     }
 
@@ -76,6 +87,9 @@ impl Column {
             Self::Size => "Size",
             Self::Role => "Role",
             Self::Status => "Status",
+            Self::QueryStatus => "Query status",
+            Self::CacheCoverage => "Cache coverage",
+            Self::Origin => "Origin",
         }
     }
 
@@ -90,19 +104,30 @@ impl Column {
             Self::Size => 'B',
             Self::Role => 'R',
             Self::Status => 'S',
+            Self::QueryStatus => 'Q',
+            Self::CacheCoverage => 'C',
+            Self::Origin => 'G',
         }
     }
 }
 
-pub(crate) fn write_match(
+/// Presents source facts alongside their shared, file-level status.
+pub(crate) fn write_result(
     output: &mut impl Write,
     index: usize,
     path: &Path,
-    source: &SourceId,
-    found: Option<&FileMatch>,
+    result: &QueryResult,
     columns: &[Column],
 ) -> io::Result<()> {
-    let view = View::new(index, path, source, found);
+    for source in &result.sources {
+        let mut view = View::new(index, path, &source.source, source.file());
+        view.identification = Some((result, source));
+        write_view(output, view, columns)?;
+    }
+    Ok(())
+}
+
+fn write_view(output: &mut impl Write, view: View<'_>, columns: &[Column]) -> io::Result<()> {
     if !terminal::stdout_is_tty() {
         let values: Vec<_> = columns
             .iter()
@@ -140,6 +165,7 @@ pub(crate) struct View<'a> {
     path: &'a Path,
     source: &'a SourceId,
     found: Option<&'a FileMatch>,
+    identification: Option<(&'a QueryResult, &'a SourceResult)>,
 }
 
 impl<'a> View<'a> {
@@ -154,6 +180,7 @@ impl<'a> View<'a> {
             path,
             source,
             found,
+            identification: None,
         }
     }
 
@@ -196,12 +223,30 @@ impl<'a> View<'a> {
             Column::Index => self.index.to_string(),
             Column::Path => self.path.to_string_lossy().into_owned(),
             Column::Source => self.source.0.clone(),
-            Column::Status => if self.found.is_some() {
-                "matched"
-            } else {
-                "unmatched"
-            }
-            .into(),
+            Column::Status => self
+                .identification
+                .map(|(_, source)| source.match_status())
+                .unwrap_or(if self.found.is_some() {
+                    "matched"
+                } else {
+                    "unmatched"
+                })
+                .into(),
+            Column::QueryStatus => self
+                .identification
+                .map(|(result, _)| result.status().as_str())
+                .unwrap_or_default()
+                .into(),
+            Column::CacheCoverage => self
+                .identification
+                .map(|(result, _)| result.cache_coverage().as_str())
+                .unwrap_or_default()
+                .into(),
+            Column::Origin => self
+                .identification
+                .and_then(|(_, source)| source.origin())
+                .unwrap_or_default()
+                .into(),
             _ => self
                 .found
                 .map(|file| match column {

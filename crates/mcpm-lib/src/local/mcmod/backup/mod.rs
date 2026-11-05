@@ -119,6 +119,8 @@ pub enum Event {
         total: usize,
     },
     StageDone(Stage),
+    /// Last cancellation boundary before publishing the staged directory.
+    BeforeCommit,
 }
 
 /// A successful publication; per-file dispositions correspond to the sorted manifest records.

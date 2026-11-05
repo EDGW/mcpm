@@ -1,26 +1,18 @@
-//! Resolves server-owned selections before local provider identification of file summaries.
+//! Passes server-owned selections to the complete Host identification operation.
 
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use clap::Args;
 
 use super::super::input::FileArgs;
 use crate::{
-    commands::{
-        server::{
-            mod_source::ServerMods,
-            target::{self, Target},
-        },
-        source_support::identify,
-        supports::mods::{inspect, scan_output::ScanOutput, selection},
-    },
+    commands::{execution::Runtime, source_support::identify},
     ssh::SshArgs,
 };
-
-mod remote;
+use mcpm_backend::operations::mods::loading::{ScopeInput, selection::SelectionInput};
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = format!("Modes: Console (field groups) and Raw (TSV; --raw or redirected stdout); Remote supported through --ssh.\n\nWith --ssh, server paths and file reads are remote; source requests and credentials remain local.\nInputs match filename, then exact modid, then exact mod name in the server's mods directory.\nPaths are relative to that directory; mods/ prefixes are accepted. Use --all to select every mod.\nRedirected stdin appends one selection per line; --input sets its interpretation.\nMatching uses file contents and is independent of Minecraft version or loader compatibility.\n--columns, --column and -C select fields; --headers adds a Raw header.\n\nExamples:\n  {server} mods source identify --server ./my-server --source modrinth --all\n  {server} mods source identify create.jar --source curseforge\n  {server} mods source identify --modid create --source modrinth --columns path,project,id,status\n  printf '%s\\n' create | {server} mods source identify --source modrinth --input modid", server = crate::program::roots().server)
+    after_help = format!("Modes: Console (field groups) and Raw (TSV; --raw or redirected stdout); Remote supported through --ssh.\n\nWith --ssh, server selection, file reads, cache reuse and source requests run on the selected host.\nInputs match filename, then exact modid, then exact mod name in the server's mods directory.\nPaths are relative to that directory; mods/ prefixes are accepted. Use --all to select every mod.\nRedirected stdin appends one selection per line; --input sets its interpretation.\nMatching uses file contents and is independent of Minecraft version or loader compatibility.\n--columns, --column and -C select fields; --headers adds a Raw header.\nOptional Raw columns query_status, cache_coverage and origin describe Host query results.\n\nExamples:\n  {server} mods source identify --server ./my-server --source modrinth --all\n  {server} mods source identify create.jar --source curseforge\n  {server} mods source identify --modid create --source modrinth --columns path,project,id,status\n  printf '%s\\n' create | {server} mods source identify --source modrinth --input modid", server = crate::program::roots().server)
 )]
 pub(super) struct IdentifyArgs {
     #[command(flatten)]
@@ -32,65 +24,21 @@ pub(super) struct IdentifyArgs {
 pub(super) fn run(args: IdentifyArgs, ssh: SshArgs) -> Result<()> {
     let (server, selection) = args.files.read()?;
     if selection.is_empty() {
-        inspect::prompt_for_input()?;
+        crate::commands::supports::mods::inspect::prompt_for_input()?;
         return Ok(());
     }
-    let Target {
-        path: server, ssh, ..
-    } = target::resolve(server, ssh)?;
-    let parallelism = args.options.parallelism();
-    let (paths, failed, environment, mut session) = if ssh.is_requested() {
-        tracing::info!("Opening SSH data source for server source identification");
-        let session = ssh.connect()?;
-        let (paths, failed, environment) = remote::resolve(
-            &session,
-            server,
-            selection,
-            args.options.cache.no_cache,
-            parallelism,
-        )?;
-        (paths, failed, environment, Some(session))
-    } else {
-        let server = ServerMods::load(server)?;
-        let environment = args.options.cache.environment(server.runtime());
-        let selection_environment = environment.clone().with_mods_cache(None);
-        let output = ScanOutput::default();
-        let (paths, failed) = selection::resolve_paths(
-            selection,
-            server.scope(),
-            server.loaders(),
-            &selection_environment,
-            parallelism,
-            || Ok(()),
-            |event| output.event(event),
-        )?;
-        (paths, failed, environment, None)
+    let runtime = Runtime::new()?;
+    let mut scope = ScopeInput::Server {
+        path: server,
+        no_cache: args.options.cache.no_cache,
     };
-    let result = if paths.is_empty() {
-        Ok(())
-    } else {
-        let location = session
-            .as_ref()
-            .map(|session| identify::Location::Remote(session, &environment))
-            .unwrap_or(identify::Location::Local(&environment));
-        identify::run_paths_at(args.options, paths, location)
-    };
-    if let Some(session) = session.as_mut() {
-        session.close()?;
-    }
-    result?;
-    let result = (|| {
-        ensure!(
-            failed == 0,
-            "failed to resolve {failed} server mod selection(s)"
-        );
-        Ok(())
-    })();
-    result.map_err(|error| {
-        if session.is_some() {
-            crate::diagnostics::RemoteError::wrap(error)
-        } else {
-            error
-        }
-    })
+    let executor = runtime.block_on(crate::commands::supports::mods::target::executor(
+        &mut scope, ssh,
+    ))?;
+    identify::run_selection_at(
+        args.options,
+        scope,
+        SelectionInput::from_selection(selection)?,
+        &executor,
+    )
 }

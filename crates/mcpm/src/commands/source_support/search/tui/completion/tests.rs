@@ -54,7 +54,7 @@ fn loader_selection_only_edits_the_current_value_and_requires_another_enter_to_s
         &browser.draft[..browser.cursor],
         "机械动力 @loader (forge | fabric"
     );
-    let pending = browser.prepare(&SearchQuery::default()).unwrap();
+    let (pending, _) = browser.prepare(&SearchQuery::default(), None).unwrap();
     assert_eq!(pending.loaders, ["forge", "fabric"]);
 
     browser.draft = "@loader ".into();
@@ -106,8 +106,9 @@ fn versions_cache_per_session_and_allow_manual_input_after_failure() {
     assert_eq!(press(&mut browser, KeyCode::Enter), Action::Search);
     assert_eq!(
         browser
-            .prepare(&SearchQuery::default())
+            .prepare(&SearchQuery::default(), None)
             .unwrap()
+            .0
             .game_versions,
         ["9.99.1"]
     );

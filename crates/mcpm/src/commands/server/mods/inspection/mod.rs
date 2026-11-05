@@ -1,28 +1,23 @@
-//! Server-scoped inspection dispatch; server metadata is resolved on the file-owning host.
+//! Server inspection flow; loader, runtime and container resolution remain on the Host.
 
-use anyhow::Result;
-
-use super::{
-    super::{
-        mod_source::ServerMods,
-        target::{self, Target},
-    },
-    input::FileArgs,
-};
+use super::input::FileArgs;
 use crate::{
     commands::supports::mods::{
         inspect::{self, Display},
-        scan,
+        reuse::QueryArgs,
     },
     ssh::SshArgs,
 };
-
-mod remote;
+use anyhow::Result;
+use mcpm_backend::operations::mods::loading::{
+    ScopeInput, inspection::Input, selection::SelectionInput,
+};
+use std::num::NonZeroUsize;
 
 pub(super) fn run(
     files: FileArgs,
-    query: crate::commands::supports::mods::reuse::QueryArgs,
-    loading: scan::Options,
+    query: QueryArgs,
+    parallelism: usize,
     display: Display<'_>,
     ssh: SshArgs,
 ) -> Result<()> {
@@ -30,20 +25,16 @@ pub(super) fn run(
     if selection.is_empty() {
         return inspect::prompt_for_input();
     }
-    let Target { path, ssh, .. } = target::resolve(path, ssh)?;
-    if ssh.is_requested() {
-        remote::run(ssh, path, selection, query, loading, display)
-    } else {
-        tracing::info!(path = %path.display(), "Reading server mod scope for inspection");
-        let source = ServerMods::load(path)?;
-        inspect::run(
-            selection,
-            source.scope(),
-            source.loaders(),
-            true,
-            &query.environment(source.runtime()),
-            loading,
-            display,
-        )
-    }
+    inspect::run(
+        Input {
+            scope: ScopeInput::Server {
+                path,
+                no_cache: query.no_cache,
+            },
+            selection: SelectionInput::from_selection(selection)?,
+            parallelism: NonZeroUsize::new(parallelism).expect("validated parallelism"),
+        },
+        display,
+        ssh,
+    )
 }

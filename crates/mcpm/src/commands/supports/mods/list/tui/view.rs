@@ -31,12 +31,13 @@ pub(super) fn draw(
     summary: &Summary<'_>,
 ) -> usize {
     let identification = browser.identification_progress();
+    let query_summary = browser.identification_summary();
     let filter_height = if browser.filter_open { 3 } else { 0 };
     let identification_height = if identification.is_some() { 3 } else { 0 };
     let [browser_area, footer_extension] = Layout::vertical([
         Constraint::Min(0),
         Constraint::Length(
-            1 + u16::from(summary.cache.is_some())
+            2 + u16::from(summary.cache.is_some())
                 + browser
                     .status
                     .as_ref()
@@ -104,7 +105,7 @@ pub(super) fn draw(
             (
                 vec![format!(
                     "{} files skipped · {} input errors · {} file errors",
-                    summary.ignored, summary.input_errors, summary.failed
+                    summary.ignored, summary.input_errors, summary.failed,
                 )],
                 if summary.input_errors + summary.failed > 0 {
                     Role::Warning
@@ -138,9 +139,23 @@ pub(super) fn draw(
             Role::Muted,
         ));
     }
+    lines.push((
+        format!(
+            "Identification: {} Success · {} PartialFailed · {} Failed · {} preparation errors",
+            query_summary.success,
+            query_summary.partial_failed,
+            query_summary.failed,
+            query_summary.preparation_failed,
+        ),
+        if query_summary.has_failures() {
+            Role::Warning
+        } else {
+            Role::Muted
+        },
+    ));
     let cache = browser.identification_cache_summary();
     lines.push((
-        if summary.location.environment().cache.mods.is_none() {
+        if summary.location.cache.is_none() {
             "Identification cache: disabled".into()
         } else {
             format!(
@@ -173,7 +188,7 @@ fn draw_identification(frame: &mut Frame, area: Rect, completed: usize, total: u
             .block(panel(" Identification ", false).padding(Padding::horizontal(1)))
             .gauge_style(style(Role::Primary))
             .ratio(completed as f64 / total as f64)
-            .label(format!("{completed}/{total} lookups")),
+            .label(format!("{completed}/{total} files")),
         area,
     );
 }
@@ -309,7 +324,7 @@ fn draw_table(frame: &mut Frame, area: Rect, browser: &mut Browser, columns: &[C
                         .flat_map(|(position, platform)| {
                             let state = &browser.identification[node.file][platform.index()];
                             let text = match state {
-                                identify::State::Matched(_) => "✓".to_owned(),
+                                identify::State::Matched { .. } => "✓".to_owned(),
                                 identify::State::Loading => spinner.clone(),
                                 _ => " ".to_owned(),
                             };
@@ -499,8 +514,13 @@ fn source_item(
         )
     } else {
         match state {
-            identify::State::Matched(_) => (
-                "✓ Identified".into(),
+            identify::State::Matched { cached, .. } => (
+                if *cached {
+                    "✓ Identified (cache)"
+                } else {
+                    "✓ Identified (query)"
+                }
+                .into(),
                 "↳ Enter to view release files →".into(),
                 Role::Normal,
                 true,
@@ -523,6 +543,7 @@ fn source_item(
                 Role::Muted,
                 false,
             ),
+            identify::State::Skipped => ("Not queried".into(), String::new(), Role::Muted, false),
             identify::State::Failed { .. } => ("Failed".into(), String::new(), Role::Danger, false),
         }
     };
@@ -538,7 +559,7 @@ fn source_item(
         ),
         Span::styled(status, status_style),
     ];
-    if outer && let identify::State::Matched(found) = state {
+    if outer && let identify::State::Matched { file: found, .. } = state {
         heading.push(Span::styled(
             format!(
                 " · Project ID: {} · File ID: {}",

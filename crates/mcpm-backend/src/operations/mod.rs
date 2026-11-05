@@ -35,5 +35,22 @@ pub fn registry() -> Result<Registry> {
     registry.register::<cache::Verify>()?;
     registry.register::<cache::RebuildIndex>()?;
     registry.register::<mods::digest::Digest>()?;
+    registry.register::<mods::list::List>()?;
+    registry.register::<mods::info::Info>()?;
+    registry.register::<mods::deps::Deps>()?;
+    registry.register::<mods::source::search::Search>()?;
+    registry.register::<mods::source::files::Files>()?;
+    registry.register::<mods::source::identify::Identify>()?;
+    registry.register::<mods::cache::Cache>()?;
+    registry.register::<cache::refresh::Meta>()?;
+    registry.register::<cache::refresh::Ident>()?;
+    registry.register::<mods::dep_graph::Build>()?;
+    registry.register::<mods::dep_graph::Inspect>()?;
+    registry.register::<mods::backup::Create>()?;
+    registry.register::<mods::backup::Apply>()?;
+    registry.register::<mods::backup::Verify>()?;
+    registry.register::<mods::backup::Checksum>()?;
+    registry.register::<mods::backup::VerifyWith>()?;
+    registry.register::<mods::backup::Delete>()?;
     Ok(registry)
 }

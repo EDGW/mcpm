@@ -1,38 +1,26 @@
 //! Shared mod listing, identification diagnostics and terminal output.
 
-use mcpm_lib::local::runtime::RuntimeEnvironment;
-use std::collections::HashMap;
 use std::io::{self, Write};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_lib::local::{
-    mcmod::ModEntry,
-    modloader::{LoaderId, ModLoaderMeta},
-};
 use thiserror::Error;
 
 use crate::commands::{execution::DEFAULT_PARALLELISM, source_support::identify::Location};
 use crate::{progress, terminal};
 
-use super::{
-    scan::ScanSession,
-    scan_output::ScanOutput,
-    selection::{Scope, SelectedFile, Selection},
-    source_path::PathArgs,
-};
+use super::source_path::PathArgs;
 use columns::ColumnArgs;
 use filter::Filter;
+use mcpm_backend::operations::mods::{
+    list::{Event, Input, List},
+    loading::selection::SelectedFile,
+};
 
 mod columns;
 mod filter;
 mod output;
-pub(in crate::commands) mod protocol;
-mod records;
-pub(in crate::commands) mod remote_selection;
 mod rows;
-mod selection;
-pub(in crate::commands) mod ssh;
 mod tui;
 
 #[derive(Args, Debug)]
@@ -92,116 +80,65 @@ type ListedFile = SelectedFile;
 pub(in crate::commands) struct Counts {
     pub input_errors: usize,
     pub failed: usize,
-    pub cache: Option<super::scan::CacheSummary>,
+    pub cache: Option<mcpm_backend::operations::mods::loading::scan::CacheSummary>,
 }
 
-/// Lists batches of entries supplied by a command, retaining per-input diagnostics.
-/// Loader selection and input resolution belong to the caller.
+/// Acquire from the selected Host, then render while its Executor remains alive for TUI queries.
 pub(in crate::commands) fn run(
-    inputs: impl IntoIterator<Item = Result<Vec<ModEntry>>>,
-    loaders: HashMap<LoaderId, ModLoaderMeta>,
-    hide_unrecognized: bool,
-    environment: &RuntimeEnvironment,
-    loading: impl Into<super::scan::Options>,
+    mut input: Input,
     args: ListDisplayArgs,
+    ssh: crate::ssh::SshArgs,
 ) -> Result<()> {
-    let started = std::time::Instant::now();
-    tracing::debug!(loaders = ?loaders.keys().map(|id| id.as_str()).collect::<Vec<_>>(), hide_unrecognized, "Starting local mod list scan");
-    let source_loaders = source_loaders(&loaders, hide_unrecognized);
-    let progress = progress::Progress::new("Scanning mod directory...", "Identifying mods");
-    let mut entries = Vec::new();
-    let mut input_errors = 0;
-    for input in inputs {
-        match input {
-            Ok(found) => entries.extend(found),
-            Err(error) => {
-                progress.report(&error);
-                input_errors += 1;
+    let runtime = crate::commands::execution::Runtime::new()?;
+    let (executor, files, counts, source_loaders, hidden, cache) = runtime.block_on(async {
+        let executor = super::target::executor(&mut input.scope, ssh).await?;
+        let mut stream = executor.call::<List>(input).await?;
+        let progress = progress::Progress::new("Scanning mod directory...", "Identifying mods");
+        let mut files = Vec::new();
+        let mut completion = None;
+        while let Some(event) = stream.next().await {
+            anyhow::ensure!(completion.is_none(), "Mod list data after completion");
+            match event? {
+                Event::Progress { completed, total } => {
+                    if completed == 0 {
+                        progress.set_total(total);
+                    }
+                    progress.set_position(completed);
+                }
+                Event::Error { error } => progress.report(&error.into_inner()),
+                Event::File { file } => files.push(file),
+                Event::Done {
+                    input_errors,
+                    failed,
+                    cache,
+                    source_loaders,
+                    hide_unrecognized,
+                    cache_selection,
+                } => {
+                    completion = Some((
+                        Counts {
+                            input_errors,
+                            failed,
+                            cache: Some(cache),
+                        },
+                        source_loaders,
+                        hide_unrecognized,
+                        cache_selection,
+                    ));
+                }
             }
         }
-    }
-    progress.set_total(entries.len());
-    tracing::debug!(
-        count = entries.len(),
-        input_errors,
-        "Local mod list input discovery completed"
-    );
-
-    drop(progress);
-    let output = ScanOutput::default();
-    let observe = |event| output.event(event);
-    let mut session = ScanSession::new(loaders, environment)
-        .with_options(loading.into())?
-        .with_observer(&observe);
-    let paths: Vec<_> = entries
-        .into_iter()
-        .map(|entry| entry.path().to_owned())
-        .collect();
-    let files = session
-        .collect(&paths)?
-        .into_iter()
-        .map(|scanned| SelectedFile {
-            scanned,
-            records: None,
-        })
-        .collect::<Vec<_>>();
-    tracing::debug!(
-        files = files.len(),
-        failed = session.failed_count(),
-        input_errors,
-        elapsed_ms = started.elapsed().as_millis(),
-        "Local mod list loading completed"
-    );
+        let (counts, source_loaders, hidden, cache) =
+            completion.context("missing Mod list completion")?;
+        Ok::<_, anyhow::Error>((executor, files, counts, source_loaders, hidden, cache))
+    })?;
     present(
         files,
-        hide_unrecognized,
+        hidden,
         args,
-        Counts {
-            input_errors,
-            failed: session.failed_count(),
-            cache: Some(session.cache_summary()),
-        },
+        counts,
         source_loaders,
-        Location::Local(environment),
-    )
-}
-
-/// Resolves server list queries through the same lazy indexes as info/deps.
-pub(in crate::commands) fn run_selection(
-    selection: Selection,
-    scope: Scope,
-    loaders: HashMap<LoaderId, ModLoaderMeta>,
-    environment: &RuntimeEnvironment,
-    loading: impl Into<super::scan::Options>,
-    args: ListDisplayArgs,
-) -> Result<()> {
-    let source_loaders = source_loaders(&loaders, true);
-    let output = ScanOutput::default();
-    let mut files = Vec::new();
-    let counts = selection::load(
-        selection,
-        scope,
-        loaders,
-        environment,
-        loading,
-        || Ok(()),
-        |event| output.event(event),
-        |file| {
-            files.push(file);
-            Ok(())
-        },
-    )?;
-    present(
-        files,
-        true,
-        args,
-        Counts {
-            input_errors: counts.input_errors,
-            failed: counts.failed,
-            cache: Some(counts.cache),
-        },
-        source_loaders,
-        Location::Local(environment),
+        Location::new(&executor, cache.as_ref()),
     )
 }
 
@@ -358,16 +295,6 @@ pub(in crate::commands) fn present(
         });
     }
     Ok(())
-}
-
-/// Forward explicit CLI or server loader constraints, leaving an unfiltered list unrestricted.
-fn source_loaders(loaders: &HashMap<LoaderId, ModLoaderMeta>, filtered: bool) -> Vec<String> {
-    if !filtered {
-        return Vec::new();
-    }
-    let mut ids: Vec<_> = loaders.keys().map(|id| id.as_str().to_owned()).collect();
-    ids.sort();
-    ids
 }
 
 #[derive(Debug, Error)]

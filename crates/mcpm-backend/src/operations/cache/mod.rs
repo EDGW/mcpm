@@ -13,6 +13,7 @@ use super::stream;
 pub use protection::check_protection;
 mod verify;
 pub use verify::Verify;
+pub mod refresh;
 
 /// Initialize a missing/empty cache or validate an existing one.
 pub struct Init;

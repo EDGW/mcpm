@@ -2,8 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::remote::command::Command;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
 use tracing::debug;
 
@@ -13,9 +12,6 @@ use crate::commands::supports::mods::{
     list::{self, ListDisplayArgs, ListLoadingArgs},
     loaders::LoaderArgs,
 };
-
-mod input;
-mod remote;
 
 #[derive(Args, Debug)]
 #[command(
@@ -58,41 +54,19 @@ pub(super) fn run(args: ListArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
         paths.push(PathBuf::from("."));
     }
     debug!(?paths, "Resolved mod list input paths");
-    let environment = args.cache.environment();
-    let loading = crate::commands::supports::mods::scan::Options {
-        parallelism: args.loading.parallelism(),
-    };
-    let display = args.display;
-    let result = if ssh.is_requested() {
-        debug!("Dispatching remote mod.list request over SSH");
-        list::ssh::run(
-            ssh,
-            remote::List::ID,
-            serde_json::to_value(remote::request(
-                paths,
-                &args.loaders,
-                &environment,
-                loading,
-            )?)?,
-            args.loaders,
-            display,
-            &environment,
-        )
-    } else {
-        debug!("Dispatching local mod.list request locally");
-        let inputs = paths.into_iter().map(|path| {
-            let context = format!("failed to read list input {path:?}");
-            input::read(path).context(context)
-        });
-        list::run(
-            inputs,
-            args.loaders.select(),
-            args.loaders.is_filtered(),
-            &environment,
-            loading,
-            display,
-        )
-    };
+    let result = list::run(
+        mcpm_backend::operations::mods::list::Input {
+            scope: mcpm_backend::operations::mods::loading::ScopeInput::Directory {
+                directory: PathBuf::from("."),
+                loaders: args.loaders.ids(),
+                cache: args.cache.selection(),
+            },
+            selection: mcpm_backend::operations::mods::list::Selection::Paths(paths),
+            parallelism: std::num::NonZeroUsize::new(args.loading.parallelism()).unwrap(),
+        },
+        args.display,
+        ssh,
+    );
     tracing::debug!(
         success = result.is_ok(),
         elapsed_ms = started.elapsed().as_millis(),

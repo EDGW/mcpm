@@ -1,41 +1,25 @@
-//! Resolves server graph inputs and automatic versioned external components.
+//! Server graph request parameters and workspace-aware Executor selection.
 
-use std::path::PathBuf;
-
+use crate::ssh::SshArgs;
 use anyhow::Result;
 use clap::Args;
-use mcpm_lib::local::mcmod::dependency::graph::{
-    candidate::ExternalCandidate, identifier::DependencyIdentifier,
-};
+use mcpm_backend::operations::mods::loading::ScopeInput;
+use mcpm_exec::service::Executor;
+use std::path::PathBuf;
 
-use super::super::mod_source::ServerMods;
-
-/// Registered server input shared by graph building and dependency checks.
 #[derive(Args, Debug)]
 pub(super) struct ServerArgs {
     /// Registered server directory; defaults to the current directory.
     #[arg(long = "server", value_name = "PATH", default_value = ".")]
     path: PathBuf,
 }
-
 impl ServerArgs {
-    pub(super) fn resolve(self) -> Result<(ServerMods, [ExternalCandidate; 2])> {
-        super::super::target::require_supported_local(&self.path, "server mods check/dep-graph")?;
-        let source = ServerMods::load(self.path)?;
-        let loader = source.container().loader();
-        // Dependency ids follow each loader's metadata conventions.
-        let loader_modid = match loader.loader.id().as_str() {
-            "fabric" => "fabricloader",
-            id => id,
+    pub(super) async fn resolve(self, ssh: SshArgs) -> Result<(Executor, ScopeInput)> {
+        let mut scope = ScopeInput::Server {
+            path: self.path,
+            no_cache: false,
         };
-        let external = [
-            ("minecraft", source.minecraft_version()),
-            (loader_modid, loader.version.as_str()),
-        ]
-        .map(|(id, version)| ExternalCandidate {
-            identifier: DependencyIdentifier::from_parts(loader.loader.id().clone(), id.to_owned()),
-            version: Some(version.to_owned()),
-        });
-        Ok((source, external))
+        let executor = crate::commands::supports::mods::target::executor(&mut scope, ssh).await?;
+        Ok((executor, scope))
     }
 }

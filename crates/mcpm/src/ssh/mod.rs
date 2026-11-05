@@ -1,17 +1,11 @@
-//! Shared global SSH options and non-PTY remote mcpm command construction.
+//! Shared SSH target options; transport construction belongs to mcpmd link.
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use clap::Args;
 
-use crate::{progress::Progress, remote::client::Session};
-
-mod config;
-pub(crate) use config::Connection;
-
 mod connection;
-mod windows;
 
 #[derive(Args, Debug, Default)]
 pub(crate) struct SshArgs {
@@ -20,7 +14,7 @@ pub(crate) struct SshArgs {
         long,
         global = true,
         value_name = "COMMAND",
-        help = format!("SSH connection command, e.g. \"ssh -i key -p 2222 user@host\"; supported by {} init/info/stash/mods list/info/cache/deps/source and {} cache (except refresh) and mods list/info/deps/source identify.", crate::program::roots().server, crate::program::roots().tools),
+        help = format!("SSH connection command, e.g. \"ssh -i key -p 2222 user@host\"; supported by {} init/info/stash/mods and {} cache/mods. Source queries run on the selected Host.", crate::program::roots().server, crate::program::roots().tools),
         help_heading = "Global options"
     )]
     ssh: Option<String>,
@@ -33,8 +27,6 @@ pub(crate) struct SshArgs {
         help_heading = "Global options"
     )]
     ssh_mcpmd: Option<String>,
-    #[arg(skip)]
-    directory: Option<PathBuf>,
 }
 
 impl SshArgs {
@@ -52,25 +44,6 @@ impl SshArgs {
             bail!("--ssh-mcpmd requires --ssh");
         }
         Ok(())
-    }
-
-    pub(crate) fn connection(&self) -> Result<Connection> {
-        self.validate()?;
-        Ok(Connection {
-            ssh: self
-                .ssh
-                .clone()
-                .context("missing --ssh connection command")?,
-            ssh_mcpmd: self.ssh_mcpmd.clone(),
-        })
-    }
-
-    pub(crate) fn from_connection(connection: Connection, directory: PathBuf) -> Self {
-        Self {
-            ssh: Some(connection.ssh),
-            ssh_mcpmd: connection.ssh_mcpmd,
-            directory: Some(directory),
-        }
     }
 
     pub(crate) fn explicit_connection(&self) -> Result<Option<mcpm_exec::service::Connection>> {
@@ -120,19 +93,5 @@ impl SshArgs {
         .await?;
         crate::logging::subscribe_executor(&executor).await?;
         Ok((executor, path, remote))
-    }
-
-    /// Display connection progress until the remote handshake and log subscription are ready.
-    pub(crate) fn connect(&self) -> Result<Session> {
-        let (mut command, destination) = self.connection()?.prepare()?;
-        if let Some(directory) = &self.directory {
-            command.current_dir(directory);
-        }
-        let message = match destination {
-            Some(destination) => format!("Connecting {}...", destination.escape_debug()),
-            None => "Connecting...".into(),
-        };
-        let _progress = Progress::new(&message, "Connecting");
-        Session::start(&mut command).context("failed to open SSH mcpm session")
     }
 }

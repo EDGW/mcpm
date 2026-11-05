@@ -3,11 +3,8 @@
 use std::{io::Write, path::Path};
 
 use anyhow::Result;
-use mcpm_lib::local::cache::mods::meta::CacheEntry;
-use mcpm_lib::local::cache::{
-    hash::Blake3Hash,
-    mods::ident::{CacheIdentInfo, RefreshStatus},
-};
+use mcpm_backend::operations::cache::{IdentSnapshot, refresh::MetaReceipt};
+use mcpm_lib::local::cache::{hash::Blake3Hash, mods::ident::RefreshStatus};
 use mcpm_lib::source::{FileMatch, SourceId};
 
 use crate::display::{
@@ -37,10 +34,10 @@ pub(crate) fn short(out: &mut ConsoleWriter<'_>, id: Blake3Hash, success: bool) 
 pub(crate) fn entry(
     out: &mut ConsoleWriter<'_>,
     content: &super::Entry,
-    entry: &CacheEntry,
+    entry: &MetaReceipt,
 ) -> Result<()> {
     super::write_console(out, content, &COLUMNS)?;
-    if let Some(digest) = entry.digest() {
+    if let Some(digest) = &entry.digest {
         let style = OutputStyle::new();
         writeln!(
             out,
@@ -55,7 +52,7 @@ pub(crate) fn entry(
         for (loader, metadata) in digest.identifications() {
             crate::display::mod_meta::write(
                 out,
-                entry.data_path(),
+                &entry.content.file,
                 crate::display::mod_meta::View::cached(loader, metadata),
             )?;
         }
@@ -67,12 +64,13 @@ pub(crate) fn entry(
 pub(crate) fn ident_info(
     out: &mut ConsoleWriter<'_>,
     content: &super::Entry,
-    info: &CacheIdentInfo,
+    info: &IdentSnapshot,
+    metadata_path: &Path,
     results: &[(SourceId, RefreshStatus)],
 ) -> Result<()> {
     super::write_console(out, content, &COLUMNS)?;
     let style = OutputStyle::new();
-    let count = info.matches().count();
+    let count = info.matches.len();
     if count == 0 {
         writeln!(out, "{}none", style.muted("Stored matches: "))?;
     } else {
@@ -84,7 +82,7 @@ pub(crate) fn ident_info(
             "{}",
             style.muted(format!(
                 "Metadata: {}",
-                text(&info.path().to_string_lossy())
+                text(&metadata_path.to_string_lossy())
             ))
         )?;
     }
@@ -93,11 +91,11 @@ pub(crate) fn ident_info(
             &mut out.subwriter(),
             source,
             Some(*result),
-            info.get(&source.0),
+            info.matches.get(&source.0),
         )?;
     }
-    for (source, file) in info.matches() {
-        if !results.iter().any(|(selected, _)| selected.0 == source) {
+    for (source, file) in &info.matches {
+        if !results.iter().any(|(selected, _)| selected.0 == *source) {
             write_ident_source(
                 &mut out.subwriter(),
                 &SourceId(source.into()),

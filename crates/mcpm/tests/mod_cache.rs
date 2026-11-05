@@ -226,8 +226,8 @@ fn import_and_identification_failures_continue_and_unrecognized_remains_a_positi
     );
     assert_eq!(records[2]["failed_stage"], "import");
     assert!(records[2]["id"].is_null());
-    assert_eq!(records[3]["success"], true);
-    assert_eq!(records[4]["success"], true);
+    assert_eq!(records[3]["overall_status"], "success");
+    assert_eq!(records[4]["overall_status"], "success");
     let empty_id = records[4]["id"].as_str().unwrap().parse().unwrap();
     let empty = cache.mod_metadata(empty_id);
     assert_eq!(empty.status(), &CacheStatus::Available);

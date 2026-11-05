@@ -110,6 +110,7 @@ fn apply_inner(
         )?;
         check_inventory(&staged, manifest)?;
         plan.recheck_inventory()?;
+        emit(Event::BeforeCommit)?;
         destination.commit(&staged, &workspace.path().join("previous"))?;
         Ok(dispositions)
     })();

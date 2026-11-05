@@ -19,7 +19,6 @@ ctrlc = { version = "3.5.2" }
 dirs = { version = "6" }
 imohash = { version = "0.1.2" }
 indicatif = { version = "0.18" }
-inventory = { version = "0.3" }
 lazy_static = { version = "1.5.1" }
 libc = { version = "0.2.190" }
 mcpm-lib = { path = "crates/mcpm-lib" }

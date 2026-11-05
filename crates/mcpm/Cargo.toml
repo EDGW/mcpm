@@ -33,7 +33,6 @@ chrono = { workspace = true, features = ["clock"] }
 console = { workspace = true }
 crossterm = { workspace = true, features = ["events", "windows"] }
 indicatif = { workspace = true }
-inventory = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 terminal-colorsaurus = { workspace = true }
 ratatui = { workspace = true, features = ["crossterm_0_29", "unstable-rendered-line-info"] }
@@ -42,7 +41,6 @@ mcpm-lib = { workspace = true }
 mcpm-backend = { workspace = true }
 mcpm-exec = { workspace = true }
 owo-colors = { workspace = true }
-reqwest = { workspace = true, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 toml = { workspace = true }

@@ -18,20 +18,14 @@ enum SourceCommand {
     /// List published files by project ID or exact slug; stdin accepts one per line.
     #[command(visible_alias = "file")]
     Files(files::FilesArgs),
-    /// Identify local files on a remote source; stdin accepts one path per line.
+    /// Identify files with source providers on the local or SSH execution host; stdin accepts one path per line.
     Identify(identify::IdentifyArgs),
 }
 
 pub(super) fn run(args: SourceArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if ssh.is_requested() && !matches!(args.command, SourceCommand::Identify(_)) {
-        anyhow::bail!(
-            "--ssh and --ssh-mcpm are supported only by {} mods list/info/deps/source identify",
-            crate::program::roots().tools
-        );
-    }
     match args.command {
-        SourceCommand::Search(args) => search::run(args),
-        SourceCommand::Files(args) => files::run(args),
+        SourceCommand::Search(args) => search::run(args, ssh),
+        SourceCommand::Files(args) => files::run(args, ssh),
         SourceCommand::Identify(args) => identify::run(args, ssh),
     }
 }
