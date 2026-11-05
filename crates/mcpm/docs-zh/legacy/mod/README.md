@@ -14,6 +14,7 @@ mcpm-tools mods [OPTIONS] <COMMAND>
 | [`cache`](cache.md) | 显式缓存选中文件及其识别摘要。 |
 | [`backup create/verify/apply/delete`](backup.md) | 创建、单独校验、应用或删除文件备份。 |
 | [`info`](info.md) | 检查一个或多个文件的元数据和依赖。 |
+| [`digest`](../server/mods.md#摘要) | 计算文件大小、SHA-1 和可选 Murmur2；也提供服务器范围入口。 |
 | [`deps`](deps.md) | 显示直接依赖声明及其来源归档。 |
 | [`dep-graph`](dep-graph.md) | 构建目录依赖图、校验快照，或查看单个 Mod 的依赖树。 |
 | [`source search`](source-search.md) | 使用统一表达式搜索 CurseForge / Modrinth 项目。 |

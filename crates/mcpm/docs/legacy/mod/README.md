@@ -14,6 +14,7 @@ mcpm-tools mods [OPTIONS] <COMMAND>
 | [`cache`](cache.md) | Explicitly store selected files and identification metadata. |
 | [`backup create/verify/apply/delete`](backup.md) | Create, verify, apply or delete file backups. |
 | [`info`](info.md) | Inspect metadata and dependencies in one or more files. |
+| [`digest`](../server/mods.md#digests) | Compute file size, SHA-1 and optional Murmur2; also available with server-scoped selection. |
 | [`deps`](deps.md) | Show direct dependency declarations and their archive sources. |
 | [`dep-graph`](dep-graph.md) | Build graphs, validate snapshots, or display a mod dependency tree. |
 | [`source search`](source-search.md) | Search CurseForge / Modrinth projects with shared expressions. |

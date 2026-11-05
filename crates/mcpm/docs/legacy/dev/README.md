@@ -10,6 +10,14 @@
 - `app.rs` owns shared process initialization and dispatch. The binary passes its identity explicitly; renaming a file does not change its command family.
 - `mcpm-lib` owns parsing, files, downloads and Minecraft logic. `mcpm-backend` owns operation semantics, the sole business registry and workspace codecs. Frontend flows compose operations and render results. `mcpm-exec` remains business-independent; `mcpmd` owns SSH and serving. Registration writers explicitly release their lock when the lease ends, even if a spawned process temporarily inherited the file description. Unmigrated commands keep the legacy tools transport.
 
+## Mod file digests
+
+- `mcpm-backend::operations::mods::digest` owns the sole `mod.digest` operation. `DigestTarget::Paths` carries literal paths; `DigestTarget::Server` carries a server path and shared `SelectionInput`. The server entry adds no second operation.
+- Server targets reuse `ScopeInput::Server { no_cache: true }` and `selection::resolve_paths`, then enter the shared digest queue. File/all selection bypasses Mod parsing; ID/name indexing uses the declared loader to find outer archives. No persistent caches or providers are accessed.
+- `Selection` wraps existing scan progress/diagnostics; `Prepared` defines output paths and indices. `Loading`/`Item` retain those mappings; `Done` separates summary and selection failure counts. Cancellation and transport failure do not manufacture completion events.
+- Frontend `commands/supports/mods/digest.rs` owns common options, stream consumption and ordered presentation; `display/digest.rs` owns Console/Raw formatting. Literal paths retain duplicate output positions, while server selections output each physical outer file once. Server routing reuses workspace/executor without loading server metadata in the frontend.
+- Selection events use existing `ScanOutput`. Digest progress uses shared `Progress`, takes its total from `Prepared.paths`, and advances by each arriving `Item`'s index count rather than ordered-buffer release. File output and errors coordinate with the progress display; completion or scope exit clears it without changing the operation protocol.
+
 ## Server configuration and foreground launch
 
 - Backend `local/java/command.rs` owns Java option/operand boundaries and argument-file expansion. Configuration import uses this model without reparsing command strings.

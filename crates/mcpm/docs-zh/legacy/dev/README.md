@@ -10,6 +10,14 @@
 - `app.rs` 负责公共初始化和分发。二进制显式传入程序身份，文件改名不改变命令族。
 - `mcpm-lib` 管理解析、文件、下载与 Minecraft 逻辑；`mcpm-backend` 管理 operation 语义、唯一注册清单与 workspace codec。前端 flow 只组合调用及展示。`mcpm-exec` 不依赖业务，mcpmd 持有 SSH 并执行注册操作。server info/init 使用新路径，未迁移命令保留旧 tools 传输。
 
+## Mod 文件摘要
+
+- `mcpm-backend::operations::mods::digest` 独占 `mod.digest` operation，`DigestTarget::Paths` 接收字面路径，`DigestTarget::Server` 接收服务器路径及共享 `SelectionInput`；服务器入口不注册第二个 operation。
+- Server 目标复用 `ScopeInput::Server { no_cache: true }` 和 `selection::resolve_paths`，选择完成后进入同一摘要队列。文件和全目录选择不解析 Mod，ID/name 只借助声明 loader 定位外层归档；不打开持久缓存，不调用来源服务。
+- `Selection` 事件复用扫描进度/诊断，`Prepared` 给出输出路径及索引空间；`Loading`/`Item` 保留索引映射，`Done` 分别统计摘要失败和选择失败。取消或传输失败不发送伪造的完成事件。
+- 前端 `commands/supports/mods/digest.rs` 统一选项、事件消费及有序展示，`display/digest.rs` 统一 Console/Raw 格式。独立路径保留重复输出位置；服务器选择只输出每个物理外层文件一次。服务器路由沿用 workspace/executor，不在前端加载服务器元数据。
+- 选择事件交给既有 `ScanOutput`；摘要进度使用共享 `Progress`，以 `Prepared.paths` 数量为总数，在 `Item` 到达时按索引数量推进，而非等待输出缓冲释放。逐文件输出及错误通过进度组件协调，完成事件或作用域退出时清理，不扩展 operation 协议。
+
 ## 构建身份
 
 - `scripts/build.rs` 统一生成 CLI、daemon、执行层的构建身份；`build_info.rs` 提供前端元数据，`display/build_info.rs` 展示启动提示。
