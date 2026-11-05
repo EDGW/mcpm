@@ -12,7 +12,7 @@ mod process;
 
 pub use arguments::ArgumentError;
 pub use env_name::EnvName;
-pub use identity::{Identity, Secret};
+pub use identity::Identity;
 pub use options::*;
 pub use plan::{LaunchPlan, LaunchPlanError, NativeArchive};
 pub use prepare::{PreparationError, PreparedLaunch};
