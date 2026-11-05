@@ -1,7 +1,6 @@
 //! Terminal summaries for mod files excluded by loader selection.
 
 use std::io::{self, Write};
-use std::path::PathBuf;
 
 use crate::theme::{self, Role};
 
@@ -10,7 +9,7 @@ use crate::{display::console::ConsoleWriter, terminal};
 pub(in crate::commands) fn write_loader_filtered(
     output: &mut impl Write,
     count: usize,
-    files: &[PathBuf],
+    filenames: &[String],
 ) -> io::Result<()> {
     if count == 0 || !terminal::stdout_is_tty() {
         return Ok(());
@@ -24,9 +23,8 @@ pub(in crate::commands) fn write_loader_filtered(
     let color = terminal::stdout_color_enabled();
     write_line(&mut output, &hint, color)?;
     let mut output = output.subwriter();
-    for path in files {
+    for filename in filenames {
         // Debug formatting quotes filenames and escapes terminal controls.
-        let filename = path.file_name().unwrap_or(path.as_os_str());
         write_line(&mut output, &format!("{filename:?}"), color)?;
     }
     Ok(())

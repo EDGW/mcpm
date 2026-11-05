@@ -176,6 +176,7 @@ pub(in crate::commands) fn present(
     );
     let mut ignored = 0;
     let mut ignored_files = Vec::new();
+    let mut ignored_filenames = Vec::new();
     let files: Vec<_> = files
         .into_iter()
         .filter(|listed| {
@@ -186,8 +187,10 @@ pub(in crate::commands) fn present(
             {
                 tracing::debug!(path = %file.entry.path().display(), "Hiding unrecognized mod file");
                 ignored += 1;
-                if formatted && (args.expanded || interactive) {
+                if interactive {
                     ignored_files.push(file.entry.path().to_owned());
+                } else if formatted && args.expanded {
+                    ignored_filenames.push(file.entry.filename().to_owned());
                 }
                 false
             } else {
@@ -266,7 +269,7 @@ pub(in crate::commands) fn present(
         let mut stdout = io::stdout().lock();
         output::write_list(&mut stdout, &rows, &columns, color, width)
             .context("failed to write mod list")?;
-        super::ignored_output::write_loader_filtered(&mut stdout, ignored, &ignored_files)
+        super::ignored_output::write_loader_filtered(&mut stdout, ignored, &ignored_filenames)
             .context("failed to write ignored mod files summary")?;
         if let Some(cache) = cache {
             super::reuse::write_summary(&mut stdout, cache)?;
