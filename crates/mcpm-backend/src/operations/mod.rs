@@ -8,6 +8,8 @@ pub mod mods;
 pub mod server;
 pub mod workspace;
 
+pub(crate) mod stream;
+
 pub fn registry() -> Result<Registry> {
     let mut registry = Registry::new();
     registry.register::<workspace::Inspect>()?;

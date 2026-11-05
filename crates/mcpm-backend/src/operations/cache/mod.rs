@@ -9,8 +9,8 @@ pub use model::*;
 mod observe;
 pub use observe::observe;
 mod protection;
+use super::stream;
 pub use protection::check_protection;
-mod stream;
 mod verify;
 pub use verify::Verify;
 
