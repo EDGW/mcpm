@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     mcmod::{self, IdentificationErrorAction, ModEntry, ModMeta},
     modloader::BUILTIN_LOADERS,
 };
@@ -15,7 +15,7 @@ fn complex_mod_tree_and_output_match_reviewed_expectations() {
     let file = mcmod::open(
         ModEntry::new(fixtures.join("complex-mod.jar")).unwrap(),
         BUILTIN_LOADERS.clone(),
-        &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_mods_cache(None),
+        &mcpm_lib::local::runtime::RuntimeEnvironment::new().with_mods_cache(None),
         |_, _, _, _| IdentificationErrorAction::Abort,
     )
     .expect("failed to identify composite archive")

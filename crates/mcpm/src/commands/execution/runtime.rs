@@ -9,33 +9,20 @@ pub(in crate::commands) struct Runtime(Option<tokio::runtime::Runtime>);
 
 impl Runtime {
     pub(in crate::commands) fn new() -> Result<Self> {
-        tokio::runtime::Builder::new_current_thread()
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
             .enable_all()
             .build()
             .map(|runtime| Self(Some(runtime)))
             .context("failed to create command runtime")
     }
 
-    /// Keeps one reactor alive while scoped blocking workers drive shared async clients.
+    /// Tokio drives I/O on its worker while synchronous callers use the shared handle.
     pub(in crate::commands) fn with_workers<T>(
         self,
         work: impl FnOnce(&tokio::runtime::Handle) -> Result<T>,
     ) -> Result<T> {
-        let handle = self.handle().clone();
-        std::thread::scope(|scope| {
-            let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-            let driver = scope.spawn(move || {
-                self.block_on(async {
-                    let _ = stopped.await;
-                })
-            });
-            let result = work(&handle);
-            drop(stop);
-            driver
-                .join()
-                .map_err(|_| anyhow::anyhow!("command runtime panicked"))?;
-            result
-        })
+        work(self.handle())
     }
 }
 

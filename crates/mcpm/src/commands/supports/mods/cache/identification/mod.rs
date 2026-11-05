@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, ensure};
-use mcpm_backend::source::FileMatch;
+use mcpm_lib::source::FileMatch;
 
 use super::{
     Event, Record, Stage, Summary,
@@ -208,9 +208,8 @@ impl Completion {
             Ok(())
         })();
         if let Err(error) = operation {
-            let remote = error
-                .chain()
-                .any(|cause| cause.is::<crate::diagnostics::RemoteError>());
+            let remote =
+                mcpm_lib::error::contains::<crate::diagnostics::RemoteError>(error.as_ref());
             fail(&mut record, ErrorReport::capture(&error), remote);
         }
         record

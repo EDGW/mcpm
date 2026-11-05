@@ -1,7 +1,7 @@
 //! Shared read observations for stash commands; storage codecs and rendering remain with their owners.
 
 use anyhow::Result;
-use mcpm_backend::local::mc::server::stash::{Stash, StashStore};
+use mcpm_lib::local::mc::server::stash::{Stash, StashStore};
 
 use crate::{diagnostics, display::stash::Entry};
 

@@ -1,6 +1,5 @@
 //! Interactive server launch selection with shared TUI colors and loader styles.
 
-use super::model::Candidate;
 use crate::{display::style::text, terminal as policy};
 use anyhow::{Context, Result, ensure};
 use crossterm::{
@@ -10,6 +9,7 @@ use crossterm::{
     style::{Print, PrintStyledContent},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use mcpm_backend::operations::server::init::Candidate;
 use std::io::{self, Write};
 use unicode_width::UnicodeWidthChar;
 
@@ -103,7 +103,7 @@ impl Screen {
             )?;
             let (id, name, version) = match &candidate.metadata.loader {
                 Some(loader) => {
-                    let name = mcpm_backend::local::modloader::BUILTIN_LOADERS
+                    let name = mcpm_lib::local::modloader::BUILTIN_LOADERS
                         .get(loader.loader_type.as_str())
                         .map(|m| m.name())
                         .unwrap_or(&loader.loader_type);

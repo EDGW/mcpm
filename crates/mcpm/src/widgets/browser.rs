@@ -259,7 +259,7 @@ pub(crate) fn copy_field(
     clipboard: &mut Option<arboard::Clipboard>,
     value: String,
     label: &str,
-) -> (String, Role) {
+) -> crate::widgets::Status {
     let result = (|| {
         if clipboard.is_none() {
             *clipboard = Some(arboard::Clipboard::new()?);
@@ -267,7 +267,9 @@ pub(crate) fn copy_field(
         clipboard.as_mut().unwrap().set_text(value)
     })();
     match result {
-        Ok(()) => (format!("Copied {label}"), Role::Success),
-        Err(error) => (format!("Copy failed: {error}"), Role::Danger),
+        Ok(()) => (format!("Copied {label}"), Role::Success).into(),
+        Err(error) => {
+            crate::widgets::Status::error(anyhow::Error::new(error).context("copy failed"))
+        }
     }
 }

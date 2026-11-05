@@ -10,7 +10,7 @@ use crossterm::{
     style::{Print, PrintStyledContent},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use mcpm_backend::local::mc::client::MinecraftVersion;
+use mcpm_lib::local::mc::client::MinecraftVersion;
 use thiserror::Error;
 use unicode_width::UnicodeWidthChar;
 

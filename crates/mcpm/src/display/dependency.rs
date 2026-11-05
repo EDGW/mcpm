@@ -1,6 +1,6 @@
 //! Shared dependency text and formatting for mod records and graph views.
 
-use mcpm_backend::local::mcmod::{
+use mcpm_lib::local::mcmod::{
     VersionConstraint, VersionOperator,
     dependency::{Dependency, DependencyKind, DependencyOrdering, DependencySide},
 };

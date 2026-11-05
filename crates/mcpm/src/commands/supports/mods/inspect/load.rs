@@ -1,10 +1,10 @@
 //! Ordered mod selection and inspection events, independent of transport and rendering.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::runtime::RuntimeEnvironment;
 use std::{cell::RefCell, collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
-use mcpm_backend::local::modloader::{LoaderId, ModLoaderMeta};
+use mcpm_lib::local::modloader::{LoaderId, ModLoaderMeta};
 
 use super::{Event, File};
 use crate::{
@@ -104,7 +104,7 @@ struct UnrecognizedModFile {
 mod tests {
     use std::cell::Cell;
 
-    use mcpm_backend::local::modloader::BUILTIN_LOADERS;
+    use mcpm_lib::local::modloader::BUILTIN_LOADERS;
     use serde_json::{Value, json};
 
     use super::*;

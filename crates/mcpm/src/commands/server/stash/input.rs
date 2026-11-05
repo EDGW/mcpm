@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result, ensure};
 use clap::{Args, ValueEnum};
-use mcpm_backend::local::mc::server::stash::{Selector, Stash, StashStore};
+use mcpm_lib::local::mc::server::stash::{Selector, Stash, StashStore};
 use uuid::Uuid;
 
 #[derive(Debug, Args)]

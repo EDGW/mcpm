@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::Args;
-use mcpm_backend::local::mc::client::{
+use mcpm_lib::local::mc::client::{
     MinecraftVersion,
     launch::{LaunchOptions, LoggingOptions, QuickPlay, QuickPlayTarget, ServerOptions},
 };

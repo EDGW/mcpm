@@ -269,7 +269,7 @@ fn ssh_resolves_server_and_stdin_on_source_and_matches_local_output() {
             process.current_dir(client.path()).args([
                 "--ssh",
                 &connection,
-                "--ssh-mcpm",
+                "--ssh-mcpmd",
                 env!("CARGO_BIN_EXE_mcpm-tools"),
             ]);
         } else {

@@ -1,7 +1,9 @@
+//! CLI target-platform selection for client inspection and launch.
+
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use mcpm_backend::local::mc::client::{ClientPlatform, RuleEnvironment};
+use mcpm_lib::local::mc::client::{ClientPlatform, RuleEnvironment};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

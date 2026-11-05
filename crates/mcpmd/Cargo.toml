@@ -1,0 +1,32 @@
+[package]
+name = "mcpmd"
+version.workspace = true
+edition.workspace = true
+build = "../../scripts/build.rs"
+
+[[bin]]
+name = "mcpmd"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+mcpm-backend = { workspace = true }
+mcpm-exec = { workspace = true }
+blake3 = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+shlex = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Pipes"] }
+
+[build-dependencies]
+anyhow = { workspace = true }

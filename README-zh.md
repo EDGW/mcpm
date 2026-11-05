@@ -4,7 +4,7 @@
 
 该项目仍在早期开发中。
 
-[命令手册](crates/mcpm/docs-zh/README.md) · [开发手册](crates/mcpm/docs-zh/dev/README.md)
+[命令手册](crates/mcpm/docs-zh/README.md) · [尚未迁移的开发手册](crates/mcpm/docs-zh/legacy/dev/README.md) · [Backend operation 文档](crates/mcpm-backend/docs-zh/README.md)
 
 命令手册目前可读性较差，会择时完善。
 
@@ -12,7 +12,7 @@
 
 安装预发布版本 [v0.1.0-dev.26w43d](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d)。
 安装脚本仅支持 **v0.1.0-dev.26w43c 及更新版本**，旧版本会在下载前被拒绝。
-五个程序整套安装：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`。
+六个程序整套安装：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`、`mcpmd`。
 
 | 系统 | 架构 | 程序目录 | PATH 入口 |
 | --- | --- | --- | --- |
@@ -73,7 +73,7 @@ curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts
 - 保留旧 Windows 程序 `%LOCALAPPDATA%\Programs\mcpm\mcpm.exe` 及其 PATH 项。如果旧程序仍优先被找到，安装器会提示；验证新程序后再显式移除旧程序和旧 PATH 项。
 - 没有安装记录的 `bin` 目录不会被自动接管或覆盖，需要先处理冲突。
 - 新脚本只管理新目录布局，不负责卸载旧版单文件安装。
-- 非交互 SSH 会话可能不会加载 shell 配置。远端 PATH 中没有 `mcpm-tools` 时，可用 `--ssh-mcpm` 指定绝对路径，例如 `/home/alice/.local/share/mcpm/bin/mcpm-tools`。
+- 非交互 SSH 会话可能不会加载 shell 配置。`server info`、`server init` 要求远端安装 `mcpmd`；不在 PATH 中时用 `--ssh-mcpmd` 指定其绝对路径。迁移期间，未迁移的 mods/cache 命令仍要求远端安装 `mcpm-tools`。
 
 ### 手动安装
 

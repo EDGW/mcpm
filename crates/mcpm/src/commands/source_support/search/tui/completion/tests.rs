@@ -3,7 +3,7 @@
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use mcpm_backend::source::{SearchPage, SearchQuery};
+use mcpm_lib::source::{SearchPage, SearchQuery};
 use ratatui::{Terminal, backend::TestBackend};
 
 use super::super::{

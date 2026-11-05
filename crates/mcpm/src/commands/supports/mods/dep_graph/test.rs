@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     mcmod::dependency::graph::{candidate::DependencyCandidate, storage},
     modloader::BUILTIN_LOADERS,
 };

@@ -5,12 +5,13 @@ use std::{
     path::Path,
 };
 
-use mcpm_backend::local::mc::client::{
-    CheckOptionValue, CheckReport, CheckTarget, FileCheckStatus,
-};
+use mcpm_lib::local::mc::client::{CheckOptionValue, CheckReport, CheckTarget, FileCheckStatus};
 
-use super::super::output::{error_chain, text};
-use crate::{display::style::OutputStyle, terminal};
+use super::super::output::text;
+use crate::{
+    display::{console::ConsoleWriter, style::OutputStyle},
+    terminal,
+};
 
 pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io::Result<()> {
     let formatted = terminal::stdout_is_tty();
@@ -56,6 +57,7 @@ pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io:
         report.issues.len()
     );
     if formatted {
+        let mut output = ConsoleWriter::new(output);
         let badge = format!("[{state}]");
         let badge = match state {
             "intact" => style.success(badge),
@@ -63,28 +65,29 @@ pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io:
             _ => style.warning(badge),
         };
         writeln!(output, "{} {badge}", style.primary(text(&report.version)))?;
-        writeln!(output, "  {}", style.muted(&summary))?;
+        writeln!(output.subwriter(), "{}", style.muted(&summary))?;
     } else {
         raw_row(output, report, state, "summary", None, &summary)?;
     }
     for issue in &report.issues {
         let target = target_name(&issue.target);
-        let reason = text(&error_chain(&issue.problem));
+        let reason = text(&issue.problem.to_string());
         if formatted {
+            let mut console = ConsoleWriter::new(output);
+            let mut output = console.subwriter();
             writeln!(
                 output,
-                "  {} {}",
+                "{} {}",
                 style.danger("[failed]"),
                 style.important(text(&target))
             )?;
             if let Some(path) = &issue.path {
                 writeln!(
-                    output,
-                    "    {}",
+                    output.subwriter(),
+                    "{}",
                     style.muted(text(&path.display().to_string()))
                 )?;
             }
-            writeln!(output, "    {}", style.warning(reason))?;
         } else {
             raw_row(
                 output,
@@ -108,20 +111,22 @@ pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io:
             CheckOptionValue::Skip => "skipped",
         };
         if formatted {
+            let mut console = ConsoleWriter::new(output);
+            let mut output = console.subwriter();
             writeln!(
                 output,
-                "  {} {}",
+                "{} {}",
                 style.warning("[unverified]"),
                 style.important(text(&target))
             )?;
             writeln!(
-                output,
-                "    {}",
+                output.subwriter(),
+                "{}",
                 style.muted(text(&file.path.display().to_string()))
             )?;
             writeln!(
-                output,
-                "    {}",
+                output.subwriter(),
+                "{}",
                 style.warning(format!(
                     "{reason}; cannot complete the requested verification."
                 ))
@@ -162,7 +167,7 @@ fn raw_row(
     )
 }
 
-fn target_name(target: &CheckTarget) -> String {
+pub(super) fn target_name(target: &CheckTarget) -> String {
     match target {
         CheckTarget::Version => "version".into(),
         CheckTarget::VersionJar => "version JAR".into(),

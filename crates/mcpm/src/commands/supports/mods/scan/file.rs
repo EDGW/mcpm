@@ -1,9 +1,9 @@
 //! Adapts library identification reports to command-local scan results and diagnostics.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::runtime::RuntimeEnvironment;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     mcmod::{self, IdentificationErrorAction, ModCacheReuse, ModEntry},
     modloader::{LoaderId, ModLoaderMeta},
 };
@@ -42,11 +42,12 @@ pub(super) fn read(
     let result = ModEntry::new(path.clone()).and_then(|entry| {
         mcmod::open(entry, loaders.clone(), environment, |_, loader, _, error| {
             tracing::debug!(path = %path.display(), loader = %loader.id(), error = %format_args!("{error:#}"), "Mod loader identification failed");
+            let report = ErrorReport::capture(error);
             failures.push(FailedIdentification {
                 loader: loader.clone(),
-                reason: error.root_cause().to_string(),
+                error: report.clone(),
             });
-            errors.push(ScanError { loader: Some(loader.clone()), error: ErrorReport::capture(error) });
+            errors.push(ScanError { loader: Some(loader.clone()), error: report });
             IdentificationErrorAction::Skip
         })
     });

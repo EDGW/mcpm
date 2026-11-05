@@ -6,7 +6,7 @@ mod process;
 mod runtime;
 
 use clap::Args;
-use mcpm_backend::local::mc::client::{MinecraftVersion, RuleEnvironment, launch::LaunchOptions};
+use mcpm_lib::local::mc::client::{MinecraftVersion, RuleEnvironment, launch::LaunchOptions};
 
 #[derive(Args, Debug)]
 pub(super) struct OptionArgs {

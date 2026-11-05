@@ -1,0 +1,88 @@
+> Not yet migrated to the new documentation structure. This is retained legacy documentation; migrated commands are documented outside legacy/.
+
+# `mcpm-tools mods`
+
+Inspect local Minecraft mod archives, explicitly cache files, and search mod sources.
+
+```text
+mcpm-tools mods [OPTIONS] <COMMAND>
+```
+
+| Command | Description |
+| --- | --- |
+| [`list`](list.md) | List mod declarations from files and directories. |
+| [`cache`](cache.md) | Explicitly store selected files and identification metadata. |
+| [`backup create/verify/apply/delete`](backup.md) | Create, verify, apply or delete file backups. |
+| [`info`](info.md) | Inspect metadata and dependencies in one or more files. |
+| [`deps`](deps.md) | Show direct dependency declarations and their archive sources. |
+| [`dep-graph`](dep-graph.md) | Build graphs, validate snapshots, or display a mod dependency tree. |
+| [`source search`](source-search.md) | Search CurseForge / Modrinth projects with shared expressions. |
+| [`source identify`](source-identify.md) | Identify file contents with ordered concurrency and SSH support. |
+
+## SSH connections
+
+`--ssh <COMMAND>` and `--ssh-mcpmd <PATH>` are top-level global options, so they
+can appear before or after its subcommands. `list` supports TUI, Console and Raw; `info` and `deps` support Console and Raw;
+`source identify` also supports SSH. Other commands explicitly reject them. `--ssh-mcpmd` requires `--ssh` and names one remote
+executable, defaulting to `mcpm-tools` on the remote PATH.
+
+```sh
+mcpm-tools mods --ssh 'ssh -i key -p 2222 user@host' list mods/ --no-ui
+mcpm-tools mods list 'C:\mods' --ssh 'ssh user@windows' --ssh-mcpmd 'C:\mcpm-tools.exe' --raw
+```
+
+See [SSH listing](list.md#ssh-listing) for transport and presentation behavior.
+
+## Loader selection
+
+`list`, `info`, `deps`, `cache`, and `dep-graph build` accept these options:
+
+| Option | Description |
+| --- | --- |
+| `-l, --loader <LOADER>` | Select one loader. Repeat to select more than one. |
+| `-L, --loaders <LOADERS>` | Select comma-separated loaders. Repeat or combine with `--loader`. |
+
+Accepted values are `forge`, `neoforge`, and `fabric`.
+Without either option, all three loaders are attempted. Selections are combined
+as a union, with duplicates removed. Loader records are displayed in built-in
+order: Forge, NeoForge, then Fabric.
+
+```sh
+mcpm-tools mods list mods/ --loader fabric --loader neoforge
+mcpm-tools mods info example.jar --loader forge --loaders neoforge,fabric
+```
+
+A single archive can be recognized by multiple loaders. Their records remain
+separate even when their mod IDs match. Recognition means metadata could be
+read; it does not establish that the mod will run with that loader.
+
+## Archive path styles
+
+`mods list` and `mods deps` accept `--path-style <STYLE>`. For a nested mod in
+`mods/example.jar!META-INF/jars/child.jar!lib/grandchild.jar`:
+
+| Style | Display |
+| --- | --- |
+| `inner` | `grandchild.jar` |
+| `full` (default) | `example.jar!META-INF/jars/child.jar!lib/grandchild.jar` |
+| `outer` | `example.jar` |
+
+The option controls nested filenames in `list` and all `Source` values in
+`deps`. Ordinary outer declarations in `list` keep their outer filename. It
+changes path formatting only; inner mod declarations remain included.
+For nested declarations, the outer component is always the JAR filename,
+without its filesystem directory. Inner components retain their archive member
+paths. For an outer declaration in `deps`, `full` retains the supplied file path.
+`mods info` has no archive source field and does not accept this option.
+
+```sh
+mcpm-tools mods list mods/ --expanded --path-style inner
+mcpm-tools mods list mods/ --expanded --path-style full
+mcpm-tools mods deps example.jar --path-style outer
+```
+
+In colored terminal output, each archive separator (`!`) uses bright white,
+while archive paths use gray. Raw and redirected output retain the same path
+text without colors.
+
+[Command reference](../README.md) · [简体中文](../../../docs-zh/legacy/mod/README.md)

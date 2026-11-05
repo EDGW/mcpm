@@ -1,16 +1,16 @@
 //! CLI cache-category selection and read-only Identify reuse independent of loader descriptors.
 
-use mcpm_backend::local::cache::hash::Blake3Hash;
-use mcpm_backend::local::cache::mods::ModsCacheDir;
-use mcpm_backend::source::FileHash;
-use mcpm_backend::source::FileId;
-use mcpm_backend::source::FileMatch;
-use mcpm_backend::source::FileRef;
-use mcpm_backend::source::FileSummary;
-use mcpm_backend::source::MatchedFileRole;
-use mcpm_backend::source::ProjectId;
-use mcpm_backend::source::ProjectRef;
-use mcpm_backend::source::SourceId;
+use mcpm_lib::local::cache::hash::Blake3Hash;
+use mcpm_lib::local::cache::mods::ModsCacheDir;
+use mcpm_lib::source::FileHash;
+use mcpm_lib::source::FileId;
+use mcpm_lib::source::FileMatch;
+use mcpm_lib::source::FileRef;
+use mcpm_lib::source::FileSummary;
+use mcpm_lib::source::MatchedFileRole;
+use mcpm_lib::source::ProjectId;
+use mcpm_lib::source::ProjectRef;
+use mcpm_lib::source::SourceId;
 use serde_json::Value;
 use std::{
     fs,
@@ -21,10 +21,7 @@ use std::{
 fn seed(cache: &ModsCacheDir, source: &Path) -> Blake3Hash {
     let writer = &cache;
     let id = writer
-        .import(
-            source,
-            mcpm_backend::local::cache::CacheLinkPreference::Copy,
-        )
+        .import(source, mcpm_lib::local::cache::CacheLinkPreference::Copy)
         .unwrap();
     let summary = FileSummary::read(source, Default::default()).unwrap();
     for key in ["modrinth", "curseforge"] {
@@ -191,7 +188,7 @@ fn ssh_server_cache_enriches_on_the_client_and_uses_the_file_hosts_snapshots() {
         &[
             "--ssh",
             &connection,
-            "--ssh-mcpm",
+            "--ssh-mcpmd",
             env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "mods",
@@ -212,7 +209,7 @@ fn ssh_server_cache_enriches_on_the_client_and_uses_the_file_hosts_snapshots() {
         &[
             "--ssh",
             &connection,
-            "--ssh-mcpm",
+            "--ssh-mcpmd",
             env!("CARGO_BIN_EXE_mcpm-tools"),
             "server",
             "mods",
@@ -237,7 +234,7 @@ fn remote_publication_acknowledges_verified_data_and_rejects_incorrect_content()
     fs::write(&path, b"abc").unwrap();
     let cache = ModsCacheDir::initialize(root.path().join("cache")).unwrap();
     let id = cache
-        .import(&path, mcpm_backend::local::cache::CacheLinkPreference::Copy)
+        .import(&path, mcpm_lib::local::cache::CacheLinkPreference::Copy)
         .unwrap();
     let summary = FileSummary::read(&path, Default::default()).unwrap();
     let file = FileMatch {

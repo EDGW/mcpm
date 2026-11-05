@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use std::ops::Range;
 
 use crate::theme::Role;
-use mcpm_backend::local::mcmod::ModEntry;
-use mcpm_backend::local::modloader::ModLoaderMeta;
+use mcpm_lib::local::mcmod::ModEntry;
+use mcpm_lib::local::modloader::ModLoaderMeta;
 use unicode_width::UnicodeWidthStr;
 
 use super::super::{mod_records, source_path::PathArgs};
@@ -176,7 +176,10 @@ fn append_rows(rows: &mut Vec<Row>, listed: &ListedFile, number: usize, options:
                 vec![
                     loader_piece(&failure.loader),
                     Piece::new(" [failed]", warning()),
-                    Piece::new(format!(" {}", failure.reason), Paint::Role(Role::Normal)),
+                    Piece::new(
+                        format!(" {}", failure.error.message),
+                        Paint::Role(Role::Normal),
+                    ),
                 ],
                 0,
             ));

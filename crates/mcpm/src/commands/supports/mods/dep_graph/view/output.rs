@@ -5,7 +5,7 @@ use std::{
     io::{self, Write},
 };
 
-use mcpm_backend::local::mcmod::dependency::{
+use mcpm_lib::local::mcmod::dependency::{
     Dependency, DependencyKind, DependencyMatch,
     graph::{DependencyGraph, candidate::DependencyCandidate, identifier::DependencyIdentifier},
 };

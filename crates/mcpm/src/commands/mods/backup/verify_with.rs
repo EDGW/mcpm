@@ -4,7 +4,7 @@ use std::{collections::HashSet, io, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use clap::{Args, ValueEnum};
-use mcpm_backend::local::mcmod::backup::{self, Comparison, DirectoryChecksum};
+use mcpm_lib::local::mcmod::backup::{self, Comparison, DirectoryChecksum};
 
 use super::DisplayArgs;
 use crate::{

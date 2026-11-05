@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use anyhow::Result;
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     cache::TransferMethod,
     mcmod::backup::{FileDisposition, FileRecord, FileSource, Operation, Outcome},
 };

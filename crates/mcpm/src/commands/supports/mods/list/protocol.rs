@@ -1,6 +1,6 @@
 //! Shared JSON records for remote list production and SSH consumption.
 
-use mcpm_backend::local::mcmod::{CachedModMeta, MetadataConversionError, ModMeta, ModStatus};
+use mcpm_lib::local::mcmod::{CachedModMeta, MetadataConversionError, ModMeta, ModStatus};
 use serde::{Deserialize, Serialize};
 
 use crate::{commands::supports::mods::scan::ScanResult, diagnostics::ErrorReport};
@@ -102,10 +102,7 @@ impl Record {
                 .iter()
                 .map(|failure| LoadError {
                     loader: Some(failure.loader.id().as_str().to_owned()),
-                    error: ErrorReport {
-                        message: failure.reason.clone(),
-                        causes: Vec::new(),
-                    },
+                    error: failure.error.clone(),
                 })
                 .collect(),
             records: selected.records.clone(),

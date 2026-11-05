@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
-use mcpm_backend::local::mc::client::launch::{JavaVersionCheck, LaunchOptions};
+use mcpm_lib::local::mc::client::launch::{JavaVersionCheck, LaunchOptions};
 
 #[derive(Clone, Copy, ValueEnum, Debug)]
 enum VersionCheck {
@@ -28,13 +28,13 @@ pub(super) struct RuntimeArgs {
     #[arg(long, value_parser = ["32", "64"])]
     java_bits: Option<String>,
     /// Initial heap size in MiB.
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    #[arg(long)]
     min_memory: Option<u64>,
     /// Maximum heap size in MiB.
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    #[arg(long)]
     max_memory: Option<u64>,
     /// Thread stack size in KiB.
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    #[arg(long)]
     stack_size: Option<u64>,
     /// Append one JVM argument; use --jvm-arg=-X... for flags.
     #[arg(long, allow_hyphen_values = true)]

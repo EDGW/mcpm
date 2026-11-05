@@ -3,9 +3,7 @@
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use mcpm_backend::source::{
-    Source, SourceId, curseforge::CurseForgeSource, modrinth::ModrinthSource,
-};
+use mcpm_lib::source::{Source, SourceId, curseforge::CurseForgeSource, modrinth::ModrinthSource};
 
 pub(in crate::commands) fn build_source(source: &str) -> Result<Box<dyn Source>> {
     let client = reqwest::Client::builder()

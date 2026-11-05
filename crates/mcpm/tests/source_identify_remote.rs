@@ -133,7 +133,7 @@ mod transport {
             ),
         );
         let mut body = print(
-            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":4,"commands":["mod.source.identify"],"max_concurrency":8}}),
+            json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":5,"commands":["mod.source.identify"],"max_concurrency":8}}),
             "",
         );
         body.push_str("IFS= read -r logs\nlog_guid=$(printf '%s' \"$logs\" | cut -d '\"' -f6)\n");
@@ -190,7 +190,7 @@ mod transport {
                 "off",
                 "--ssh",
                 &connection,
-                "--ssh-mcpm",
+                "--ssh-mcpmd",
             ])
             .arg(root.path().join("remote"))
             .args([
@@ -267,7 +267,7 @@ mod transport {
             let root = tempfile::tempdir().unwrap();
             let connection = setup(root.path(), events);
             let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-                .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
+                .args(["--raw", "--ssh", &connection, "--ssh-mcpmd"])
                 .arg(root.path().join("remote"))
                 .args([
                     "mods", "source", "identify", "--source", "modrinth", "one.jar",

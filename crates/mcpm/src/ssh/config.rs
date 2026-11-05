@@ -9,23 +9,14 @@ use super::{connection, windows};
 #[derive(Debug, Clone)]
 pub(crate) struct Connection {
     pub ssh: String,
-    pub ssh_mcpm: Option<String>,
+    pub ssh_mcpmd: Option<String>,
 }
 
 impl Connection {
     pub(crate) fn executable(&self) -> &str {
-        self.ssh_mcpm
+        self.ssh_mcpmd
             .as_deref()
             .unwrap_or(crate::program::Program::McpmTools.name())
-    }
-
-    #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
-    pub(crate) fn command(&self) -> Result<Command> {
-        Ok(self.prepare()?.0)
-    }
-
-    pub(crate) fn destination(&self) -> Option<String> {
-        connection::destination(&self.ssh)
     }
 
     pub(super) fn prepare(&self) -> Result<(Command, Option<String>)> {

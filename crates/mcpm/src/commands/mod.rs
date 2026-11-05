@@ -45,7 +45,13 @@ pub(crate) struct RemoteArgs {
     pub(crate) max_concurrency: std::num::NonZeroUsize,
 }
 
-pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<()> {
+/// A child process status remains a successful command operation with its own exit code.
+pub(crate) enum CommandOutcome {
+    Completed,
+    Exited(u32),
+}
+
+pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandOutcome> {
     if ssh.is_requested() && !matches!(command, Command::Mods(_) | Command::Server(_)) {
         anyhow::bail!(
             "--ssh and --ssh-mcpm are currently supported only by {} mods list/info/deps/source identify and {} init/info/mods list/info/cache/deps/source",
@@ -53,7 +59,7 @@ pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<()> {
             crate::program::roots().server
         );
     }
-    match command {
+    let result = match command {
         Command::Remote(args) => {
             let registry = crate::remote::registry::registered();
             crate::remote::server::run(args.max_concurrency, registry)
@@ -63,6 +69,7 @@ pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<()> {
         Command::Mods(args) => mods::run(args, ssh),
         Command::Client(args) => client::run(args),
         Command::Cache(args) => cache::run(args),
-        Command::Server(args) => server::run(args, ssh),
-    }
+        Command::Server(args) => return server::run(args, ssh),
+    };
+    result.map(|()| CommandOutcome::Completed)
 }

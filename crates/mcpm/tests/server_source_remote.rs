@@ -218,7 +218,7 @@ fn ssh_reads_remote_bytes_but_keeps_provider_options_and_failures_local() {
             "invalid-provider@secret-sentinel",
             "--ssh",
             &connection,
-            "--ssh-mcpm",
+            "--ssh-mcpmd",
             env!("CARGO_BIN_EXE_mcpm-tools"),
         ])
         .stdin(Stdio::null())

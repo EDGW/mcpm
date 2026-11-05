@@ -4,9 +4,9 @@ use super::Options;
 use crate::commands::{cache_support::FileStrategy, execution::default_parallelism};
 use anyhow::{Result, ensure};
 use clap::{Args, ValueEnum};
-use mcpm_backend::local::cache::mods::MetadataRefresh;
-use mcpm_backend::local::modloader::LoaderId;
-use mcpm_backend::local::modloader::ModLoaderMeta;
+use mcpm_lib::local::cache::mods::MetadataRefresh;
+use mcpm_lib::local::modloader::LoaderId;
+use mcpm_lib::local::modloader::ModLoaderMeta;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, num::NonZeroUsize};
 

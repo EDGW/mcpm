@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::Result;
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     mcmod::{ModDirectory, ModFile},
     modloader::{LoaderId, ModLoaderMeta},
     runtime::RuntimeEnvironment,
@@ -32,7 +32,7 @@ pub(in crate::commands) struct ScannedFile {
 #[derive(Debug)]
 pub(in crate::commands) struct FailedIdentification {
     pub loader: ModLoaderMeta,
-    pub reason: String,
+    pub error: ErrorReport,
 }
 
 /// File-host scan configuration; cache interpretation remains inside the library.

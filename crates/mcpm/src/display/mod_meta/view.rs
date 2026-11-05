@@ -1,6 +1,6 @@
 //! Borrowed display views for runtime, cached and selected Mod declarations.
 
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     cache::mods::meta::CachedIdentification,
     mcmod::{CachedModMeta, ModInfo, ModMeta},
 };

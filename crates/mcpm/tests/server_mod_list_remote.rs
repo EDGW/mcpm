@@ -177,7 +177,7 @@ fn ssh_keeps_nested_selection_filtering_and_paths_equivalent_to_local_lists() {
                 process.args([
                     "--ssh",
                     &connection,
-                    "--ssh-mcpm",
+                    "--ssh-mcpmd",
                     env!("CARGO_BIN_EXE_mcpm-tools"),
                 ]);
             } else {

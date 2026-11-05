@@ -5,3 +5,6 @@ mod highlighted_line;
 pub(crate) use highlighted_line::highlighted_line;
 mod matched_text;
 pub(crate) use matched_text::{MatchedText, Overflow};
+
+mod status;
+pub(crate) use status::Status;

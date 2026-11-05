@@ -10,7 +10,7 @@ use std::{
 };
 
 use anyhow::Result;
-use mcpm_backend::local::cache::hash::Blake3Hash;
+use mcpm_lib::local::cache::hash::Blake3Hash;
 
 use super::{FailurePolicy, run};
 

@@ -3,7 +3,7 @@
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use mcpm_backend::source::{ProjectId, ProjectInfo, ProjectRef, SearchPage, SearchQuery, SourceId};
+use mcpm_lib::source::{ProjectId, ProjectInfo, ProjectRef, SearchPage, SearchQuery, SourceId};
 use ratatui::{
     Terminal,
     backend::{Backend, TestBackend},

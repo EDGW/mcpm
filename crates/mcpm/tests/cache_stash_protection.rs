@@ -7,7 +7,7 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     cache::{CacheLinkPreference, hash::Blake3Hash, mods::ModsCacheDir},
     mc::server::{MinecraftServer, MinecraftServerMetadata, stash},
 };

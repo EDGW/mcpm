@@ -34,18 +34,26 @@ impl Completion {
         let message = if self.candidates.is_empty() {
             match (&context.field, &self.versions) {
                 (CompletionField::Version, Versions::Loading | Versions::Unloaded) => {
-                    "Loading versions…".into()
+                    vec!["Loading versions…".into()]
                 }
                 (CompletionField::Version, Versions::Failed(error)) => {
-                    format!("Ctrl-R retry · type manually · {error}")
+                    let mut lines = vec!["Ctrl-R retry · type manually".into()];
+                    lines.extend(error.lines());
+                    lines
                 }
-                _ => "No matches · type manually".into(),
+                _ => vec!["No matches · type manually".into()],
             }
         } else {
-            String::new()
+            Vec::new()
         };
         let width = search.width.saturating_sub(2).min(64);
-        let height = (self.candidates.len().clamp(1, 6) as u16 + 2).min(available);
+        let height = (if self.candidates.is_empty() {
+            message.len().max(1)
+        } else {
+            self.candidates.len().clamp(1, 6)
+        } as u16
+            + 2)
+        .min(available);
         self.area = Rect::new(search.x + 1, search.bottom(), width, height);
         frame.render_widget(Clear, self.area);
         let block = panel(title, true)
@@ -57,10 +65,17 @@ impl Completion {
                 CompletionField::Loader => Role::Muted,
             };
             frame.render_widget(
-                Paragraph::new(short_line(
-                    vec![Span::styled(text(&message), style(paint))],
-                    width.saturating_sub(2) as usize,
-                ))
+                Paragraph::new(
+                    message
+                        .into_iter()
+                        .map(|line| {
+                            short_line(
+                                vec![Span::styled(line, style(paint))],
+                                width.saturating_sub(2) as usize,
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                )
                 .block(block),
                 self.area,
             );

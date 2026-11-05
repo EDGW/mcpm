@@ -1,0 +1,280 @@
+<ns0:svg xmlns:ns0="http://www.w3.org/2000/svg" width="1120" height="3156" viewBox="0 0 1120 3156" role="img" aria-labelledby="title desc" xml:lang="zh-CN">
+  <ns0:title id="title">Forge Shim 识别流程</ns0:title>
+  <ns0:desc id="desc">Forge Shim 识别按配置读取、启动声明检查、声明版本、依赖列表处理和最终版本补齐分组。依赖记录的处理步骤包在循环容器内；跳过记录与失败均从容器内直接引出，无下一条判断或回环长线。</ns0:desc>
+  <ns0:defs>
+    <ns0:marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <ns0:path d="M 0 0 L 10 5 L 0 10 z" class="arrow" />
+    </ns0:marker>
+  </ns0:defs>
+  <ns0:style>
+    svg { --bg: #ffffff; --fg: #17212f; --muted: #536174; --surface: #f6f8fb; --line: #a8b4c3; --decision: #edf3fb; --good: #edf7f0; --bad: #fff1ef; --route: #f2effa; background: var(--bg); }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #151b23; --fg: #e6edf5; --muted: #b2bfd1; --surface: #202a37; --line: #738197; --decision: #233449; --good: #203a2d; --bad: #432c2c; --route: #312c45; }
+    }
+    text { fill: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .heading { font-size: 26px; font-weight: 600; }
+    .subtitle { font-size: 18px; fill: var(--muted); }
+    .node-title { font-size: 20px; font-weight: 600; }
+    .body { font-size: 18px; }
+    .code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 17px; }
+    rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+    .decision rect { fill: var(--decision); }
+    .success rect { fill: var(--good); }
+    .error rect { fill: var(--bad); }
+    .route rect { fill: var(--route); }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.6; marker-end: url(#arrow); }
+    .arrow { fill: var(--line); }
+    .edge-label { fill: var(--muted); font-size: 17px; }
+
+    .flow-group &gt; rect { fill: none; stroke: var(--line); stroke-width: 1.3; }
+    .group-title { font-size: 21px; font-weight: 600; }
+    .group-subtitle { font-size: 17px; fill: var(--muted); }
+
+</ns0:style>
+  <ns0:g id="shim-identification" class="flow-group">
+    <ns0:rect x="6" y="112.0" width="1108" height="3020.0" rx="14" />
+    <ns0:text class="group-title" x="26" y="144.0">Forge Shim 识别</ns0:text>
+  </ns0:g>
+  <ns0:g id="read-defaults" class="flow-group">
+    <ns0:rect x="16" y="202.0" width="1088" height="456.0" rx="14" />
+    <ns0:text class="group-title" x="36" y="234.0">读取启动配置与默认值</ns0:text>
+  </ns0:g>
+  <ns0:g id="check-declarations" class="flow-group">
+    <ns0:rect x="16" y="684.0" width="1088" height="456.0" rx="14" />
+    <ns0:text class="group-title" x="36" y="716.0">检查启动声明</ns0:text>
+  </ns0:g>
+  <ns0:g id="declared-versions" class="flow-group">
+    <ns0:rect x="16" y="1166.0" width="1088" height="456.0" rx="14" />
+    <ns0:text class="group-title" x="36" y="1198.0">优先使用已声明的版本</ns0:text>
+  </ns0:g>
+  <ns0:g id="dependency-records" class="flow-group">
+    <ns0:rect x="16" y="1832.0" width="776" height="810.0" rx="14" />
+    <ns0:text class="group-title" x="36" y="1864.0">逐条处理依赖记录</ns0:text>
+    <ns0:text class="group-subtitle" x="36" y="1893.0">每条记录执行框内步骤。</ns0:text>
+  </ns0:g>
+  <ns0:g id="complete-versions" class="flow-group">
+    <ns0:rect x="16" y="2698.0" width="1088" height="290.0" rx="14" />
+    <ns0:text class="group-title" x="36" y="2730.0">补齐最终版本</ns0:text>
+  </ns0:g>
+  <ns0:text class="heading" x="28" y="42">Forge Shim 识别流程</ns0:text>
+  <ns0:text class="subtitle" x="28" y="77">大框表示流程范围；内部节点表示独立步骤；连线表示执行与分支。</ns0:text>
+  <ns0:path class="edge" data-from="jar" data-to="jar-exit" d="M 758 293 L 816 293" />
+  <ns0:text class="edge-label" x="768" y="281">缺失</ns0:text>
+  <ns0:path class="edge" data-from="jar" data-to="props" d="M 393 336 L 393 388" />
+  <ns0:path class="edge" data-from="props" data-to="props-exit" d="M 758 431 L 816 431" />
+  <ns0:text class="edge-label" x="768" y="419">失败</ns0:text>
+  <ns0:path class="edge" data-from="props" data-to="arguments" d="M 393 474 L 393 526" />
+  <ns0:path class="edge" data-from="arguments" data-to="arguments-exit" d="M 758 583 L 816 583" />
+  <ns0:text class="edge-label" x="768" y="571">失败</ns0:text>
+  <ns0:path class="edge" data-from="arguments" data-to="target-check" d="M 393 640 L 393 732" />
+  <ns0:path class="edge" data-from="target-check" data-to="target-check-exit" d="M 758 775 L 816 775" />
+  <ns0:text class="edge-label" x="768" y="763">是</ns0:text>
+  <ns0:path class="edge" data-from="target-check" data-to="group-check" d="M 393 818 L 393 870" />
+  <ns0:text class="edge-label" x="409" y="840">否</ns0:text>
+  <ns0:path class="edge" data-from="group-check" data-to="group-check-exit" d="M 758 927 L 816 927" />
+  <ns0:text class="edge-label" x="768" y="915">否</ns0:text>
+  <ns0:path class="edge" data-from="group-check" data-to="neo-check" d="M 393 984 L 393 1036" />
+  <ns0:text class="edge-label" x="409" y="1006">是</ns0:text>
+  <ns0:path class="edge" data-from="neo-check" data-to="neo-check-exit" d="M 758 1079 L 816 1079" />
+  <ns0:text class="edge-label" x="768" y="1067">是</ns0:text>
+  <ns0:path class="edge" data-from="neo-check" data-to="declared-mc" d="M 393 1122 L 393 1214" />
+  <ns0:text class="edge-label" x="409" y="1144">否</ns0:text>
+  <ns0:path class="edge" data-from="declared-mc" data-to="declared-loader" d="M 393 1300 L 393 1352" />
+  <ns0:path class="edge" data-from="declared-loader" data-to="complete" d="M 393 1438 L 393 1490" />
+  <ns0:path class="edge" data-from="complete" data-to="early-success" d="M 758 1533 L 816 1547" />
+  <ns0:text class="edge-label" x="774" y="1521">是</ns0:text>
+  <ns0:path class="edge" data-from="complete" data-to="list" d="M 393 1576 L 393 1656" />
+  <ns0:text class="edge-label" x="409" y="1612">否</ns0:text>
+  <ns0:path class="edge" data-from="list" data-to="list-exit" d="M 758 1699 L 816 1699" />
+  <ns0:text class="edge-label" x="768" y="1687">失败</ns0:text>
+  <ns0:path class="edge" data-from="columns" data-to="columns-exit" d="M 758 1975 L 816 1975" />
+  <ns0:text class="edge-label" x="768" y="1963">失败</ns0:text>
+  <ns0:path class="edge" data-from="columns" data-to="coordinate" d="M 393 2018 L 393 2070" />
+  <ns0:path class="edge" data-from="coordinate" data-to="split" d="M 393 2184 L 393 2236" />
+  <ns0:text class="edge-label" x="409" y="2206">是</ns0:text>
+  <ns0:path class="edge" data-from="split" data-to="split-exit" d="M 758 2279 L 816 2279" />
+  <ns0:text class="edge-label" x="768" y="2267">失败</ns0:text>
+  <ns0:path class="edge" data-from="split" data-to="agree-mc" d="M 393 2322 L 393 2374" />
+  <ns0:path class="edge" data-from="agree-mc" data-to="agree-mc-exit" d="M 758 2417 L 816 2417" />
+  <ns0:text class="edge-label" x="768" y="2405">否</ns0:text>
+  <ns0:path class="edge" data-from="agree-mc" data-to="agree-loader" d="M 393 2460 L 393 2512" />
+  <ns0:text class="edge-label" x="409" y="2482">是</ns0:text>
+  <ns0:path class="edge" data-from="agree-loader" data-to="agree-loader-exit" d="M 758 2555 L 816 2555" />
+  <ns0:text class="edge-label" x="768" y="2543">否</ns0:text>
+  <ns0:path class="edge" data-from="merge-mc" data-to="merge-mc-exit" d="M 758 2789 L 816 2789" />
+  <ns0:text class="edge-label" x="768" y="2777">仍缺失</ns0:text>
+  <ns0:path class="edge" data-from="merge-mc" data-to="merge-loader" d="M 393 2832 L 393 2884" />
+  <ns0:path class="edge" data-from="merge-loader" data-to="merge-loader-exit" d="M 758 2927 L 816 2927" />
+  <ns0:text class="edge-label" x="768" y="2915">仍缺失</ns0:text>
+  <ns0:path class="edge" data-from="merge-loader" data-to="success" d="M 393 2970 L 393 3022" />
+  <ns0:g id="jar" class="node process">
+    <ns0:rect x="28" y="250" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="282">确定启动 JAR</ns0:text>
+    <ns0:text class="body" x="48" y="315">后续从该 JAR 读取 Shim 配置和依赖列表。</ns0:text>
+  </ns0:g>
+  <ns0:g id="jar-exit" class="node error">
+    <ns0:rect x="816" y="250.0" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="282.0">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="315.0">没有可读取的启动 JAR</ns0:text>
+  </ns0:g>
+  <ns0:g id="props" class="node process">
+    <ns0:rect x="28" y="388" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="420">读取 Shim 配置</ns0:text>
+    <ns0:text class="body" x="48" y="453">读取启动 JAR 内的 <ns0:tspan class="code">bootstrap-shim.properties</ns0:tspan>。</ns0:text>
+  </ns0:g>
+  <ns0:g id="props-exit" class="node error">
+    <ns0:rect x="816" y="388.0" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="420.0">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="453.0">配置缺失、不可读或损坏</ns0:text>
+  </ns0:g>
+  <ns0:g id="arguments" class="node process">
+    <ns0:rect x="28" y="526" width="730" height="114" rx="10" />
+    <ns0:text class="node-title" x="48" y="558">取得内嵌的默认启动参数</ns0:text>
+    <ns0:text class="body" x="48" y="591">从 <ns0:tspan class="code">Arguments</ns0:tspan> 取得默认参数；字段不存在时视为无默认参数。</ns0:text>
+    <ns0:text class="body" x="48" y="619">后续查询各选项时，显式启动参数优先，未提供才使用默认值。</ns0:text>
+  </ns0:g>
+  <ns0:g id="arguments-exit" class="node error">
+    <ns0:rect x="816" y="540.0" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="572.0">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="605.0">默认启动参数无法解析</ns0:text>
+  </ns0:g>
+  <ns0:g id="target-check" class="node decision">
+    <ns0:rect x="28" y="732" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="764">是否明确声明了客户端启动目标？</ns0:text>
+    <ns0:text class="body" x="48" y="797">检查 <ns0:tspan class="code">--launchTarget</ns0:tspan>；未提供或未知的目标允许继续。</ns0:text>
+  </ns0:g>
+  <ns0:g id="target-check-exit" class="node error">
+    <ns0:rect x="816" y="732" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="764">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="797">声明的是客户端目标</ns0:text>
+  </ns0:g>
+  <ns0:g id="group-check" class="node decision">
+    <ns0:rect x="28" y="870" width="730" height="114" rx="10" />
+    <ns0:text class="node-title" x="48" y="902">声明的 loader group 是否为 Forge？</ns0:text>
+    <ns0:text class="body" x="48" y="935">
+      <ns0:tspan class="code">--fml.forgeGroup</ns0:tspan> 未提供时通过；</ns0:text>
+    <ns0:text class="body" x="48" y="963">提供时必须为 <ns0:tspan class="code">net.minecraftforge</ns0:tspan>。</ns0:text>
+  </ns0:g>
+  <ns0:g id="group-check-exit" class="node error">
+    <ns0:rect x="816" y="884" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="916">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="949">声明的 group 不是 Forge</ns0:text>
+  </ns0:g>
+  <ns0:g id="neo-check" class="node decision">
+    <ns0:rect x="28" y="1036" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="1068">是否声明了 NeoForge 版本？</ns0:text>
+    <ns0:text class="body" x="48" y="1101">检查 <ns0:tspan class="code">--fml.neoForgeVersion</ns0:tspan>；Forge Shim 不接受此声明。</ns0:text>
+  </ns0:g>
+  <ns0:g id="neo-check-exit" class="node error">
+    <ns0:rect x="816" y="1036" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="1068">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="1101">存在 NeoForge 版本声明</ns0:text>
+  </ns0:g>
+  <ns0:g id="declared-mc" class="node process">
+    <ns0:rect x="28" y="1214" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="1246">取得声明的 Minecraft 版本</ns0:text>
+    <ns0:text class="body" x="48" y="1279">查询 <ns0:tspan class="code">--fml.mcVersion</ns0:tspan>，允许暂时缺失。</ns0:text>
+  </ns0:g>
+  <ns0:g id="declared-loader" class="node process">
+    <ns0:rect x="28" y="1352" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="1384">取得声明的 Forge 版本</ns0:text>
+    <ns0:text class="body" x="48" y="1417">查询 <ns0:tspan class="code">--fml.forgeVersion</ns0:tspan>，允许暂时缺失。</ns0:text>
+  </ns0:g>
+  <ns0:g id="complete" class="node decision">
+    <ns0:rect x="28" y="1490" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="1522">两个声明的版本是否都已取得？</ns0:text>
+    <ns0:text class="body" x="48" y="1555">完整时直接采用声明值，不读取依赖列表。</ns0:text>
+  </ns0:g>
+  <ns0:g id="early-success" class="node success">
+    <ns0:rect x="816" y="1490" width="278" height="114" rx="10" />
+    <ns0:text class="node-title" x="836" y="1522">识别成功</ns0:text>
+    <ns0:text class="body" x="836" y="1555">返回声明的 Minecraft 版本</ns0:text>
+    <ns0:text class="body" x="836" y="1583">和 Forge 版本。</ns0:text>
+  </ns0:g>
+  <ns0:g id="list" class="node process">
+    <ns0:rect x="28" y="1656" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="1688">读取内嵌依赖列表</ns0:text>
+    <ns0:text class="body" x="48" y="1721">读取 <ns0:tspan class="code">bootstrap-shim.list</ns0:tspan>；列表必须存在且为有效 UTF-8。</ns0:text>
+  </ns0:g>
+  <ns0:g id="list-exit" class="node error">
+    <ns0:rect x="816" y="1656" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="1688">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="1721">列表缺失、不可读或损坏</ns0:text>
+  </ns0:g>
+  <ns0:g id="columns" class="node process">
+    <ns0:rect x="28" y="1932" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="1964">检查当前记录的格式</ns0:text>
+    <ns0:text class="body" x="48" y="1997">要求当前记录由制表符分隔为三列。</ns0:text>
+  </ns0:g>
+  <ns0:g id="columns-exit" class="node error">
+    <ns0:rect x="816" y="1932" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="1964">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="1997">当前记录的格式无效</ns0:text>
+  </ns0:g>
+  <ns0:g id="coordinate" class="node decision">
+    <ns0:rect x="28" y="2070" width="730" height="114" rx="10" />
+    <ns0:text class="node-title" x="48" y="2102">当前记录是否提供 Forge 依赖坐标？</ns0:text>
+    <ns0:text class="body" x="48" y="2135">仅接受 <ns0:tspan class="code">net.minecraftforge:forge</ns0:tspan> 的完整 Maven 路径。</ns0:text>
+    <ns0:text class="body" x="48" y="2163">其他依赖或不匹配的路径跳过。</ns0:text>
+  </ns0:g>
+  <ns0:g id="split" class="node process">
+    <ns0:rect x="28" y="2236" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="2268">从该坐标提取两项版本</ns0:text>
+    <ns0:text class="body" x="48" y="2301">从坐标版本中的 Minecraft / Forge 组合版本，分别取得两项版本。</ns0:text>
+  </ns0:g>
+  <ns0:g id="split-exit" class="node error">
+    <ns0:rect x="816" y="2236" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="2268">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="2301">无法拆分出两项版本</ns0:text>
+  </ns0:g>
+  <ns0:g id="agree-mc" class="node decision">
+    <ns0:rect x="28" y="2374" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="2406">Minecraft 版本证据是否一致？</ns0:text>
+    <ns0:text class="body" x="48" y="2439">当前版本不得为空，且须与此前 Forge 坐标中的 Minecraft 版本相同。</ns0:text>
+  </ns0:g>
+  <ns0:g id="agree-mc-exit" class="node error">
+    <ns0:rect x="816" y="2374" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="2406">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="2439">版本为空或列表内部冲突</ns0:text>
+  </ns0:g>
+  <ns0:g id="agree-loader" class="node decision">
+    <ns0:rect x="28" y="2512" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="2544">Forge 版本证据是否一致？</ns0:text>
+    <ns0:text class="body" x="48" y="2577">当前版本不得为空，且须与此前 Forge 坐标中的 Forge 版本相同。</ns0:text>
+  </ns0:g>
+  <ns0:g id="agree-loader-exit" class="node error">
+    <ns0:rect x="816" y="2512" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="2544">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="2577">版本为空或列表内部冲突</ns0:text>
+  </ns0:g>
+  <ns0:g id="merge-mc" class="node process">
+    <ns0:rect x="28" y="2746" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="2778">补齐 Minecraft 版本</ns0:text>
+    <ns0:text class="body" x="48" y="2811">已有声明值则保留；声明缺失时使用依赖列表中的版本。</ns0:text>
+  </ns0:g>
+  <ns0:g id="merge-mc-exit" class="node error">
+    <ns0:rect x="816" y="2746" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="2778">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="2811">没有 Minecraft 版本证据</ns0:text>
+  </ns0:g>
+  <ns0:g id="merge-loader" class="node process">
+    <ns0:rect x="28" y="2884" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="2916">补齐 Forge 版本</ns0:text>
+    <ns0:text class="body" x="48" y="2949">已有声明值则保留；声明缺失时使用依赖列表中的版本。</ns0:text>
+  </ns0:g>
+  <ns0:g id="merge-loader-exit" class="node error">
+    <ns0:rect x="816" y="2884" width="278" height="86" rx="10" />
+    <ns0:text class="node-title" x="836" y="2916">识别失败</ns0:text>
+    <ns0:text class="body" x="836" y="2949">没有 Forge 版本证据</ns0:text>
+  </ns0:g>
+  <ns0:g id="success" class="node success">
+    <ns0:rect x="28" y="3022" width="730" height="86" rx="10" />
+    <ns0:text class="node-title" x="48" y="3054">识别成功</ns0:text>
+    <ns0:text class="body" x="48" y="3087">返回最终的 Minecraft 版本和 Forge 版本。</ns0:text>
+  </ns0:g>
+  <ns0:path class="edge" data-from="list" data-to="columns" d="M 393 1742 L 393 1932" />
+  <ns0:path class="edge" data-from="agree-loader" data-to="merge-mc" d="M 393 2598 L 393 2746" />
+  <ns0:text class="edge-label" x="409" y="2669.0">全部记录处理完毕</ns0:text>
+  <ns0:path class="edge" data-from="coordinate" data-to="dependency-records" d="M 758 2127 L 792 2127" />
+  <ns0:text class="edge-label" x="806" y="2115.0">否：跳过当前记录</ns0:text>
+</ns0:svg>

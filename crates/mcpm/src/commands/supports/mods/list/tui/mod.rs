@@ -9,7 +9,7 @@ use super::{
 use crate::commands::{execution::Runtime, source_support::identify::Location};
 use anyhow::{Context, Result};
 use crossterm::event;
-use mcpm_backend::source::FileRef;
+use mcpm_lib::source::FileRef;
 use ratatui::widgets::TableState;
 use std::{
     collections::HashMap,
@@ -135,13 +135,9 @@ pub(super) fn run(
             return result;
         }
         screen = screen::Screen::new().context("failed to restore mod list TUI")?;
-        browser.status = result.err().map(|error| {
-            tracing::debug!(error = %format_args!("{error:#}"), "Could not open source files");
-            (
-                format!("Could not open files: {error:#}"),
-                crate::theme::Role::Danger,
-            )
-        });
+        browser.status = result
+            .err()
+            .map(|error| crate::widgets::Status::error(error.context("could not open files")));
         redraw = true;
     }
 }
@@ -154,7 +150,7 @@ struct Browser {
     detail_offset: usize,
     focus: Focus,
     field: usize,
-    status: Option<(String, crate::theme::Role)>,
+    status: Option<crate::widgets::Status>,
     clipboard: Option<arboard::Clipboard>,
     matches: Vec<usize>,
     table: TableState,

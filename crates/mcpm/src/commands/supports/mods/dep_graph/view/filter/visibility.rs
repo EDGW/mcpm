@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use mcpm_backend::local::mcmod::dependency::{
+use mcpm_lib::local::mcmod::dependency::{
     Dependency,
     graph::{DependencyGraph, candidate::DependencyCandidate, identifier::DependencyIdentifier},
 };

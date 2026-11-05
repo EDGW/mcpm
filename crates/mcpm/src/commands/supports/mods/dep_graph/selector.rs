@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     mcmod::dependency::graph::identifier::DependencyIdentifier, modloader::LoaderId,
 };
 use thiserror::Error;

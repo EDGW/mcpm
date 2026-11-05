@@ -5,7 +5,7 @@ use std::{
     path::Path,
 };
 
-use mcpm_backend::source::{FileMatch, MatchedFileRole, SourceId};
+use mcpm_lib::source::{FileMatch, MatchedFileRole, SourceId};
 
 use clap::ValueEnum;
 

@@ -1,9 +1,9 @@
 //! Regression coverage for bounded concurrency, ordered collection and cached failures/aliases.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::runtime::RuntimeEnvironment;
 use std::{collections::HashMap, sync::Arc};
 
-use mcpm_backend::local::modloader::BUILTIN_LOADERS;
+use mcpm_lib::local::modloader::BUILTIN_LOADERS;
 
 use super::ScanSession;
 

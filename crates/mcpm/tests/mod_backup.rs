@@ -8,7 +8,7 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     cache::{CacheLinkPreference, mods::ModsCacheDir},
     mcmod::backup::{self, CreateOptions, CreateStorage},
 };
@@ -55,8 +55,8 @@ fn arguments_and_literal_stdin_paths_verify_all_backups_after_a_failure() {
     let created = backup::create(
         &source,
         &valid,
-        &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_backup_cache(
-            mcpm_backend::local::cache::mods::ModsCacheSelection::Directory {
+        &mcpm_lib::local::runtime::RuntimeEnvironment::new().with_backup_cache(
+            mcpm_lib::local::cache::mods::ModsCacheSelection::Directory {
                 path: cache.path().to_owned(),
             },
         ),
@@ -114,8 +114,8 @@ fn deletion_combines_arguments_and_stdin_and_continues_after_a_refused_directory
         backup::create(
             &source,
             &root.path().join(name),
-            &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_backup_cache(
-                mcpm_backend::local::cache::mods::ModsCacheSelection::Directory {
+            &mcpm_lib::local::runtime::RuntimeEnvironment::new().with_backup_cache(
+                mcpm_lib::local::cache::mods::ModsCacheSelection::Directory {
                     path: cache.path().to_owned(),
                 },
             ),
@@ -148,8 +148,8 @@ fn deletion_combines_arguments_and_stdin_and_continues_after_a_refused_directory
     backup::create(
         &source,
         &root.path().join("last backup"),
-        &mcpm_backend::local::runtime::RuntimeEnvironment::new().with_backup_cache(
-            mcpm_backend::local::cache::mods::ModsCacheSelection::Directory {
+        &mcpm_lib::local::runtime::RuntimeEnvironment::new().with_backup_cache(
+            mcpm_lib::local::cache::mods::ModsCacheSelection::Directory {
                 path: cache.path().to_owned(),
             },
         ),

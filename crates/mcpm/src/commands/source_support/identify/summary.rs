@@ -1,10 +1,10 @@
 //! File-summary acquisition shared by local identification and the remote command handler.
 
 use anyhow::{Context, Result};
-use mcpm_backend::local::runtime::RuntimeEnvironment;
-use mcpm_backend::source::FileMatch;
-use mcpm_backend::source::FileSummary;
-use mcpm_backend::source::SummaryRequirements;
+use mcpm_lib::local::runtime::RuntimeEnvironment;
+use mcpm_lib::source::FileMatch;
+use mcpm_lib::source::FileSummary;
+use mcpm_lib::source::SummaryRequirements;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},

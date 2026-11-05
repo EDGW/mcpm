@@ -28,26 +28,10 @@ impl Config {
     }
 
     pub(crate) fn palette_name(&self, id: &str) -> String {
-        self.documents
-            .values()
-            .filter_map(|doc| doc.get("style"))
-            .filter_map(Value::as_array)
-            .flatten()
-            .find(|style| style["id"].as_str() == Some(id))
-            .and_then(|style| style.get("name"))
-            .and_then(Value::as_str)
-            .unwrap_or("Unnamed Color Scheme")
-            .to_owned()
+        self.styles[id].name.clone()
     }
 
     pub(crate) fn create_palette(&mut self, key: &str, id: &str) -> Result<String> {
-        ensure!(
-            !id.is_empty()
-                && id
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')),
-            "ID must contain only letters, digits, hyphens or underscores"
-        );
         ensure!(
             !self.styles.contains_key(id),
             "color scheme ID {id:?} already exists"
@@ -69,7 +53,10 @@ impl Config {
             .context("source color scheme not found")?
             .clone();
         palette["id"] = Value::String(id.clone());
-        palette["name"] = Value::String(id.clone());
+        palette
+            .as_table_mut()
+            .context("style must be a table")?
+            .insert("name".into(), Value::String(id.clone()));
         let mut documents = self.documents.clone();
         documents
             .entry("styles/custom.toml".into())
@@ -125,12 +112,11 @@ impl Config {
     }
 
     pub(crate) fn rename_palette(&mut self, id: &str, name: &str) -> Result<()> {
-        ensure!(
-            !name.trim().is_empty() && !name.chars().any(char::is_control),
-            "enter a valid color scheme name"
-        );
-        self.customize_palette(id)?;
-        self.set(&format!("styles.{id}.name"), name)
+        let mut next = self.clone();
+        next.customize_palette(id)?;
+        next.set(&format!("styles.{id}.name"), name)?;
+        *self = next;
+        Ok(())
     }
 
     pub(crate) fn delete_palette(&mut self, id: &str) -> Result<()> {

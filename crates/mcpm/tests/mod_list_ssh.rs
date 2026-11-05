@@ -92,7 +92,7 @@ mod transport {
                     ),
                 );
             if let Some(remote_executable) = remote_executable {
-                command.arg("--ssh-mcpm").arg(remote_executable);
+                command.arg("--ssh-mcpmd").arg(remote_executable);
             }
             let mut child = command
                 .stdin(Stdio::piped())
@@ -125,7 +125,7 @@ mod transport {
         let nil = "00000000-0000-0000-0000-000000000000";
         let command_id = "mod.list";
         let ready = format!(
-            "{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":4,\"commands\":[\"{command_id}\"],\"max_concurrency\":8}}}}\n"
+            "{{\"guid\":\"{nil}\",\"status\":\"ready\",\"contents\":{{\"version\":5,\"commands\":[\"{command_id}\"],\"max_concurrency\":8}}}}\n"
         );
         for (body, status, message) in [
             (
@@ -147,7 +147,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             )).unwrap();
             fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
             let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-                .args(["--raw", "mods", "list", "--no-cache", "--ssh", &connection, "--ssh-mcpm"])
+                .args(["--raw", "mods", "list", "--no-cache", "--ssh", &connection, "--ssh-mcpmd"])
                 .arg(&remote)
                 .stdin(Stdio::null())
                 .output()
@@ -212,7 +212,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             let remote = root.path().join("remote");
             let mut body = String::from("#!/bin/sh\n");
             body += &print(
-                json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":4,"commands":["mod.list"],"max_concurrency":8}}),
+                json!({"guid":uuid::Uuid::nil(),"status":"ready","contents":{"version":5,"commands":["mod.list"],"max_concurrency":8}}),
                 "",
             );
             body += "IFS= read -r logs\nlog_guid=$(printf '%s' \"$logs\" | cut -d '\"' -f6)\n";
@@ -246,7 +246,7 @@ printf '%s\n' '{\"guid\":\"00000000-0000-0000-0000-000000000000\",\"status\":\"c
             fs::write(&remote, body).unwrap();
             fs::set_permissions(&remote, fs::Permissions::from_mode(0o700)).unwrap();
             let output = Command::new(env!("CARGO_BIN_EXE_mcpm-tools"))
-                .args(["--raw", "--ssh", &connection, "--ssh-mcpm"])
+                .args(["--raw", "--ssh", &connection, "--ssh-mcpmd"])
                 .arg(&remote)
                 .args([
                     "mods",

@@ -1,9 +1,6 @@
 //! Shared client metadata escaping and quiet inferred-directory hints.
 
-use std::{
-    error::Error as StdError,
-    io::{self, Write},
-};
+use std::io::{self, Write};
 
 use crate::terminal;
 
@@ -27,14 +24,3 @@ pub(super) fn write_inferred_root(
 }
 
 pub(super) use crate::display::style::text;
-
-pub(super) fn error_chain(error: &dyn StdError) -> String {
-    let mut message = error.to_string();
-    let mut source = error.source();
-    while let Some(error) = source {
-        message.push_str(": ");
-        message.push_str(&error.to_string());
-        source = error.source();
-    }
-    message
-}

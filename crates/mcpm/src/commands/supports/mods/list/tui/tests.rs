@@ -5,8 +5,8 @@ use super::*;
 use crate::commands::supports::mods::{scan::ScannedFile, source_path::PathArgs};
 use clap::Parser;
 use crossterm::event::{Event, KeyModifiers, MouseEvent, MouseEventKind};
-use mcpm_backend::local::runtime::RuntimeEnvironment;
-use mcpm_backend::local::{
+use mcpm_lib::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::{
     mcmod::{self, IdentificationErrorAction, ModEntry},
     modloader::BUILTIN_LOADERS,
 };
@@ -378,7 +378,7 @@ fn two_line_items_map_both_rendered_rows_to_the_same_selection() {
 #[test]
 fn two_line_source_entries_map_to_one_field_and_scroll_together() {
     use crossterm::event::{KeyCode, KeyEvent, MouseButton};
-    use mcpm_backend::source::{
+    use mcpm_lib::source::{
         FileId, FileMatch, FileRef, MatchedFileRole, ProjectId, ProjectRef, SourceId,
     };
 

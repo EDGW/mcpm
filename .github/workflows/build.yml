@@ -82,11 +82,11 @@ jobs:
         working-directory: crates/mcpm
         env:
           ZIG_TARGET: ${{ matrix.zig_target }}
-        run: cargo zigbuild --release --bins --locked --target "$ZIG_TARGET"
+        run: cargo zigbuild --release --workspace --bins --locked --target "$ZIG_TARGET"
 
       - name: Test Windows environment names
         if: runner.os == 'Windows'
-        run: cargo test --manifest-path crates/mcpm-backend/Cargo.toml --locked --lib env_name
+        run: cargo test --manifest-path crates/mcpm-lib/Cargo.toml --locked --lib env_name
 
       - name: Build macOS or Windows binary
         if: runner.os != 'Linux'
@@ -94,7 +94,7 @@ jobs:
         working-directory: crates/mcpm
         env:
           TARGET: ${{ matrix.target }}
-        run: cargo build --release --bins --locked --target "$TARGET"
+        run: cargo build --release --workspace --bins --locked --target "$TARGET"
 
       - name: Package and verify suite
         shell: bash

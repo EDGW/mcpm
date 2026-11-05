@@ -1,0 +1,280 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1272" height="3184" viewBox="0 0 1272 3184" role="img" aria-labelledby="title desc" xml:lang="en">
+  <title id="title">Forge Shim identification flow</title>
+  <desc id="desc">Forge Shim identification groups configuration reading, launch declaration checks, declared versions, dependency-list processing, and final version completion. Dependency-record steps sit inside a loop container; skipped records and errors leave the container directly without a next-record check or long feedback edge.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="arrow" />
+    </marker>
+  </defs>
+  <style>
+    svg { --bg: #ffffff; --fg: #17212f; --muted: #536174; --surface: #f6f8fb; --line: #a8b4c3; --decision: #edf3fb; --good: #edf7f0; --bad: #fff1ef; --route: #f2effa; background: var(--bg); }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #151b23; --fg: #e6edf5; --muted: #b2bfd1; --surface: #202a37; --line: #738197; --decision: #233449; --good: #203a2d; --bad: #432c2c; --route: #312c45; }
+    }
+    text { fill: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .heading { font-size: 26px; font-weight: 600; }
+    .subtitle { font-size: 18px; fill: var(--muted); }
+    .node-title { font-size: 20px; font-weight: 600; }
+    .body { font-size: 18px; }
+    .code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 17px; }
+    rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+    .decision rect { fill: var(--decision); }
+    .success rect { fill: var(--good); }
+    .error rect { fill: var(--bad); }
+    .route rect { fill: var(--route); }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.6; marker-end: url(#arrow); }
+    .arrow { fill: var(--line); }
+    .edge-label { fill: var(--muted); font-size: 17px; }
+
+    .flow-group &gt; rect { fill: none; stroke: var(--line); stroke-width: 1.3; }
+    .group-title { font-size: 21px; font-weight: 600; }
+    .group-subtitle { font-size: 17px; fill: var(--muted); }
+
+</style>
+  <g id="shim-identification" class="flow-group">
+    <rect x="6" y="112.0" width="1260" height="3048" rx="14" />
+    <text class="group-title" x="26" y="144.0">Forge Shim identification</text>
+  </g>
+  <g id="read-defaults" class="flow-group">
+    <rect x="16" y="202.0" width="1240" height="470" rx="14" />
+    <text class="group-title" x="36" y="234.0">Read launch configuration and defaults</text>
+  </g>
+  <g id="check-declarations" class="flow-group">
+    <rect x="16" y="684.0" width="1240" height="456.0" rx="14" />
+    <text class="group-title" x="36" y="716.0">Check launch declarations</text>
+  </g>
+  <g id="declared-versions" class="flow-group">
+    <rect x="16" y="1166.0" width="1240" height="456.0" rx="14" />
+    <text class="group-title" x="36" y="1198.0">Prefer declared versions</text>
+  </g>
+  <g id="dependency-records" class="flow-group">
+    <rect x="16" y="1832.0" width="776" height="810.0" rx="14" />
+    <text class="group-title" x="36" y="1864.0">Process dependency records</text>
+    <text class="group-subtitle" x="36" y="1893.0">Run the steps in the frame for each record.</text>
+  </g>
+  <g id="complete-versions" class="flow-group">
+    <rect x="16" y="2698.0" width="1240" height="318" rx="14" />
+    <text class="group-title" x="36" y="2730.0">Fill final versions</text>
+  </g>
+  <text class="heading" x="28" y="42">Forge Shim identification flow</text>
+  <text class="subtitle" x="28" y="77">Large frames show flow scope; nodes show steps; edges show execution and branches.</text>
+  <path class="edge" data-from="jar" data-to="jar-exit" d="M 758 293 L 890 293" />
+  <text class="edge-label" x="768" y="281">Missing</text>
+  <path class="edge" data-from="jar" data-to="props" d="M 393 336 L 393 388" />
+  <path class="edge" data-from="props" data-to="props-exit" d="M 758 431 L 890 431" />
+  <text class="edge-label" x="768" y="419">Error</text>
+  <path class="edge" data-from="props" data-to="arguments" d="M 393 474 L 393 512" />
+  <path class="edge" data-from="arguments" data-to="arguments-exit" d="M 758 583 L 890 583" />
+  <text class="edge-label" x="768" y="571">Error</text>
+  <path class="edge" data-from="arguments" data-to="target-check" d="M 393 654 L 393 732" />
+  <path class="edge" data-from="target-check" data-to="target-check-exit" d="M 758 775 L 890 775" />
+  <text class="edge-label" x="768" y="763">Yes</text>
+  <path class="edge" data-from="target-check" data-to="group-check" d="M 393 818 L 393 870" />
+  <text class="edge-label" x="409" y="840">No</text>
+  <path class="edge" data-from="group-check" data-to="group-check-exit" d="M 758 927 L 890 927" />
+  <text class="edge-label" x="768" y="915">No</text>
+  <path class="edge" data-from="group-check" data-to="neo-check" d="M 393 984 L 393 1036" />
+  <text class="edge-label" x="409" y="1006">Yes</text>
+  <path class="edge" data-from="neo-check" data-to="neo-check-exit" d="M 758 1079 L 890 1079" />
+  <text class="edge-label" x="768" y="1067">Yes</text>
+  <path class="edge" data-from="neo-check" data-to="declared-mc" d="M 393 1122 L 393 1214" />
+  <text class="edge-label" x="409" y="1144">No</text>
+  <path class="edge" data-from="declared-mc" data-to="declared-loader" d="M 393 1300 L 393 1352" />
+  <path class="edge" data-from="declared-loader" data-to="complete" d="M 393 1438 L 393 1490" />
+  <path class="edge" data-from="complete" data-to="early-success" d="M 758 1533 L 890 1547" />
+  <text class="edge-label" x="774" y="1521">Yes</text>
+  <path class="edge" data-from="complete" data-to="list" d="M 393 1576 L 393 1656" />
+  <text class="edge-label" x="409" y="1612">No</text>
+  <path class="edge" data-from="list" data-to="list-exit" d="M 758 1699 L 890 1699" />
+  <text class="edge-label" x="768" y="1687">Error</text>
+  <path class="edge" data-from="columns" data-to="columns-exit" d="M 758 1975 L 890 1975" />
+  <text class="edge-label" x="768" y="1963">Error</text>
+  <path class="edge" data-from="columns" data-to="coordinate" d="M 393 2018 L 393 2070" />
+  <path class="edge" data-from="coordinate" data-to="split" d="M 393 2184 L 393 2236" />
+  <text class="edge-label" x="409" y="2206">Yes</text>
+  <path class="edge" data-from="split" data-to="split-exit" d="M 758 2279 L 890 2279" />
+  <text class="edge-label" x="768" y="2267">Error</text>
+  <path class="edge" data-from="split" data-to="agree-mc" d="M 393 2322 L 393 2374" />
+  <path class="edge" data-from="agree-mc" data-to="agree-mc-exit" d="M 758 2417 L 890 2417" />
+  <text class="edge-label" x="768" y="2405">No</text>
+  <path class="edge" data-from="agree-mc" data-to="agree-loader" d="M 393 2460 L 393 2512" />
+  <text class="edge-label" x="409" y="2482">Yes</text>
+  <path class="edge" data-from="agree-loader" data-to="agree-loader-exit" d="M 758 2555 L 890 2555" />
+  <text class="edge-label" x="768" y="2543">No</text>
+  <path class="edge" data-from="merge-mc" data-to="merge-mc-exit" d="M 758 2789 L 890 2789" />
+  <text class="edge-label" x="768" y="2777">Still missing</text>
+  <path class="edge" data-from="merge-mc" data-to="merge-loader" d="M 393 2860 L 393 2884" />
+  <path class="edge" data-from="merge-loader" data-to="merge-loader-exit" d="M 758 2927 L 890 2927" />
+  <text class="edge-label" x="768" y="2915">Still missing</text>
+  <path class="edge" data-from="merge-loader" data-to="success" d="M 393 2998 L 393 3050" />
+  <g id="jar" class="node process">
+    <rect x="28" y="250" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="282">Determine the launch JAR</text>
+    <text class="body" x="48" y="315">Read Shim configuration and the dependency list from this JAR.</text>
+  </g>
+  <g id="jar-exit" class="node error">
+    <rect x="890" y="250.0" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="282.0">Identification failed</text>
+    <text class="body" x="910" y="315.0">No readable launch JAR</text>
+  </g>
+  <g id="props" class="node process">
+    <rect x="28" y="388" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="420">Read Shim configuration</text>
+    <text class="body" x="48" y="453">Read bootstrap-shim.properties from the launch JAR.</text>
+  </g>
+  <g id="props-exit" class="node error">
+    <rect x="890" y="374" width="356" height="114" rx="10" />
+    <text class="node-title" x="910" y="406">Identification failed</text>
+    <text class="body" x="910" y="439"><tspan x="910">Configuration is missing,</tspan><tspan x="910" dy="28">unreadable, or damaged</tspan></text>
+  </g>
+  <g id="arguments" class="node process">
+    <rect x="28" y="512" width="730" height="142" rx="10" />
+    <text class="node-title" x="48" y="544">Read embedded default launch arguments</text>
+    <text class="body" x="48" y="577">Read defaults from Arguments; a missing field means no default.</text>
+    <text class="body" x="48" y="605"><tspan x="48">For later option lookups, explicit launch arguments win;</tspan><tspan x="48" dy="28">use defaults only when absent.</tspan></text>
+  </g>
+  <g id="arguments-exit" class="node error">
+    <rect x="890" y="526" width="356" height="114" rx="10" />
+    <text class="node-title" x="910" y="558">Identification failed</text>
+    <text class="body" x="910" y="591"><tspan x="910">Default launch arguments</tspan><tspan x="910" dy="28">cannot be parsed</tspan></text>
+  </g>
+  <g id="target-check" class="node decision">
+    <rect x="28" y="732" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="764">Is an explicit client launch target declared?</text>
+    <text class="body" x="48" y="797">Check --launchTarget; absent or unknown targets may continue.</text>
+  </g>
+  <g id="target-check-exit" class="node error">
+    <rect x="890" y="732" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="764">Identification failed</text>
+    <text class="body" x="910" y="797">A client target is declared</text>
+  </g>
+  <g id="group-check" class="node decision">
+    <rect x="28" y="870" width="730" height="114" rx="10" />
+    <text class="node-title" x="48" y="902">Is the declared loader group Forge?</text>
+    <text class="body" x="48" y="935">Passes when --fml.forgeGroup is absent;</text>
+    <text class="body" x="48" y="963">When present, it must be net.minecraftforge.</text>
+  </g>
+  <g id="group-check-exit" class="node error">
+    <rect x="890" y="884" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="916">Identification failed</text>
+    <text class="body" x="910" y="949">The declared group is not Forge</text>
+  </g>
+  <g id="neo-check" class="node decision">
+    <rect x="28" y="1036" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="1068">Is a NeoForge version declared?</text>
+    <text class="body" x="48" y="1101">Check --fml.neoForgeVersion; Forge Shim rejects this declaration.</text>
+  </g>
+  <g id="neo-check-exit" class="node error">
+    <rect x="890" y="1036" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="1068">Identification failed</text>
+    <text class="body" x="910" y="1101">A NeoForge version is declared</text>
+  </g>
+  <g id="declared-mc" class="node process">
+    <rect x="28" y="1214" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="1246">Read declared Minecraft version</text>
+    <text class="body" x="48" y="1279">Read --fml.mcVersion; it may be temporarily absent.</text>
+  </g>
+  <g id="declared-loader" class="node process">
+    <rect x="28" y="1352" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="1384">Read declared Forge version</text>
+    <text class="body" x="48" y="1417">Read --fml.forgeVersion; it may be temporarily absent.</text>
+  </g>
+  <g id="complete" class="node decision">
+    <rect x="28" y="1490" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="1522">Are both declared versions available?</text>
+    <text class="body" x="48" y="1555">When complete, use declared values without reading the dependency list.</text>
+  </g>
+  <g id="early-success" class="node success">
+    <rect x="890" y="1490" width="356" height="114" rx="10" />
+    <text class="node-title" x="910" y="1522">Identification succeeded</text>
+    <text class="body" x="910" y="1555">Return the declared Minecraft version</text>
+    <text class="body" x="910" y="1583">and Forge version.</text>
+  </g>
+  <g id="list" class="node process">
+    <rect x="28" y="1656" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="1688">Read the embedded dependency list</text>
+    <text class="body" x="48" y="1721">Read bootstrap-shim.list; it must exist and be valid UTF-8.</text>
+  </g>
+  <g id="list-exit" class="node error">
+    <rect x="890" y="1642" width="356" height="114" rx="10" />
+    <text class="node-title" x="910" y="1674">Identification failed</text>
+    <text class="body" x="910" y="1707"><tspan x="910">The list is missing,</tspan><tspan x="910" dy="28">unreadable, or damaged</tspan></text>
+  </g>
+  <g id="columns" class="node process">
+    <rect x="28" y="1932" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="1964">Check the record format</text>
+    <text class="body" x="48" y="1997">Require three tab-separated columns.</text>
+  </g>
+  <g id="columns-exit" class="node error">
+    <rect x="890" y="1932" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="1964">Identification failed</text>
+    <text class="body" x="910" y="1997">The record format is invalid</text>
+  </g>
+  <g id="coordinate" class="node decision">
+    <rect x="28" y="2070" width="730" height="114" rx="10" />
+    <text class="node-title" x="48" y="2102">Does this record provide a Forge dependency coordinate?</text>
+    <text class="body" x="48" y="2135">Accept only full Maven paths for net.minecraftforge:forge.</text>
+    <text class="body" x="48" y="2163">Skip other dependencies and nonmatching paths.</text>
+  </g>
+  <g id="split" class="node process">
+    <rect x="28" y="2236" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="2268">Extract both versions from the coordinate</text>
+    <text class="body" x="48" y="2301">Extract both versions from the combined Minecraft / Forge coordinate version.</text>
+  </g>
+  <g id="split-exit" class="node error">
+    <rect x="890" y="2236" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="2268">Identification failed</text>
+    <text class="body" x="910" y="2301">Cannot extract both versions</text>
+  </g>
+  <g id="agree-mc" class="node decision">
+    <rect x="28" y="2374" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="2406">Is the Minecraft version evidence consistent?</text>
+    <text class="body" x="48" y="2439">The version must be nonempty and equal to the earlier Minecraft version.</text>
+  </g>
+  <g id="agree-mc-exit" class="node error">
+    <rect x="890" y="2360" width="356" height="114" rx="10" />
+    <text class="node-title" x="910" y="2392">Identification failed</text>
+    <text class="body" x="910" y="2425"><tspan x="910">A version is empty or the list</tspan><tspan x="910" dy="28">conflicts internally</tspan></text>
+  </g>
+  <g id="agree-loader" class="node decision">
+    <rect x="28" y="2512" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="2544">Is the Forge version evidence consistent?</text>
+    <text class="body" x="48" y="2577">The version must be nonempty and equal to the earlier Forge version.</text>
+  </g>
+  <g id="agree-loader-exit" class="node error">
+    <rect x="890" y="2498" width="356" height="114" rx="10" />
+    <text class="node-title" x="910" y="2530">Identification failed</text>
+    <text class="body" x="910" y="2563"><tspan x="910">A version is empty or the list</tspan><tspan x="910" dy="28">conflicts internally</tspan></text>
+  </g>
+  <g id="merge-mc" class="node process">
+    <rect x="28" y="2746" width="730" height="114" rx="10" />
+    <text class="node-title" x="48" y="2778">Fill missing Minecraft version</text>
+    <text class="body" x="48" y="2811"><tspan x="48">Keep declared values; use dependency-list versions</tspan><tspan x="48" dy="28">only when a declaration is missing.</tspan></text>
+  </g>
+  <g id="merge-mc-exit" class="node error">
+    <rect x="890" y="2746" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="2778">Identification failed</text>
+    <text class="body" x="910" y="2811">No Minecraft version evidence</text>
+  </g>
+  <g id="merge-loader" class="node process">
+    <rect x="28" y="2884" width="730" height="114" rx="10" />
+    <text class="node-title" x="48" y="2916">Fill missing Forge version</text>
+    <text class="body" x="48" y="2949"><tspan x="48">Keep declared values; use dependency-list versions</tspan><tspan x="48" dy="28">only when a declaration is missing.</tspan></text>
+  </g>
+  <g id="merge-loader-exit" class="node error">
+    <rect x="890" y="2884" width="356" height="86" rx="10" />
+    <text class="node-title" x="910" y="2916">Identification failed</text>
+    <text class="body" x="910" y="2949">No Forge version evidence</text>
+  </g>
+  <g id="success" class="node success">
+    <rect x="28" y="3050" width="730" height="86" rx="10" />
+    <text class="node-title" x="48" y="3082">Identification succeeded</text>
+    <text class="body" x="48" y="3115">Return the final Minecraft and Forge versions.</text>
+  </g>
+  <path class="edge" data-from="list" data-to="columns" d="M 393 1742 L 393 1932" />
+  <path class="edge" data-from="agree-loader" data-to="merge-mc" d="M 393 2598 L 393 2746" />
+  <text class="edge-label" x="409" y="2669.0">All records processed</text>
+  <path class="edge" data-from="coordinate" data-to="dependency-records" d="M 758 2127 L 792 2127" />
+  <text class="edge-label" x="806" y="2115.0">No: skip this record</text>
+</svg>

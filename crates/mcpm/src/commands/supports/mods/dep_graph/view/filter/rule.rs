@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use mcpm_backend::local::mcmod::dependency::{DependencyKind, DependencyMatch};
+use mcpm_lib::local::mcmod::dependency::{DependencyKind, DependencyMatch};
 use thiserror::Error;
 
 use super::RelationType;

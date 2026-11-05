@@ -1,10 +1,10 @@
 //! Inspection command registration, structured SSH requests and business-stream validation.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::runtime::RuntimeEnvironment;
 use std::{num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result};
-use mcpm_backend::local::modloader::BUILTIN_LOADERS;
+use mcpm_lib::local::modloader::BUILTIN_LOADERS;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -49,7 +49,7 @@ struct Request {
     #[serde(default = "crate::commands::execution::default_parallelism")]
     parallelism: NonZeroUsize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    cache: Option<mcpm_backend::local::cache::mods::ModsCacheSelection>,
+    cache: Option<mcpm_lib::local::cache::mods::ModsCacheSelection>,
 }
 
 fn default_directory() -> PathBuf {

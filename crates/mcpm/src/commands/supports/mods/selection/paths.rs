@@ -1,13 +1,13 @@
 //! Resolves whole local archive paths without requiring their metadata to be readable.
 
-use mcpm_backend::local::runtime::RuntimeEnvironment;
+use mcpm_lib::local::runtime::RuntimeEnvironment;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
 use anyhow::Result;
-use mcpm_backend::local::{
+use mcpm_lib::local::{
     mcmod::ModDirectory,
     modloader::{LoaderId, ModLoaderMeta},
 };

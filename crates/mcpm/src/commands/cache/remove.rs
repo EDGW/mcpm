@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_backend::local::cache::mods::ModsCacheSelection;
+use mcpm_lib::local::cache::mods::ModsCacheSelection;
 use std::io::Write;
 
 use super::input::Inputs;

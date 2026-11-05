@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use anyhow::{Context, Result};
-use mcpm_backend::{
+use mcpm_lib::{
     local::cache::{
         hash::Blake3Hash,
         mods::{ModsCacheDir, ident::RefreshStatus, meta::CacheEntry},

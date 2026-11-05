@@ -12,6 +12,7 @@ mod logging;
 mod program;
 mod progress;
 mod remote;
+mod server;
 mod ssh;
 mod terminal;
 mod theme;
