@@ -1,8 +1,8 @@
 > Not yet migrated to the new documentation structure. This is retained legacy documentation; migrated commands are documented outside legacy/.
 
-# `mcpm launch`
+# `mcpm launch` / `mcpm attach`
 
-Launch a registered local server from its root `launch.toml` and `conf.toml`, inherit Java's standard streams, wait in the foreground, and return its exit status.
+Prepare an immutable Java command from the server's `launch.toml` and `conf.toml`, then let an independent `mcpmd shim` own Java. Launch attaches by default; leaving the client does not stop Java.
 
 ```sh
 mcpm init ./server --start-script run.sh
@@ -12,10 +12,51 @@ mcpm-tools server launch --server ./server
 ```
 
 - `--server <PATH>` selects the server root; default `.`. There is no positional path argument.
-- Console and Raw both preserve Minecraft's console streams. SSH, Remote workspaces, background operation and automatic restarts are unsupported.
+- TUI is the terminal default; `--no-ui` selects Console, and `--raw` or redirected stdout selects Raw. TUI requires drawable stdout and stderr. Local, explicit SSH and Remote workspaces share Host operations. Automatic restarts are not provided.
 - `launch.toml` owns fixed JVM arguments, the class/JAR/module entry, fixed application arguments, working directory and explicit environment overrides.
 - `conf.toml` owns the Java executable, memory/GC tuning, authlib-injector, server overrides and user arguments. Import enables source settings and leaves unspecified settings commented out. Every supported field has English documentation in the generated file.
 - Complete manual registration creates a default `conf.toml` without inventing a launch entry.
+
+## Attach and process control
+
+```sh
+mcpm launch --server ./server --detach
+mcpm attach --server ./server --history-lines 100 --input-height 5
+mcpm --ssh 'ssh user@host' launch --server /srv/minecraft
+mcpm launch --server ./server --communication rcon
+```
+
+- `--detach` prints the run ID once the shim owns Java, not when Minecraft becomes ready. A second launch fails; attach never starts Java.
+- `--communication auto` prefers RCON. `rcon` requires configuration before launch; both fall back to Java stdin on connection/authentication failure. `stdin` never attempts RCON. Read properties in Java's actual working directory, honoring application `--config` / `-c`; never enable or rewrite RCON automatically.
+- RCON returns complete command output in the same operation. Stdin only confirms sending; its output is Java stdout. A connection loss after sending is unknown and never triggers replay.
+- Decode only properties consumed by RCON; invalid unrelated values or escapes do not block extraction. A configured port does not enable disabled RCON.
+- Logs are Java stdout, not RCON. Stdout and stderr each use one continuous Channel, without polling; source EOF closes that Channel independently of Java exit. Stderr and RCON replies are separately labeled. Raw preserves stdout bytes; other sources and diagnostics go to stderr. Bounded retention reports gaps.
+- The default is a bottom Inline TUI, without an alternate screen. `--input-height` sets its initial height (default 4, minimum 3). Use Option+Up/Down on macOS, Alt+Up/Down elsewhere. Grow/shrink restores the visible output position without duplicating scrollback. Card titles and input contents have one space of horizontal padding. Left/Right/Home/End edit; Enter sends.
+- Builtins occupy a complete line: `@detach` (or EOF/Ctrl+D) leaves without stopping Java; `@stop` sends ordinary stop and never escalates; `@kill` force-kills Java independently of the normal command queue. `@@detach`, `@@stop`, and `@@kill` send the corresponding literal command to the server. Already-submitted commands report their outcome before the client leaves.
+- Ctrl+C sends the ordinary `stop` command. Another Ctrl+C while the shim reports Stopping kills Java's process group/Job. There is no automatic kill timeout.
+- An idle control token expires after 30 seconds; log readers do not renew it. Busy clients can still read logs and retry acquiring control on their next command.
+- Status uses one persistent Channel: an initial snapshot, immediate updates on state/channel/control-holder changes, and a current snapshot every second by default. Five seconds without a snapshot, or closure before a final exit state, is reported as a Channel failure, not as Java exit. Status snapshots do not renew control tokens or stop Java.
+- The bottom bar separates Java lifecycle, server communication status, and the actual command channel. Explicit `--communication rcon` and `auto` with usable RCON configuration share discovery, connection reuse, and status classification. Successful authentication shows `Server RCON Connected`, not Minecraft readiness. `auto` with missing, disabled, or unreadable RCON configuration, and explicit `stdin`, show `Server Unknown`.
+- When using RCON (explicit `rcon` or configured `auto`), while Java is alive, stop has not been attempted, and authentication has never succeeded, the shim retries connection/authentication with a one-second pause after each attempt. Attempts never overlap and send no game commands. The first authenticated connection is retained and reused for commands. An observed disconnect changes status to Unknown without restarting initial discovery. A possibly sent stop or Java exit also means Unknown. Later user commands retain the normal channel-selection/fallback behavior; failed commands are never replayed.
+- Each attach issues one real `help` after first observing RCON Connected. Successful help is kept only in that frontend session's memory, without printing the automatic response card; detach discards it and re-attach fetches it again. Failed execution or an unrecognized catalog shows `help 获取失败` for game-command hints, without automatic retry. Builtin hints for `@detach`, `@stop`, and `@kill` remain available regardless of help.
+- Inline hints appear only for nonempty, non-whitespace input and hide when the draft is cleared or sent. Gray top/side borders share Command Input's top border as their bottom; blank cells never expose logs. Only command names participate in prefix matching; arguments remain opaque syntax hints. At most five candidates are visible, long syntax wraps to multiple lines, Up/Down browses all matches, and the title counts candidates as selected index/total. Tab fills the selected name (first match if none selected), preserving typed arguments; Enter always sends the current draft without accepting a hint. Matched name text is bold Primary, its suffix regular Primary, game-command arguments use regular output color, and builtin descriptions are gray. Aliases such as `/wp -> waypoint` retain the arrow and append the target syntax when available; completion still inserts the alias. Console/Raw stay line-based without interactive hints.
+- Hint ordering puts exact command-name matches first; other prefix matches retain their original help-list order.
+- Java exit drains output and ends the shim. A bounded terminal receipt preserves final output and exit status without an empty resident service. A failed connection does not prove Java exited; discovery PIDs are never used for killing.
+- Discovery and exit receipts in `.mcpm/run/` contain no absolute server path. Use the new path after moving the folder. A copied active folder does not carry the original OS lock and is refused as an active instance; renaming a live directory remains subject to OS restrictions.
+- Relative command deduplication records are removed after the run is reaped. Endpoint collisions reject launch/control rather than selecting another instance.
+- Inline TUI uses standard ratatui viewport/widgets and the shared theme. Terminal diagnostics selected by `--log-level` arrive through a bounded Channel and are inserted above the input; file logging remains independent. `--no-ui` selects Console.
+- Install the matching `mcpmd` next to mcpm or on the executing Host's PATH.
+
+### Attach history and prefix colors
+
+- Standalone attach replays one terminal screen of history lines by default, or 24 lines when terminal size is unavailable. `--history-lines N` selects a count; zero follows live output directly.
+- A History divider precedes replay. After reaching the connection snapshot, the same Channels continue with live output, without duplicate replay. Availability is limited by the shim's retained tail.
+- Match only line-leading `[time/datetime] [thread/LEVEL]`; `thread/` is optional. Supported timestamps include time with fractional seconds, ISO datetime, and Forge's `ddMMMyyyy HH:mm:ss.SSS`. See the [Minecraft/Forge Log4j example](https://docs.spongepowered.org/stable/en/server/spongineer/logs.html).
+- Timestamps are gray; only the level block is colored. INFO uses green, WARN/WARNING yellow, ERROR/FATAL red, DEBUG Secondary, TRACE muted. Bodies through WARN/WARNING are gray for that line only; ERROR/FATAL bodies and unmatched lines receive no added style. `NO_COLOR` disables colors.
+- RCON replies use a Primary frame, also in Console mode. Its padded title is `RCON: command`: a regular-weight label and bold command name (the first submitted word, without arguments). Game logs remain separate.
+- Raw adds no prefix colors, history divider or RCON frame; Java stdout bytes remain unchanged. History line selection still applies.
+
+
 
 ```toml
 # launch.toml
@@ -86,7 +127,7 @@ mcpm launch '-Ojvm.extraArguments:=["-Dfirst=1"]' '-Ojvm.extraArguments=-Dsecond
 - With capable terminal stderr and without `--raw`, stages update in one dynamic progress area without printing status lines. Downloads show the source, transferred bytes and speed; known totals add a percentage and ETA, while unknown totals remain indeterminate.
 - A failed source is identified before fallback. Each attempt resets byte counters and speed estimates; failed transfers are never accumulated. Finishing the transfer still requires verification and installation.
 - `--raw`, redirected stderr or terminals without dynamic drawing disable progress, preserving game output and error diagnostics. Progress is independent of `--log-level` and never goes to stdout.
-- Dynamic progress is cleared before Java starts, after which game streams are inherited. Preparation completion or process creation does not imply Minecraft readiness; mcpm does not parse game logs to determine it.
+- Dynamic progress is cleared before Java starts, then launch attaches or returns a run ID. Preparation completion or process creation does not imply Minecraft readiness; mcpm does not parse game logs to determine it.
 - Failure or cancellation clears the display. Errors continue through the shared cause-chain renderer.
 
 ## authlib-injector
@@ -130,8 +171,8 @@ mcpm launch -Oauthlib-injector.jar=libraries/custom-agent.jar
 - Reimport changed scripts with `mcpm init ./server --start-script run.sh --force`.
 - `--force` replaces registration and launch structure while preserving existing `conf.toml` bytes. Add `--foverride-conf` to regenerate it, including existing settings and comments.
 - Interrupted publication is recovered on the next explicit initialization. Launch refuses a pending recovery journal. A workspace-marker failure reports files already committed.
-- Unix transfers the controlling terminal to Java's process group and restores it afterward. Windows shares the console so Ctrl+C reaches Java without duplicate forwarding.
-- Explicit stop requests allow ten seconds for shutdown; a second request forces termination. Unix terminal Ctrl+C goes directly to Java.
+- Unix shims detach from the original terminal and Java gets a separate process group. Windows uses a process group and Job, without forwarding client console Ctrl+C to Java.
+- Stop travels through the command channel; force termination requires an explicit second Ctrl+C / kill operation. No automatic kill timeout is applied.
 - Nonzero Java exits remain process results. Operation failures use the normal error-chain renderer. Unix signal exits map to `128 + signal`.
 - Long commands use a temporary Java argument file, requiring Java 9+. The file is removed after execution.
 - Legacy `server.json.start` snapshots are historical information only. Reimport explicitly; their original working directory cannot be reconstructed reliably.

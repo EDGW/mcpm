@@ -1,8 +1,8 @@
 > 尚未迁移到新文档体系。此处保留旧文档；已迁移命令以文档根目录中的新版本为准。
 
-# `mcpm launch`
+# `mcpm launch` / `mcpm attach`
 
-从服务端根目录中的配置启动 Java，继承终端输入输出，在前台等待退出并传递 Java 的退出码。
+从服务端根目录配置准备不可变 Java 命令，由独立的 `mcpmd shim` 持有 Java。`launch` 默认 attach；客户端退出不拥有 Java 的停止权。
 
 ```sh
 mcpm init ./server --start-script run.sh
@@ -11,10 +11,52 @@ mcpm-server launch --server ./server
 mcpm-tools server launch --server ./server
 ```
 
-- `--server <PATH>`：已登记的本地服务端目录，默认 `.`；不接受路径位置参数。
-- 支持 Console、Raw；`--raw` 或 stdout 重定向不改变 Minecraft 控制台内容。
-- 不支持 SSH、Remote 工作区、后台守护或自动重启。
+- `--server <PATH>`：执行主机上的已登记服务端目录，默认 `.`；不接受路径位置参数。显式 SSH 优先，否则遵循 Local/Remote 工作区登记。
+- 支持 TUI、Console（`--no-ui`）、Raw（`--raw` 或 stdout 重定向）；TUI 要求 stdout/stderr 均为可绘制终端。
+- 支持 Local、显式 SSH 和 Remote 工作区；不自动重启。
 - 不执行原始脚本，不重新读取原始 Java 参数文件，不安装服务端依赖或接受 EULA；启用托管认证时可下载 authlib-injector。
+
+
+## 连接、命令与退出
+
+```sh
+mcpm launch --server ./server --detach
+mcpm attach --server ./server
+mcpm attach --server ./server --history-lines 100 --input-height 5
+mcpm --ssh 'ssh user@host' launch --server /srv/minecraft
+mcpm launch --server ./server --communication rcon
+```
+
+- `--detach` 在 shim 接管 Java 后打印 run ID 并返回，不代表 Minecraft 已就绪。已有实例时 launch 报错，不静默忽略新的覆盖参数；attach 不启动 Java。
+- 默认命令通道 `auto` 优先 RCON。`--communication rcon` 要求启动前已有配置；两种模式在连接或认证失败时均 fallback 到 Java stdin，界面显示实际通道。`stdin` 不尝试 RCON。配置从实际工作目录读取，支持应用参数 `--config` / `-c`。
+- 不自动启用或修改 RCON。RCON 命令同步返回完整响应；stdin 只报告已发送，响应见 Java stdout。发送后断线/超时为 unknown，不重放同一命令。
+- 只解释 RCON 所需的 properties 字段；无关字段的非法值或坏转义不影响提取。RCON 未启用时，仅设置 `rcon.port` 不会连接或自动启用它。
+- 默认日志来自 Java stdout；stderr 与 RCON 响应分别标识。stdout/stderr 各打开持续 Channel，不轮询；来源关闭后 Channel 结束，但 Java 可能仍在运行。Raw stdout 保留原字节；其他来源与诊断写 stderr。日志尾部有界，落后返回 Gap。
+- 默认使用底部 Inline TUI，不进入全屏备用屏幕；日志进入上方终端原生 scrollback。输入框初始占 4 行，`--input-height <LINES>` 设置高度（至少 3 行）；macOS 用 Option+↑/↓，其他平台用 Alt+↑/↓。扩展后收缩会恢复已输出日志的位置，不向 scrollback 追加重复日志。标题和输入内容左右各有一个空格。左右/Home/End 编辑，Enter 发送。
+- 内置命令单独占一行：`@detach`（或 stdin EOF、Ctrl+D）只退出客户端，不停止 Java；`@stop` 发送普通 stop，不会升级为强杀；`@kill` 直接请求强杀 Java，独立于普通命令队列。`@@detach`、`@@stop`、`@@kill` 向服务器发送对应的字面命令。已提交命令先报告结果，再结束客户端。
+- 第一次 Ctrl+C 发送普通 `stop` 命令；权威状态为 Stopping 时再次 Ctrl+C 强杀 Java 进程组/Job。没有自动十秒强杀；手动输入 `stop` 也不升级为 kill。
+- 控制 token 空闲 30 秒后过期，读取日志不续期；其他客户端仍可看日志，控制繁忙时不会发送命令。下次输入时可重新取得已过期的控制权。
+- 状态使用一个持续 Channel：订阅先收到当前快照，状态、命令通道或控制持有者变化时立即推送，默认每秒再发送一次当前快照。默认连续 5 秒无快照，或未收到最终退出状态就断开，attach 明确报错；不推断 Java 已退出，也不自动 stop。周期快照不续期控制 token。
+- 底部状态栏分开显示 Java 生命周期、服务器通信状态和实际命令通道。`--communication rcon` 与检测到可用 RCON 配置的 `auto` 共用探测、连接复用和状态判定；认证成功显示 `Server RCON Connected`，不代表 Minecraft 已就绪。`auto` 未启用 RCON、配置缺失或无法读取时，以及显式 `stdin`，显示 `Server Unknown`。
+- 使用 RCON（显式 `rcon` 或已配置 RCON 的 `auto`）时，Java 存活、尚未尝试发送 stop 且从未认证成功，后台每秒尝试连接一次；每次尝试完成后等待一秒，不堆叠超时中的尝试。探测只做连接与认证，不执行游戏命令。首次成功后保留连接供命令复用；观察到断开后改为 Unknown，不恢复首次连接探测。stop 可能发出后或 Java 退出后也为 Unknown。用户后续主动提交命令仍按原通道选择与 fallback 规则处理，失败命令不重放。
+- 每次 attach 首次观察到 RCON Connected 后，自动执行一次真实 `help`，成功结果仅保存在当前前端会话内存中，不输出整张自动 help 响应卡片；detach 后丢弃，重新 attach 会重新获取。执行失败或未识别到命令时，游戏命令提示区显示“help 获取失败”，本次会话不自动重试。内置 `@detach`、`@stop`、`@kill` 提示不依赖 help。
+- 仅在存在非空、非纯空白输入时显示 Inline 提示框；清空或发送输入后隐藏。提示区使用灰色上边框和左右边框，下边框复用 Command Input，空白区域不会透出日志。按命令名前缀匹配，参数只作原样语法提示，不参与匹配；同屏至多五个候选，长命令和参数可自动换为多行，上下键遍历全部匹配项并滚动，标题按候选显示当前项/总数。Tab 填入所选命令名（未选择时填第一项），保留已有参数；Enter 始终直接发送当前输入，不接受提示。命令名匹配部分用 Primary 粗体，余下部分用 Primary 常规字重，游戏命令参数用常规输出色，内置命令描述用灰色。`/wp -> waypoint` 保留箭头提示，并在找到目标时附上目标参数语法；填入仍使用别名。Console/Raw 保持按行输入，不绘制交互提示。
+- 提示排序：命令名完整匹配项优先，其余前缀匹配项保持原始帮助列表中的顺序。
+- Java 退出后 shim 排空管道并结束，Host 可读取有限的最终日志与退出状态；shim 不驻留成空服务。连接失败不等于 Java 已退出，不按发现记录中的 PID 杀进程。
+- `.mcpm/run/` 中的发现和最终状态不保存绝对服务器路径。目录移动后用新路径 attach/launch；运行中的副本不会获得原目录的 OS 锁，拒绝当成原实例操作。活动目录能否改名仍受操作系统限制。
+- 命令去重记录只保留到该次运行回收，不长期积累历史数据库。endpoint 碰撞明确拒绝启动或操作，不切换到其他实例。
+- Inline TUI 使用 ratatui 标准 viewport、Block/Paragraph 和主题组件。`--log-level` 的终端诊断经有界 Channel 插入输入框上方，不绕过绘制；文件日志独立写入。`--no-ui` 使用 Console。
+- 同版本 `mcpmd` 应与 mcpm 放在同一目录，或可从执行主机的 PATH 找到。
+
+### Attach 历史与日志颜色
+
+- 独立 `attach` 默认回放当前终端高度对应的历史行数；无法取得终端尺寸时为 24 行。`--history-lines N` 调整数量，`0` 直接跟随实时输出。
+- 回放的第一行前绘制 `History` 分割线；回放到连接时的日志位置后，继续消费同一个持续 Channel，不重新订阅或重复打印。可回放范围仍受 shim 有界尾部限制。
+- 仅前端识别行首的 `[时间或日期时间] [线程/级别]`，线程及其 `/` 可省略。支持 `HH:mm:ss`（含小数秒）、ISO 日期时间及 Forge 的 `ddMMMyyyy HH:mm:ss.SSS`。
+- 时间戳灰色，仅第二个级别块着色：INFO 为成功绿，WARN/WARNING 为警告黄，ERROR/FATAL 为错误红，DEBUG 用 Secondary，TRACE 用弱化色。识别出的 TRACE、DEBUG、INFO、WARN/WARNING 正文灰色；ERROR/FATAL 正文和未匹配行不增加样式。样式仅作用于本行；`NO_COLOR` 禁用颜色。格式依据见 [Minecraft/Forge Log4j 示例](https://docs.spongepowered.org/stable/en/server/spongineer/logs.html)。
+- RCON 响应以 Primary 色标准边框插入控制台，标题为 `RCON: 命令名`：`RCON:` 非粗体，实际提交命令的第一个词为粗体，参数不放进标题；标题左右各一个空格。Console 模式同样有边框，游戏日志不会被装进响应框。
+- Raw 不进行日志着色、不绘制历史分割线或 RCON 边框，Java stdout 保留原字节；历史行数选择仍生效。
+
 
 ## 本次启动覆盖
 
@@ -101,7 +143,7 @@ extraArguments = []
 - stderr 支持动态终端绘制且未指定 `--raw` 时，所有阶段在同一个进度区域更新，不逐行打印状态。下载显示来源、字节进度及速度；总大小已知时额外显示百分比与预计剩余时间，未知时保持不定进度。
 - 来源失败后显示失败来源，下一次尝试重新计算字节进度与速度，不累计失败尝试的数据。传输结束后仍需验证及安装。
 - `--raw`、stderr 重定向或不支持动态绘制的终端关闭进度展示，保留游戏输出与错误诊断。准备进度不受 `--log-level` 过滤，不写入 stdout。
-- 启动 Java 前清除动态显示，随后继承游戏标准流。准备完成或进程创建不表示 Minecraft 已就绪；mcpm 不解析游戏日志判断启动状态。
+- 启动 Java 前清除动态显示，随后进入 attach 或返回 run ID。准备完成或进程创建不表示 Minecraft 已就绪；mcpm 不解析游戏日志判断启动状态。
 - 失败或取消时清理动态显示；错误继续通过统一错误链展示。
 
 ## authlib-injector
@@ -146,8 +188,8 @@ mcpm launch -Oauthlib-injector.jar=libraries/custom-agent.jar
 - `--force` 替换登记和启动结构，逐字节保留已有 `conf.toml`；保留配置有错误或与新结构冲突时会报错。
 - 同时指定 `--force --foverride-conf` 才会重新生成 `conf.toml`，覆盖已有设置和注释。
 - 中断的配置发布保留恢复日志；启动会拒绝混合状态，下一次显式初始化先恢复旧文件。工作区类型标记发布失败会明确报告已完成的文件状态。
-- Unix 将控制终端交给 Java 进程组，正常退出后恢复；Windows 与 Java 共用控制台，避免重复发送 Ctrl+C。
-- 显式停止请求等待最多十秒，再强制结束；再次请求会立即强制结束。Unix 终端 Ctrl+C 直接交给 Java 处理。
+- Unix shim 脱离原终端，Java 使用独立进程组；Windows Java 使用进程组和 Job，不接收前端的控制台 Ctrl+C 广播。
+- 停止由命令通道完成；只有明确的第二次 Ctrl+C / kill 操作才强杀，不设置自动强杀超时。
 - 非零退出码保持为 Java 的运行结果；启动、等待或清理失败经统一错误链输出。Unix 信号结果映射为 `128 + signal`。
 - 超长命令使用临时 Java 参数文件，要求 Java 9+；执行完毕删除，不成为持久化配置。
 

@@ -13,6 +13,7 @@
 | 页面 | 内容 |
 | --- | --- |
 | [基础](basics.md) | `info`、`init` |
+| [启动与连接](../legacy/server/launch.md) | `launch`、`attach`；默认 TUI，支持 Console/Raw |
 | [Stash](stash.md) | `create`、`switch`、`status`、`list`、`info`、`rename`、`delete`、`verify` |
 
 ## 目标选择
@@ -21,6 +22,7 @@
 | --- | --- | --- |
 | `info` | 位置参数 PATH | `.` |
 | `init` | 位置参数 PATH；带 `--remote` 时 PATH 是本机工作区 | `.` |
+| `launch`、`attach` | `--server PATH` | `.` |
 | `stash` | `--server PATH`，可放在子命令前后 | `.` |
 
 - 显式 `--ssh` 指定远端主机，PATH 按那台主机上的路径解释。
@@ -30,7 +32,7 @@
 - 连接失败、登记损坏等错误不会改为在本机执行。
 - 远端需要安装与本机构建一致的 `mcpmd`。
 
-本页的命令都支持 Remote workspace 和显式 `--ssh`。`launch` 与 `mods` 暂时不在其中，见 [旧文档](../legacy/README.md)。
+本页的命令都支持 Remote workspace 和显式 `--ssh`。其他尚未归入本目录的命令见 [旧文档](../legacy/README.md)。
 
 ## 输出
 
