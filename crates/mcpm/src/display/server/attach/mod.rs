@@ -12,6 +12,7 @@ use mcpm_exec::messaging::SessionTrafficStats;
 use ratatui::text::{Line, Span};
 use std::io::{self, Write};
 
+mod command_hints;
 mod inline;
 mod log;
 mod speed;

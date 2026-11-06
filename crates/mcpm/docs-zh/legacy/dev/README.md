@@ -10,6 +10,17 @@
 - `app.rs` 负责公共初始化和分发。二进制显式传入程序身份，文件改名不改变命令族。
 - `mcpm-lib` 管理解析、文件、下载与 Minecraft 逻辑；`mcpm-backend` 管理 operation 语义、唯一注册清单与 workspace codec。前端 flow 只组合调用及展示。`mcpm-exec` 不依赖业务，mcpmd 持有 SSH 并执行注册操作。server info/init 使用新路径，未迁移命令保留旧 tools 传输。
 
+## Attach 命令参数提示扩展
+
+- `display/server/attach/command_hints` 是前端命令专用逻辑的组合入口；`Handler::from_help`
+  仅为已识别的命令和语法构造处理器。新增命令在此注册，语法解析与参数知识放在独立子模块。
+- `Handler::syntax` 提供简化语法；`query` 返回当前参数候选、前缀、参数文本内的字节替换
+  范围、可选诊断及 value 校验能力分类。候选和输入分别借用，补全不创建临时候选字符串副本。
+- `Suggestions` 统一选择、分页、补全及绝对输入范围转换；`inline` 统一渲染颜色和诊断。
+  候选着色与校验复用同一个类型判定入口，不维护第二份已知规则表。
+- 处理器只解释 help 明确声明的语法；未知格式保留普通提示。诊断不进入发送路径，不改变
+  后端协议、自动命令或服务器的参数解释权。
+
 ## Mod 文件摘要
 
 - `mcpm-backend::operations::mods::digest` 独占 `mod.digest` operation，`DigestTarget::Paths` 接收字面路径，`DigestTarget::Server` 接收服务器路径及共享 `SelectionInput`；服务器入口不注册第二个 operation。

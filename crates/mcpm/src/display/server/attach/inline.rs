@@ -210,27 +210,48 @@ impl Screen {
                 .min(size.height.max(1)),
         )?;
         let leading_spaces = draft.len() - draft.trim_start_matches(' ').len();
-        let title = if leading_spaces > 0 {
+        let diagnostic = suggestions.diagnostic.as_ref();
+        let leading_warning = "Leading spaces: Minecraft may not recognize this command";
+        let title = if let Some(diagnostic) = diagnostic {
+            let prefix = if leading_spaces > 0 {
+                format!(" · {leading_warning}")
+            } else {
+                String::new()
+            };
             Line::styled(
-                " Command Input · Leading spaces: Minecraft may not recognize this command ",
+                format!(
+                    " Command Input · {} · Enter still sends{prefix} ",
+                    diagnostic.message
+                ),
+                style(Role::Danger),
+            )
+        } else if leading_spaces > 0 {
+            Line::styled(
+                format!(" Command Input · {leading_warning} "),
                 style(Role::Warning),
             )
         } else {
             Line::from(format!(" Command Input · {}+↑/↓ height ", modifier_name()))
         };
-        let content = if leading_spaces > 0 {
-            Line::from(vec![
-                // A foreground color alone is invisible on spaces. Reverse the warning
-                // style to highlight their cells without replacing the user's text.
-                Span::styled(
-                    &draft[..leading_spaces],
-                    style(Role::Warning).add_modifier(Modifier::REVERSED),
-                ),
-                Span::raw(&draft[leading_spaces..]),
-            ])
+        let mut spans = Vec::new();
+        if leading_spaces > 0 {
+            // Reverse colors make otherwise invisible space cells visible without changing text.
+            spans.push(Span::styled(
+                &draft[..leading_spaces],
+                style(Role::Warning).add_modifier(Modifier::REVERSED),
+            ));
+        }
+        if let Some(diagnostic) = diagnostic {
+            spans.push(Span::raw(&draft[leading_spaces..diagnostic.range.start]));
+            spans.push(Span::styled(
+                &draft[diagnostic.range.clone()],
+                style(Role::Danger).add_modifier(Modifier::UNDERLINED),
+            ));
+            spans.push(Span::raw(&draft[diagnostic.range.end..]));
         } else {
-            Line::from(draft)
-        };
+            spans.push(Span::raw(&draft[leading_spaces..]));
+        }
+        let content = Line::from(spans);
         self.terminal.draw(|frame| {
             let [hints, input, footer, traffic] = Layout::vertical([
                 Constraint::Length(self.suggestion_rows),

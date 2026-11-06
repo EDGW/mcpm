@@ -1,11 +1,12 @@
-//! Session-local RCON help catalog; command names are matched, argument syntax remains opaque.
+//! Session-local help catalog, command completion and opt-in argument assistance.
 
+use super::command_hints::{Diagnostic, Handler, Query};
 use crate::theme::{Role, widgets::style};
 use ratatui::{
-    style::Modifier,
+    style::{Modifier, Style},
     text::{Line, Span},
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::Range};
 
 const LIMIT: usize = 5;
 
@@ -26,6 +27,7 @@ impl Suggestions {
                 name: Cow::Borrowed(name),
                 arguments: Cow::Borrowed(description),
                 alias: None,
+                handler: None,
             }));
         self.builtin_count = self.catalog.len();
     }
@@ -60,8 +62,28 @@ impl Suggestions {
             .chain(matches.filter(move |command| command.name != name))
     }
 
+    fn argument_query<'a, 'input>(
+        &'a self,
+        draft: &'input str,
+    ) -> Option<ArgumentQuery<'a, 'input>> {
+        let name = input(draft);
+        let command = self.catalog.iter().find(|command| command.name == name)?;
+        let handler = command.handler.as_ref()?;
+        let trimmed = draft.trim_start();
+        let start = draft.len() - trimmed.len() + usize::from(trimmed.starts_with('/'));
+        let arguments = draft[start + name.len()..].trim_start();
+        Some(ArgumentQuery {
+            command,
+            offset: draft.len() - arguments.len(),
+            query: handler.query(arguments),
+        })
+    }
+
     pub fn navigate(&mut self, draft: &str, down: bool) {
-        let count = self.matches(draft).count();
+        let count = self.argument_query(draft).map_or_else(
+            || self.matches(draft).count(),
+            |arguments| arguments.query.matches().count(),
+        );
         self.selected = if count == 0 {
             None
         } else {
@@ -84,24 +106,35 @@ impl Suggestions {
         };
     }
 
-    /// Completion changes only the first token; existing arguments and slash choice survive.
+    /// Completion replaces the active command or argument token, preserving surrounding input.
     pub fn accept(&mut self, draft: &mut String) -> Option<usize> {
         if draft.trim().is_empty() {
             return None;
         }
-        let command = self.matches(draft).nth(self.selected.unwrap_or(0))?;
-        let start = draft.len() - draft.trim_start().len();
-        let start = start + usize::from(draft[start..].starts_with('/'));
-        let end = draft[start..]
-            .find(char::is_whitespace)
-            .map_or(draft.len(), |offset| start + offset);
-        let append_space = end == draft.len() && !command.name.starts_with('@');
-        let cursor = start + command.name.len() + usize::from(append_space);
-        if draft.len() - (end - start) + command.name.len() + usize::from(append_space) > 16 * 1024
+        let (range, candidate, leading_space) = if let Some(arguments) = self.argument_query(draft)
         {
+            let candidate = arguments.query.matches().nth(self.selected.unwrap_or(0))?;
+            let range = arguments.query.replacement;
+            let range = arguments.offset + range.start..arguments.offset + range.end;
+            let leading_space = range.is_empty()
+                && range.start > 0
+                && !draft[..range.start].ends_with(char::is_whitespace);
+            (range, candidate, leading_space)
+        } else {
+            let command = self.matches(draft).nth(self.selected.unwrap_or(0))?;
+            (command_range(draft), command.name.as_ref(), false)
+        };
+        let append_space = range.end == draft.len() && !candidate.starts_with('@');
+        let extra = usize::from(leading_space) + usize::from(append_space);
+        if draft.len() - range.len() + candidate.len() + extra > 16 * 1024 {
             return None;
         }
-        draft.replace_range(start..end, &command.name);
+        let start = range.start;
+        let cursor = start + candidate.len() + extra;
+        draft.replace_range(range, candidate);
+        if leading_space {
+            draft.insert(start, ' ');
+        }
         if append_space {
             draft.push(' ');
         }
@@ -126,7 +159,11 @@ impl Suggestions {
                 rows: Vec::new(),
                 title: String::new(),
                 selected: None,
+                diagnostic: None,
             };
+        }
+        if let Some(arguments) = self.argument_query(draft) {
+            return self.argument_view(arguments);
         }
         let prefix = input(draft);
         let count = self.matches(draft).count();
@@ -202,6 +239,62 @@ impl Suggestions {
             rows,
             title,
             selected: self.selected.map(|index| index - start),
+            diagnostic: None,
+        }
+    }
+
+    fn argument_view<'a>(&self, arguments: ArgumentQuery<'a, '_>) -> View<'a> {
+        let query = arguments.query;
+        let count = query.matches().count();
+        let selected = self.selected.filter(|index| *index < count);
+        let start = selected.unwrap_or(0).saturating_sub(LIMIT - 1);
+        let title = if count == 0 {
+            " Arguments ".to_owned()
+        } else if let Some(index) = selected {
+            format!(" Arguments {}/{count} · ↑/↓ select · Tab fill ", index + 1)
+        } else {
+            format!(
+                " Arguments 1–{}/{count} · ↑/↓ select · Tab fill ",
+                count.min(LIMIT)
+            )
+        };
+        let primary = style(Role::Primary);
+        let regular = primary.remove_modifier(Modifier::BOLD);
+        let output = Style::default().remove_modifier(Modifier::BOLD);
+        let mut rows = vec![Line::from(vec![
+            Span::raw("  /"),
+            Span::styled(arguments.command.name.as_ref(), primary),
+            Span::raw(" "),
+            Span::raw(arguments.command.arguments.as_ref()),
+        ])];
+        rows.extend(query.matches().enumerate().skip(start).take(LIMIT).map(
+            |(index, candidate)| {
+                Line::from(vec![
+                    Span::raw(if selected == Some(index) {
+                        "› "
+                    } else {
+                        "  "
+                    }),
+                    Span::styled(
+                        candidate,
+                        if (query.validates_value)(candidate) {
+                            regular
+                        } else {
+                            output
+                        },
+                    ),
+                ])
+            },
+        ));
+        View {
+            rows,
+            title,
+            selected: selected.map(|index| index - start + 1),
+            diagnostic: query.diagnostic.map(|mut diagnostic| {
+                diagnostic.range.start += arguments.offset;
+                diagnostic.range.end += arguments.offset;
+                diagnostic
+            }),
         }
     }
 }
@@ -210,12 +303,26 @@ struct Command {
     name: Cow<'static, str>,
     arguments: Cow<'static, str>,
     alias: Option<usize>,
+    handler: Option<Handler>,
 }
 
 pub(super) struct View<'a> {
     pub rows: Vec<Line<'a>>,
     pub title: String,
     pub selected: Option<usize>,
+    pub diagnostic: Option<Diagnostic>,
+}
+
+struct ArgumentQuery<'a, 'input> {
+    command: &'a Command,
+    offset: usize,
+    query: Query<'a, 'input>,
+}
+
+fn command_range(draft: &str) -> Range<usize> {
+    let trimmed = draft.trim_start();
+    let start = draft.len() - trimmed.len() + usize::from(trimmed.starts_with('/'));
+    start..start + input(draft).len()
 }
 
 fn input(draft: &str) -> &str {
@@ -243,6 +350,7 @@ fn parse(output: &str) -> Vec<Command> {
                     name: Cow::Owned(name.to_owned()),
                     arguments: Cow::Owned(entry[end..].trim().to_owned()),
                     alias: None,
+                    handler: None,
                 });
             }
         } else if let Some(command) = commands.last_mut() {
@@ -253,6 +361,11 @@ fn parse(output: &str) -> Vec<Command> {
         }
     }
     for index in 0..commands.len() {
+        let command = &mut commands[index];
+        command.handler = Handler::from_help(&command.name, &command.arguments);
+        if let Some(handler) = &command.handler {
+            command.arguments = Cow::Borrowed(handler.syntax());
+        }
         if let Some(target) = commands[index].arguments.strip_prefix("->").map(str::trim) {
             commands[index].alias = commands.iter().position(|command| command.name == target);
         }
@@ -265,25 +378,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn opaque_multiline_help_aliases_and_name_only_matching() {
+    fn argument_completion_preserves_surrounding_input_and_stops_at_value() {
         let mut suggestions = Suggestions::default();
-        suggestions.help_result(Some("Available commands:\n/gamerule\n(keepInventory|mod.setting)\n/gamemode <mode> [<target>]\n/gm -> gamemode\n/list [uuids]\n/gamemode duplicate"));
-        let names = |draft: &str| {
-            suggestions
-                .matches(draft)
-                .map(|command| command.name.to_string())
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(names("ga"), ["gamerule", "gamemode"]);
-        assert_eq!(names("ga ignored arguments"), ["gamerule", "gamemode"]);
-        assert_eq!(names("/gamemode nonsense"), ["gamemode"]);
-        assert!(names("keepInventory").is_empty());
-        assert_eq!(
-            suggestions.catalog[0].arguments,
-            "(keepInventory|mod.setting)"
-        );
-        assert_eq!(suggestions.catalog[2].arguments, "-> gamemode");
-        assert!(names("@stop").is_empty());
+        suggestions.help_result(Some(
+            "/gamerule\n(keepInventory | randomTickSpeed | 規則) <value>",
+        ));
+        let mut draft = "/gamerul".to_owned();
+        suggestions.accept(&mut draft).unwrap();
+        assert_eq!(draft, "/gamerule ");
+        suggestions.accept(&mut draft).unwrap();
+        assert_eq!(draft, "/gamerule keepInventory ");
+        assert!(suggestions.accept(&mut draft).is_none());
+        draft = "  /gamerule  ra  -7".into();
+        let cursor = suggestions.accept(&mut draft).unwrap();
+        assert_eq!(draft, "  /gamerule  randomTickSpeed  -7");
+        assert_eq!(&draft[..cursor], "  /gamerule  randomTickSpeed");
+        draft = "gamerule 規".into();
+        suggestions.accept(&mut draft).unwrap();
+        assert_eq!(draft, "gamerule 規則 ");
+        let invalid = suggestions.view("  /gamerule  規則  anything");
+        assert!(invalid.diagnostic.is_none());
+        let draft = "  /gamerule  randomTickSpeed  wrong";
+        let invalid = suggestions.view(draft).diagnostic.unwrap();
+        assert_eq!(&draft[invalid.range], "wrong");
+    }
+
+    #[test]
+    fn argument_navigation_uses_all_server_choices_and_help_replacement_clears_handlers() {
+        let mut suggestions = Suggestions::default();
+        suggestions.help_result(Some("/gamerule (a | b | c | d | e | f | g)"));
+        let mut draft = "/gamerule".to_owned();
+        suggestions.navigate(&draft, false);
+        suggestions.accept(&mut draft).unwrap();
+        assert_eq!(draft, "/gamerule g ");
+        suggestions.help_result(Some("/gamerule <rule> [value]"));
+        assert!(suggestions.argument_query("/gamerule bad true").is_none());
+        assert!(suggestions.view("/gamerule bad true").diagnostic.is_none());
+        suggestions.help_result(None);
+        assert!(suggestions.argument_query("/gamerule").is_none());
     }
 
     #[test]

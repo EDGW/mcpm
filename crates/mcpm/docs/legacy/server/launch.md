@@ -41,7 +41,7 @@ mcpm launch --server ./server --communication rcon
 - The bottom bar separates Java lifecycle, server communication status, and the actual command channel. Explicit `--communication rcon` and `auto` with usable RCON configuration share discovery, connection reuse, and status classification. Successful authentication shows `Server RCON Connected`, not Minecraft readiness. `auto` with missing, disabled, or unreadable RCON configuration, and explicit `stdin`, show `Server Unknown`.
 - When using RCON (explicit `rcon` or configured `auto`), while Java is alive, stop has not been attempted, and authentication has never succeeded, the shim retries connection/authentication with a one-second pause after each attempt. Attempts never overlap and send no game commands. The first authenticated connection is retained and reused for commands. An observed disconnect changes status to Unknown without restarting initial discovery. A possibly sent stop or Java exit also means Unknown. Later user commands retain the normal channel-selection/fallback behavior; failed commands are never replayed.
 - Each attach issues one real `help` after first observing RCON Connected. Its result stays private in that frontend session's memory, without broadcasting or printing the automatic response card; detach discards it and re-attach fetches it again. User-entered `help` is broadcast normally. Failed execution or an unrecognized catalog shows `Failed to fetch help`, without automatic retry. Builtin hints for `@detach`, `@stop`, `@kill`, and `@speed` remain available regardless of help.
-- Inline hints appear only for nonempty, non-whitespace input and hide when the draft is cleared or sent. Gray top/side borders share Command Input's top border as their bottom; blank cells never expose logs. Only command names participate in prefix matching; arguments remain opaque syntax hints. At most five candidates are visible, long syntax wraps to multiple lines, Up/Down browses all matches when not recalling command history, and the title counts candidates as selected index/total. Tab fills the selected name (first match if none selected), preserving typed arguments; Enter always sends the current draft without accepting a hint. Matched name text is bold Primary, its suffix regular Primary, game-command arguments use regular output color, and builtin descriptions are gray. Aliases such as `/wp -> waypoint` retain the arrow and append the target syntax when available; completion still inserts the alias. Console/Raw stay line-based without interactive hints.
+- Inline hints appear only for nonempty, non-whitespace input and hide when the draft is cleared or sent. Gray top/side borders share Command Input's top border as their bottom; blank cells never expose logs. By default only command names participate in prefix matching and arguments remain opaque; recognized gamerule syntax enables the argument assistance below. At most five candidates are visible, long syntax wraps to multiple lines, Up/Down browses all matches when not recalling command history, and the title counts candidates as selected index/total. Tab fills the selected name (first match if none selected), preserving typed arguments; Enter always sends the current draft without accepting a hint or blocking on diagnostics. Matched command-name text is bold Primary, its suffix regular Primary, game-command arguments use regular output color, and builtin descriptions are gray. Aliases such as `/wp -> waypoint` retain the arrow and append the target syntax when available; completion still inserts the alias. Console/Raw stay line-based without interactive hints.
 - Hint ordering puts exact command-name matches first; other prefix matches retain their original help-list order.
 - Java exit drains output and ends the shim. A bounded terminal receipt preserves final output and exit status without an empty resident service. A failed connection does not prove Java exited; discovery PIDs are never used for killing.
 - Discovery and exit receipts in `.mcpm/run/` contain no absolute server path. Use the new path after moving the folder. A copied active folder does not carry the original OS lock and is refused as an active instance; renaming a live directory remains subject to OS restrictions.
@@ -74,6 +74,25 @@ mcpm launch --server ./server --communication rcon
   bar and prints the newly selected snapshot to stderr only when `@speed` is entered.
 - `@speed` is local and never submitted as a server command; use `@@speed` to send it literally.
   The selected display mode resets to compact on re-attach.
+
+### Gamerule argument assistance
+
+- Enabled only for help syntax `/gamerule (rule1 | rule2 | …) <value>`, or the same enumeration
+  without `<value>`. At least two alternatives are required; whitespace around separators is allowed.
+  Other forms, including `[<value>]`, retain their original opaque hints.
+- Syntax becomes `/gamerule <type> <value>`. Entering the complete command name lists all rules
+  supplied by help. A rule prefix filters them; Up/Down selects and Tab fills the type without
+  changing other arguments or inserting default values.
+- Rules with local value validation use regular-weight Primary; other rules use regular-weight
+  terminal-default text. Neither candidate prefix is bold. The local map never adds absent rules.
+- Unknown rule names are red; unfinished prefixes that still have matches are not errors.
+  Whitespace after a rule name marks the type as complete.
+- Known booleans accept lowercase `true` or `false`; known integers accept signed 64-bit values
+  without game-specific bounds. Both naming styles are supported, including the experimental
+  `max_minecart_speed` and `minecartMaxSpeed` names.
+- An omitted value remains a query. Help-listed rules unknown locally accept arbitrary values.
+  Diagnostics mark the input title and offending text, but Enter always sends the original input;
+  the server remains authoritative.
 
 ### Command recall and leading spaces
 
