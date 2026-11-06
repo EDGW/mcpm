@@ -195,7 +195,7 @@ impl Suggestions {
             })
             .collect::<Vec<_>>();
         if self.failed && !draft.trim_start().starts_with('@') {
-            rows.insert(0, Line::styled(" help 获取失败", output));
+            rows.insert(0, Line::styled(" Failed to fetch help", output));
             rows.truncate(LIMIT);
         }
         View {

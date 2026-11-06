@@ -177,18 +177,15 @@ impl Operation for SubscribeLogs {
         }))
     }
 }
-forwarding_operation!(
-    Acquire,
-    "server.shim.control.acquire",
-    AcquireInput,
-    AcquireResult,
-    Acquire
-);
-forwarding_operation!(
-    Release,
-    "server.shim.control.release",
-    ControlInput,
-    ReleaseResult,
-    Release
-);
+pub struct SubscribeCommands;
+impl Operation for SubscribeCommands {
+    const ID: &'static str = "server.shim.commands";
+    type Input = CommandsInput;
+    type Output = StreamingOutput<CommandEvent>;
+    async fn run(input: Self::Input) -> Result<Self::Output> {
+        Ok(StreamingOutput::new(move |sender| async move {
+            shim::subscribe_commands(input, sender).await
+        }))
+    }
+}
 forwarding_operation!(Kill, "server.shim.kill", ControlInput, KillResult, Kill);

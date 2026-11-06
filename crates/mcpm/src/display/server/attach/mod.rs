@@ -178,47 +178,85 @@ impl Display {
         }
         Ok(())
     }
-    pub fn command(&mut self, command: &str, result: &CommandResult) -> Result<()> {
+    pub fn command(
+        &mut self,
+        command: &str,
+        result: &CommandResult,
+        other: bool,
+        listener_id: &str,
+    ) -> Result<()> {
         let name = text::clean(command.split_whitespace().next().unwrap_or_default());
-        if let Some(output) = &result.output {
-            if self.raw {
-                self.notice(&format!("RCON: {name}"), output)?;
+        let origin = if other {
+            format!("Executed by another Listener · {listener_id}")
+        } else {
+            String::new()
+        };
+        let label = if command == "@kill" {
+            "Control"
+        } else if result.channel == Channel::Rcon {
+            "RCON"
+        } else {
+            "stdin"
+        };
+        let mut details = String::new();
+        let output = if let Some(output) = &result.output {
+            output.as_str()
+        } else {
+            details.push_str(match result.result {
+                CommandOutcome::Sent if command == "@kill" => "Java force-kill requested",
+                CommandOutcome::Sent => "sent; command output is in Java stdout",
+                CommandOutcome::Completed => "completed",
+                CommandOutcome::Unknown => "outcome unknown; command was not replayed",
+            });
+            if let Some(diagnostic) = &result.diagnostic {
+                details.push('\n');
+                details.push_str(diagnostic);
+            }
+            &details
+        };
+        if self.raw {
+            let source = if other {
+                format!("{label}: {name} · {origin}")
             } else {
-                let output = text::clean(output);
-                // Render very large responses in bounded standard-widget pages, preserving one frame.
-                let mut start = 0;
-                loop {
-                    let mut end = (start + 8192).min(output.len());
-                    while !output.is_char_boundary(end) {
-                        end -= 1;
-                    }
-                    let first = start == 0;
-                    let last = end == output.len();
-                    if let Some(screen) = &mut self.screen {
-                        screen.rcon(&name, &output[start..end], first, last)?;
-                    } else {
-                        inline::console_response(
-                            &mut io::stderr().lock(),
-                            &name,
-                            &output[start..end],
-                            terminal_width(),
-                            terminal::stderr_color_enabled(),
-                            first,
-                            last,
-                        )?;
-                    }
-                    if last {
-                        break;
-                    }
-                    start = end;
+                format!("{label}: {name}")
+            };
+            self.notice(&source, output)?;
+        } else {
+            let output = text::clean(output);
+            // Render very large responses in bounded standard-widget pages, preserving one frame.
+            let mut start = 0;
+            loop {
+                let mut end = (start + 8192).min(output.len());
+                while !output.is_char_boundary(end) {
+                    end -= 1;
                 }
+                let first = start == 0;
+                let last = end == output.len();
+                if let Some(screen) = &mut self.screen {
+                    screen.rcon(label, &name, &origin, &output[start..end], first, last)?;
+                } else {
+                    inline::console_response(
+                        &mut io::stderr().lock(),
+                        label,
+                        &name,
+                        &origin,
+                        &output[start..end],
+                        terminal_width(),
+                        terminal::stderr_color_enabled(),
+                        first,
+                        last,
+                    )?;
+                }
+                if last {
+                    break;
+                }
+                start = end;
             }
         }
-        if let Some(diagnostic) = &result.diagnostic {
+        if result.output.is_some()
+            && let Some(diagnostic) = &result.diagnostic
+        {
             self.notice("command", diagnostic)?;
-        }
-        if result.result == CommandOutcome::Sent {
-            self.notice("stdin", "sent; command output is in Java stdout")?;
         }
         Ok(())
     }

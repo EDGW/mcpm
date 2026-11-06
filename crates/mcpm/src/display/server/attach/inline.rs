@@ -137,10 +137,18 @@ impl Screen {
             remember(output, buffer, limit);
         })
     }
-    pub fn rcon(&mut self, name: &str, text: &str, first: bool, last: bool) -> io::Result<()> {
+    pub fn rcon(
+        &mut self,
+        label: &str,
+        name: &str,
+        origin: &str,
+        text: &str,
+        first: bool,
+        last: bool,
+    ) -> io::Result<()> {
         self.terminal.autoresize()?;
         let width = self.terminal.size()?.width.max(1);
-        let (widget, height) = response(name, text, width, first, last);
+        let (widget, height) = response(label, name, origin, text, width, first, last);
         let limit = self.terminal.size()?.height as usize;
         let output = &mut self.output;
         self.terminal.insert_before(height, |buffer| {
@@ -253,7 +261,9 @@ impl Drop for Screen {
 }
 
 fn response<'a>(
+    label: &str,
     name: &str,
+    origin: &str,
     text: &'a str,
     width: u16,
     first: bool,
@@ -266,21 +276,30 @@ fn response<'a>(
     if last {
         borders |= Borders::BOTTOM;
     }
+    let role = if origin.is_empty() {
+        Role::Primary
+    } else {
+        Role::Success
+    };
     let mut block = Block::new()
         .borders(borders)
-        .border_style(style(Role::Primary))
-        .title_style(style(Role::Primary));
+        .border_style(style(role))
+        .title_style(style(role));
     if first {
         block = block.title(Line::from(vec![
             Span::styled(
-                " RCON: ",
-                style(Role::Primary).remove_modifier(Modifier::BOLD),
+                format!(" {label}: "),
+                style(role).remove_modifier(Modifier::BOLD),
             ),
+            Span::styled(name.to_owned(), style(role).add_modifier(Modifier::BOLD)),
             Span::styled(
-                name.to_owned(),
-                style(Role::Primary).add_modifier(Modifier::BOLD),
+                if origin.is_empty() {
+                    " ".to_owned()
+                } else {
+                    format!(" · {origin} ")
+                },
+                style(role).remove_modifier(Modifier::BOLD),
             ),
-            Span::raw(" "),
         ]));
     }
     let paragraph = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
@@ -294,14 +313,16 @@ fn response<'a>(
 /// Console uses the same standard Block/Paragraph widgets without opening an interactive terminal.
 pub(super) fn console_response(
     output: &mut impl Write,
+    label: &str,
     name: &str,
+    origin: &str,
     text: &str,
     width: u16,
     color: bool,
     first: bool,
     last: bool,
 ) -> io::Result<()> {
-    let (widget, height) = response(name, text, width.max(3), first, last);
+    let (widget, height) = response(label, name, origin, text, width.max(3), first, last);
     let mut buffer = Buffer::empty(Rect::new(0, 0, width.max(3), height));
     widget.render(buffer.area, &mut buffer);
     write_buffer(output, &buffer, color)
@@ -326,7 +347,7 @@ fn write_buffer(output: &mut impl Write, buffer: &Buffer, color: bool) -> io::Re
                 skip -= 1;
                 continue;
             }
-            let role = [Role::Primary, Role::Muted]
+            let role = [Role::Primary, Role::Success, Role::Muted]
                 .into_iter()
                 .find(|role| style(*role).fg == Some(cell.fg));
             if color && let Some(role) = role {

@@ -43,7 +43,7 @@
 - `config/publication.rs` 持有配置锁和恢复日志，统一协调登记及两份 TOML；`--force` 与 `--foverride-conf` 是独立覆盖意图。backend operation 在文件提交后发布 workspace 类型标记。
 - 后端 `launch/plan.rs` 是唯一启动计划生成与原生值 codec；backend `EncodedPlan` 在客户端保持不透明，只在原 Host 解码，避免跨平台客户端解释路径和环境。准备仍复用原配置和 authlib 入口，通过独立的 `server.launch.prepare` 发送有界合并的进度，再调用 `server.shim.launch`，不是把整个 launch 包成一次 operation。
 - `launch/process.rs` 的 `JavaProcess` 持有管道、临时参数文件和进程组/Windows Job，Drop 回收未退出子进程。没有旧的 foreground execute、终端转交、OS stop 信号或自动十秒强杀路径。
-- backend `operations/server/shim` 独占八个 shim operations；`server/shim` 拥有私有 IPC、实例锁/发现记录、30 秒控制 token、命令去重、日志和状态 Channel。mcpmd shim 是薄独立入口；Local 与 link/serve 路由共用 Host handlers，不修改 mcpm-exec。Java 退出后落下有界 receipt，读取最终状态不需要空 shim。
+- backend `operations/server/shim` 独占七个 shim operations：launch、inspect、status、command、commands、logs、kill；`server/shim` 拥有私有 IPC、实例锁/发现记录、按 Listener/command_id 去重、日志、状态和命令结果 Channel。所有同用户 Listener 均可提交，移除 acquire/release 和独占控制 token。mcpmd shim 是薄独立入口；Local 与 link/serve 路由共用 Host handlers，不修改 mcpm-exec。Java 退出后落下有界 receipt，读取最终状态不需要空 shim。
 - `server/properties.rs` 是 properties 的唯一 codec：只解码被消费字段，忽略无关值与注释的坏转义；RCON 禁用时不解释其余设置。`launch/rcon.rs` 使用 Rust `rcon` crate 负责认证、协议和完整响应；项目只处理配置、监听归属、超时及标准 codec 的分帧资源上限。连接/认证失败 fallback stdin，已发送命令失败不重放。kill 不等待命令锁。
 - `commands/server/launch` 组合准备和启动，`attach` 组合日志、状态和独立控制请求；`display/server/attach` 独占日志前缀解析、增量解码和 Inline/Console/Raw 展示。着色不进入 backend；RCON 响应用标准 Block/Paragraph 和 Primary 边框。Inline 仅管理底部 viewport，日志通过 insert_before 进入原生 scrollback，不进入 alternate screen。@detach/EOF 不发 RPC；Ctrl+C 依据 inspect 发 stop 或 kill，RAII 恢复终端。
 - `server.shim.logs` 为独立 stdout/stderr Channel，无轮询和定时空包。`server.shim.status` 先登记 watch 再取首份快照，事件唤醒立即发送，并默认每秒发送全量当前快照；默认接收超时 5 秒，最终 Exited 后正常结束，其他断开报错。inspect 只作单次发现或按键时权威查询，不在 attach 中循环调用。
@@ -54,6 +54,8 @@
 - `commands/server/attach/history.rs` 按状态 Channel 首份快照的两个 cursor 分界回放尾部行，再接同一日志 Channel 的实时余量。渲染器按来源记录本行灰色正文状态，在换行时清除；时间戳、级别块和正文分段着色，不进入 backend。RCON 标题取实际提交文本的第一个词，标签常规字重、命令加粗，并保留横向 padding。
 - `commands/server/attach/builtin.rs` 是内置命令名称、动作和提示描述的唯一表；分发和展示复用同一份定义。`@stop` 复用受控命令队列，`@kill` 和 Ctrl+C 共用独立受控 kill，不等待 RCON 命令锁。attach 首次 Connected 启动独立的一次性 help 任务，只有成功完成的 RCON 响应交给展示层；解析后的目录和失败状态仅保留在该前端会话。`display/server/attach/suggestions.rs` 拥有命令名、opaque 参数、别名关联和完整匹配列表选择状态；只在绘制时截取五条窗口。Inline 为提示分配额外行并复用对称 viewport 恢复，提示只有上/左/右边框，下边复用输入框；draw 调整高度时暂停键盘 reader，避免查询响应混入输入。
 - 提示仅在非空 draft 时展示，内置描述使用 Muted；候选上限按五个逻辑条目计算，Paragraph 按可用宽度换行，高度由实际行数决定，窄终端滚动保持所选候选可见。viewport 扩展时，新区域之前属于日志；重新建立 Terminal 后先清空整个新 viewport，避免默认空 Buffer 的差异渲染跳过已有日志字符。仅在区域变化时执行该清理，不在每次绘制时全量清屏。
+- `server.shim.commands` 在 shim 登记实时 cursor 后发送 Ready，只推送后续用户命令事件；Completed 携带 listener_id、command_id、文本、实际通道与结果。按条数和响应字节上限保留 Arc 事件，独立 watch 唤醒订阅者；落后返回 Gap，不反压命令执行。退出先等待在途交换完成，再发送 Done。attach 先收到 Ready 再开放输入/内部 help；自己和别人的结果都只从此 Channel 展示，RPC 仅确认提交结果。内部 help 标记 Internal 不广播；其他 Listener 使用 Success 绿色框和英文来源标题。日志/结果/诊断同步绘制时均暂停键盘 reader，避免吞掉 ratatui 的光标查询响应。
+- `MAX_LOG_BLOCK_BYTES` 是共享的 1 MiB 块/批次上限，管道 reader、Buffer::read 和 attach 订阅复用。`server/shim/logs.rs` 是内存块与原始二进制尾部的唯一 codec；退出时先写入并同步 `logs-<run_id>-stdout.bin`、`logs-<run_id>-stderr.bin`，再发布只含 RunSnapshot 的 finished.json。重放按 snapshot cursor 验证文件大小并恢复原始字节，不需要保存原始读取分块边界。文件名只有 run_id 与来源，移动目录后仍可读；下次启动保留当前 receipt 的尾部并清理更旧的生成文件，避免无界累积。Operation 传输编码不变，不修改 mcpm-exec。
 - v3 登记只存身份，旧 v1/v2 `start` 经原编解码入口兼容读取，仅用于历史展示，不自动迁移成启动配置。
 - 内存或 GC 设置中的显式 `auto` 暂不受支持；不从模板示例、宿主机状态或旧快照推导隐式默认策略。
 - `config/overrides.rs` 拥有本次启动覆盖操作，字段及类型复用配置 schema；标量唯一，列表按序追加或清空重设。前端只将便捷参数转换为同一覆盖输入，最终配置经原 codec 和校验入口生成计划，不回写 TOML。

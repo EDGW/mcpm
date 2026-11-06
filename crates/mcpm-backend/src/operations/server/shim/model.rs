@@ -48,7 +48,6 @@ pub struct LaunchInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Launched {
     pub reference: ShimRef,
-    pub control_token: String,
     pub initial_cursor: u64,
     pub state: State,
 }
@@ -71,7 +70,6 @@ pub struct Snapshot {
     pub actual_channel: Channel,
     /// Communication evidence, independent of Java's lifecycle and command transport.
     pub server_status: ServerStatus,
-    pub control_holder: Option<String>,
     pub stdout: CursorRange,
     pub stderr: CursorRange,
 }
@@ -99,7 +97,8 @@ fn status_interval_ms() -> u64 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandInput {
     pub reference: ShimRef,
-    pub control_token: String,
+    pub listener_id: String,
+    pub visibility: CommandVisibility,
     pub command_id: String,
     pub text: String,
 }
@@ -111,6 +110,39 @@ pub struct CommandResult {
     pub result: CommandOutcome,
     pub diagnostic: Option<String>,
 }
+
+/// Internal help responses remain private to their requesting frontend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandVisibility {
+    User,
+    Internal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandsInput {
+    pub reference: ShimRef,
+}
+
+/// Ready establishes the live-only subscription boundary; Done follows final results.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CommandEvent {
+    Ready,
+    Completed {
+        listener_id: String,
+        command_id: String,
+        text: String,
+        result: CommandResult,
+    },
+    Gap {
+        missed: u64,
+    },
+    Done,
+}
+
+/// Maximum source read block and maximum payload in one log batch (1 MiB).
+pub const MAX_LOG_BLOCK_BYTES: usize = 1024 * 1024;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogsInput {
     pub reference: ShimRef,
@@ -143,32 +175,15 @@ pub struct CursorRange {
     pub latest: u64,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AcquireInput {
-    pub reference: ShimRef,
-    pub requester: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum AcquireResult {
-    Acquired { token: String },
-    Busy { current_holder: String },
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ControlInput {
     pub reference: ShimRef,
-    pub control_token: String,
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ReleaseResult {
-    Released,
-    InvalidToken,
-    AlreadyReleased,
+    pub listener_id: String,
+    pub command_id: String,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KillResult {
     Accepted,
-    InvalidToken,
     AlreadyExited,
 }
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,7 +226,6 @@ pub enum ServerStatus {
 #[serde(rename_all = "snake_case")]
 pub enum CommandStatus {
     Accepted,
-    InvalidToken,
     Exited,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -5,14 +5,14 @@ use crate::{
     display::server::attach::Display,
     ssh::SshArgs,
 };
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use clap::Args;
 use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 use mcpm_backend::operations::server::shim::{self, *};
 use mcpm_exec::service::Executor;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashSet, path::PathBuf, time::Duration};
 use tokio::{
-    sync::{Mutex, mpsc},
+    sync::mpsc,
     task::{JoinHandle, JoinSet},
 };
 
@@ -24,7 +24,7 @@ use input::Input;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = format!("Modes: Inline TUI (terminal default), Console (--no-ui), Raw (--raw or redirected stdout). The inline input stays below ordinary scrollback output; {}+Up/Down changes its height. Attach never starts Java. History defaults to one terminal screen of lines; --history-lines changes it and zero skips replay. RCON replies have a Primary-colored frame with the command name. @detach or EOF/Ctrl+D detaches; @stop sends stop without escalation; @kill force-kills Java. Prefix a builtin with another @ to send it literally. Ctrl+C sends stop; another while Stopping force-kills. Each attach requests help once after RCON Connected, storing it only in that frontend session. Inline hints appear only while input is nonblank, match command names only, wrap long syntax, and display five candidates. Up/Down browses all matches with a position counter. Tab fills; Enter always sends the current input. Builtin hints remain available if help fails.", crate::display::server::attach::modifier_name())
+    after_help = format!("Modes: Inline TUI (terminal default), Console (--no-ui), Raw (--raw or redirected stdout). The inline input stays below ordinary scrollback output; {}+Up/Down changes its height. Attach never starts Java. History defaults to one terminal screen of lines; --history-lines changes it and zero skips replay. All Listeners can send commands and receive live user-command results. Own replies use a Primary frame; other Listeners' replies use a green frame labeled Executed by another Listener. Re-attaching does not replay old command results. @detach or EOF/Ctrl+D detaches; @stop sends stop without escalation; @kill force-kills Java. Prefix a builtin with another @ to send it literally. Ctrl+C sends stop; another while Stopping force-kills. Each attach privately requests help once after RCON Connected, keeping it only in frontend-session memory. Inline hints appear for nonblank input, match only command names, wrap long syntax, and display five candidates. Up/Down browses all matches with a position counter. Tab fills; Enter always sends the current input. Builtin hints remain available if help fails.", crate::display::server::attach::modifier_name())
 )]
 pub(super) struct AttachArgs {
     /// Registered server directory on the selected Host.
@@ -59,7 +59,6 @@ pub(super) fn run(args: AttachArgs, ssh: SshArgs) -> Result<Exit> {
             executor,
             snapshot.reference,
             None,
-            None,
             Some(args.history_lines.unwrap_or_else(|| {
                 crossterm::terminal::size().map_or(24, |(_, height)| height as usize)
             })),
@@ -74,10 +73,11 @@ enum Update {
     Logs(Source, LogBatch),
     History(Vec<(Source, Vec<u8>)>),
     Status(Snapshot),
+    Command(CommandEvent),
     Failed(anyhow::Error),
 }
 enum Action {
-    Command((String, CommandResult)),
+    Command(CommandResult),
     Kill(KillResult),
 }
 struct Tasks(Vec<JoinHandle<()>>);
@@ -88,12 +88,10 @@ impl Drop for Tasks {
         }
     }
 }
-type Token = Arc<Mutex<Option<String>>>;
 
 pub(super) async fn flow(
     executor: Executor,
     reference: ShimRef,
-    initial_token: Option<String>,
     cursor: Option<u64>,
     history_lines: Option<usize>,
     no_ui: bool,
@@ -133,19 +131,25 @@ pub(super) async fn flow(
     let mut interrupts = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     #[cfg(windows)]
     let mut interrupts = tokio::signal::windows::ctrl_c()?;
-    let token = Arc::new(Mutex::new(initial_token));
-    let requester = uuid::Uuid::new_v4().to_string();
-    if token.lock().await.is_none() {
-        match refresh_token(&executor, &reference, &token, &requester, None).await {
-            Ok(_) => {}
-            Err(error) => display.notice(
-                "control",
-                &format!(
-                    "{error:#}; logs remain available, retry a command after the holder expires"
-                ),
-            )?,
-        }
-    }
+    let listener_id = uuid::Uuid::new_v4().to_string();
+    let mut result_channel = tokio::time::timeout(
+        status_timeout,
+        executor.call::<SubscribeCommands>(CommandsInput {
+            reference: reference.clone(),
+        }),
+    )
+    .await
+    .context("command result subscription timed out")??;
+    ensure!(
+        matches!(
+            tokio::time::timeout(status_timeout, result_channel.next())
+                .await
+                .context("command result subscription handshake timed out")?
+                .context("command result Channel closed before Ready")??,
+            CommandEvent::Ready
+        ),
+        "command result Channel did not establish a live subscription"
+    );
     let (updates, mut events) = mpsc::channel(8);
     let _tasks = Tasks(vec![
         tokio::spawn({
@@ -177,6 +181,26 @@ pub(super) async fn flow(
                 }
             }
         }),
+        tokio::spawn({
+            let updates = updates.clone();
+            async move {
+                let result = async {
+                    while let Some(event) = result_channel.next().await {
+                        let event = event?;
+                        let done = matches!(event, CommandEvent::Done);
+                        updates.send(Update::Command(event)).await?;
+                        if done {
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                    }
+                    anyhow::bail!("command result Channel closed before Done")
+                }
+                .await;
+                if let Err(error) = result {
+                    let _ = updates.send(Update::Failed(error)).await;
+                }
+            }
+        }),
     ]);
     drop(updates);
     let mut actions = JoinSet::new();
@@ -186,6 +210,8 @@ pub(super) async fn flow(
     let mut pending = std::collections::VecDeque::new();
     let mut finished = [false; 2];
     let mut exit_code = snapshot.exit_code;
+    let mut submitted = HashSet::new();
+    let mut commands_finished = false;
     let mut detaching = false;
     let mut redraw = tokio::time::interval(Duration::from_millis(100));
     {
@@ -197,10 +223,17 @@ pub(super) async fn flow(
             help_requested = true;
             let executor = executor.clone();
             let reference = reference.clone();
-            let token = token.clone();
-            let requester = requester.clone();
+            let listener_id = listener_id.clone();
             help.spawn(async move {
-                controlled_command(&executor, &reference, &token, &requester, "help".into()).await
+                send_command(
+                    &executor,
+                    &reference,
+                    &listener_id,
+                    uuid::Uuid::new_v4().to_string(),
+                    "help".into(),
+                    CommandVisibility::Internal,
+                )
+                .await
             });
         }
         if commands.is_empty()
@@ -208,10 +241,20 @@ pub(super) async fn flow(
         {
             let executor = executor.clone();
             let reference = reference.clone();
-            let token = token.clone();
-            let requester = requester.clone();
+            let listener_id = listener_id.clone();
+            let id = uuid::Uuid::new_v4().to_string();
+            submitted.insert(id.clone());
             commands.spawn(async move {
-                controlled_command(&executor, &reference, &token, &requester, text).await
+                let result = send_command(
+                    &executor,
+                    &reference,
+                    &listener_id,
+                    id.clone(),
+                    text,
+                    CommandVisibility::User,
+                )
+                .await;
+                (id, result)
             });
         }
         if detaching
@@ -219,10 +262,12 @@ pub(super) async fn flow(
             && commands.is_empty()
             && pending.is_empty()
             && help.is_empty()
+            && submitted.is_empty()
         {
             return Ok(Exit::Completed);
         }
         if finished.iter().all(|finished| *finished)
+            && commands_finished
             && let Some(code) = exit_code
         {
             return Ok(Exit::Exited(code));
@@ -230,6 +275,7 @@ pub(super) async fn flow(
         tokio::select! {
             _ = redraw.tick() => {},
             diagnostic = display.diagnostics.recv(), if diagnostics_open => {
+                let _keyboard = reader.pause();
                 match diagnostic {
                     Some((bytes, dropped)) => display.diagnostic(&bytes, dropped)?,
                     None => diagnostics_open = false,
@@ -237,11 +283,11 @@ pub(super) async fn flow(
             }
             signal = interrupts.recv() => {
                 ensure!(signal.is_some(), "interrupt notification stream ended");
-                spawn_interrupt(&mut actions, executor.clone(), reference.clone(), token.clone(), requester.clone());
+                spawn_interrupt(&mut actions, &mut submitted, executor.clone(), reference.clone(), listener_id.clone());
             }
             result = help.join_next(), if !help.is_empty() => {
                 match result.context("help task disappeared")? {
-                    Ok(Ok((_, result))) if result.status == CommandStatus::Accepted
+                    Ok(Ok(result)) if result.status == CommandStatus::Accepted
                         && result.result == shim::CommandOutcome::Completed && result.channel == Channel::Rcon => {
                         display.help_result(result.output.as_deref());
                     }
@@ -249,21 +295,34 @@ pub(super) async fn flow(
                 }
             }
             command = commands.join_next(), if !commands.is_empty() => {
+                let _keyboard = reader.pause();
                 match command.context("console command disappeared")? {
-                    Ok(Ok((text, result))) => display.command(&text, &result)?,
-                    Ok(Err(error)) => display.notice("command", &format!("{error:#}"))?,
+                    Ok((id, Ok(result))) => {
+                        if result.status != CommandStatus::Accepted {
+                            submitted.remove(&id);
+                            display.notice("command", result.diagnostic.as_deref().unwrap_or("Java has exited"))?;
+                        }
+                    }
+                    Ok((id, Err(error))) => { submitted.remove(&id); display.notice("command", &format!("{error:#}"))?; }
                     Err(error) => return Err(error).context("console command task failed; Java was not stopped automatically"),
                 }
             }
             action = actions.join_next(), if !actions.is_empty() => {
+                let _keyboard = reader.pause();
                 match action.context("control action disappeared")? {
-                    Ok(Ok(Action::Command((text, result)))) => display.command(&text, &result)?,
-                    Ok(Ok(Action::Kill(result))) => display.notice("kill", &format!("{result:?}"))?,
-                    Ok(Err(error)) => display.notice("control", &format!("{error:#}"))?,
+                    Ok((id, Ok(Action::Command(result)))) => {
+                        if result.status != CommandStatus::Accepted { submitted.remove(&id); display.notice("command", "Java has exited")?; }
+                    }
+                    Ok((id, Ok(Action::Kill(result)))) => {
+                        if result == KillResult::AlreadyExited { submitted.remove(&id); display.notice("kill", "Java has exited")?; }
+                    }
+                    Ok((id, Err(error))) => { submitted.remove(&id); display.notice("control", &format!("{error:#}"))?; }
                     Err(error) => return Err(error).context("attach control task failed; Java was not stopped automatically"),
                 }
             }
-            event = events.recv() => match event {
+            event = events.recv() => {
+                let _keyboard = reader.pause();
+                match event {
                 Some(Update::History(lines)) => {
                     if !lines.is_empty() { display.history_divider()?; }
                     for (source, bytes) in lines { display.logs(source, &bytes)?; }
@@ -275,8 +334,20 @@ pub(super) async fn flow(
                     finished[usize::from(source == Source::Stderr)] = batch.finished;
                 }
                 Some(Update::Status(snapshot)) => { display.state = snapshot.state; display.channel = snapshot.actual_channel; display.server_status = snapshot.server_status; exit_code = snapshot.exit_code; }
+                Some(Update::Command(CommandEvent::Completed { listener_id: origin, command_id, text, result })) => {
+                    let other = origin != listener_id;
+                    if !other { submitted.remove(&command_id); }
+                    display.command(&text, &result, other, &origin)?;
+                }
+                Some(Update::Command(CommandEvent::Gap { missed })) => {
+                    submitted.clear();
+                    display.notice("commands", &format!("{missed} command results omitted; Listener fell behind"))?;
+                }
+                Some(Update::Command(CommandEvent::Done)) => { commands_finished = true; submitted.clear(); }
+                Some(Update::Command(CommandEvent::Ready)) => return Err(anyhow::anyhow!("unexpected repeated result Channel handshake")),
                 Some(Update::Failed(error)) => return Err(error).context("attach lost the shim; Java was not stopped automatically"),
-                None => { ensure!(finished.iter().all(|finished| *finished) && exit_code.is_some(), "attach readers ended without an authoritative Java exit"); return Ok(Exit::Exited(exit_code.unwrap())); }
+                None => { ensure!(finished.iter().all(|finished| *finished) && exit_code.is_some() && commands_finished, "attach readers ended without authoritative completion"); return Ok(Exit::Exited(exit_code.unwrap())); }
+                }
             },
             input = reader.events.recv(), if !detaching => {
                 let mut line = None;
@@ -291,7 +362,7 @@ pub(super) async fn flow(
                         } else if key.modifiers.contains(KeyModifiers::CONTROL) {
                             match key.code {
                                 KeyCode::Char('d') => detaching = true,
-                                KeyCode::Char('c') => spawn_interrupt(&mut actions, executor.clone(), reference.clone(), token.clone(), requester.clone()),
+                                KeyCode::Char('c') => spawn_interrupt(&mut actions, &mut submitted, executor.clone(), reference.clone(), listener_id.clone()),
                                 _ => {},
                             }
                         } else {
@@ -320,10 +391,12 @@ pub(super) async fn flow(
                         ensure!(actions.len() < 32, "too many pending control actions; Java was not stopped automatically");
                         let executor = executor.clone();
                         let reference = reference.clone();
-                        let token = token.clone();
-                        let requester = requester.clone();
+                        let listener_id = listener_id.clone();
+                        let id = uuid::Uuid::new_v4().to_string();
+                        submitted.insert(id.clone());
                         actions.spawn(async move {
-                            controlled_kill(&executor, &reference, &token, &requester).await.map(Action::Kill)
+                            let result = send_kill(&executor, &reference, &listener_id, id.clone()).await.map(Action::Kill);
+                            (id, result)
                         });
                     } else if !text.is_empty() {
                         if matches!(builtin, Some(builtin::Builtin::Stop)) {
@@ -447,114 +520,81 @@ async fn follow_status(
         }
     }
 }
-async fn refresh_token(
+async fn send_command(
     executor: &Executor,
     reference: &ShimRef,
-    token: &Token,
-    requester: &str,
-    failed: Option<&str>,
-) -> Result<String> {
-    let mut current = token.lock().await;
-    if let Some(value) = current.as_ref()
-        && failed != Some(value.as_str())
-    {
-        return Ok(value.clone());
-    }
-    match executor
-        .call::<Acquire>(AcquireInput {
-            reference: reference.clone(),
-            requester: requester.into(),
-        })
-        .await?
-    {
-        AcquireResult::Acquired { token } => {
-            *current = Some(token.clone());
-            Ok(token)
-        }
-        AcquireResult::Busy { current_holder } => {
-            bail!("control is busy ({current_holder}); no command was sent")
-        }
-    }
-}
-async fn controlled_command(
-    executor: &Executor,
-    reference: &ShimRef,
-    token: &Token,
-    requester: &str,
+    listener_id: &str,
+    command_id: String,
     text: String,
-) -> Result<(String, CommandResult)> {
-    let mut value = refresh_token(executor, reference, token, requester, None).await?;
-    let id = uuid::Uuid::new_v4().to_string();
-    for _ in 0..2 {
-        let result = executor
-            .call::<shim::Command>(CommandInput {
-                reference: reference.clone(),
-                control_token: value.clone(),
-                command_id: id.clone(),
-                text: text.clone(),
-            })
-            .await
-            .context("command outcome unknown on communication failure; do not replay")?;
-        if result.status != CommandStatus::InvalidToken {
-            return Ok((text, result));
-        }
-        value = refresh_token(executor, reference, token, requester, Some(&value)).await?;
-    }
-    bail!("control token changed; no command was accepted")
+    visibility: CommandVisibility,
+) -> Result<CommandResult> {
+    executor
+        .call::<shim::Command>(CommandInput {
+            reference: reference.clone(),
+            listener_id: listener_id.into(),
+            command_id,
+            text,
+            visibility,
+        })
+        .await
+        .context("command outcome unknown on communication failure; do not replay")
 }
-async fn controlled_kill(
+
+async fn send_kill(
     executor: &Executor,
     reference: &ShimRef,
-    token: &Token,
-    requester: &str,
+    listener_id: &str,
+    command_id: String,
 ) -> Result<KillResult> {
-    let mut value = refresh_token(executor, reference, token, requester, None).await?;
-    let mut result = executor
+    executor
         .call::<Kill>(ControlInput {
             reference: reference.clone(),
-            control_token: value.clone(),
+            listener_id: listener_id.into(),
+            command_id,
         })
-        .await?;
-    if result == KillResult::InvalidToken {
-        value = refresh_token(executor, reference, token, requester, Some(&value)).await?;
-        result = executor
-            .call::<Kill>(ControlInput {
-                reference: reference.clone(),
-                control_token: value,
-            })
-            .await?;
-    }
-    Ok(result)
+        .await
 }
+
 fn spawn_interrupt(
-    actions: &mut JoinSet<Result<Action>>,
+    actions: &mut JoinSet<(String, Result<Action>)>,
+    submitted: &mut HashSet<String>,
     executor: Executor,
     reference: ShimRef,
-    token: Token,
-    requester: String,
+    listener_id: String,
 ) {
     if actions.len() >= 2 {
         return;
     }
+    let id = uuid::Uuid::new_v4().to_string();
+    submitted.insert(id.clone());
     actions.spawn(async move {
-        let info = executor
-            .call::<Inspect>(InspectInput {
-                server: Some(reference.server.clone()),
-                run_id: Some(reference.run_id.clone()),
-            })
-            .await?;
-        match info.state {
-            State::Running => {
-                controlled_command(&executor, &reference, &token, &requester, "stop".into())
-                    .await
-                    .map(Action::Command)
+        let result = async {
+            let info = executor
+                .call::<Inspect>(InspectInput {
+                    server: Some(reference.server.clone()),
+                    run_id: Some(reference.run_id.clone()),
+                })
+                .await?;
+            match info.state {
+                State::Running => send_command(
+                    &executor,
+                    &reference,
+                    &listener_id,
+                    id.clone(),
+                    "stop".into(),
+                    CommandVisibility::User,
+                )
+                .await
+                .map(Action::Command),
+                State::Stopping | State::Killing => {
+                    send_kill(&executor, &reference, &listener_id, id.clone())
+                        .await
+                        .map(Action::Kill)
+                }
+                State::Exited => Ok(Action::Kill(KillResult::AlreadyExited)),
             }
-            State::Stopping | State::Killing => {
-                controlled_kill(&executor, &reference, &token, &requester)
-                    .await
-                    .map(Action::Kill)
-            }
-            State::Exited => Ok(Action::Kill(KillResult::AlreadyExited)),
         }
+        .await;
+        (id, result)
     });
 }

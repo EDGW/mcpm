@@ -21,8 +21,7 @@ pub fn registry() -> Result<Registry> {
     registry.register::<server::shim::SubscribeStatus>()?;
     registry.register::<server::shim::Command>()?;
     registry.register::<server::shim::SubscribeLogs>()?;
-    registry.register::<server::shim::Acquire>()?;
-    registry.register::<server::shim::Release>()?;
+    registry.register::<server::shim::SubscribeCommands>()?;
     registry.register::<server::shim::Kill>()?;
     registry.register::<server::init::RecognizeServer>()?;
     registry.register::<server::init::Init>()?;

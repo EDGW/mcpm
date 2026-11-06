@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use mcpm_backend::operations::server::shim::{
-    CursorRange, LogBatch, LogChunk, LogsInput, ShimRef, Source, SubscribeLogs,
+    CursorRange, LogBatch, LogChunk, LogsInput, MAX_LOG_BLOCK_BYTES, ShimRef, Source, SubscribeLogs,
 };
 use mcpm_exec::{operation::StreamingOutput, service::Executor};
 use std::collections::VecDeque;
@@ -31,7 +31,7 @@ pub(super) async fn open(
             source,
             cursor: start,
             tail: None,
-            max_bytes: 65536,
+            max_bytes: MAX_LOG_BLOCK_BYTES,
             max_items: 32,
         })
         .await?;

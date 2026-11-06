@@ -9,21 +9,15 @@ use std::{
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore, watch};
 
-const TOKEN_LIFETIME: Duration = Duration::from_secs(30);
-struct Control {
-    token: String,
-    holder: String,
-    expires: Instant,
-}
 struct Data {
     state: State,
     exit_code: Option<u32>,
     channel: Channel,
     rcon_connected: bool,
-    control: Option<Control>,
     stdout: logs::Buffer,
     stderr: logs::Buffer,
     io_error: Option<String>,
+    events: events::Events,
     output: [Option<watch::Sender<()>>; 2],
 }
 struct Commands {
@@ -47,20 +41,16 @@ struct Runtime {
     reference: ShimRef,
     communication: Communication,
     launch_request_id: String,
-    initial_token: String,
     data: Mutex<Data>,
     commands: AsyncMutex<Commands>,
     output: [watch::Receiver<()>; 2],
     status: watch::Sender<()>,
+    command_updates: watch::Sender<()>,
     kill: Notify,
 }
 
 pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
-    let Bootstrap {
-        input,
-        record,
-        token,
-    } = bootstrap;
+    let Bootstrap { input, record } = bootstrap;
     let directory = run_directory(&input.server)?;
     // This shim owns one server. Relative paths stay valid if its folder is renamed.
     std::env::set_current_dir(&directory).context("failed to enter shim run directory")?;
@@ -77,6 +67,13 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         }
     })?;
     remove_obsolete_command_databases(&directory)?;
+    let previous = read_optional::<Receipt>(&directory.join("finished.json"))?;
+    logs::remove_obsolete(
+        &directory,
+        previous
+            .as_ref()
+            .map(|receipt| receipt.snapshot.reference.run_id.as_str()),
+    )?;
     let _hint = RunHint::create(&record)?;
     let plan = input.plan.decode()?;
     let (settings, configuration_error) = match input.communication {
@@ -104,6 +101,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     let (stdout_updates, stdout_channel) = watch::channel(());
     let (stderr_updates, stderr_channel) = watch::channel(());
     let (status, _) = watch::channel(());
+    let (command_updates, _) = watch::channel(());
     let runtime = Arc::new(Runtime {
         reference: ShimRef {
             server: PathBuf::new(),
@@ -111,21 +109,16 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         },
         communication: input.communication,
         launch_request_id: record.launch_request_id.clone(),
-        initial_token: token.clone(),
         data: Mutex::new(Data {
             state: State::Running,
             exit_code: None,
             channel: Channel::Stdin,
             rcon_connected: false,
-            control: Some(Control {
-                token,
-                holder: "launch".into(),
-                expires: Instant::now() + TOKEN_LIFETIME,
-            }),
             stdout: logs::Buffer::default(),
             stderr: logs::Buffer::default(),
             io_error: None,
             output: [Some(stdout_updates), Some(stderr_updates)],
+            events: events::Events::default(),
         }),
         commands: AsyncMutex::new(Commands {
             stdin: Some(stdin),
@@ -139,6 +132,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         }),
         output: [stdout_channel, stderr_channel],
         status,
+        command_updates,
         kill: Notify::new(),
     });
     drain(stdout, Source::Stdout, runtime.clone());
@@ -164,7 +158,6 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                     let mut data = runtime.data.lock().unwrap();
                     data.state = State::Exited;
                     data.exit_code = Some(exit.shell_code());
-                    data.control = None;
                     data.rcon_connected = false;
                     exited_at = Some(Instant::now());
                     runtime.status.send_replace(());
@@ -191,6 +184,13 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                             }
                             return;
                         }
+                        Ok(Ok(Request::Commands(input))) => {
+                            if let Err(error) = runtime.subscribe_commands(input, &mut reader, &mut writer).await {
+                                let reply: std::result::Result<CommandEvent, ErrorReport> = Err(ErrorReport::capture(&error));
+                                let _ = write_frame(&mut writer, &reply).await;
+                            }
+                            return;
+                        }
                         Ok(Ok(Request::Status(input))) => {
                             if let Err(error) = runtime.subscribe_status(input, &mut reader, &mut writer).await {
                                 let reply: std::result::Result<Snapshot, ErrorReport> = Err(ErrorReport::capture(&error));
@@ -207,15 +207,23 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
             }
         }
     }
+    // Finish an in-flight exchange before closing the shared result Channel.
+    {
+        let _lane = runtime.commands.lock().await;
+        runtime.data.lock().unwrap().events.closed = true;
+        runtime.command_updates.send_replace(());
+    }
     {
         let mut data = runtime.data.lock().unwrap();
         data.stdout.closed = true;
         data.stderr.closed = true;
         data.output = [None, None];
+        data.stdout
+            .persist(&directory, &record.reference.run_id, Source::Stdout)?;
+        data.stderr
+            .persist(&directory, &record.reference.run_id, Source::Stderr)?;
         let receipt = Receipt {
             snapshot: runtime.snapshot_from(&data).into(),
-            stdout: &data.stdout,
-            stderr: &data.stderr,
         };
         publish(&directory.join("finished.json"), &receipt)?;
     }
@@ -264,7 +272,7 @@ fn remove_obsolete_command_databases(directory: &Path) -> Result<()> {
 
 fn drain(mut source: impl Read + Send + 'static, kind: Source, runtime: Arc<Runtime>) {
     std::thread::spawn(move || {
-        let mut bytes = [0; 8192];
+        let mut bytes = vec![0; MAX_LOG_BLOCK_BYTES];
         loop {
             match source.read(&mut bytes) {
                 Ok(0) => break,
@@ -381,10 +389,64 @@ impl Runtime {
             }
         }
     }
+    async fn subscribe_commands<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+        &self,
+        input: CommandsInput,
+        reader: &mut R,
+        writer: &mut W,
+    ) -> Result<()> {
+        ensure!(
+            input.reference.run_id == self.reference.run_id,
+            "command results belong to a different run"
+        );
+        let mut updates = self.command_updates.subscribe();
+        let mut cursor = self.data.lock().unwrap().events.next;
+        let ready: std::result::Result<CommandEvent, ErrorReport> = Ok(CommandEvent::Ready);
+        write_frame(writer, &ready).await?;
+        loop {
+            updates.borrow_and_update();
+            let event = self.data.lock().unwrap().events.read(&mut cursor);
+            if let Some(event) = event {
+                let done = matches!(&*event, CommandEvent::Done);
+                let reply: std::result::Result<&CommandEvent, ErrorReport> = Ok(&event);
+                tokio::select! {
+                    _ = reader.read_u8() => return Ok(()),
+                    sent = write_frame(writer, &reply) => sent?,
+                }
+                if done {
+                    return Ok(());
+                }
+            } else {
+                tokio::select! {
+                    _ = reader.read_u8() => return Ok(()),
+                    changed = updates.changed() => { changed?; },
+                }
+            }
+        }
+    }
+
+    fn command_event(
+        &self,
+        listener_id: String,
+        command_id: String,
+        text: String,
+        result: CommandResult,
+    ) {
+        self.data
+            .lock()
+            .unwrap()
+            .events
+            .push(CommandEvent::Completed {
+                listener_id,
+                command_id,
+                text,
+                result,
+            });
+        self.command_updates.send_replace(());
+    }
     fn launched(&self) -> Launched {
         Launched {
             reference: self.reference.clone(),
-            control_token: self.initial_token.clone(),
             initial_cursor: 0,
             state: self.data.lock().unwrap().state,
         }
@@ -401,24 +463,8 @@ impl Runtime {
             } else {
                 ServerStatus::Unknown
             },
-            control_holder: data
-                .control
-                .as_ref()
-                .filter(|control| control.expires > Instant::now())
-                .map(|control| control.holder.clone()),
             stdout: data.stdout.range(),
             stderr: data.stderr.range(),
-        }
-    }
-    fn authorize(data: &mut Data, token: &str) -> bool {
-        if let Some(control) = &mut data.control
-            && control.expires > Instant::now()
-            && control.token == token
-        {
-            control.expires = Instant::now() + TOKEN_LIFETIME;
-            true
-        } else {
-            false
         }
     }
     fn connected(&self, connected: bool) {
@@ -477,53 +523,35 @@ impl Runtime {
             Request::Inspect(_) => Ok(serde_json::to_value(
                 self.snapshot_from(&self.data.lock().unwrap()),
             )?),
-            Request::Acquire(input) => {
+            Request::Kill(input) => {
                 ensure!(
-                    !input.requester.is_empty() && input.requester.len() <= 128,
-                    "invalid control requester"
+                    uuid::Uuid::parse_str(&input.listener_id).is_ok(),
+                    "invalid Listener identity"
+                );
+                ensure!(
+                    !input.command_id.is_empty() && input.command_id.len() <= 128,
+                    "invalid command id"
                 );
                 let mut data = self.data.lock().unwrap();
-                ensure!(data.state != State::Exited, "Java has exited");
-                let result = if let Some(control) = &data.control
-                    && control.expires > Instant::now()
-                {
-                    AcquireResult::Busy {
-                        current_holder: control.holder.clone(),
-                    }
-                } else {
-                    let token = uuid::Uuid::new_v4().to_string();
-                    data.control = Some(Control {
-                        token: token.clone(),
-                        holder: input.requester,
-                        expires: Instant::now() + TOKEN_LIFETIME,
-                    });
-                    self.status.send_replace(());
-                    AcquireResult::Acquired { token }
-                };
-                Ok(serde_json::to_value(result)?)
-            }
-            Request::Release(input) => {
-                let mut data = self.data.lock().unwrap();
-                let result = if data.control.is_none() {
-                    ReleaseResult::AlreadyReleased
-                } else if Self::authorize(&mut data, &input.control_token) {
-                    data.control = None;
-                    self.status.send_replace(());
-                    ReleaseResult::Released
-                } else {
-                    ReleaseResult::InvalidToken
-                };
-                Ok(serde_json::to_value(result)?)
-            }
-            Request::Kill(input) => {
-                let mut data = self.data.lock().unwrap();
+                let channel = data.channel;
                 let result = if data.state == State::Exited {
                     KillResult::AlreadyExited
-                } else if !Self::authorize(&mut data, &input.control_token) {
-                    KillResult::InvalidToken
                 } else {
                     if data.state != State::Killing {
                         data.state = State::Killing;
+                        data.events.push(CommandEvent::Completed {
+                            listener_id: input.listener_id,
+                            command_id: input.command_id,
+                            text: "@kill".into(),
+                            result: CommandResult {
+                                status: CommandStatus::Accepted,
+                                channel,
+                                output: None,
+                                result: CommandOutcome::Sent,
+                                diagnostic: None,
+                            },
+                        });
+                        self.command_updates.send_replace(());
                         self.status.send_replace(());
                     }
                     self.kill.notify_one();
@@ -533,6 +561,7 @@ impl Runtime {
             }
             Request::Logs(_) => bail!("log subscription requires a dedicated channel"),
             Request::Status(_) => bail!("state subscription requires a dedicated channel"),
+            Request::Commands(_) => bail!("command results require a dedicated channel"),
             Request::Command(input) => Ok(serde_json::to_value(self.command(input).await?)?),
         }
     }
@@ -545,44 +574,28 @@ impl Runtime {
             input.text.len() <= 16 * 1024 && !input.text.contains(['\0', '\n', '\r']),
             "command must be one line of at most 16 KiB"
         );
-        {
-            let mut data = self.data.lock().unwrap();
-            let status = if data.state == State::Exited {
-                CommandStatus::Exited
-            } else if !Self::authorize(&mut data, &input.control_token) {
-                CommandStatus::InvalidToken
-            } else {
-                CommandStatus::Accepted
-            };
-            if status != CommandStatus::Accepted {
-                return Ok(CommandResult {
-                    status,
-                    channel: data.channel,
-                    output: None,
-                    result: CommandOutcome::Unknown,
-                    diagnostic: None,
-                });
-            }
-        }
+        ensure!(
+            uuid::Uuid::parse_str(&input.listener_id).is_ok(),
+            "invalid Listener identity"
+        );
         let mut lane = self.commands.lock().await;
-        let digest = blake3::hash(input.text.as_bytes()).to_hex().to_string();
-        // Recheck control after queueing; a stale queued caller must not execute after takeover.
         {
-            let mut data = self.data.lock().unwrap();
-            if data.state == State::Exited || !Self::authorize(&mut data, &input.control_token) {
+            let data = self.data.lock().unwrap();
+            if data.state == State::Exited {
                 return Ok(CommandResult {
-                    status: if data.state == State::Exited {
-                        CommandStatus::Exited
-                    } else {
-                        CommandStatus::InvalidToken
-                    },
+                    status: CommandStatus::Exited,
                     channel: data.channel,
                     output: None,
                     result: CommandOutcome::Unknown,
-                    diagnostic: None,
+                    diagnostic: Some("Java has exited".into()),
                 });
             }
         }
+        let mut hash = blake3::Hasher::new();
+        hash.update(&[u8::from(input.visibility == CommandVisibility::Internal)]);
+        hash.update(input.text.as_bytes());
+        let digest = hash.finalize().to_hex().to_string();
+        let identity = format!("{}:{}", input.listener_id, input.command_id);
         let mut result = CommandResult {
             status: CommandStatus::Accepted,
             channel: Channel::Stdin,
@@ -590,7 +603,7 @@ impl Runtime {
             result: CommandOutcome::Unknown,
             diagnostic: lane.configuration_error.clone(),
         };
-        let ticket = match lane.history().prepare(input.command_id, digest, &result)? {
+        let ticket = match lane.history().prepare(identity, digest, &result)? {
             history::Prepared::Existing(previous) => return Ok(previous),
             history::Prepared::Pending(ticket) => ticket,
         };
@@ -657,7 +670,7 @@ impl Runtime {
                     }
                 }
                 let stdin = lane.stdin.take();
-                let text = input.text;
+                let text = input.text.clone();
                 let (stdin, sent) = tokio::task::spawn_blocking(move || {
                     let Some(mut stdin) = stdin else {
                         return (None, Err(anyhow::anyhow!("Java stdin is closed")));
@@ -682,10 +695,23 @@ impl Runtime {
                 }
             }
         }
-        lane.history
+        if let Err(error) = lane
+            .history
             .as_mut()
             .expect("active command history")
-            .complete(ticket, &result)?;
+            .complete(ticket, &result)
+        {
+            let diagnostic = result.diagnostic.get_or_insert_with(String::new);
+            diagnostic.push_str(&format!("; failed to retain command outcome: {error:#}"));
+        }
+        if input.visibility == CommandVisibility::User {
+            self.command_event(
+                input.listener_id,
+                input.command_id,
+                input.text,
+                result.clone(),
+            );
+        }
         Ok(result)
     }
 }

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = format!("Modes: Inline TUI (terminal default), Console (--no-ui), Raw (--raw or redirected stdout). Logs scroll above the inline command area; {}+Up/Down adjusts its height. Minecraft timestamps are gray, level blocks are colored, and bodies through WARN are gray. RCON responses use a Primary-colored frame with the command name. Java runs in an independent Local/SSH/Remote shim. @detach or EOF/Ctrl+D detaches without stopping Java; @stop sends stop without escalation; @kill force-kills Java. Prefix a builtin with another @ to send it literally. Ctrl+C sends stop; another while stopping kills. No automatic kill timeout. On RCON Connected, attach requests help once and keeps it only in frontend-session memory. Inline hints appear for nonblank input, wrap long syntax and show five candidates. Up/Down browses all matches, Tab fills, and Enter always sends the current input. Builtin hints work even when help fails.", crate::display::server::attach::modifier_name())
+    after_help = format!("Modes: Inline TUI (terminal default), Console (--no-ui), Raw (--raw or redirected stdout). Logs scroll above the inline command area; {}+Up/Down adjusts its height. Minecraft timestamps are gray, level blocks are colored, and bodies through WARN are gray. All Listeners can send commands and receive live results: own replies use Primary frames, others use green frames labeled Executed by another Listener. Java runs in an independent Local/SSH/Remote shim. @detach or EOF/Ctrl+D detaches without stopping Java; @stop sends stop without escalation; @kill force-kills Java. Prefix a builtin with another @ to send it literally. Ctrl+C sends stop; another while stopping kills. No automatic kill timeout. On RCON Connected, attach privately requests help once and keeps it only in frontend-session memory. Inline hints appear for nonblank input, wrap long syntax and show five candidates. Up/Down browses all matches, Tab fills, and Enter always sends the current input. Builtin hints work even when help fails.", crate::display::server::attach::modifier_name())
 )]
 pub(super) struct LaunchArgs {
     /// Registered server directory on the selected Host.
@@ -166,6 +166,6 @@ pub(super) fn run(args: LaunchArgs, ssh: SshArgs) -> Result<CommandOutcome> {
             println!("{}", launched.reference.run_id);
             return Ok(CommandOutcome::Completed);
         }
-        super::attach::flow(executor, launched.reference, Some(launched.control_token), Some(launched.initial_cursor), None, args.no_ui, args.input_height).await
+        super::attach::flow(executor, launched.reference, Some(launched.initial_cursor), None, args.no_ui, args.input_height).await
     })
 }

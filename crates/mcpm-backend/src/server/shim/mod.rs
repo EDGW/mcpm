@@ -14,6 +14,7 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+mod events;
 mod history;
 mod logs;
 mod runtime;
@@ -24,8 +25,7 @@ pub(crate) enum Request {
     Command(CommandInput),
     Logs(LogsInput),
     Status(StatusInput),
-    Acquire(AcquireInput),
-    Release(ControlInput),
+    Commands(CommandsInput),
     Kill(ControlInput),
     LaunchResult { run_id: String, request_id: String },
 }
@@ -41,8 +41,8 @@ impl Request {
             Self::Command(input) => &input.reference,
             Self::Logs(input) => &input.reference,
             Self::Status(input) => &input.reference,
-            Self::Acquire(input) => &input.reference,
-            Self::Release(input) | Self::Kill(input) => &input.reference,
+            Self::Commands(input) => &input.reference,
+            Self::Kill(input) => &input.reference,
             Self::LaunchResult { .. } => return None,
         };
         Some((&reference.server, Some(&reference.run_id)))
@@ -53,8 +53,8 @@ impl Request {
             Self::Command(input) => input.reference.server = server,
             Self::Logs(input) => input.reference.server = server,
             Self::Status(input) => input.reference.server = server,
-            Self::Acquire(input) => input.reference.server = server,
-            Self::Release(input) | Self::Kill(input) => input.reference.server = server,
+            Self::Commands(input) => input.reference.server = server,
+            Self::Kill(input) => input.reference.server = server,
             Self::LaunchResult { .. } => {}
         }
     }
@@ -64,8 +64,8 @@ impl Request {
             Self::Command(input) => Some(&input.reference.run_id),
             Self::Logs(input) => Some(&input.reference.run_id),
             Self::Status(input) => Some(&input.reference.run_id),
-            Self::Acquire(input) => Some(&input.reference.run_id),
-            Self::Release(input) | Self::Kill(input) => Some(&input.reference.run_id),
+            Self::Commands(input) => Some(&input.reference.run_id),
+            Self::Kill(input) => Some(&input.reference.run_id),
             Self::LaunchResult { run_id, .. } => Some(run_id),
         }
     }
@@ -87,13 +87,10 @@ struct Record {
 struct Bootstrap {
     input: LaunchInput,
     record: Record,
-    token: String,
 }
 #[derive(Serialize, Deserialize)]
-struct Receipt<B = logs::Buffer> {
+struct Receipt {
     snapshot: RunSnapshot,
-    stdout: B,
-    stderr: B,
 }
 
 /// Durable exit data deliberately has no server path; the containing folder is its location.
@@ -104,7 +101,6 @@ struct RunSnapshot {
     exit_code: Option<u32>,
     communication: Communication,
     actual_channel: Channel,
-    control_holder: Option<String>,
     stdout: CursorRange,
     stderr: CursorRange,
 }
@@ -118,7 +114,6 @@ impl From<Snapshot> for RunSnapshot {
             exit_code: value.exit_code,
             communication: value.communication,
             actual_channel: value.actual_channel,
-            control_holder: value.control_holder,
             stdout: value.stdout,
             stderr: value.stderr,
         }
@@ -136,7 +131,6 @@ impl From<RunSnapshot> for Snapshot {
             communication: value.communication,
             actual_channel: value.actual_channel,
             server_status: ServerStatus::Unknown,
-            control_holder: value.control_holder,
             stdout: value.stdout,
             stderr: value.stderr,
         }
@@ -230,11 +224,7 @@ pub(crate) async fn launch(mut input: LaunchInput) -> Result<Launched> {
         key,
         launch_request_id: input.launch_request_id.clone(),
     };
-    let bootstrap = Bootstrap {
-        input,
-        record,
-        token: uuid::Uuid::new_v4().to_string(),
-    };
+    let bootstrap = Bootstrap { input, record };
     let executable = daemon_executable()?;
     let diagnostic = private_file(&directory.join("shim.log"))?;
     let mut command = tokio::process::Command::new(&executable);
@@ -403,7 +393,7 @@ pub(crate) async fn subscribe_logs(
             let Request::Logs(input) = request_input else {
                 unreachable!()
             };
-            return retained_logs(receipt, input, sender).await;
+            return retained_logs(receipt, &server.join(".mcpm/run"), input, sender).await;
         }
         ensure!(
             instance_locked(&server.join(".mcpm/run"))?,
@@ -426,7 +416,7 @@ pub(crate) async fn subscribe_logs(
                 let Request::Logs(input) = request_input else {
                     unreachable!()
                 };
-                return retained_logs(receipt, input, sender).await;
+                return retained_logs(receipt, &server.join(".mcpm/run"), input, sender).await;
             }
             return Err(error).context("shim log channel unreachable; Java may still be running");
         }
@@ -495,6 +485,40 @@ pub(crate) async fn subscribe_status(
     }
 }
 
+/// Forwards a live-only subscription; Ready is sent only after the shim registered its cursor.
+pub(crate) async fn subscribe_commands(
+    input: CommandsInput,
+    sender: mcpm_exec::operation::StreamSender<CommandEvent>,
+) -> Result<()> {
+    let mut request_input = Request::Commands(input);
+    let (record, server) = locate(&mut request_input)?;
+    if terminal_status(&record, server.as_deref())?.is_some() {
+        sender.send(CommandEvent::Ready).await?;
+        sender.send(CommandEvent::Done).await?;
+        return Ok(());
+    }
+    if let Some(server) = &server {
+        ensure!(
+            instance_locked(&server.join(".mcpm/run"))?,
+            "command results require the original managed instance"
+        );
+    }
+    let (mut reader, mut writer) = Endpoint::for_key(&record.key)?.connect().await?;
+    write_frame(&mut writer, &request_input).await?;
+    loop {
+        let reply: std::result::Result<CommandEvent, ErrorReport> =
+            read_frame(&mut reader)
+                .await
+                .context("command result Channel disconnected before completion")?;
+        let event = reply.map_err(ErrorReport::into_error)?;
+        let done = matches!(event, CommandEvent::Done);
+        sender.send(event).await?;
+        if done {
+            return Ok(());
+        }
+    }
+}
+
 fn terminal_status(record: &Record, server: Option<&Path>) -> Result<Option<Snapshot>> {
     let Some(server) = server else {
         return Ok(None);
@@ -512,13 +536,20 @@ fn terminal_status(record: &Record, server: Option<&Path>) -> Result<Option<Snap
 
 async fn retained_logs(
     receipt: Receipt,
+    directory: &Path,
     mut input: LogsInput,
     sender: mcpm_exec::operation::StreamSender<LogBatch>,
 ) -> Result<()> {
-    let buffer = match input.source {
-        Source::Stdout => receipt.stdout,
-        Source::Stderr => receipt.stderr,
+    let range = match input.source {
+        Source::Stdout => &receipt.snapshot.stdout,
+        Source::Stderr => &receipt.snapshot.stderr,
     };
+    let buffer = logs::Buffer::restore(
+        directory,
+        &receipt.snapshot.reference.run_id,
+        input.source,
+        range,
+    )?;
     loop {
         let batch = buffer.read(&input)?;
         input.cursor = Some(batch.next_cursor);
@@ -534,7 +565,6 @@ impl Receipt {
         match request {
             Request::Inspect(_) => Ok(serde_json::to_value(Snapshot::from(self.snapshot))?),
             Request::Kill(_) => Ok(serde_json::to_value(KillResult::AlreadyExited)?),
-            Request::Release(_) => Ok(serde_json::to_value(ReleaseResult::AlreadyReleased)?),
             Request::Command(_) => Ok(serde_json::to_value(CommandResult {
                 status: CommandStatus::Exited,
                 channel: self.snapshot.actual_channel,
