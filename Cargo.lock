@@ -1468,7 +1468,7 @@ dependencies = [
 
 [[package]]
 name = "mcpm"
-version = "0.1.0-dev.26w43d"
+version = "0.1.0-dev.26w45a"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1525,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "mcpm-exec"
-version = "0.1.0-dev.26w43d"
+version = "0.1.0-dev.26w45a"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1580,7 +1580,7 @@ dependencies = [
 
 [[package]]
 name = "mcpmd"
-version = "0.1.0-dev.26w43d"
+version = "0.1.0-dev.26w45a"
 dependencies = [
  "anyhow",
  "blake3",

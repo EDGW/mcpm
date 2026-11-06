@@ -10,7 +10,7 @@ UTF-8 text, one `key=value` record per line:
 
 ```text
 format=1
-version=v0.1.0-dev.26w43d
+version=v0.1.0-dev.26w45a
 asset=mcpm-macos-arm64
 file=mcpm
 file=mcpm-client
@@ -43,7 +43,7 @@ shellcheck scripts/install.sh
 python3 scripts/tests/test_install.py
 python3 scripts/package.py --binary-dir target/debug \
   --target aarch64-apple-darwin --asset mcpm-macos-arm64 \
-  --tag v0.1.0-dev.26w43d
+  --tag v0.1.0-dev.26w45a
 ```
 
 Adjust target and asset to the host. Packaging runs the executables, so the build must be runnable on that host.
