@@ -33,21 +33,61 @@ mcpm launch --server ./server --communication rcon
 - Logs are Java stdout, not RCON. Stdout and stderr each use one continuous Channel, without polling; source EOF closes that Channel independently of Java exit. Stderr and RCON replies are separately labeled. Raw preserves stdout bytes; other sources and diagnostics go to stderr. Bounded retention reports gaps.
 - Source read blocks and log-batch payloads are capped at 1 MiB and pushed as data arrives, without waiting to fill the block. Blocks are raw bytes, not logical lines. Each stdout/stderr tail retains at most 1 MiB; gaps explicitly report lost bytes. After Java exits, retained tails are stored as raw binary, with only status/cursor metadata in JSON, not byte arrays. Command deduplication records remain separate.
 - The default is a bottom Inline TUI, without an alternate screen. `--input-height` sets its initial height (default 4, minimum 3). Use Option+Up/Down on macOS, Alt+Up/Down elsewhere. Grow/shrink restores the visible output position without duplicating scrollback. Card titles and input contents have one space of horizontal padding. Left/Right/Home/End edit; Enter sends.
-- Builtins occupy a complete line: `@detach` (or EOF/Ctrl+D) leaves without stopping Java; `@stop` sends ordinary stop and never escalates; `@kill` force-kills Java independently of the normal command queue. `@@detach`, `@@stop`, and `@@kill` send the corresponding literal command to the server. Already-submitted commands report their outcome before the client leaves.
+- Builtins occupy a complete line: `@detach` (or EOF/Ctrl+D) leaves without stopping Java; `@stop` sends ordinary stop and never escalates; `@kill` force-kills Java independently of the normal command queue; `@speed` toggles local traffic presentation. `@@detach`, `@@stop`, `@@kill`, and `@@speed` send the corresponding literal command to the server. Already-submitted commands report their outcome before the client leaves.
 - Ctrl+C sends the ordinary `stop` command. Another Ctrl+C while the shim reports Stopping kills Java's process group/Job. There is no automatic kill timeout.
 - Multiple Listeners may attach and submit commands concurrently; the shim serializes normal commands without an exclusive control lease. A separate result Channel broadcasts user-command outcomes to all connected Listeners, including the sender, which displays each result only once. Own commands use a Primary frame; other Listeners' commands use a green frame labeled `Executed by another Listener · <id>`. Console uses the same frames; Raw omits frames/colors but preserves origin labels.
 - Result subscriptions are live-only: re-attaching does not replay earlier commands. Slow Listeners receive an explicit missed-result count without blocking Java. Stdin acknowledgements mean only sent; game output still arrives through shared Java logs. `@kill` bypasses normal commands and its request is also broadcast.
 - Status uses one persistent Channel: an initial snapshot, immediate updates on state/channel changes, and a current snapshot every second by default. Five seconds without a snapshot, or closure before a final exit state, is reported as a Channel failure, not as Java exit. A status failure does not stop Java.
 - The bottom bar separates Java lifecycle, server communication status, and the actual command channel. Explicit `--communication rcon` and `auto` with usable RCON configuration share discovery, connection reuse, and status classification. Successful authentication shows `Server RCON Connected`, not Minecraft readiness. `auto` with missing, disabled, or unreadable RCON configuration, and explicit `stdin`, show `Server Unknown`.
 - When using RCON (explicit `rcon` or configured `auto`), while Java is alive, stop has not been attempted, and authentication has never succeeded, the shim retries connection/authentication with a one-second pause after each attempt. Attempts never overlap and send no game commands. The first authenticated connection is retained and reused for commands. An observed disconnect changes status to Unknown without restarting initial discovery. A possibly sent stop or Java exit also means Unknown. Later user commands retain the normal channel-selection/fallback behavior; failed commands are never replayed.
-- Each attach issues one real `help` after first observing RCON Connected. Its result stays private in that frontend session's memory, without broadcasting or printing the automatic response card; detach discards it and re-attach fetches it again. User-entered `help` is broadcast normally. Failed execution or an unrecognized catalog shows `Failed to fetch help`, without automatic retry. Builtin hints for `@detach`, `@stop`, and `@kill` remain available regardless of help.
-- Inline hints appear only for nonempty, non-whitespace input and hide when the draft is cleared or sent. Gray top/side borders share Command Input's top border as their bottom; blank cells never expose logs. Only command names participate in prefix matching; arguments remain opaque syntax hints. At most five candidates are visible, long syntax wraps to multiple lines, Up/Down browses all matches, and the title counts candidates as selected index/total. Tab fills the selected name (first match if none selected), preserving typed arguments; Enter always sends the current draft without accepting a hint. Matched name text is bold Primary, its suffix regular Primary, game-command arguments use regular output color, and builtin descriptions are gray. Aliases such as `/wp -> waypoint` retain the arrow and append the target syntax when available; completion still inserts the alias. Console/Raw stay line-based without interactive hints.
+- Each attach issues one real `help` after first observing RCON Connected. Its result stays private in that frontend session's memory, without broadcasting or printing the automatic response card; detach discards it and re-attach fetches it again. User-entered `help` is broadcast normally. Failed execution or an unrecognized catalog shows `Failed to fetch help`, without automatic retry. Builtin hints for `@detach`, `@stop`, `@kill`, and `@speed` remain available regardless of help.
+- Inline hints appear only for nonempty, non-whitespace input and hide when the draft is cleared or sent. Gray top/side borders share Command Input's top border as their bottom; blank cells never expose logs. Only command names participate in prefix matching; arguments remain opaque syntax hints. At most five candidates are visible, long syntax wraps to multiple lines, Up/Down browses all matches when not recalling command history, and the title counts candidates as selected index/total. Tab fills the selected name (first match if none selected), preserving typed arguments; Enter always sends the current draft without accepting a hint. Matched name text is bold Primary, its suffix regular Primary, game-command arguments use regular output color, and builtin descriptions are gray. Aliases such as `/wp -> waypoint` retain the arrow and append the target syntax when available; completion still inserts the alias. Console/Raw stay line-based without interactive hints.
 - Hint ordering puts exact command-name matches first; other prefix matches retain their original help-list order.
 - Java exit drains output and ends the shim. A bounded terminal receipt preserves final output and exit status without an empty resident service. A failed connection does not prove Java exited; discovery PIDs are never used for killing.
 - Discovery and exit receipts in `.mcpm/run/` contain no absolute server path. Use the new path after moving the folder. A copied active folder does not carry the original OS lock and is refused as an active instance; renaming a live directory remains subject to OS restrictions.
 - Relative command deduplication records are removed after the run is reaped. Endpoint collisions reject launch/control rather than selecting another instance.
 - Inline TUI uses standard ratatui viewport/widgets and the shared theme. Terminal diagnostics selected by `--log-level` arrive through a bounded Channel and are inserted above the input; file logging remains independent. `--no-ui` selects Console.
 - Install the matching `mcpmd` next to mcpm or on the executing Host's PATH.
+
+### Traffic rates / `@speed`
+
+- Inline TUI adds a separate speed row below the status bar, refreshed by the existing 100 ms
+  redraw. It defaults to the 100 ms average, for example `10.4KB/s(↑0.4KB/s ↓10.0KB/s)`.
+- Enter `@speed` to toggle between compact and full presentation. Full mode has two lines
+  (wrapped as needed on narrow terminals), without reducing the configured input height:
+
+  ```text
+   100ms: P 12.4KB/s(↑0.4KB/s ↓12.0KB/s) · AVG 10.4KB/s(↑0.4KB/s ↓10.0KB/s)
+  1000ms: P 12.4KB/s(↑0.4KB/s ↓12.0KB/s) · AVG 10.4KB/s(↑0.4KB/s ↓10.0KB/s)
+  ```
+
+- `↑` is client send, `↓` client receive; the leading value is their sum. KB is 1000 bytes,
+  displayed to one decimal place. AVG divides bytes by the full window, including at startup.
+- P is each direction's lifetime window-average peak since Session creation. Its leading total
+  is the sum of those two independent peaks, which need not have occurred together. It is not
+  a peak limited to the last second. Idle averages expire; peaks remain until the Session ends.
+- The frontend reads only `Executor::traffic_stats()`, which forwards the client's Session
+  snapshot. It does not measure traffic itself or issue a statistics RPC. All Session channels,
+  including diagnostics and protocol fields, count; these are not game-only or SSH wire rates.
+- Local execution has no mcpm-exec Session and shows `Speed unavailable (no messaging Session)`;
+  private shim IPC is not substituted into this metric. Console/Raw has no persistent status
+  bar and prints the newly selected snapshot to stderr only when `@speed` is entered.
+- `@speed` is local and never submitted as a server command; use `@@speed` to send it literally.
+  The selected display mode resets to compact on re-attach.
+
+### Command recall and leading spaces
+
+- With empty Inline input, Up recalls the newest submitted command. Further Up/Down traverses
+  older/newer entries; Up stops at the oldest, and Down past the newest restores empty input.
+- Editing or Tab completion exits recall. Other nonempty input keeps Up/Down hint navigation.
+  Recalled text is an editable copy; editing it never modifies a saved entry. Enter submits it.
+- History contains only this attachment's nonempty submitted input, including local builtins and
+  literal `@@` escapes. It preserves spelling and spaces, stays in frontend memory, and is discarded
+  on detach. Server logs, automatic requests and other Listeners' commands never populate it.
+- Leading spaces are highlighted with a warning-colored background. The Command Input title warns
+  that Minecraft may not recognize the command; removing the prefix clears the warning. Spaces
+  inside arguments do not warn. This is presentation only: submitted commands are never trimmed.
+- These interactions are frontend-only Inline features; Console/Raw remains line-based.
 
 ### Attach history and prefix colors
 

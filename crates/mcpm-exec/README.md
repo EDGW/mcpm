@@ -4,6 +4,7 @@ The execution layer is independent of Minecraft operations and presentation.
 
 - `operation::Operation` defines typed inputs and outputs. `SHALLOW` operations always run on the calling host; other operations follow the selected target.
 - `service::Executor` owns one flow's session. Local calls invoke `Operation::run` directly, without serialization. Remote calls connect to a reusable `mcpmd link`.
+- `Executor::traffic_stats()` is a local query returning `Option<SessionTrafficStats>` for that flow's client-side Session. Local execution has no Session and returns `None`. It forwards `Session::traffic_stats()` without RPCs or frontend formatting; [messaging](src/docs/messaging.md) defines the independent 100 ms / 1 s send/receive windows and lifetime peaks in B/s.
 - `operation::{Connection, Target}` are transport-neutral data types, also re-exported by `service`, so business operations do not depend on service implementation.
 - `endpoint::Endpoint` selects a per-user Unix socket or Windows named pipe. Unix listeners hold an exclusive instance lock and validate peer UIDs. Windows listeners use a current-user-only ACL and reject remote clients.
 - `messaging::relay` forwards channel bodies in both directions, preserving order and propagating finish, abort, and carrier failure.

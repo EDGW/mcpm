@@ -53,6 +53,7 @@ impl Session {
     pub fn open(&self) -> Channel;
     pub async fn accept(&mut self) -> Result<Option<Channel>, std::sync::Arc<SessionError>>;
     pub async fn closed(&self) -> Result<(), std::sync::Arc<SessionError>>;
+    pub fn traffic_stats(&self) -> SessionTrafficStats;
 }
 ```
 
@@ -80,6 +81,34 @@ Session 运行至对端关闭写端、收到非法帧、载体出错，或所有
 - `Ok(None)`：对端干净地关闭了写端（载体上的 EOF）。
 - `Err(SessionError)`：Session 因协议错误或载体故障结束。错误中包含原因。已 `accept`
   的 Channel 仍可继续读取，直到读完。
+
+#### `Session::traffic_stats() -> SessionTrafficStats`
+
+查询所有 Channel 汇总后的本地统计快照，`sent` 与 `received` 分别表示发送和接收。
+每个方向包含四项速率，单位均为 **字节/秒（B/s）**：
+
+| 字段 | 含义 |
+| --- | --- |
+| `current_100ms` | 最近 100ms 的字节数 / 0.1 秒 |
+| `peak_100ms` | Session 创建以来的 100ms 平均速率最大值 |
+| `current_1s` | 最近 1s 的字节数 / 1 秒 |
+| `peak_1s` | Session 创建以来的 1s 平均速率最大值 |
+
+```rust
+let stats = session.traffic_stats();
+println!("发送：{} B/s；接收：{} B/s", stats.sent.current_1s, stats.received.current_1s);
+```
+
+- 统计编码后的帧字节数，包含 JSON 协议字段和实际换行；FINISH、ABORT 帧也计入。
+  这是协议层吞吐量，不是底层 TCP/SSH 流量。
+- 接收在帧解码成功后、路由前计入；因 Channel 状态丢弃的合法帧仍计入，非法帧不计入。
+- 发送在整批写入并 flush 成功后计入，不在 `Channel::send` 入队时计入。同批字节以完成时间
+  一次记录；失败批次及其中可能已写出的部分不计入。flush 成功不代表对端已收到。
+- 每个方向分别持有独立的 100ms、1s FIFO 队列。入队和查询时清除年龄大于窗口长度的样本，
+  恰好位于边界的样本仍计入。启动不足窗口长度也除以完整窗口长度。每次入队更新历史峰值，
+  不依赖查询频率；峰值不是“最近 1s 内的峰值”。
+- 查询不产生通信。空闲后当前速率归零，Session 关闭后仍可查询，历史峰值保留。不使用后台
+  定时器；内存随各窗口保留的样本数增长，过期样本在下一次入队或查询时清理。
 
 ### `Channel`
 

@@ -16,7 +16,8 @@ use tracing::debug;
 
 use super::frame::Frame;
 use super::router::Router;
-use super::{Carrier, Channel, SessionError};
+use super::stats::TrafficStats;
+use super::{Carrier, Channel, SessionError, SessionTrafficStats};
 
 /// Both ends of one carrier, multiplexing any number of channels.
 ///
@@ -27,6 +28,7 @@ pub struct Session {
     router: Arc<Router>,
     outbound: UnboundedSender<Frame>,
     incoming: UnboundedReceiver<Channel>,
+    traffic: Arc<TrafficStats>,
 }
 
 impl Session {
@@ -38,6 +40,7 @@ impl Session {
     pub fn new(carrier: impl Carrier) -> Self {
         let (reader, writer) = carrier.split();
         let router = Arc::new(Router::new());
+        let traffic = Arc::new(TrafficStats::new());
         debug!(session = ?Arc::as_ptr(&router), "session started");
         let (outbound, frames) = unbounded_channel();
         let (accepted, incoming) = unbounded_channel();
@@ -45,8 +48,9 @@ impl Session {
         let reader = tokio::spawn({
             let router = router.clone();
             let outbound = outbound.downgrade();
+            let traffic = traffic.clone();
             async move {
-                let result = read_frames(reader, &router, &outbound, &accepted).await;
+                let result = read_frames(reader, &router, &outbound, &accepted, &traffic).await;
                 debug!(
                     error = result.as_ref().err().map(tracing::field::display),
                     "session reader ended"
@@ -59,12 +63,14 @@ impl Session {
             frames,
             router.clone(),
             reader.abort_handle(),
+            traffic.clone(),
         ));
 
         Self {
             router,
             outbound,
             incoming,
+            traffic,
         }
     }
 
@@ -90,6 +96,16 @@ impl Session {
     pub async fn closed(&self) -> Result<(), Arc<SessionError>> {
         self.router.closed().await
     }
+
+    /// Returns Session-wide send/receive rates in bytes per second.
+    ///
+    /// Each direction has independent 100 ms and 1 s windows and their lifetime peaks.
+    /// Counts encoded frames, including protocol fields and newlines, only after successful
+    /// decoding on receive or successful batch write and flush on send. Querying expires old
+    /// samples without sending traffic; idle rates fall to zero while lifetime peaks remain.
+    pub fn traffic_stats(&self) -> SessionTrafficStats {
+        self.traffic.snapshot()
+    }
 }
 
 impl Drop for Session {
@@ -103,6 +119,7 @@ async fn read_frames(
     router: &Arc<Router>,
     outbound: &WeakUnboundedSender<Frame>,
     accepted: &UnboundedSender<Channel>,
+    traffic: &TrafficStats,
 ) -> Result<(), SessionError> {
     let mut reader = BufReader::new(reader);
     let mut line = Vec::new();
@@ -117,6 +134,7 @@ async fn read_frames(
             return Ok(());
         }
         let frame = Frame::decode(&line).map_err(SessionError::Protocol)?;
+        traffic.record_received(line.len());
         let id = frame.id;
         let Some(inbound) = router.route(frame) else {
             continue;
@@ -139,6 +157,7 @@ async fn write_frames(
     mut frames: UnboundedReceiver<Frame>,
     router: Arc<Router>,
     reader: AbortHandle,
+    traffic: Arc<TrafficStats>,
 ) {
     let mut lines = Vec::new();
     let result = async {
@@ -156,6 +175,7 @@ async fn write_frames(
                 .await
                 .map_err(SessionError::Write)?;
             writer.flush().await.map_err(SessionError::Write)?;
+            traffic.record_sent(lines.len());
         }
         writer.shutdown().await.map_err(SessionError::Write)
     }

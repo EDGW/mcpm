@@ -5,6 +5,7 @@ pub(super) enum Builtin {
     Detach,
     Stop,
     Kill,
+    Speed,
 }
 
 pub(super) struct Definition {
@@ -28,6 +29,11 @@ pub(super) const DEFINITIONS: &[Definition] = &[
         command: Builtin::Kill,
         name: "@kill",
         description: "force-kill Java",
+    },
+    Definition {
+        command: Builtin::Speed,
+        name: "@speed",
+        description: "toggle compact 100ms AVG / full traffic rates",
     },
 ];
 

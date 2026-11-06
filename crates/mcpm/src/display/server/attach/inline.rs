@@ -23,6 +23,7 @@ pub(super) struct Screen {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
     height: u16,
     suggestion_rows: u16,
+    speed_rows: u16,
     raw: bool,
     output: VecDeque<Vec<ratatui::buffer::Cell>>,
 }
@@ -45,6 +46,7 @@ impl Screen {
             )?,
             height,
             suggestion_rows: 0,
+            speed_rows: 0,
             raw: false,
             output: VecDeque::new(),
         };
@@ -67,6 +69,7 @@ impl Screen {
         self.resize_viewport(
             target
                 .saturating_add(self.suggestion_rows)
+                .saturating_add(self.speed_rows)
                 .min(size.height.max(1)),
         )
     }
@@ -163,10 +166,20 @@ impl Screen {
         status: &str,
         partial: &str,
         suggestions: super::suggestions::View<'_>,
+        speed: Vec<Line<'static>>,
     ) -> io::Result<()> {
         self.terminal.autoresize()?;
         let size = self.terminal.size()?;
-        let available = size.height.saturating_sub(self.height.min(size.height));
+        let speed = Paragraph::new(speed)
+            .style(style(Role::Muted))
+            .wrap(Wrap { trim: false });
+        self.speed_rows = speed
+            .line_count(size.width)
+            .min(size.height.saturating_sub(self.height) as usize) as u16;
+        let available = size
+            .height
+            .saturating_sub(self.height)
+            .saturating_sub(self.speed_rows);
         let content_width = size.width.saturating_sub(4);
         let mut row_height = 0usize;
         let mut selected_start = 0usize;
@@ -193,13 +206,37 @@ impl Screen {
         self.resize_viewport(
             self.height
                 .saturating_add(self.suggestion_rows)
+                .saturating_add(self.speed_rows)
                 .min(size.height.max(1)),
         )?;
+        let leading_spaces = draft.len() - draft.trim_start_matches(' ').len();
+        let title = if leading_spaces > 0 {
+            Line::styled(
+                " Command Input · Leading spaces: Minecraft may not recognize this command ",
+                style(Role::Warning),
+            )
+        } else {
+            Line::from(format!(" Command Input · {}+↑/↓ height ", modifier_name()))
+        };
+        let content = if leading_spaces > 0 {
+            Line::from(vec![
+                // A foreground color alone is invisible on spaces. Reverse the warning
+                // style to highlight their cells without replacing the user's text.
+                Span::styled(
+                    &draft[..leading_spaces],
+                    style(Role::Warning).add_modifier(Modifier::REVERSED),
+                ),
+                Span::raw(&draft[leading_spaces..]),
+            ])
+        } else {
+            Line::from(draft)
+        };
         self.terminal.draw(|frame| {
-            let [hints, input, footer] = Layout::vertical([
+            let [hints, input, footer, traffic] = Layout::vertical([
                 Constraint::Length(self.suggestion_rows),
                 Constraint::Min(1),
                 Constraint::Length(1),
+                Constraint::Length(self.speed_rows),
             ])
             .areas(frame.area());
             let hint_frame = Block::new()
@@ -218,14 +255,8 @@ impl Screen {
             let cursor_width = UnicodeWidthStr::width(&draft[..cursor]);
             let horizontal = cursor_width.saturating_sub(width.saturating_sub(1));
             frame.render_widget(
-                Paragraph::new(draft)
-                    .block(
-                        panel(
-                            format!(" Command Input · {}+↑/↓ height ", modifier_name()),
-                            true,
-                        )
-                        .padding(Padding::horizontal(1)),
-                    )
+                Paragraph::new(content)
+                    .block(panel(title, true).padding(Padding::horizontal(1)))
                     .scroll((0, horizontal.min(u16::MAX as usize) as u16)),
                 input,
             );
@@ -234,6 +265,7 @@ impl Screen {
                     .style(style(Role::Muted)),
                 footer,
             );
+            frame.render_widget(speed, traffic);
             if input.width > 4 && input.height > 1 {
                 frame.set_cursor_position((
                     input.x

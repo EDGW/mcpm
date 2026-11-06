@@ -17,6 +17,7 @@ use tokio::{
 };
 
 mod builtin;
+mod command_history;
 mod history;
 mod input;
 pub(super) const DEFAULT_INPUT_HEIGHT: u16 = 4;
@@ -24,7 +25,7 @@ use input::Input;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = format!("Modes: Inline TUI (terminal default), Console (--no-ui), Raw (--raw or redirected stdout). The inline input stays below ordinary scrollback output; {}+Up/Down changes its height. Attach never starts Java. History defaults to one terminal screen of lines; --history-lines changes it and zero skips replay. All Listeners can send commands and receive live user-command results. Own replies use a Primary frame; other Listeners' replies use a green frame labeled Executed by another Listener. Re-attaching does not replay old command results. @detach or EOF/Ctrl+D detaches; @stop sends stop without escalation; @kill force-kills Java. Prefix a builtin with another @ to send it literally. Ctrl+C sends stop; another while Stopping force-kills. Each attach privately requests help once after RCON Connected, keeping it only in frontend-session memory. Inline hints appear for nonblank input, match only command names, wrap long syntax, and display five candidates. Up/Down browses all matches with a position counter. Tab fills; Enter always sends the current input. Builtin hints remain available if help fails.", crate::display::server::attach::modifier_name())
+    after_help = format!("Modes: Inline TUI (terminal default), Console (--no-ui), Raw (--raw or redirected stdout). The inline input stays below ordinary scrollback output; {}+Up/Down changes its height. Attach never starts Java. History defaults to one terminal screen of lines; --history-lines changes it and zero skips replay. All Listeners can send commands and receive live user-command results. Own replies use a Primary frame; other Listeners' replies use a green frame labeled Executed by another Listener. Re-attaching does not replay old command results. @detach or EOF/Ctrl+D detaches; @stop sends stop without escalation; @kill force-kills Java. @speed toggles the separate speed row between compact 100ms AVG (default) and full 100ms/1000ms lifetime peaks and averages; Console/Raw prints a snapshot on @speed. Local execution without a messaging Session reports speed unavailable. Prefix a builtin with another @ to send it literally. Ctrl+C sends stop; another while Stopping force-kills. Each attach privately requests help once after RCON Connected, keeping it only in frontend-session memory. Inline hints appear for nonblank input, match only command names, wrap long syntax, and display five candidates. With empty input, Up/Down recalls commands submitted in this attachment; arrows continue through recalled entries until editing, and Down past the newest entry clears input. Otherwise Up/Down browses hints with a position counter. Tab fills; Enter always sends the current input. Leading spaces are highlighted with a warning in the Command Input title: Minecraft may not recognize the command. Commands are never trimmed. Builtin hints remain available if help fails.", crate::display::server::attach::modifier_name())
 )]
 pub(super) struct AttachArgs {
     /// Registered server directory on the selected Host.
@@ -208,6 +209,7 @@ pub(super) async fn flow(
     let mut help = JoinSet::new();
     let mut help_requested = false;
     let mut pending = std::collections::VecDeque::new();
+    let mut command_history = command_history::CommandHistory::default();
     let mut finished = [false; 2];
     let mut exit_code = snapshot.exit_code;
     let mut submitted = HashSet::new();
@@ -216,7 +218,7 @@ pub(super) async fn flow(
     let mut redraw = tokio::time::interval(Duration::from_millis(100));
     {
         let _keyboard = reader.pause();
-        display.draw()?;
+        display.draw(executor.traffic_stats())?;
     }
     loop {
         if !help_requested && !detaching && display.server_status == ServerStatus::RconConnected {
@@ -368,12 +370,19 @@ pub(super) async fn flow(
                         } else {
                             match key.code {
                                 KeyCode::Enter => { display.reset_suggestion(); display.cursor = 0; line = Some(std::mem::take(&mut display.draft)); }
-                                KeyCode::Tab => display.accept_suggestion(),
-                                KeyCode::Up => display.move_suggestion(false),
-                                KeyCode::Down => display.move_suggestion(true),
-                                KeyCode::Char(ch) if display.draft.len() + ch.len_utf8() <= 16 * 1024 => { display.reset_suggestion(); display.draft.insert(display.cursor, ch); display.cursor += ch.len_utf8(); }
-                                KeyCode::Backspace if display.cursor > 0 => { display.reset_suggestion(); let previous = previous(&display.draft, display.cursor); display.draft.drain(previous..display.cursor); display.cursor = previous; }
-                                KeyCode::Delete if display.cursor < display.draft.len() => { display.reset_suggestion(); let next = next(&display.draft, display.cursor); display.draft.drain(display.cursor..next); }
+                                KeyCode::Tab => { command_history.reset(); display.accept_suggestion(); }
+                                KeyCode::Up | KeyCode::Down => {
+                                    let down = key.code == KeyCode::Down;
+                                    if command_history.navigate(&mut display.draft, down) {
+                                        display.cursor = display.draft.len();
+                                        display.reset_suggestion();
+                                    } else {
+                                        display.move_suggestion(down);
+                                    }
+                                }
+                                KeyCode::Char(ch) if display.draft.len() + ch.len_utf8() <= 16 * 1024 => { command_history.reset(); display.reset_suggestion(); display.draft.insert(display.cursor, ch); display.cursor += ch.len_utf8(); }
+                                KeyCode::Backspace if display.cursor > 0 => { command_history.reset(); display.reset_suggestion(); let previous = previous(&display.draft, display.cursor); display.draft.drain(previous..display.cursor); display.cursor = previous; }
+                                KeyCode::Delete if display.cursor < display.draft.len() => { command_history.reset(); display.reset_suggestion(); let next = next(&display.draft, display.cursor); display.draft.drain(display.cursor..next); }
                                 KeyCode::Left => display.cursor = previous(&display.draft, display.cursor),
                                 KeyCode::Right => display.cursor = next(&display.draft, display.cursor),
                                 KeyCode::Home => display.cursor = 0,
@@ -385,8 +394,15 @@ pub(super) async fn flow(
                     Some(Input::Key(_)) => {},
                 }
                 if let Some(mut text) = line {
+                    if display.is_tui() {
+                        command_history.record(&text);
+                    }
                     let builtin = builtin::parse(&text);
                     if matches!(builtin, Some(builtin::Builtin::Detach)) { detaching = true; }
+                    else if matches!(builtin, Some(builtin::Builtin::Speed)) {
+                        let _keyboard = reader.pause();
+                        display.toggle_speed(executor.traffic_stats())?;
+                    }
                     else if matches!(builtin, Some(builtin::Builtin::Kill)) {
                         ensure!(actions.len() < 32, "too many pending control actions; Java was not stopped automatically");
                         let executor = executor.clone();
@@ -412,7 +428,7 @@ pub(super) async fn flow(
         }
         {
             let _keyboard = reader.pause();
-            display.draw()?;
+            display.draw(executor.traffic_stats())?;
         }
     }
 }

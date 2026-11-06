@@ -2,7 +2,7 @@
 
 pub use crate::operation::{Connection, Target};
 use crate::{
-    messaging::Session,
+    messaging::{Session, SessionTrafficStats},
     operation::{self, Operation},
 };
 use anyhow::Result;
@@ -27,6 +27,15 @@ impl Executor {
     /// Whether Host operations in this flow execute on a remote daemon.
     pub fn is_remote(&self) -> bool {
         matches!(self.inner, Inner::Remote(_))
+    }
+
+    /// Returns this flow's local Session traffic snapshot without performing an operation.
+    /// Local execution has no messaging Session and returns `None`.
+    pub fn traffic_stats(&self) -> Option<SessionTrafficStats> {
+        match &self.inner {
+            Inner::Local => None,
+            Inner::Remote(session) => Some(session.traffic_stats()),
+        }
     }
 
     pub async fn open(target: Target) -> Result<Self> {

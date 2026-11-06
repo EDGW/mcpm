@@ -8,11 +8,13 @@ use anyhow::Result;
 use mcpm_backend::operations::server::shim::{
     Channel, CommandOutcome, CommandResult, ServerStatus, Source, State,
 };
+use mcpm_exec::messaging::SessionTrafficStats;
 use ratatui::text::{Line, Span};
 use std::io::{self, Write};
 
 mod inline;
 mod log;
+mod speed;
 mod suggestions;
 mod text;
 pub(crate) use inline::modifier_name;
@@ -30,6 +32,7 @@ pub(crate) struct Display {
     pub channel: Channel,
     pub server_status: ServerStatus,
     suggestions: suggestions::Suggestions,
+    speed_full: bool,
     pub diagnostics: tokio::sync::mpsc::Receiver<(Vec<u8>, usize)>,
     // Dropped after screen restoration, so terminal diagnostics cannot overwrite a live input area.
     _console: Option<logging::ConsoleChannelGuard>,
@@ -67,6 +70,7 @@ impl Display {
             channel,
             server_status,
             suggestions: suggestions::Suggestions::default(),
+            speed_full: false,
             diagnostics,
             _console: guard,
         })
@@ -78,7 +82,7 @@ impl Display {
         if let Some(screen) = &mut self.screen {
             screen.resize(grow)?;
         }
-        self.draw()
+        Ok(())
     }
     pub fn builtin_hints(
         &mut self,
@@ -260,7 +264,16 @@ impl Display {
         }
         Ok(())
     }
-    pub fn draw(&mut self) -> Result<()> {
+    pub fn toggle_speed(&mut self, traffic: Option<SessionTrafficStats>) -> Result<()> {
+        self.speed_full = !self.speed_full;
+        if !self.is_tui() {
+            for line in speed::lines(traffic, self.speed_full) {
+                self.notice("speed", &line.to_string())?;
+            }
+        }
+        Ok(())
+    }
+    pub fn draw(&mut self, traffic: Option<SessionTrafficStats>) -> Result<()> {
         let Some(screen) = &mut self.screen else {
             return Ok(());
         };
@@ -283,6 +296,7 @@ impl Display {
             &status,
             partial,
             self.suggestions.view(&self.draft),
+            speed::lines(traffic, self.speed_full),
         )?;
         Ok(())
     }

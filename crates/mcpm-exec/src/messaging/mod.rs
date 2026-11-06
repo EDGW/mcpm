@@ -22,6 +22,9 @@ pub use session::*;
 mod relay;
 pub use relay::*;
 
+mod stats;
+pub use stats::{SessionTrafficStats, TrafficRates};
+
 // Private Modules
 
 mod router;
