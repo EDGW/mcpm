@@ -15,6 +15,15 @@ pub fn registry() -> Result<Registry> {
     registry.register::<workspace::Inspect>()?;
     registry.register::<workspace::RegisterRemote>()?;
     registry.register::<server::info::Info>()?;
+    registry.register::<server::shim::Prepare>()?;
+    registry.register::<server::shim::Launch>()?;
+    registry.register::<server::shim::Inspect>()?;
+    registry.register::<server::shim::SubscribeStatus>()?;
+    registry.register::<server::shim::Command>()?;
+    registry.register::<server::shim::SubscribeLogs>()?;
+    registry.register::<server::shim::Acquire>()?;
+    registry.register::<server::shim::Release>()?;
+    registry.register::<server::shim::Kill>()?;
     registry.register::<server::init::RecognizeServer>()?;
     registry.register::<server::init::Init>()?;
     registry.register::<server::init::prepare_remote::PrepareRemote>()?;

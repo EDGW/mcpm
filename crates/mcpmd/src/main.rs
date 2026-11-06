@@ -7,6 +7,7 @@ mod link;
 mod logs;
 mod serve;
 
+mod shim;
 #[derive(Parser)]
 #[command(name = "mcpmd", version = env!("MCPM_BUILD_VERSION"), about = "Serve operations or manage reusable SSH links")]
 struct Cli {
@@ -18,6 +19,9 @@ struct Cli {
 enum Command {
     /// Execute registered operations on stdin/stdout; stdout is reserved for protocol frames.
     Serve,
+    /// Own one Java process, receiving its immutable launch input through a private pipe.
+    #[command(hide = true)]
+    Shim,
     /// Start, inspect, or stop per-user SSH links.
     Link(LinkArgs),
 }
@@ -63,10 +67,15 @@ enum LinkCommand {
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
-    let result: Result<()> = match cli.command {
-        Command::Serve => serve::run().await,
-        Command::Link(args) => link::run(args).await,
-    };
+    let result: Result<()> = async {
+        mcpm_backend::server::shim::set_daemon_executable(std::env::current_exe()?)?;
+        match cli.command {
+            Command::Serve => serve::run().await,
+            Command::Shim => shim::run().await,
+            Command::Link(args) => link::run(args).await,
+        }
+    }
+    .await;
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {

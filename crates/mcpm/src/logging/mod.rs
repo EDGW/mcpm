@@ -18,7 +18,10 @@ use tracing_subscriber::{
 
 use crate::terminal;
 
-pub(crate) use writer::{ProgressGuard, attach_progress, pause_console};
+pub(crate) use writer::{
+    ConsoleChannelGuard, ConsoleGuard, ProgressGuard, attach_progress, pause_console,
+    redirect_console,
+};
 
 mod file;
 mod format;

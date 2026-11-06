@@ -28,14 +28,17 @@ pub(crate) struct Screen {
     pub terminal: Terminal<CrosstermBackend<io::Stderr>>,
     raw: bool,
     alternate: bool,
+    _console: crate::logging::ConsoleGuard,
 }
 
 impl Screen {
     pub fn new() -> io::Result<Self> {
+        let console = crate::logging::pause_console();
         let mut screen = Self {
             terminal: Terminal::new(CrosstermBackend::new(io::stderr()))?,
             raw: false,
             alternate: false,
+            _console: console,
         };
         terminal::enable_raw_mode()?;
         screen.raw = true;

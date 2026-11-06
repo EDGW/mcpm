@@ -5,16 +5,23 @@ edition.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+blake3 = { workspace = true }
 mcpm-exec = { workspace = true }
 mcpm-lib = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["rt", "fs", "io-util", "io-std", "net", "time", "sync", "process"] }
 tempfile = { workspace = true }
 tracing = { workspace = true }
-uuid = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["serde", "v4"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Threading"] }

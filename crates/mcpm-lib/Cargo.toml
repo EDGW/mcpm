@@ -5,6 +5,10 @@ edition.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+netstat2 = "0.11.2"
+rcon = { version = "0.6.0", features = ["rt-tokio"] }
+bytes = "1"
+tokio-util = { version = "0.7", features = ["codec", "io"] }
 mcpm-exec = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true, features = ["std", "serde"] }
@@ -25,7 +29,7 @@ reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
-tokio = { workspace = true, features = ["rt", "fs", "io-util", "time"] }
+tokio = { workspace = true, features = ["rt", "fs", "io-util", "time", "net"] }
 url = { workspace = true, features = ["serde"] }
 toml = { workspace = true }
 zip = { workspace = true, features = ["deflate"] }
@@ -36,4 +40,4 @@ tempfile = { workspace = true }
 libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_SystemServices"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_SystemServices", "Win32_System_JobObjects", "Win32_System_Threading"] }

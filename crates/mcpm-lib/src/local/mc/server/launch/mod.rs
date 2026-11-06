@@ -11,7 +11,8 @@ pub use plan::{LaunchPlan, prepare, prepare_with_overrides, prepare_with_progres
 mod progress;
 pub use progress::{Event, Stage};
 mod process;
-pub use process::{ForegroundStreams, LaunchExit, StopRequest, execute};
+pub use process::{JavaProcess, LaunchExit};
+pub mod rcon;
 
 /// A Java launch parsed without executing the script. Paths are absolute and resolved
 /// against the statically known JVM working directory. Application and JVM arguments
