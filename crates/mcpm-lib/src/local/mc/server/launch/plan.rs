@@ -19,13 +19,25 @@ use std::{
 use super::{Event, Stage};
 
 /// Immutable execution input; only backend preparation can construct it.
-#[derive(Debug)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct LaunchPlan {
+    #[serde(with = "native_path")]
     pub(super) executable: PathBuf,
+    #[serde(with = "native_path")]
     pub(super) directory: PathBuf,
+    #[serde(with = "native_environment")]
     pub(super) environment: BTreeMap<OsString, OsString>,
     pub(super) arguments: Vec<String>,
     pub(super) argument_file: bool,
+}
+
+impl std::fmt::Debug for LaunchPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LaunchPlan")
+            .field("executable", &self.executable)
+            .field("directory", &self.directory)
+            .finish_non_exhaustive()
+    }
 }
 
 impl LaunchPlan {
@@ -304,4 +316,54 @@ fn environment_value<'a>(
         .map(|(_, value)| value.as_os_str());
     #[cfg(not(windows))]
     environment.get(OsStr::new(key)).map(OsString::as_os_str)
+}
+
+// Native values cross the transport only to return to their originating Host.
+mod native_path {
+    use super::*;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
+        path.as_os_str().serialize(serializer)
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<PathBuf, D::Error> {
+        OsString::deserialize(deserializer).map(PathBuf::from)
+    }
+}
+
+mod native_environment {
+    use super::*;
+    use serde::{
+        Deserializer, Serializer,
+        de::{SeqAccess, Visitor},
+    };
+
+    pub fn serialize<S: Serializer>(
+        environment: &BTreeMap<OsString, OsString>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(environment.iter())
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<BTreeMap<OsString, OsString>, D::Error> {
+        struct Environment;
+        impl<'de> Visitor<'de> for Environment {
+            type Value = BTreeMap<OsString, OsString>;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a sequence of native environment key/value pairs")
+            }
+            fn visit_seq<A: SeqAccess<'de>>(
+                self,
+                mut sequence: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut environment = BTreeMap::new();
+                while let Some((key, value)) = sequence.next_element()? {
+                    environment.insert(key, value);
+                }
+                Ok(environment)
+            }
+        }
+        deserializer.deserialize_seq(Environment)
+    }
 }
