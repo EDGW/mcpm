@@ -25,7 +25,7 @@ pub(super) struct ViewArgs {
     /// Show mods declaring relations to the target, following incoming edges.
     #[arg(short = 'R', long)]
     reverse: bool,
-    /// Hide roots with no displayed children after applying all filters.
+    /// Hide roots with no displayed children, except selected duplicate-Primary problems.
     #[arg(short = 'S', long, visible_alias = "iir")]
     ignore_isolated_root: bool,
     #[command(flatten)]

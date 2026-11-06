@@ -82,6 +82,7 @@ fn label(entry: &TreeLabel, style: &OutputStyle, reverse: bool) -> String {
             identifier,
             root,
             candidates,
+            duplicate_primary,
             relation,
             state,
             folded,
@@ -107,6 +108,9 @@ fn label(entry: &TreeLabel, style: &OutputStyle, reverse: bool) -> String {
                 CandidateSummary::Multiple(count) => {
                     value.push_str(&style.normal(format!(" [{count} candidates]")))
                 }
+            }
+            if let Some(count) = duplicate_primary {
+                value.push_str(&style.danger(format!(" [duplicate primary: {count}]")));
             }
             if let Some(dependency) = relation {
                 value = if reverse {

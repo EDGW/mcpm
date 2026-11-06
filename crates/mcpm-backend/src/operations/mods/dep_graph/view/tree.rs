@@ -167,6 +167,7 @@ fn label(graph: &DependencyGraph, entry: Entry<'_>, folded: Option<Fold>) -> Tre
                 identifier: identifier.into(),
                 root: depth == 0,
                 candidates,
+                duplicate_primary: node.duplicate_primary_count(),
                 relation: dependency.cloned(),
                 state: dependency.map(|dependency| {
                     matching::target(graph, target.unwrap_or(identifier), dependency).into()
@@ -185,15 +186,41 @@ fn children<'a>(
     match entry {
         Entry::Candidate {
             candidate, depth, ..
-        } => edges(candidate, depth, visibility),
+        } => {
+            if reverse {
+                Vec::new()
+            } else {
+                edges(candidate, depth, visibility)
+            }
+        }
         Entry::Node {
             identifier,
             depth,
             dependency,
+            source_candidate,
             ..
         } => {
             if reverse {
-                return reverse_edges(graph, identifier, depth, visibility);
+                let mut children = reverse_edges(graph, identifier, depth, visibility);
+                // Reverse roots still expose the Primary candidates proving their own problem.
+                // These are evidence leaves, not forward dependency traversal.
+                if source_candidate.is_none() && visibility.duplicate_primary(identifier) {
+                    let mut primary = graph
+                        .node(identifier)
+                        .expect("validated target node exists")
+                        .candidates()
+                        .iter()
+                        .map(|candidate| candidate.as_ref())
+                        .filter(|candidate| matches!(candidate, DependencyCandidate::PrimaryMod(_)))
+                        .collect::<Vec<_>>();
+                    primary.sort_by_key(|candidate| sort_key::candidate(candidate));
+                    children.extend(primary.into_iter().map(|candidate| Entry::Candidate {
+                        dependency: None,
+                        candidate,
+                        depth,
+                    }));
+                }
+                return children;
             }
             let candidates = graph
                 .node(identifier)

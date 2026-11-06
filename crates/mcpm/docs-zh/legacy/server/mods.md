@@ -50,6 +50,21 @@ Info 默认查询 Server 运行环境的 Mod 缓存：
 
 Deps 保持直接识别，不查询持久缓存。
 
+## 依赖图与检查
+
+```sh
+mcpm mods dep-graph build --server /srv/minecraft -o graph.json
+mcpm mods dep-graph view -i graph.json --duplicate-primary
+mcpm mods dep-graph view -i graph.json --problem
+mcpm mods dep-graph view -i graph.json --problem --no-duplicate-primary
+mcpm mods check --server /srv/minecraft
+```
+
+- Server `dep-graph view` 和独立 Mod 图共用筛选参数，详见[重复 Primary 与问题视图](../mod/dep-graph.md#重复-primary-与问题视图)。
+- `check` 使用同一后端问题视图，同时展示依赖问题和同一 loader/modid 下的多个 Primary candidate；相同版本也算重复，Nested/External 不计数。没有依赖边的重复节点仍会展示。
+- 没有问题且识别完整时显示 `Check passed. No problems found.`；没有问题树但存在识别失败时显示 incomplete，不将不完整结果作为检查通过。
+- 本地、显式 SSH 和 Remote workspace 共用相同判定；远端通过现有图 operation 和 mcpmd 执行，不新增检查协议或快照格式。
+
 ## 列表
 
 ```sh

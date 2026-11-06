@@ -106,6 +106,8 @@ pub enum TreeLabel {
         identifier: Identifier,
         root: bool,
         candidates: CandidateSummary,
+        /// Derived from the full node, never from the filtered candidate display.
+        duplicate_primary: Option<usize>,
         relation: Option<Dependency>,
         state: Option<MatchState>,
         folded: Option<Fold>,

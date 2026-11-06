@@ -1,4 +1,4 @@
-//! Displays the Host graph's problem trees and distinguishes incomplete identification.
+//! Displays shared dependency and duplicate-Primary problem trees from the Host graph.
 
 use super::graph_input::ServerArgs;
 use crate::{
@@ -11,6 +11,9 @@ use clap::Args;
 use mcpm_backend::operations::mods::dep_graph::BuildInput;
 use std::io::{self, Write};
 #[derive(Args, Debug)]
+#[command(
+    after_help = "Modes: Console and Raw (--raw or redirected stdout). Checks dependency problems and multiple Primary candidates for the same loader/modid. Nested and external candidates do not count as duplicate Primary candidates. Server paths, loader metadata and graph construction resolve on the selected Local/Remote host; the same problem policy is used by dep-graph view --problem."
+)]
 pub(super) struct CheckArgs {
     #[command(flatten)]
     server: ServerArgs,

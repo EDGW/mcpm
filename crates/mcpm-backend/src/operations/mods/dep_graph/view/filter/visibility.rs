@@ -22,6 +22,7 @@ pub(in crate::operations::mods::dep_graph::view) struct Visibility {
     edges: HashSet<usize>,
     own: HashSet<usize>,
     candidates: HashSet<usize>,
+    duplicate_primary: HashSet<DependencyIdentifier>,
 }
 
 impl Visibility {
@@ -30,10 +31,27 @@ impl Visibility {
         let mut relevant = HashSet::new();
         let mut queue = VecDeque::new();
         let mut edges = Vec::new();
+        let mut duplicate_primary = HashSet::new();
         for node in graph.nodes() {
+            let duplicate = node.duplicate_primary_count().is_some()
+                && filter.selects_duplicate_primary(&node.identifier());
+            if duplicate {
+                let identifier = node.identifier();
+                duplicate_primary.insert(identifier.clone());
+                let vertex = Vertex::Node(identifier);
+                if relevant.insert(vertex.clone()) {
+                    queue.push_back(vertex);
+                }
+            }
             for candidate in node.candidates() {
                 let source = candidate.identifier();
                 let candidate_vertex = Vertex::Candidate(candidate_key(candidate));
+                if duplicate
+                    && matches!(candidate.as_ref(), DependencyCandidate::PrimaryMod(_))
+                    && relevant.insert(candidate_vertex.clone())
+                {
+                    queue.push_back(candidate_vertex.clone());
+                }
                 if !reverse {
                     predecessors
                         .entry(candidate_vertex.clone())
@@ -55,9 +73,10 @@ impl Visibility {
                         .entry(to.clone())
                         .or_default()
                         .push(from.clone());
-                    let matches = filter.unrestricted(dependency.kind)
-                        || filter
-                            .accepts(dependency.kind, matching::target(graph, target, dependency));
+                    let matches = filter.selects_relation(
+                        || matching::target(graph, target, dependency),
+                        dependency.kind,
+                    );
                     if matches && relevant.insert(from.clone()) {
                         queue.push_back(from.clone());
                     }
@@ -83,6 +102,7 @@ impl Visibility {
         Self {
             filtered: filter.has_rules(),
             own,
+            duplicate_primary,
             edges: edges
                 .into_iter()
                 .filter(|(_, _, to, own)| *own || relevant.contains(to))
@@ -100,6 +120,10 @@ impl Visibility {
 
     pub fn filtered(&self) -> bool {
         self.filtered
+    }
+
+    pub fn duplicate_primary(&self, identifier: &DependencyIdentifier) -> bool {
+        self.duplicate_primary.contains(identifier)
     }
 
     pub fn edge(&self, dependency: &Dependency) -> bool {

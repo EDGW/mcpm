@@ -1,4 +1,4 @@
-//! CLI edge and match-rule options, converted into backend graph inspection input.
+//! CLI node-problem and relation filters converted into backend graph inspection input.
 
 use clap::{Args, ValueEnum};
 use mcpm_backend::operations::mods::dep_graph::{FilterInput, IgnoreSelector, Rule};
@@ -30,9 +30,15 @@ pub(super) struct FilterArgs {
     /// Match states for TYPE; defaults to all. Last rule per type wins, overriding --problem.
     #[arg(short = 'r', long = "rule", value_name = "TYPE:MATCH[,MATCH...]")]
     rules: Vec<Rule>,
-    /// Shortcut for required:unmatched,unknown; breaks/conflicts:matched,unknown; hide isolated roots; disable default ignores.
+    /// Show dependency problems and duplicate Primary candidates; hide nonproblem isolated roots and disable default ignores.
     #[arg(short = 'p', long)]
     problem: bool,
+    /// Select nodes with multiple Primary candidates and paths leading to them; union with --rule.
+    #[arg(long, conflicts_with = "no_duplicate_primary")]
+    duplicate_primary: bool,
+    /// Disable duplicate-Primary selection, including its --problem default; labels remain visible.
+    #[arg(long, conflicts_with = "duplicate_primary")]
+    no_duplicate_primary: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum, Debug)]
@@ -73,6 +79,13 @@ impl FilterArgs {
                 .collect(),
             rules: self.rules,
             problem: self.problem,
+            duplicate_primary: if self.duplicate_primary {
+                Some(true)
+            } else if self.no_duplicate_primary {
+                Some(false)
+            } else {
+                None
+            },
         }
     }
 }

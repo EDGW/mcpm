@@ -18,6 +18,13 @@
 - 前端 `commands/supports/mods/digest.rs` 统一选项、事件消费及有序展示，`display/digest.rs` 统一 Console/Raw 格式。独立路径保留重复输出位置；服务器选择只输出每个物理外层文件一次。服务器路由沿用 workspace/executor，不在前端加载服务器元数据。
 - 选择事件交给既有 `ScanOutput`；摘要进度使用共享 `Progress`，以 `Prepared.paths` 数量为总数，在 `Item` 到达时按索引数量推进，而非等待输出缓冲释放。逐文件输出及错误通过进度组件协调，完成事件或作用域退出时清理，不扩展 operation 协议。
 
+## 依赖图节点问题
+
+- `DependencyNode::duplicate_primary_count` 是重复 Primary 的唯一判定入口：同一 loader/modid 下的 Primary 数量大于一，不计 Nested/External，不比较版本。结果从 candidates 派生，不写入图快照。
+- 后端 view/filter 将重复节点及全部 Primary 证据作为可见性种子，复用依赖路径的固定点祖先保留。独立重复筛选默认不选中普通依赖边；显式规则与节点问题取并集。类型和忽略仍切断相应遍历路径。
+- `FilterInput.duplicate_primary` 为三态：None 继承 problem，Some(true/false) 显式覆盖。图构建提供给 server check 的问题视图与 inspect/view 共用同一构建函数；前端只展示 `TreeLabel::Node.duplicate_primary`，不重复统计。
+- 反向重复根的 Primary 分支是证据叶，不进入正向依赖遍历。孤立根过滤保留已选中的节点问题，依赖匹配仍采用原有任一候选匹配语义。
+
 ## 构建身份
 
 - `scripts/build.rs` 统一生成 CLI、daemon、执行层的构建身份；`build_info.rs` 提供前端元数据，`display/build_info.rs` 展示启动提示。

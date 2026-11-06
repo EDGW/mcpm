@@ -3,6 +3,8 @@
 pub mod filter;
 mod matching;
 mod sort_key;
+#[cfg(test)]
+mod tests;
 mod tree;
 use super::{ViewInput, ViewOutput};
 use anyhow::Result;
@@ -12,7 +14,9 @@ use mcpm_lib::local::mcmod::dependency::graph::{
 use std::collections::HashMap;
 
 pub(super) fn build(graph: &DependencyGraph, args: ViewInput) -> Result<ViewOutput> {
-    let ignore_isolated_root = args.ignore_isolated_root || args.filter.problem;
+    let ignore_isolated_root = args.ignore_isolated_root
+        || args.filter.problem
+        || args.filter.duplicate_primary == Some(true);
     let filter = args.filter.into_filter();
     let visibility = filter::visibility::Visibility::build(graph, &filter, args.reverse);
     let targets = if args.targets.is_empty() {
@@ -42,6 +46,7 @@ pub(super) fn build(graph: &DependencyGraph, args: ViewInput) -> Result<ViewOutp
             identifier: identifier.clone(),
         })?;
         if ignore_isolated_root
+            && !visibility.duplicate_primary(&identifier)
             && !tree::has_children(graph, &identifier, &visibility, args.reverse)
         {
             continue;

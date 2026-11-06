@@ -30,6 +30,17 @@ impl DependencyNode {
         &self.candidates
     }
 
+    /// Returns the conflicting Primary count for this loader/modid, independent of versions.
+    /// Nested and external candidates do not participate in this node-level problem.
+    pub fn duplicate_primary_count(&self) -> Option<usize> {
+        let count = self
+            .candidates
+            .iter()
+            .filter(|candidate| matches!(candidate.as_ref(), DependencyCandidate::PrimaryMod(_)))
+            .count();
+        (count > 1).then_some(count)
+    }
+
     pub fn incoming(&self) -> &[IncomingEdge] {
         &self.incoming
     }

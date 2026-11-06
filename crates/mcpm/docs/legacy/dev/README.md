@@ -18,6 +18,13 @@
 - Frontend `commands/supports/mods/digest.rs` owns common options, stream consumption and ordered presentation; `display/digest.rs` owns Console/Raw formatting. Literal paths retain duplicate output positions, while server selections output each physical outer file once. Server routing reuses workspace/executor without loading server metadata in the frontend.
 - Selection events use existing `ScanOutput`. Digest progress uses shared `Progress`, takes its total from `Prepared.paths`, and advances by each arriving `Item`'s index count rather than ordered-buffer release. File output and errors coordinate with the progress display; completion or scope exit clears it without changing the operation protocol.
 
+## Dependency graph node problems
+
+- `DependencyNode::duplicate_primary_count` is the sole duplicate-Primary classifier: more than one Primary under one loader/modid, excluding Nested/External and independent of versions. It derives from candidates and is not stored in snapshots.
+- Backend view/filter seeds visibility with duplicate nodes and all conflicting Primary candidates, reusing fixed-point ancestor retention. Duplicate-only selection does not select ordinary relation edges by default; explicit rules union with node problems. Types and ignores still cut traversal paths.
+- `FilterInput.duplicate_primary` is tri-state: None inherits problem; Some(true/false) explicitly overrides it. Build results for server check and inspect/view share the same view builder. The frontend renders `TreeLabel::Node.duplicate_primary` without recounting candidates.
+- Reverse duplicate roots expose Primary evidence leaves without forward dependency traversal. Isolated-root filtering retains selected node problems; the existing any-candidate dependency matching semantics remain unchanged.
+
 ## Server configuration and foreground launch
 
 - Backend `local/java/command.rs` owns Java option/operand boundaries and argument-file expansion. Configuration import uses this model without reparsing command strings.

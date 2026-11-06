@@ -50,6 +50,21 @@ Info queries the Server runtime’s Mod cache by default:
 
 Deps retains direct identification without persistent cache lookup.
 
+## Dependency graphs and checks
+
+```sh
+mcpm mods dep-graph build --server /srv/minecraft -o graph.json
+mcpm mods dep-graph view -i graph.json --duplicate-primary
+mcpm mods dep-graph view -i graph.json --problem
+mcpm mods dep-graph view -i graph.json --problem --no-duplicate-primary
+mcpm mods check --server /srv/minecraft
+```
+
+- Server `dep-graph view` shares the standalone graph filters; see [Duplicate Primary candidates and problem views](../mod/dep-graph.md#duplicate-primary-candidates-and-problem-views).
+- `check` uses the same backend problem view for dependency problems and multiple Primary candidates under one loader/modid. Equal versions still conflict; Nested/External do not count. Duplicate nodes remain visible without dependency edges.
+- Complete identification with no problems prints `Check passed. No problems found.`. An empty problem view with identification failures reports incomplete instead of passing.
+- Local, explicit SSH and Remote workspaces share this policy. Remote execution uses existing graph operations and mcpmd without adding a check protocol or changing snapshot formats.
+
 ## List
 
 ```sh
