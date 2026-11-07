@@ -9,7 +9,7 @@ use mcpm_backend::operations::mods::backup::{
 use mcpm_lib::local::cache::TransferMethod;
 
 use super::super::{
-    console::ConsoleWriter,
+    console::{ConsoleWriter, tip},
     size::{binary, size},
     style::{OutputStyle, text, tsv},
 };
@@ -101,7 +101,8 @@ pub(crate) fn summary(out: &mut impl Write, outcome: &Outcome, headers: bool) ->
                     "Tip: Use {} mods backup delete <BACKUP> to delete this backup.{protection}",
                     crate::program::roots().tools
                 ),
-                &style,
+                0,
+                Some(&style),
             )?;
         }
     } else {
@@ -203,15 +204,6 @@ fn hard_link_tip(
          those hard links, will require that space again; use --mode copy {option} to store independent copies.",
         binary(shared)
     );
-    tip(out, &message, style)
-}
-
-fn tip(out: &mut ConsoleWriter<'_>, message: &str, style: &OutputStyle) -> Result<()> {
-    writeln!(out)?;
-    let options = textwrap::Options::new(textwrap::termwidth().max(1))
-        .word_splitter(textwrap::WordSplitter::NoHyphenation);
-    for line in textwrap::wrap(message, options) {
-        writeln!(out, "{}", style.muted(line))?;
-    }
+    tip(out, &message, 0, Some(style))?;
     Ok(())
 }

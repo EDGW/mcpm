@@ -13,6 +13,7 @@ operation can have several independent failures that each need their own context
 | `CombinedError` | Ordered independent failures; branch holders inside an error tree |
 | `ErrorReport` | Serialized snapshot of a whole tree; wire format for remote failures |
 | `RemoteError` | Marker for a failure received from another process |
+| `ExecutableNotFound` | Typed executable lookup identity retained across transport for frontend guidance |
 | `PortableError` | Error carried inside operation data rather than as the operation result |
 | `contains::<T>` | Tree search that visits every branch |
 
@@ -25,6 +26,10 @@ types are retained locally and are only lost when a tree crosses a process bound
 ## `CombinedError`
 
 ```rust
+use mcpm_exec::error::CombinedError;
+
+let first = anyhow::anyhow!("publication failed");
+let second = anyhow::anyhow!("rollback failed");
 let error = anyhow::Error::new(CombinedError::new(first, second));
 ```
 
@@ -43,6 +48,7 @@ let error = anyhow::Error::new(CombinedError::new(first, second));
 | `message` | Outermost context message; empty for a transparent aggregate root |
 | `causes` | Remaining messages of the linear context chain, outermost first |
 | `branches` | Independent failure subtrees; omitted from JSON when empty |
+| `executable_not_found` | Optional executable identity and known remote origin; omitted when absent |
 
 Construction:
 
@@ -58,6 +64,7 @@ Restoration with `into_error()`:
 - `message` and then `causes` are re-applied as `anyhow` context in reverse order.
 - An empty message applied to an existing error is transparent; an empty message without an
   error becomes a plain message error. An empty report produces `unknown error`.
+- Executable lookup metadata restores the typed lookup failure in its original context position. It does not classify ordinary missing data files as executable errors.
 
 Round trip: capturing the restored error yields the same report. This invariant is asserted by
 the module tests.

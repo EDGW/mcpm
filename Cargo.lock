@@ -1583,6 +1583,7 @@ name = "mcpmd"
 version = "0.1.0-dev.26w45a"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "blake3",
  "clap",
  "libc",

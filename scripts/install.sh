@@ -73,6 +73,13 @@ cleanup() {
         printf 'Restoring previous installation...\n' >&2
         if [ "$new_bin" = yes ]; then rm -rf "${install_dir:?}/bin" || result=1; fi
         if [ "$new_manifest" = yes ]; then rm -f "$install_dir/manifest"; fi
+        if [ "$record_changed" = yes ]; then
+            if [ -f "$stage/old-record" ]; then
+                if cp -p "$stage/old-record" "$record_temp" && mv -f "$record_temp" "$record_path"; then
+                    rm -f "$stage/old-record"
+                else result=1; fi
+            else rm -f "$record_path" || result=1; fi
+        fi
         if [ -d "$stage/old-bin" ]; then
             if [ ! -e "$install_dir/bin" ]; then mv "$stage/old-bin" "$install_dir/bin" || result=1; else result=1; fi
         fi
@@ -83,10 +90,11 @@ cleanup() {
     fi
     if [ -n "$stage" ]; then
         # Preserve a backup if restoring it failed.
-        if [ -e "$stage/old-bin" ] || [ -e "$stage/old-manifest" ]; then
+        if [ -e "$stage/old-bin" ] || [ -e "$stage/old-manifest" ] || [ -e "$stage/old-record" ]; then
             if [ "$committed" = yes ]; then rm -rf "$stage"; else printf 'Backup retained at %s\n' "$stage" >&2; fi
         else rm -rf "$stage"; fi
     fi
+    if [ -n "$record_temp" ]; then rm -f "$record_temp"; fi
     rmdir "$install_dir/.install-lock" 2>/dev/null || :
     rmdir "$install_dir" 2>/dev/null || :
     exit "$result"
@@ -98,6 +106,10 @@ uninstall() {
         return
     fi
     read_manifest "$install_dir/manifest"
+    if [ -f "$record_path" ] && [ ! -L "$record_path" ] &&
+        printf '%s\n' "$install_dir/bin/mcpmd" | cmp -s - "$record_path"; then
+        rm -f "$record_path"
+    fi
     for executable_name in $manifest_files; do
         if owned_link "$executable_name"; then rm -f "$link_dir/$executable_name"; fi
         [ ! -d "$install_dir/bin/$executable_name" ] || fail "expected a file: $executable_name"
@@ -111,9 +123,13 @@ uninstall() {
 main() {
     [ "$#" -eq 1 ] || fail 'usage: install.sh VERSION | --uninstall'
     [ -n "${HOME-}" ] || fail 'HOME is required'
+    case "$HOME" in /*) ;; *) fail 'HOME must be an absolute path' ;; esac
     install_dir=$HOME/.local/share/mcpm
     link_dir=$HOME/.local/bin
+    record_dir=$HOME/.mcpm
+    record_path=$record_dir/mcpmd.path
     stage='' transaction=no committed=no new_bin=no new_manifest=no created_links=''
+    record_temp='' record_changed=no
     if [ "$1" != --uninstall ]; then validate_version "$1"; fi
     mkdir -p "$install_dir"
     [ ! -L "$install_dir" ] && [ ! -L "$install_dir/bin" ] || fail 'installation directories must not be symbolic links'
@@ -161,6 +177,7 @@ main() {
     tar -xzf "$stage/package.tar.gz" -C "$stage/package"
     read_manifest "$stage/package/manifest"
     [ "$manifest_version" = "$version" ] && [ "$manifest_asset" = "$asset" ] || fail 'archive version or platform does not match request'
+    case " $manifest_files " in *" mcpmd "*) ;; *) fail 'package does not contain mcpmd' ;; esac
     [ ! -L "$stage/package/bin" ] || fail 'archive bin must be a directory'
     for executable_name in $manifest_files; do
         executable=$stage/package/bin/$executable_name
@@ -178,6 +195,14 @@ main() {
     done
     write_manifest > "$stage/new-manifest"
     mkdir -p "$link_dir"
+    mkdir -p "$record_dir"
+    [ ! -L "$record_dir" ] || fail 'configuration directory must not be a symbolic link'
+    if [ -e "$record_path" ] || [ -L "$record_path" ]; then
+        [ -f "$record_path" ] && [ ! -L "$record_path" ] || fail 'mcpmd record must be a regular file'
+        cp -p "$record_path" "$stage/old-record"
+    fi
+    record_temp=$(mktemp "$record_dir/.mcpmd-path.XXXXXXXX")
+    printf '%s\n' "$install_dir/bin/mcpmd" > "$record_temp"
     transaction=yes
     if [ -d "$install_dir/bin" ]; then mv "$install_dir/bin" "$stage/old-bin"; fi
     if [ -f "$install_dir/manifest" ]; then mv "$install_dir/manifest" "$stage/old-manifest"; fi
@@ -189,6 +214,8 @@ main() {
             created_links="${created_links:+$created_links }$executable_name"
         fi
     done
+    record_changed=yes
+    mv -f "$record_temp" "$record_path"
     new_manifest=yes
     mv "$stage/new-manifest" "$install_dir/manifest"
     committed=yes

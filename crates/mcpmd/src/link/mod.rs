@@ -22,7 +22,12 @@ use std::{
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::{io::AsyncReadExt, process::Command, sync::mpsc, task::JoinSet};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
+    process::Command,
+    sync::mpsc,
+    task::JoinSet,
+};
 
 mod control;
 mod idle;
@@ -116,7 +121,7 @@ async fn start(
             .append(true)
             .open(endpoint.log_path())?,
     )?;
-    let mut command = Command::from(ssh::command(&connection)?);
+    let mut command = Command::from(ssh::command(&connection).await?);
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -150,8 +155,47 @@ async fn start(
             }
         }
     });
+    let mut stdout = BufReader::new(stdout);
+    let bootstrap = async {
+        let mut status = String::new();
+        stdout
+            .read_line(&mut status)
+            .await
+            .context("failed to read remote daemon discovery result")?;
+        let status = status.trim_end_matches(['\r', '\n']);
+        if matches!(
+            status,
+            "mcpm-bootstrap:fallback" | "mcpm-bootstrap:fallback-missing"
+        ) {
+            let message = "Remote mcpmd.path not found; trying mcpmd on remote PATH";
+            tracing::warn!("{message}");
+            if let Some(output) = readiness.as_mut() {
+                report(output, &Ready::Warning(message.into()))?;
+            } else {
+                eprintln!("warning: {message}");
+            }
+        }
+        match status {
+            "mcpm-bootstrap:record" | "mcpm-bootstrap:explicit" | "mcpm-bootstrap:fallback" => {}
+            "mcpm-bootstrap:record-missing"
+            | "mcpm-bootstrap:explicit-missing"
+            | "mcpm-bootstrap:fallback-missing" => {
+                return Err(mcpm_exec::error::ExecutableNotFound {
+                    executable: "mcpmd".into(),
+                    remote: true,
+                }
+                .into());
+            }
+            _ => anyhow::bail!("remote mcpmd discovery failed before protocol startup"),
+        }
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
     let remote = Arc::new(Session::new((stdout, stdin)));
-    let hello = operation::call::<DaemonHello>(&remote, &()).await;
+    let hello = match bootstrap {
+        Ok(()) => operation::call::<DaemonHello>(&remote, &()).await,
+        Err(error) => Err(error),
+    };
     let hello = match hello {
         Ok(hello) => hello,
         Err(error) => {

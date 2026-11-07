@@ -698,14 +698,7 @@ pub fn set_daemon_executable(path: PathBuf) -> Result<()> {
 
 fn daemon_executable() -> Result<&'static Path> {
     if HOST_EXECUTABLE.get().is_none() {
-        let current = std::env::current_exe()?;
-        let name = if cfg!(windows) { "mcpmd.exe" } else { "mcpmd" };
-        let sibling = current.with_file_name(name);
-        let executable = if sibling.is_file() {
-            sibling
-        } else {
-            PathBuf::from(name)
-        };
+        let executable = mcpm_exec::daemon::executable()?;
         let _ = HOST_EXECUTABLE.set(executable);
     }
     Ok(HOST_EXECUTABLE

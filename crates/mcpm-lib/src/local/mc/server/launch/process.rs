@@ -69,12 +69,25 @@ impl JavaProcess {
             None
         };
         platform::configure(&mut command);
-        let child = command.spawn().with_context(|| {
-            format!(
-                "failed to start Java {:?} in {:?}",
-                plan.executable, plan.directory
-            )
-        })?;
+        let child = command
+            .spawn()
+            .map_err(|source| {
+                if source.kind() == std::io::ErrorKind::NotFound && plan.directory.is_dir() {
+                    anyhow::Error::new(mcpm_exec::error::ExecutableNotFound {
+                        executable: plan.executable.display().to_string(),
+                        remote: false,
+                    })
+                    .context(source)
+                } else {
+                    anyhow::Error::from(source)
+                }
+            })
+            .with_context(|| {
+                format!(
+                    "failed to start Java {:?} in {:?}",
+                    plan.executable, plan.directory
+                )
+            })?;
         #[cfg(windows)]
         let mut child = child;
         #[cfg(windows)]

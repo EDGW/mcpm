@@ -105,6 +105,15 @@ pub fn contains<T: StdError + 'static>(error: &(dyn StdError + 'static)) -> bool
     false
 }
 
+/// Identifies executable lookup failure without relying on localized OS error text.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, thiserror::Error)]
+#[error("executable {executable:?} was not found")]
+pub struct ExecutableNotFound {
+    pub executable: String,
+    /// Startup discovery can establish remote origin before an operation session exists.
+    pub remote: bool,
+}
+
 /// A linear context chain ending in zero or more independent diagnostic branches.
 /// Empty messages are reserved for transparent aggregate roots.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -114,6 +123,8 @@ pub struct ErrorReport {
     pub causes: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub branches: Vec<ErrorReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executable_not_found: Option<ExecutableNotFound>,
 }
 
 impl ErrorReport {
@@ -137,6 +148,9 @@ impl ErrorReport {
             let mut report = ErrorReport::default();
             let mut messages = Vec::new();
             while let Some(cause) = error {
+                if let Some(missing) = cause.downcast_ref::<ExecutableNotFound>() {
+                    report.executable_not_found = Some(missing.clone());
+                }
                 if let Some(combined) = cause.downcast_ref::<CombinedError>() {
                     report.branches = combined
                         .errors()
@@ -162,6 +176,8 @@ impl ErrorReport {
     }
 
     pub fn into_error(self) -> anyhow::Error {
+        let mut missing = self.executable_not_found;
+        let missing_message = missing.as_ref().map(ToString::to_string);
         let mut branches = self.branches.into_iter().map(Self::into_error);
         let mut error = branches.next().map(|first| {
             if let Some(second) = branches.next() {
@@ -178,9 +194,16 @@ impl ErrorReport {
             if context.is_empty() && error.is_some() {
                 continue;
             }
-            error = Some(match error {
-                Some(error) => error.context(context),
-                None => anyhow::Error::msg(context),
+            let typed = if missing_message.as_deref() == Some(context.as_str()) {
+                missing.take()
+            } else {
+                None
+            };
+            error = Some(match (error, typed) {
+                (Some(error), Some(missing)) => error.context(missing),
+                (None, Some(missing)) => anyhow::Error::new(missing),
+                (Some(error), None) => error.context(context),
+                (None, None) => anyhow::Error::msg(context),
             });
         }
         error.unwrap_or_else(|| anyhow::anyhow!("unknown error"))
@@ -217,5 +240,28 @@ mod tests {
             serde_json::from_str(r#"{"message":"outer","causes":["inner"]}"#).unwrap();
         assert!(old.branches.is_empty());
         assert_eq!(ErrorReport::capture(&old.clone().into_error()), old);
+    }
+
+    #[test]
+    fn executable_identity_survives_transport_without_classifying_missing_data_files() {
+        let missing = ExecutableNotFound {
+            executable: "java".into(),
+            remote: false,
+        };
+        let original = anyhow::Error::new(missing.clone()).context("prepare Java");
+        let report = ErrorReport::capture(&original);
+        assert_eq!(report.executable_not_found, Some(missing));
+        let encoded = serde_json::to_vec(&report).unwrap();
+        let restored = serde_json::from_slice::<ErrorReport>(&encoded)
+            .unwrap()
+            .into_error();
+        let remote = RemoteError::wrap(restored);
+        assert_eq!(ErrorReport::capture(&remote), report);
+        let data_file = anyhow::Error::from(std::io::Error::from(std::io::ErrorKind::NotFound));
+        assert!(
+            ErrorReport::capture(&data_file)
+                .executable_not_found
+                .is_none()
+        );
     }
 }

@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{endpoint::Endpoint, messaging::Session, operation};
 use anyhow::{Context, Result, ensure};
-use std::{fs::OpenOptions, path::PathBuf, process::Stdio};
+use std::{fs::OpenOptions, process::Stdio};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
@@ -50,7 +50,7 @@ pub(super) async fn open(connection: &Connection, idle_timeout: u64) -> Result<S
 }
 
 async fn start(connection: &Connection, idle_timeout: u64, endpoint: &Endpoint) -> Result<()> {
-    let executable = daemon_executable()?;
+    let executable = crate::daemon::executable()?;
     let log = OpenOptions::new()
         .create(true)
         .append(true)
@@ -78,41 +78,35 @@ async fn start(connection: &Connection, idle_timeout: u64, endpoint: &Endpoint) 
         .context("link readiness pipe is unavailable")?;
     let mut reader = BufReader::new(stdout);
     let mut message = String::new();
-    let result = reader
-        .read_line(&mut message)
-        .await
-        .context("failed to read link startup result");
-    if result? == 0 {
-        let status = child
-            .wait()
+    loop {
+        message.clear();
+        let result = reader
+            .read_line(&mut message)
             .await
-            .context("failed to wait for link startup")?;
-        anyhow::bail!(
-            "mcpmd link exited before readiness with {status}; see {:?}",
-            endpoint.log_path()
-        );
-    }
-    match serde_json::from_str::<Ready>(&message).context("invalid link readiness response")? {
-        Ready::Ready | Ready::AlreadyRunning => {
-            // Reap the child eventually without binding the daemon lifetime to this client.
-            tokio::spawn(async move {
+            .context("failed to read link startup result");
+        if result? == 0 {
+            let status = child
+                .wait()
+                .await
+                .context("failed to wait for link startup")?;
+            anyhow::bail!(
+                "mcpmd link exited before readiness with {status}; see {:?}",
+                endpoint.log_path()
+            );
+        }
+        match serde_json::from_str::<Ready>(&message).context("invalid link readiness response")? {
+            Ready::Warning(message) => tracing::warn!("{message}"),
+            Ready::Ready | Ready::AlreadyRunning => {
+                // Reap the child eventually without binding the daemon lifetime to this client.
+                tokio::spawn(async move {
+                    let _ = child.wait().await;
+                });
+                return Ok(());
+            }
+            Ready::Error(error) => {
                 let _ = child.wait().await;
-            });
-            Ok(())
+                return Err(error.into_error()).context("failed to initialize SSH link");
+            }
         }
-        Ready::Error(error) => {
-            let _ = child.wait().await;
-            Err(error.into_error()).context("failed to initialize SSH link")
-        }
-    }
-}
-
-fn daemon_executable() -> Result<PathBuf> {
-    let current = std::env::current_exe().context("failed to locate the running executable")?;
-    let sibling = current.with_file_name(if cfg!(windows) { "mcpmd.exe" } else { "mcpmd" });
-    if sibling.is_file() {
-        Ok(sibling)
-    } else {
-        Ok(PathBuf::from("mcpmd"))
     }
 }

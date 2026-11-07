@@ -120,7 +120,7 @@ mcpm --ssh COMMAND [--ssh-mcpmd EXE] init <PATH> --remote <REMOTE_PATH>
 }
 ```
 
-`ssh_mcpmd` 省略或为 `null` 时选择远端 PATH 中的 `mcpmd`。远端目录按远端系统解释；连接共享 link，不同服务端路径不产生新的 link。
+`ssh_mcpmd` 省略或为 `null` 时使用远端 OS 的安装位置记录；文件不存在时发出 warning 并尝试远端 PATH 中的 `mcpmd`，fallback 也失败才报错。远端目录按远端系统解释；连接共享 link，不同服务端路径不产生新的 link。
 
 后续 `server init/info` 和已支持远程的 `server mods list/info/deps/source` 在没有显式全局 SSH 参数时自动使用保存的连接。`server init ./workspace --force ...` 因此会重新登记远端 Local Server；若要修改本地保存的连接，应重新使用完整的 `--ssh ... server init ./workspace --remote ... --force`。显式 `--ssh` 优先，位置参数直接按远端路径处理；单独指定 `--ssh-mcpmd` 仍然报错。
 

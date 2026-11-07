@@ -73,7 +73,7 @@ curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts
 - Previous Windows installations at `%LOCALAPPDATA%\Programs\mcpm\mcpm.exe` and their PATH entries are kept. The installer warns when this executable still takes precedence; remove the old executable and old PATH entry explicitly after checking the new suite.
 - An untracked `bin` directory is never silently adopted or replaced. Resolve a reported conflict before installing.
 - These scripts manage the new layout only; they do not uninstall the old single-file layout.
-- Noninteractive SSH sessions may not load your shell configuration. `server info` and `server init` require remote `mcpmd`; use `--ssh-mcpmd` with its absolute path if it is not on PATH. Unmigrated mods/cache commands still require `mcpm-tools` remotely during the transition.
+- Noninteractive SSH sessions may not load your shell configuration. Installers record `mcpmd` in `~/.mcpm/mcpmd.path` on Unix or `%LOCALAPPDATA%\mcpm\mcpmd.path` on Windows. Without an explicit `--ssh-mcpmd`, SSH reads the remote host's record; a missing file warns and falls back to remote PATH. If that fallback also fails, the command reports an error. See [remote discovery](crates/mcpmd/docs/README.md#remote-executable-discovery). Unmigrated mods/cache commands still require remote `mcpm-tools`.
 
 ### Manual installation
 

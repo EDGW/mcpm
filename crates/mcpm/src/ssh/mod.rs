@@ -23,7 +23,7 @@ pub(crate) struct SshArgs {
         long,
         global = true,
         value_name = "PATH",
-        help = "Remote mcpmd executable path (default: mcpmd); requires --ssh. Windows SSH must use cmd as its default shell.",
+        help = "Remote mcpmd executable path; requires --ssh. Defaults to the remote installer record, then PATH with a warning if the record is missing. Windows SSH requires cmd as its default shell and Windows PowerShell.",
         help_heading = "Global options"
     )]
     ssh_mcpmd: Option<String>,

@@ -7,7 +7,7 @@ PUT <3:
 - Explicit `--ssh` selects the host and makes the supplied path remote. Only when `--ssh` is absent does workspace registration select Local or Remote execution. Connection failures never fall back to Local.
 - `SshArgs::create_executor(Some(path))` resolves the path and opens one Executor for the flow. `None` skips workspace discovery, using explicit SSH or Local, for pathless commands.
 - Local calls invoke the operation directly. Remote calls connect to a per-user `mcpmd link`, which owns one reusable SSH process running remote `mcpmd serve`. Concurrent clients have independent IPC streams and share the SSH session without interleaving JSON frames.
-- The remote host needs `mcpmd` for migrated operations. Use `--ssh-mcpmd PATH` when it is not on the remote PATH. The local daemon is found beside mcpm, then through PATH.
+- Migrated operations need remote `mcpmd`. An explicit `--ssh-mcpmd PATH` wins; otherwise use the remote OS's installer record, warning and trying remote PATH only when the record is missing. See [remote executable discovery](../../../mcpmd/docs/README.md#remote-executable-discovery). Locally, prefer the sibling daemon, then the local installer record, then PATH.
 - Remote stages and results are rendered locally. Candidate selection remains local. `mcpmd.logs` supplies structured remote diagnostics; `--remote-logs` controls their console display while the process log retains debug records.
 
 ### Authentication and startup

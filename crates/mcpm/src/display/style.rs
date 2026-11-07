@@ -61,6 +61,11 @@ impl OutputStyle {
         self.paint(value, theme::console(Role::Primary))
     }
 
+    /// Primary foreground only, without the bold emphasis used for main output values.
+    pub(crate) fn primary_plain(&self, value: impl Display) -> String {
+        self.paint(value, theme::get().config.palette(false).primary.console())
+    }
+
     pub(crate) fn secondary(&self, value: impl Display) -> String {
         self.paint(value, theme::console(Role::Secondary))
     }

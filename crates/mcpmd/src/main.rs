@@ -36,7 +36,7 @@ struct LinkArgs {
     /// SSH connection command for a foreground link.
     #[arg(value_name = "SSH")]
     ssh: Option<String>,
-    /// Remote mcpmd executable; defaults to mcpmd on PATH.
+    /// Remote mcpmd executable; otherwise use the remote installer record, then PATH.
     #[arg(long)]
     mcpmd: Option<String>,
     /// Exit after this many seconds without clients or calls; zero disables idle exit.

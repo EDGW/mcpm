@@ -10,6 +10,7 @@ use crate::local::{
     },
 };
 use anyhow::{Context, Result, ensure};
+use mcpm_exec::error::ExecutableNotFound;
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
@@ -252,14 +253,25 @@ fn executable(
 ) -> Result<PathBuf> {
     if Path::new(value).is_absolute() || value.contains('/') || value.contains('\\') {
         let path = root.join(value);
+        if !path.exists() {
+            return Err(ExecutableNotFound {
+                executable: value.into(),
+                remote: false,
+            }
+            .into());
+        }
         ensure!(
             is_executable(&path),
             "configured Java executable does not exist or is not executable: {path:?}"
         );
         return Ok(std::fs::canonicalize(path)?);
     }
-    let path =
-        environment_value(environment, "PATH").context("Java command lookup requires PATH")?;
+    let path = environment_value(environment, "PATH")
+        .ok_or_else(|| ExecutableNotFound {
+            executable: value.into(),
+            remote: false,
+        })
+        .context("Java command lookup requires PATH")?;
     for directory in std::env::split_paths(path) {
         let directory = if directory.is_absolute() {
             directory
@@ -278,7 +290,11 @@ fn executable(
             }
         }
     }
-    anyhow::bail!("Java executable {value:?} was not found in the effective PATH")
+    Err(ExecutableNotFound {
+        executable: value.into(),
+        remote: false,
+    }
+    .into())
 }
 
 fn is_executable(path: &Path) -> bool {

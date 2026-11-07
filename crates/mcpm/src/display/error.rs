@@ -38,7 +38,9 @@ pub(crate) fn write(
     remote: bool,
 ) -> io::Result<()> {
     let label = if remote { "remote error:" } else { "error:" };
-    branch(output, error, label, Some(&OutputStyle::stderr()))
+    let style = OutputStyle::stderr();
+    branch(output, error, label, Some(&style))?;
+    executable_tip(output, error, remote, Some(&style))
 }
 
 fn branch(
@@ -92,11 +94,59 @@ fn line(
     }
 }
 
+fn executable_tip(
+    output: &mut ConsoleWriter<'_>,
+    error: &ErrorReport,
+    remote: bool,
+    style: Option<&OutputStyle>,
+) -> io::Result<()> {
+    fn missing(error: &ErrorReport, remote: bool) -> Option<bool> {
+        let own = error
+            .executable_not_found
+            .as_ref()
+            .filter(|missing| remote || missing.remote)
+            .map(|missing| missing.remote && missing.executable == "mcpmd");
+        error
+            .branches
+            .iter()
+            .filter_map(|branch| missing(branch, remote))
+            .chain(own)
+            .reduce(|daemon, other| daemon || other)
+    }
+    let Some(daemon) = missing(error, remote) else {
+        return Ok(());
+    };
+    let daemon_note = if daemon {
+        "The `mcpmd.path` file normally records mcpmd's path in mcpm's user configuration directory.\n\
+         If the record is missing or is not taking effect, consider reinstalling mcpm.\n"
+    } else {
+        ""
+    };
+    super::console::tip(
+        output,
+        &format!(
+            "Tip: If you are connecting to a Unix-like system, mcpm uses non-interactive SSH;\n\
+             shell startup files such as `.bashrc` and `.zshrc` may NOT be read.\n\
+             We recommend using absolute executable paths.\n\
+             {daemon_note}\
+             To find executables through PATH instead:\n\
+             - zsh: set PATH in `~/.zshenv`.\n\
+             - bash or other shells: consider SSH User Environment (`~/.ssh/environment`),\n\
+               or the SSH client's SetEnv/SendEnv, if the server permits them through\n\
+               PermitUserEnvironment/AcceptEnv."
+        ),
+        3,
+        style,
+    )
+}
+
 /// Plain diagnostic lines for TUI layouts; shares the Console branching and indentation rules.
 pub(crate) fn lines(error: &ErrorReport, remote: bool) -> Vec<String> {
     let mut bytes = Vec::new();
     let label = if remote { "remote error:" } else { "error:" };
     branch(&mut ConsoleWriter::new(&mut bytes), error, label, None)
+        .expect("writing diagnostics into memory cannot fail");
+    executable_tip(&mut ConsoleWriter::new(&mut bytes), error, remote, None)
         .expect("writing diagnostics into memory cannot fail");
     String::from_utf8(bytes)
         .expect("diagnostics are UTF-8")

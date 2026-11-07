@@ -36,6 +36,17 @@ pub(crate) fn argument_files(
         .stdout(stdout.try_clone()?)
         .stderr(stderr.try_clone()?)
         .spawn()
+        .map_err(|source| {
+            if source.kind() == std::io::ErrorKind::NotFound && directory.is_dir() {
+                anyhow::Error::new(mcpm_exec::error::ExecutableNotFound {
+                    executable: executable.display().to_string(),
+                    remote: false,
+                })
+                .context(source)
+            } else {
+                anyhow::Error::from(source)
+            }
+        })
         .with_context(|| format!("failed to inspect Java capabilities using {executable:?}"))?;
     let started = Instant::now();
     let status = loop {

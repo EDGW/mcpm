@@ -40,9 +40,10 @@ pub struct LogRecord {
     pub message: String,
 }
 
-/// Exactly one newline-delimited response sent on the inherited readiness pipe.
+/// Startup warnings followed by one terminal response on the inherited readiness pipe.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Ready {
+    Warning(String),
     Ready,
     AlreadyRunning,
     Error(ErrorReport),

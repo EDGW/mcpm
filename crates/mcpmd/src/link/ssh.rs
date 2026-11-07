@@ -1,10 +1,75 @@
 //! SSH argv parsing and fixed remote daemon invocation, without shell-parsed operation inputs.
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use mcpm_exec::operation::Connection;
-use std::{path::Path, process::Command};
+use std::{
+    path::Path,
+    process::{Command, Stdio},
+};
 
-pub fn command(connection: &Connection) -> Result<Command> {
+/// Probe the remote command interpreter, never the local OS or the daemon basename.
+pub async fn command(connection: &Connection) -> Result<Command> {
+    if let Some(daemon) = &connection.mcpmd {
+        ensure!(
+            !daemon.trim().is_empty() && !daemon.contains(['\0', '\r', '\n']),
+            "remote mcpmd executable is empty or contains NUL or line breaks"
+        );
+    }
+    let mut probe = transport(connection)?;
+    probe.arg("echo mcpm-shell:%OS%");
+    let output = tokio::process::Command::from(probe)
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output()
+        .await
+        .context("failed to probe remote SSH command interpreter")?;
+    ensure!(
+        output.status.success(),
+        "SSH interpreter probe exited with {}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    let marker = std::str::from_utf8(&output.stdout)
+        .context("remote SSH interpreter probe is not UTF-8")?
+        .trim();
+    let remote = match marker {
+        "mcpm-shell:Windows_NT" => {
+            // Encoding the script avoids cmd expansion of quotes, %, ! and metacharacters.
+            let override_path = connection.mcpmd.as_deref().map_or_else(
+                || "$null".to_owned(),
+                |path| format!("'{}'", path.replace('\'', "''")),
+            );
+            let script = format!(
+                "$daemon = {override_path}\n{}",
+                include_str!("bootstrap.ps1")
+            );
+            let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+            format!(
+                "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {}",
+                STANDARD.encode(bytes)
+            )
+        }
+        "mcpm-shell:%OS%" => match &connection.mcpmd {
+            Some(daemon) => shlex::try_join([
+                "sh",
+                "-c",
+                include_str!("bootstrap.sh"),
+                "mcpm-bootstrap",
+                daemon.as_str(),
+            ])?,
+            None => shlex::try_join(["sh", "-c", include_str!("bootstrap.sh"), "mcpm-bootstrap"])?,
+        },
+        _ => bail!(
+            "unsupported remote SSH command interpreter: {marker:?}; expected POSIX shell or Windows cmd"
+        ),
+    };
+    let mut command = transport(connection)?;
+    command.arg(remote);
+    Ok(command)
+}
+
+fn transport(connection: &Connection) -> Result<Command> {
     let words =
         shlex::split(&connection.ssh).context("invalid quoting in SSH connection command")?;
     let executable = words.first().context("SSH connection command is empty")?;
@@ -22,24 +87,6 @@ pub fn command(connection: &Connection) -> Result<Command> {
     } else {
         command.args(&words[1..]);
     }
-    let daemon = connection.mcpmd.as_deref().unwrap_or("mcpmd");
-    ensure!(
-        !daemon.trim().is_empty(),
-        "remote mcpmd executable is empty"
-    );
-    let windows = daemon.contains('\\')
-        || daemon.as_bytes().get(1) == Some(&b':')
-        || daemon.ends_with(".exe");
-    let remote = if windows {
-        ensure!(
-            !daemon.contains(['\0', '\r', '\n', '"', '%', '!']),
-            "remote mcpmd executable for Windows cmd cannot contain NUL, line breaks, quotes, '%' or '!'"
-        );
-        format!("\"{daemon}\" serve")
-    } else {
-        shlex::try_join([daemon, "serve"]).context("remote executable cannot contain NUL bytes")?
-    };
-    command.arg(remote);
     Ok(command)
 }
 

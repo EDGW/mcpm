@@ -61,6 +61,8 @@ try {
     $installDir = Join-Path $env:LOCALAPPDATA 'Programs\mcpm'
     $binDir = Join-Path $installDir 'bin'
     $manifestPath = Join-Path $installDir 'manifest'
+    $recordPath = Join-Path $env:LOCALAPPDATA 'mcpm\mcpmd.path'
+    $daemonPath = Join-Path $binDir 'mcpmd.exe'
     foreach ($version in @('v0.1.0-dev.26w43b', 'v0.1.0-dev.26w42z', 'v0.1.0-alpha', 'v0.0.9')) {
         Invoke-Installer -Version $version -ExpectFailure
     }
@@ -75,14 +77,18 @@ try {
     $files = @(Get-ChildItem -LiteralPath $binDir)
     Assert-True ($files.Count -eq $expectedFiles) 'The complete suite was not installed.'
     Assert-True (Test-Path -LiteralPath $legacy) 'Legacy executable was removed.'
+    Assert-True ([IO.File]::ReadAllText($recordPath) -ceq "$daemonPath`n") 'Daemon registration does not point at the installed daemon.'
     $originalManifest = [IO.File]::ReadAllText($manifestPath)
     Remove-Item -LiteralPath $files[0].FullName
     Invoke-Installer
     Assert-True ((Get-ChildItem -LiteralPath $binDir).Count -eq $expectedFiles) 'Repair did not restore a missing binary.'
+    $foreignRecord = "C:\custom path\mcpmd.exe`n"
+    [IO.File]::WriteAllText($recordPath, $foreignRecord)
     $testState.FailCommit = $true
     Invoke-Installer -ExpectFailure
     Assert-True ([IO.File]::ReadAllText($manifestPath) -ceq $originalManifest) 'Rollback did not restore the manifest.'
     Assert-True ((Get-ChildItem -LiteralPath $binDir).Count -eq $expectedFiles) 'Rollback did not restore all binaries.'
+    Assert-True ([IO.File]::ReadAllText($recordPath) -ceq $foreignRecord) 'Rollback did not restore the daemon registration.'
     $lock = [IO.File]::Open((Join-Path $installDir '.install-lock'), 'Open', 'ReadWrite', 'None')
     try { Invoke-Installer -ExpectFailure } finally { $lock.Dispose() }
     $checksum = Join-Path $testState.ReleaseDir 'mcpm-windows-x86_64.zip.sha256'
@@ -106,6 +112,7 @@ try {
     Invoke-Installer -ExpectFailure
     Invoke-Installer -Uninstall
     Assert-True (Test-Path -LiteralPath $foreign) 'Uninstall removed an unmanaged file.'
+    Assert-True ([IO.File]::ReadAllText($recordPath) -ceq $foreignRecord) 'Uninstall removed a foreign daemon registration.'
     Assert-True (-not (Test-Path -LiteralPath $manifestPath)) 'Uninstall retained the manifest.'
     Assert-True ([Environment]::GetEnvironmentVariable('Path', 'User') -notlike "*$binDir*") 'Owned PATH entry was retained.'
     Assert-True ([Environment]::GetEnvironmentVariable('Path', 'User') -like "*$installDir*") 'Legacy PATH entry was removed.'
@@ -117,6 +124,7 @@ try {
     Invoke-Installer
     Invoke-Installer -Uninstall
     Assert-True ([Environment]::GetEnvironmentVariable('Path', 'User') -like "*$binDir*") 'Uninstall removed a preexisting PATH entry.'
+    Assert-True (-not (Test-Path -LiteralPath $recordPath)) 'Uninstall retained its own daemon registration.'
     Write-Output 'Windows installer lifecycle checks passed.'
 } finally {
     $env:LOCALAPPDATA = $originalLocal
