@@ -96,9 +96,10 @@ SSH 使用密钥或 ssh-agent 非交互认证；未知 host key 需先手动 SSH
 ## 命令文档
 
 - [Server 基础：info、init](server/basics.md)
+- [Server 启动与连接：launch、attach](server/launch.md)
 - [Server stash](server/stash.md)
 - [mcpmd：serve、link](../../mcpmd/docs-zh/README.md)
-- [Legacy：尚未迁移（client、mods、cache、launch 等）](legacy/README.md)
+- [Legacy：尚未迁移（client、mods、cache 等）](legacy/README.md)
 - [Backend 模块](../../mcpm-backend/docs-zh/README.md)
 
 [English](../docs/README.md)

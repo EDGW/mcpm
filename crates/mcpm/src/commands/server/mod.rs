@@ -3,6 +3,7 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
+mod after_help;
 mod attach;
 mod info;
 mod init;
