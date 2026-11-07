@@ -4,9 +4,9 @@ use std::io::Write;
 
 use anyhow::Result;
 use clap::Args;
-use mcpm_lib::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::operations::cache::{Info, InfoInput, List, Selection};
 
-use super::{columns::Columns, entry};
+use super::columns::{self, Columns};
 use crate::{
     display::cache::{self, Column},
     terminal,
@@ -24,39 +24,62 @@ pub(super) struct ListArgs {
     details: bool,
 }
 
-pub(super) fn run(
+pub(super) async fn run(
     args: ListArgs,
-    selection: ModsCacheSelection,
+    context: &super::Context,
     out: &mut impl Write,
-    headers: bool,
 ) -> Result<()> {
     let columns = args.columns.selected(if args.details {
         &Column::ALL
     } else {
         &[Column::Blake3]
     });
-    let cache = selection.open()?;
-    let entries = cache.scan()?;
-    if !crate::commands::confirm::reading(entries.len(), "cache entries")? {
+    let executor = context.executor().await?;
+    let inventory = executor.call::<List>(context.cache.clone()).await?;
+    if !crate::commands::confirm::reading(inventory.entries.len(), "cache entries")? {
         return Ok(());
     }
     if terminal::stdout_is_tty() && columns.len() == 1 {
         cache::single_header(out, columns[0], args.columns.explicit() || args.details)?;
     } else {
-        cache::headers(out, &columns, headers)?;
+        cache::headers(out, &columns, context.headers)?;
     }
-    for (index, item) in entries.into_iter().enumerate() {
-        if index > 0 && terminal::stdout_is_tty() && columns.len() > 1 {
+    let options = columns::read_options(&columns);
+    let mut first = true;
+    let mut render = |entry: &mcpm_backend::operations::cache::Entry| -> Result<()> {
+        if !first && terminal::stdout_is_tty() && columns.len() > 1 {
             writeln!(out)?;
         }
-        let observed = entry::observe(
-            &cache,
-            item.key,
-            item.inspection,
-            &columns,
-            terminal::stdout_is_tty(),
-        )?;
-        cache::list_entry(out, &observed, &columns)?;
+        cache::list_entry(out, entry, &columns)?;
+        out.flush()?;
+        first = false;
+        Ok(())
+    };
+    if options.sha256 || (options.metadata && options.metadata_details) {
+        let mut selected = context.cache.clone();
+        selected.selection = mcpm_lib::local::cache::mods::ModsCacheSelection::Directory {
+            path: inventory.directory,
+        };
+        let mut stream = executor
+            .call::<Info>(InfoInput {
+                cache: selected,
+                selection: Selection::Ids(
+                    inventory
+                        .entries
+                        .into_iter()
+                        .map(|entry| entry.key)
+                        .collect(),
+                ),
+                options,
+            })
+            .await?;
+        while let Some(entry) = stream.next().await {
+            render(&entry?)?;
+        }
+    } else {
+        for entry in inventory.entries {
+            render(&entry.into_entry(options.metadata)?)?;
+        }
     }
     Ok(())
 }

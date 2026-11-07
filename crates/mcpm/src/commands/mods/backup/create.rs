@@ -4,10 +4,8 @@ use std::{io, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_lib::local::{
-    cache::mods::ModsCacheSelection,
-    mcmod::backup::{self, CreateOptions},
-    runtime::RuntimeEnvironment,
+use mcpm_backend::operations::mods::backup::{
+    Create, CreateInput, CreateStorage, PublicationEvent,
 };
 
 use super::DisplayArgs;
@@ -41,39 +39,42 @@ pub(super) struct CreateArgs {
     display: DisplayArgs,
 }
 
-pub(super) fn run(args: CreateArgs) -> Result<()> {
-    let selection = args
-        .cache_dir
-        .map(|path| ModsCacheSelection::Directory { path })
-        .unwrap_or(ModsCacheSelection::Default);
+pub(super) async fn run(args: CreateArgs, context: &super::Context) -> Result<()> {
     if args.cache_only {
         display::cache_only_warning()?;
     }
-    let environment = RuntimeEnvironment::new().with_backup_cache(selection);
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<Create>(CreateInput {
+            source: args.source,
+            backup: args.backup,
+            storage: if args.cache_only {
+                CreateStorage::CacheOnly
+            } else {
+                CreateStorage::Full(args.mode.into())
+            },
+            cache_dir: args.cache_dir,
+            parallelism: args.parallelism,
+        })
+        .await?;
     let mut display = Presentation::new(
         io::stdout().lock(),
         args.display.details,
         args.display.headers,
     );
-    let outcome = backup::create(
-        &args.source,
-        &args.backup,
-        &environment,
-        CreateOptions {
-            storage: if args.cache_only {
-                backup::CreateStorage::CacheOnly
-            } else {
-                backup::CreateStorage::Full(args.mode.into())
-            },
-            parallelism: args.parallelism,
-        },
-        |event| display.event(event),
-    )
-    .with_context(|| format!("failed to create backup {:?}", args.backup))?;
+    let mut result = None;
+    while let Some(event) = stream.next().await {
+        match event? {
+            PublicationEvent::Progress(event) => display.event(event.into())?,
+            PublicationEvent::Finished { outcome, cache } => result = Some((outcome, cache)),
+        }
+    }
+    let (outcome, cache) = result.context("backup creation ended without a result")?;
     display.finish(&outcome)?;
     if args.cache_only {
         display::cache_only_created(
-            environment.cache.backup.open()?.path(),
+            &cache.context("cache-only backup creation ended without a cache location")?,
             outcome.manifest().files().is_empty(),
         )?;
     }

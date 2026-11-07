@@ -2,9 +2,10 @@
 
 use super::super::rows;
 use super::*;
-use crate::commands::supports::mods::{scan::ScannedFile, source_path::PathArgs};
+use crate::commands::supports::mods::source_path::PathArgs;
 use clap::Parser;
 use crossterm::event::{Event, KeyModifiers, MouseEvent, MouseEventKind};
+use mcpm_backend::operations::mods::loading::scan::ScannedFile;
 use mcpm_lib::local::runtime::RuntimeEnvironment;
 use mcpm_lib::local::{
     mcmod::{self, IdentificationErrorAction, ModEntry},
@@ -49,10 +50,17 @@ fn fixture(expanded: bool) -> Browser {
     )
 }
 fn summary() -> Summary<'static> {
-    static ENVIRONMENT: std::sync::LazyLock<RuntimeEnvironment> =
-        std::sync::LazyLock::new(|| RuntimeEnvironment::new().with_mods_cache(None));
+    static EXECUTOR: std::sync::LazyLock<mcpm_exec::service::Executor> =
+        std::sync::LazyLock::new(|| {
+            Runtime::new()
+                .unwrap()
+                .block_on(mcpm_exec::service::Executor::open(
+                    mcpm_exec::service::Target::Local,
+                ))
+                .unwrap()
+        });
     Summary {
-        location: Location::Local(&ENVIRONMENT),
+        location: Location::new(&EXECUTOR, None),
         ignored: 0,
         ignored_files: &[],
         input_errors: 0,
@@ -376,81 +384,144 @@ fn two_line_items_map_both_rendered_rows_to_the_same_selection() {
 }
 
 #[test]
-fn two_line_source_entries_map_to_one_field_and_scroll_together() {
-    use crossterm::event::{KeyCode, KeyEvent, MouseButton};
+fn identification_counts_unique_files_and_preserves_partial_cache_facts() {
+    use mcpm_backend::operations::mods::identification::{SourceResolution, SourceResult};
     use mcpm_lib::source::{
         FileId, FileMatch, FileRef, MatchedFileRole, ProjectId, ProjectRef, SourceId,
     };
 
-    let mut browser = fixture(false);
-    browser.focus = Focus::Details;
-    browser.field = 4;
-    for platform in identify::Platform::ALL {
-        browser.identification[0][platform.index()] = identify::State::Matched(FileMatch {
-            reference: FileRef {
-                project: ProjectRef {
-                    source: SourceId(platform.id().into()),
-                    id: ProjectId("project".into()),
-                },
-                id: FileId("version".into()),
+    let matched = |source: &str| FileMatch {
+        reference: FileRef {
+            project: ProjectRef {
+                source: SourceId(source.into()),
+                id: ProjectId("project".into()),
             },
-            filename: "release.jar".into(),
-            size: 1,
-            hashes: vec![],
-            role: MatchedFileRole::Primary,
-        });
-    }
-    let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
-    terminal
-        .draw(|frame| {
-            view::draw(frame, &mut browser, &Column::ALL, &summary());
-        })
-        .unwrap();
-    assert_eq!(browser.detail_offset, 0);
-    let top = browser.detail_area.y + 1;
-    let x = browser.detail_area.x + 2;
-    for (row, field) in [(4, 4), (5, 4), (6, 5), (7, 5)] {
-        input::handle(
-            &mut browser,
-            &summary(),
-            Event::Mouse(MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Left),
-                column: x,
-                row: top + row,
-                modifiers: KeyModifiers::NONE,
-            }),
-            10,
-        );
-        assert_eq!(browser.field, field);
-        assert!(matches!(
-            input::handle(
-                &mut browser,
-                &summary(),
-                Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-                10
+            id: FileId("file".into()),
+        },
+        filename: "release.jar".into(),
+        size: 1,
+        hashes: vec![],
+        role: MatchedFileRole::Primary,
+    };
+    let source = |platform: identify::Platform, resolution| SourceResult {
+        source: SourceId(platform.id().into()),
+        cache_id: Some(SourceId(platform.id().into())),
+        resolution,
+    };
+    let failure = || SourceResolution::Failed(Arc::new(anyhow::anyhow!("unavailable").into()));
+    let partial = Arc::new(QueryResult {
+        sources: vec![
+            source(
+                identify::Platform::Modrinth,
+                SourceResolution::Cached(matched("modrinth")),
             ),
-            input::Update::OpenFiles(_)
+            source(identify::Platform::CurseForge, failure()),
+        ],
+    });
+    let mut browser = fixture(true);
+    browser.identification = vec![[identify::State::Queued, identify::State::Queued]; 3];
+    browser.identification_owners = vec![0, 1, 2];
+    browser.identification_total = 3;
+    browser.apply_identification(identify::Update::Item {
+        files: vec![0, 1],
+        result: Ok(partial.clone()),
+    });
+    let summary = browser.identification_summary();
+    assert_eq!(
+        (summary.total, summary.partial_failed, summary.failed),
+        (1, 1, 0)
+    );
+    assert_eq!(browser.identification_progress(), Some((1, 2)));
+    for file in [0, 1] {
+        assert!(matches!(
+            browser.identification[file][0],
+            identify::State::Matched { cached: true, .. }
         ));
     }
-    browser.move_by(-1);
-    assert_eq!(browser.field, 4);
-    browser.move_by(1);
-    assert_eq!(browser.field, 5);
-    // The compact list keeps both lines of a selected source visible after scrolling.
-    let mut short = Terminal::new(TestBackend::new(80, 11)).unwrap();
-    short
-        .draw(|frame| {
-            view::draw(frame, &mut browser, &Column::ALL, &summary());
-        })
-        .unwrap();
-    assert!(browser.detail_offset > 0);
-    let field_top: usize = DETAIL_FIELDS
-        .iter()
-        .skip(browser.detail_offset)
-        .take(5 - browser.detail_offset)
-        .map(|field| field.height())
-        .sum();
-    assert!(field_top + 2 <= browser.detail_area.height.saturating_sub(2) as usize);
-    assert_eq!(browser.detail_field_at(field_top as u16), Some(5));
-    assert_eq!(browser.detail_field_at(field_top as u16 + 1), Some(5));
+
+    // Repeated terminal/subset events, loading, nested rows and filtering cannot recount the file.
+    browser.apply_identification(identify::Update::Item {
+        files: vec![1],
+        result: Ok(partial),
+    });
+    browser.apply_identification(identify::Update::Loading { files: vec![0, 1] });
+    browser.query = "no-matching-mod".into();
+    browser.filter();
+    assert_eq!(browser.identification_summary().total, 1);
+    assert!(matches!(
+        browser.identification[0][0],
+        identify::State::Matched { cached: true, .. }
+    ));
+    let cache = browser.identification_cache_summary();
+    assert_eq!(
+        (cache.total, cache.fully_cached, cache.partially_cached),
+        (1, 0, 1)
+    );
+
+    browser.apply_identification(identify::Update::Item {
+        files: vec![2],
+        result: Ok(Arc::new(QueryResult {
+            sources: vec![
+                source(
+                    identify::Platform::Modrinth,
+                    SourceResolution::Queried(Some(matched("modrinth"))),
+                ),
+                source(identify::Platform::CurseForge, failure()),
+            ],
+        })),
+    });
+    let summary = browser.identification_summary();
+    assert_eq!(
+        (
+            summary.total,
+            summary.success,
+            summary.partial_failed,
+            summary.failed
+        ),
+        (2, 0, 1, 1)
+    );
+    assert_eq!(
+        summary.completed(),
+        summary.success + summary.partial_failed + summary.failed
+    );
+    assert_eq!(browser.identification_progress(), None);
+    assert!(matches!(
+        browser.identification[2][0],
+        identify::State::Matched { cached: false, .. }
+    ));
+    assert_eq!(browser.identification_cache_summary().total, 2);
+}
+
+#[test]
+fn preparation_and_stopped_lifecycle_do_not_become_query_failures() {
+    let failure = || {
+        let (error, remote) = crate::diagnostics::capture(&anyhow::anyhow!("cannot prepare"));
+        identify::Failure { error, remote }
+    };
+    let mut browser = fixture(false);
+    browser.apply_identification(identify::Update::Item {
+        files: vec![0],
+        result: Err(failure()),
+    });
+    let summary = browser.identification_summary();
+    assert_eq!(
+        (
+            summary.preparation_failed,
+            summary.failed,
+            summary.partial_failed
+        ),
+        (1, 0, 0)
+    );
+    assert_eq!(summary.completed(), 0);
+    assert_eq!(browser.identification_cache_summary().total, 0);
+
+    let mut browser = fixture(false);
+    browser.apply_identification(identify::Update::Stopped {
+        files: vec![0],
+        failure: failure(),
+    });
+    let summary = browser.identification_summary();
+    assert_eq!(summary.total, 0);
+    assert!(!summary.has_failures());
+    assert_eq!(browser.identification_progress(), None);
 }

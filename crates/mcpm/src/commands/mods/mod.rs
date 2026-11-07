@@ -7,6 +7,7 @@ mod backup;
 mod cache;
 mod dep_graph;
 mod deps;
+mod digest;
 mod info;
 mod inspection;
 mod list;
@@ -28,6 +29,8 @@ enum ModsCommand {
     DepGraph(dep_graph::DepGraphArgs),
     /// Show direct dependency declarations (Console, Raw; Remote supported).
     Deps(deps::DepsArgs),
+    /// Compute file size and digests on the local or SSH host (Console, Raw).
+    Digest(digest::DigestArgs),
     /// Show metadata and dependencies (Console, Raw; Remote supported).
     Info(info::InfoArgs),
     /// Browse local mod files (TUI, Console, Raw; Remote supported).
@@ -37,22 +40,12 @@ enum ModsCommand {
 }
 
 pub(crate) fn run(args: ModsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if ssh.is_requested()
-        && matches!(
-            args.command,
-            ModsCommand::DepGraph(_) | ModsCommand::Cache(_) | ModsCommand::Backup(_)
-        )
-    {
-        anyhow::bail!(
-            "--ssh and --ssh-mcpm are currently supported only by {} mods list/info/deps/source identify",
-            crate::program::roots().tools
-        );
-    }
     match args.command {
-        ModsCommand::Cache(args) => cache::run(args),
-        ModsCommand::Backup(args) => backup::run(args),
-        ModsCommand::DepGraph(args) => dep_graph::run(args),
+        ModsCommand::Cache(args) => cache::run(args, ssh),
+        ModsCommand::Backup(args) => backup::run(args, ssh),
+        ModsCommand::DepGraph(args) => dep_graph::run(args, ssh),
         ModsCommand::Deps(args) => deps::run(args, ssh),
+        ModsCommand::Digest(args) => digest::run(args, ssh),
         ModsCommand::Info(args) => info::run(args, ssh),
         ModsCommand::List(list) => list::run(list, ssh),
         ModsCommand::Source(args) => source::run(args, ssh),

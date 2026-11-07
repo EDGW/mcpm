@@ -1,10 +1,10 @@
-//! Explicit name/UUID selection, literal stdin merging and UUID-level deduplication.
+//! Explicit name/UUID CLI selection and literal typed stdin merging; resolution belongs to the host.
 
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, ensure};
 use clap::{Args, ValueEnum};
-use mcpm_lib::local::mc::server::stash::{Selector, Stash, StashStore};
+use mcpm_backend::operations::server::stash::Selector;
 use uuid::Uuid;
 
 #[derive(Debug, Args)]
@@ -84,27 +84,6 @@ impl Multiple {
         selected.retain(|selector| seen.insert(selector.clone()));
         Ok(selected)
     }
-}
-
-pub(super) fn resolve(
-    store: &StashStore<'_>,
-    selectors: Vec<Selector>,
-) -> Vec<(String, Result<Stash>)> {
-    let mut seen = HashSet::new();
-    selectors
-        .into_iter()
-        .filter_map(|selector| {
-            let label = label(&selector);
-            let result = store
-                .resolve(&selector)
-                .with_context(|| format!("failed to resolve stash {label:?}"));
-            if result.as_ref().is_ok_and(|stash| !seen.insert(stash.id())) {
-                None
-            } else {
-                Some((label, result))
-            }
-        })
-        .collect()
 }
 
 pub(super) fn label(selector: &Selector) -> String {

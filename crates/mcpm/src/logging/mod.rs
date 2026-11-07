@@ -18,11 +18,13 @@ use tracing_subscriber::{
 
 use crate::terminal;
 
-pub(crate) use writer::{ProgressGuard, attach_progress, pause_console};
+pub(crate) use writer::{
+    ConsoleChannelGuard, ConsoleGuard, ProgressGuard, attach_progress, pause_console,
+    redirect_console,
+};
 
 mod file;
 mod format;
-pub(crate) mod stream;
 mod writer;
 
 const REMOTE_TARGET: &str = "mcpm::remote_log";
@@ -39,7 +41,7 @@ fn remote_logs_enabled() -> bool {
     REMOTE_LOGS.get().copied().unwrap_or(false)
 }
 
-/// Replays daemon records through the same remote console filter and file sink as legacy logs.
+/// Replays daemon records through the remote console filter and process file sink.
 pub(crate) async fn subscribe_executor(executor: &mcpm_exec::service::Executor) -> Result<()> {
     let selected = if level() == LogLevel::Trace {
         "trace"
@@ -70,28 +72,18 @@ pub(crate) async fn subscribe_executor(executor: &mcpm_exec::service::Executor) 
     Ok(())
 }
 
-pub(crate) fn init(
-    level: LogLevel,
-    started: SystemTime,
-    remote: bool,
-    remote_logs: bool,
-) -> Result<()> {
+pub(crate) fn init(level: LogLevel, started: SystemTime, remote_logs: bool) -> Result<()> {
     let (file, path) = file::open(started)?;
     let _ = LEVEL.set(level);
     let _ = REMOTE_LOGS.set(remote_logs);
-    subscriber(level, writer::WriterFactory, file, remote)
+    subscriber(level, writer::WriterFactory, file)
         .try_init()
         .map_err(|error| anyhow::anyhow!("failed to initialize diagnostic logging: {error}"))?;
     tracing::debug!(version = crate::build_info::VERSION, pid = std::process::id(), log_file = %path.display(), "mcpm started");
     Ok(())
 }
 
-fn subscriber<W>(
-    level: LogLevel,
-    console: W,
-    file: File,
-    remote: bool,
-) -> impl tracing::Subscriber + Send + Sync
+fn subscriber<W>(level: LogLevel, console: W, file: File) -> impl tracing::Subscriber + Send + Sync
 where
     W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
 {
@@ -99,11 +91,7 @@ where
         .with_ansi(terminal::stderr_color_enabled())
         .with_writer(console)
         .event_format(format::Console::default())
-        .with_filter(if remote {
-            LevelFilter::OFF
-        } else {
-            level.filter()
-        })
+        .with_filter(level.filter())
         // diagnostics renders its themed error chain separately on stderr.
         .with_filter(filter_fn(|metadata| {
             metadata.target() != DIAGNOSTIC_TARGET
@@ -113,18 +101,11 @@ where
         .with_ansi(false)
         .with_writer(Mutex::new(file))
         .with_filter(LevelFilter::DEBUG);
-    tracing_subscriber::registry()
-        .with(console)
-        .with(file)
-        .with(stream::Capture.with_filter(if remote {
-            LevelFilter::TRACE
-        } else {
-            LevelFilter::OFF
-        }))
+    tracing_subscriber::registry().with(console).with(file)
 }
 
 pub(crate) fn record_error(error: &anyhow::Error) {
-    tracing::error!(target: DIAGNOSTIC_TARGET, error = ?mcpm_lib::error::ErrorReport::capture(error), "operation failed");
+    tracing::error!(target: DIAGNOSTIC_TARGET, error = ?mcpm_exec::error::ErrorReport::capture(error), "operation failed");
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]

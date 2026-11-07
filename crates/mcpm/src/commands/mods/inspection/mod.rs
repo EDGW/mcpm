@@ -1,80 +1,44 @@
-//! Shared file-command dispatch for local and SSH inspection; no command-specific presentation.
-
-use mcpm_lib::local::runtime::RuntimeEnvironment;
-use std::path::PathBuf;
-
-use anyhow::Result;
+//! Shared file-command flow over typed Host inspection, without local/SSH business branches.
 
 use crate::{
     commands::supports::mods::{
         inspect::{self, Display},
         loaders::LoaderArgs,
-        selection::{Scope, Selection},
     },
     ssh::SshArgs,
 };
+use anyhow::Result;
+use mcpm_backend::operations::mods::loading::{
+    ScopeInput,
+    inspection::Input,
+    selection::{Selection, SelectionInput},
+};
+use mcpm_lib::local::cache::mods::ModsCacheSelection;
+use std::{num::NonZeroUsize, path::PathBuf};
 
-mod remote;
-
-#[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn run(
     selection: Selection,
     directory: PathBuf,
     loaders: LoaderArgs,
-    environment: &RuntimeEnvironment,
-    loading: impl Into<crate::commands::supports::mods::scan::Options>,
+    cache: Option<ModsCacheSelection>,
+    parallelism: usize,
     display: Display<'_>,
     ssh: SshArgs,
 ) -> Result<()> {
-    let loading = loading.into();
-    let started = std::time::Instant::now();
-    let command = match display {
-        Display::Info => "mod.info",
-        Display::Dependencies(_) => "mod.deps",
-    };
-    let _span = tracing::info_span!(
-        "mod_inspection",
-        command,
-        execution = if ssh.is_requested() { "ssh" } else { "local" }
-    )
-    .entered();
-    tracing::info!("Starting mod inspection");
-    tracing::debug!(
-        ?selection,
-        ?directory,
-        ?loaders,
-        parallelism = loading.parallelism,
-        "Selected mod inspection options"
-    );
-    ssh.validate()?;
     if selection.is_empty() {
         return inspect::prompt_for_input();
     }
-    let result = if ssh.is_requested() {
-        remote::run_ssh(
-            ssh,
-            selection,
-            directory,
-            loaders,
-            environment,
-            loading,
-            display,
-        )
-    } else {
-        inspect::run(
-            selection,
-            Scope::directory(directory),
-            loaders.select(),
-            loaders.is_filtered(),
-            environment,
-            loading,
-            display,
-        )
-    };
-    tracing::debug!(
-        success = result.is_ok(),
-        elapsed_ms = started.elapsed().as_millis(),
-        "Mod inspection ended"
-    );
-    result
+    inspect::run(
+        Input {
+            scope: ScopeInput::Directory {
+                directory,
+                loaders: loaders.ids(),
+                cache,
+            },
+            selection: SelectionInput::from_selection(selection)?,
+            parallelism: NonZeroUsize::new(parallelism).expect("validated parallelism"),
+        },
+        display,
+        ssh,
+    )
 }

@@ -2,14 +2,16 @@
 
 use super::{ServerConfig, deserialize_conf};
 use anyhow::{Context, Result, ensure};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use toml::{Table, Value};
 
 /// Launch-only overrides. Scalars are unique; list operations preserve their input order.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
+#[serde(transparent)]
 pub struct ConfigurationOverrides {
     operations: Vec<Operation>,
+    #[serde(skip)]
     scalars: HashSet<String>,
 }
 
@@ -119,14 +121,29 @@ impl ConfigurationOverrides {
     }
 }
 
-#[derive(Debug)]
+impl<'de> Deserialize<'de> for ConfigurationOverrides {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let operations = Vec::<Operation>::deserialize(deserializer)?;
+        let mut overrides = Self::default();
+        for operation in operations {
+            overrides
+                .push(&operation.key, operation.value, operation.mode, None)
+                .map_err(serde::de::Error::custom)?;
+        }
+        Ok(overrides)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct Operation {
     key: String,
     value: Value,
     mode: Mode,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 enum Mode {
     Assign,
     ReplaceList,

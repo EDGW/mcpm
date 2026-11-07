@@ -115,6 +115,17 @@ fn run(root: &Path, arguments: &[&str]) -> Result<Output> {
         .env_remove("GIT_COMMON_DIR")
         .stdin(Stdio::null())
         .output()
+        .map_err(|source| {
+            if source.kind() == io::ErrorKind::NotFound && root.is_dir() {
+                anyhow::Error::new(mcpm_exec::error::ExecutableNotFound {
+                    executable: "git".into(),
+                    remote: false,
+                })
+                .context(source)
+            } else {
+                anyhow::Error::from(source)
+            }
+        })
         .with_context(|| {
             format!("failed to execute Git in {root:?}; use --no-git to skip Git setup")
         })

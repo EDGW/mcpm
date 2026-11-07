@@ -93,6 +93,31 @@ mcpm-tools mods dep-graph view -i graph.json fabric:examplemod --no-default-igno
 
 过滤对全部依赖层级生效，不再沿隐藏的边继续遍历；同一节点仍可能通过其他可见路径出现。正向模式的最浅展开层级及 `[shared]` 标记依据过滤后的图计算，隐藏的关系不会影响折叠位置；反向模式逐路径展开，不折叠共享节点。过滤不修改存储的 Graph 或识别失败记录。
 
+### 重复 Primary 与问题视图
+
+同一 `(loader, modid)` 节点有多于一个 Primary candidate 即属于重复问题，显示 `[duplicate primary: N]`。版本相同也计为重复；Nested、External 不参与计数，不同 loader 的同名 ID 不合并。普通完整视图也显示此标记。
+
+| 参数 | 行为 |
+| --- | --- |
+| `--duplicate-primary` | 只选择重复 Primary 节点及通向它们的上下文路径；与显式 `--rule` 命中的依赖关系取并集。 |
+| `--problem`／`-p` | 选择 Required 的 unmatched/unknown、Breaks/Conflicts 的 matched/unknown，以及重复 Primary；关闭默认忽略并隐藏无关孤立根。 |
+| `--no-duplicate-primary` | 关闭重复 Primary 筛选，可覆盖 `--problem` 默认启用；不抹去其他可见节点已有的重复标记。 |
+
+```sh
+mcpm-tools mods dep-graph view -i graph.json --duplicate-primary
+mcpm-tools mods dep-graph view -i graph.json --problem
+mcpm-tools mods dep-graph view -i graph.json --problem --no-duplicate-primary
+mcpm-tools mods dep-graph view -i graph.json --duplicate-primary --rule required:unmatched
+```
+
+- 正反开关互斥。未指定时，仅 `--problem` 默认启用重复 Primary 筛选。
+- 重复节点即使没有依赖边也保留；`--ignore-isolated-root` 不隐藏已选中的重复问题。筛选后仍展示全部重复 Primary 证据，不要求这些 candidate 同时具有依赖错误。
+- `--type`／`--types` 和 `--rule` 只约束依赖边，不改变节点的重复判定；隐藏的边不会成为上下文路径。显式 `--ignore`／`--ignores` 也会关闭相应节点的重复问题选择。
+- `--reverse` 沿反向路径保留问题上下文；重复根仍展示 Primary 证据叶节点，这些叶节点不展开正向依赖。
+- 候选总数取自完整节点，可能包含被问题筛选隐藏的 Nested/External；重复标记单独给出 Primary 数量。
+- 不改变“任一 candidate 满足则依赖匹配”的规则，不选择实际加载候选。重复由现有图数据派生，不改变快照格式；图中来自 `.jar.disabled` 的 Primary 也参与计数，因为现有快照不保存启用状态。
+- 服务器的 `mcpm mods dep-graph view` 使用相同参数和判定；`mcpm mods check` 自动采用相同的 `--problem` 范围。
+
 ### 被依赖树
 
 ```sh

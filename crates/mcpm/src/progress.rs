@@ -100,9 +100,7 @@ impl Progress {
 
     pub(crate) fn report(&self, error: &anyhow::Error) {
         crate::logging::record_error(error);
-        if !crate::logging::stream::is_forwarding() {
-            self.suspend(|| crate::diagnostics::display_error(error));
-        }
+        self.suspend(|| crate::diagnostics::display_error(error));
     }
 }
 

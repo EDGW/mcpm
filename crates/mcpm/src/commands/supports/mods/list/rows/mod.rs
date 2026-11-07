@@ -8,8 +8,9 @@ use mcpm_lib::local::mcmod::ModEntry;
 use mcpm_lib::local::modloader::ModLoaderMeta;
 use unicode_width::UnicodeWidthStr;
 
-use super::super::{mod_records, source_path::PathArgs};
+use super::super::source_path::PathArgs;
 use super::{ListedFile, columns::Column};
+use mcpm_backend::operations::mods::loading::mod_records;
 
 mod index;
 pub(super) use index::{IndexType, align};

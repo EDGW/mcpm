@@ -237,7 +237,7 @@ fn failed_publication_and_cleanup_retain_independent_causes_and_backup_location(
         .downcast_ref::<CreateCleanupError>()
         .expect("both errors must be retained");
     assert!(
-        crate::error::ErrorReport::capture(&error).branches[0]
+        mcpm_exec::error::ErrorReport::capture(&error).branches[0]
             .clone()
             .into_error()
             .chain()

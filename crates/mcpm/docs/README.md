@@ -49,7 +49,8 @@ Operations have two classifications:
 | --- | --- |
 | `server info`, `server init` | Migrated to operation + Executor + mcpmd |
 | `workspace.inspect`, `workspace.register_remote` | Migrated; Shallow operations |
-| `server stash.*`, `server launch` | Not migrated |
+| `server stash.*` | Migrated to Host operations |
+| `server launch` | Not migrated |
 | `server mods.*`, `mods.*`, `cache.*` | Not migrated |
 | `client.*` | Not migrated |
 
@@ -76,7 +77,7 @@ The server and Tools entries provide the following options, accepted before or a
 | Option | Description |
 | --- | --- |
 | `--ssh <COMMAND>` | SSH connection command, for example `ssh -i key user@host`. The positional PATH is interpreted on that host. |
-| `--ssh-mcpmd <PATH>` | Remote executable; requires `--ssh`. Migrated `info` and `init` use remote mcpmd; unmigrated commands use their existing remote program. The corresponding default applies when omitted. |
+| `--ssh-mcpmd <PATH>` | Remote executable; requires `--ssh`. Migrated `info`, `init`, and `stash` use remote mcpmd; unmigrated commands use their existing remote program. The corresponding default applies when omitted. |
 | `--log-level <LEVEL>` | stderr diagnostic level: `off`, `error`, `warn`, `info`, `debug`, `trace`; default `warn`. |
 | `--remote-logs` | Show remote logs on local stderr, filtered by `--log-level`. |
 | `--raw` | Use Raw mode. |
@@ -94,9 +95,11 @@ SSH uses key or ssh-agent authentication without prompts. Accept unknown host ke
 
 ## Command documentation
 
-- [Server: info and init](server.md)
+- [Server: basics (info, init)](server/basics.md)
+- [Server: launch and attach](server/launch.md)
+- [Server: stash](server/stash.md)
 - [mcpmd: serve and link](../../mcpmd/docs/README.md)
-- [Legacy: not yet migrated (client, mods, cache, stash, launch, and others)](legacy/README.md)
+- [Legacy: not yet migrated (client, mods, cache, and others)](legacy/README.md)
 - [Backend modules](../../mcpm-backend/docs/README.md)
 
 [简体中文](../docs-zh/README.md)

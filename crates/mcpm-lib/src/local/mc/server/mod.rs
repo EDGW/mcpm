@@ -18,6 +18,7 @@ pub mod authlib_injector;
 pub mod config;
 pub mod identify;
 pub mod launch;
+pub mod properties;
 pub mod stash;
 
 pub use launch::{ServerLaunch, ServerOptionError};

@@ -53,6 +53,7 @@ impl Session {
     pub fn open(&self) -> Channel;
     pub async fn accept(&mut self) -> Result<Option<Channel>, std::sync::Arc<SessionError>>;
     pub async fn closed(&self) -> Result<(), std::sync::Arc<SessionError>>;
+    pub fn traffic_stats(&self) -> SessionTrafficStats;
 }
 ```
 
@@ -84,6 +85,41 @@ Returns:
 - `Ok(None)`: the peer closed its writing side cleanly (EOF on the carrier).
 - `Err(SessionError)`: the session ended due to a protocol error or carrier failure. The cause
   is in the error. Channels already `accept`ed can still be read until drained.
+
+#### `Session::traffic_stats() -> SessionTrafficStats`
+
+Returns a local snapshot across all channels, with separate `sent` and `received` values.
+Each direction exposes four rates in **bytes per second (B/s)**:
+
+| Field | Meaning |
+| --- | --- |
+| `current_100ms` | Bytes in the last 100 ms divided by 0.1 seconds |
+| `peak_100ms` | Highest 100 ms average since Session creation |
+| `current_1s` | Bytes in the last second divided by one second |
+| `peak_1s` | Highest one-second average since Session creation |
+
+```rust
+# use mcpm_exec::messaging::Session;
+# fn show_rates(session: &Session) {
+let stats = session.traffic_stats();
+println!("send: {} B/s; receive: {} B/s", stats.sent.current_1s, stats.received.current_1s);
+# }
+```
+
+- Counts encoded frame bytes, including JSON fields and actual line endings. FINISH and ABORT
+  frames count too. This is protocol throughput, not underlying TCP/SSH traffic.
+- Receives count after successful decoding, before routing, including valid frames discarded by
+  channel state. Invalid frames do not count.
+- Sends count after a complete batch is written and flushed, not when `Channel::send` queues it.
+  A batch is recorded at its completion time; failed batches, including any partially written
+  bytes, do not count. Successful flushing does not imply peer receipt.
+- Each direction owns independent 100 ms and 1 s FIFO windows. Recording and querying remove
+  samples older than the window; a sample exactly on the boundary still counts. Averages always
+  divide by the full window, including during startup. Peaks update on every record, regardless
+  of query frequency; they are lifetime peaks, not peaks limited to the last second.
+- Queries send no traffic. Idle current rates fall to zero, including after closure; lifetime
+  peaks remain. No background timer is needed. Memory scales with the samples retained by each
+  window; expired samples are removed on the next record or query.
 
 ### `Channel`
 

@@ -1,14 +1,11 @@
 //! Shared explicit cache-write CLI policy and its transportable file-host options.
 
-use super::Options;
 use crate::commands::{cache_support::FileStrategy, execution::default_parallelism};
 use anyhow::{Result, ensure};
 use clap::{Args, ValueEnum};
-use mcpm_lib::local::cache::mods::MetadataRefresh;
-use mcpm_lib::local::modloader::LoaderId;
-use mcpm_lib::local::modloader::ModLoaderMeta;
+use mcpm_backend::operations::{cache::TransferPreference, mods::cache::StoreOptions};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 #[derive(Debug, Args, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -66,19 +63,16 @@ impl WriteArgs {
     pub fn force(&self) -> bool {
         self.force
     }
-    pub fn parallelism(&self) -> usize {
-        self.parallelism.get()
-    }
-    pub fn options(self, loaders: HashMap<LoaderId, ModLoaderMeta>) -> Result<Options> {
+    pub fn options(self) -> Result<StoreOptions> {
         let metadata = self.selected_metas()?.contains(&Meta::Meta);
-        Ok(Options {
-            loaders,
-            mode: self.mode.into(),
-            refresh: if self.force {
-                MetadataRefresh::Force
-            } else {
-                MetadataRefresh::MissingOrOutdated
-            },
+        let mode = match self.mode {
+            FileStrategy::Copy => TransferPreference::Copy,
+            FileStrategy::HardLink => TransferPreference::HardLink,
+            FileStrategy::PreferHardLink => TransferPreference::PreferHardLink,
+        };
+        Ok(StoreOptions {
+            mode,
+            force: self.force,
             parallelism: self.parallelism.get(),
             metadata,
         })

@@ -1,42 +1,23 @@
 //! Shared read observations for stash commands; storage codecs and rendering remain with their owners.
 
-use anyhow::Result;
-use mcpm_lib::local::mc::server::stash::{Stash, StashStore};
+use mcpm_exec::error::PortableError;
 
-use crate::{diagnostics, display::stash::Entry};
+use crate::diagnostics;
 
 pub(super) fn observed_head(
-    store: &StashStore<'_>,
+    head: Result<Option<uuid::Uuid>, PortableError>,
     failures: &mut usize,
 ) -> Option<Option<uuid::Uuid>> {
-    match store.head() {
-        Ok(head) => Some(head.map(|stash| stash.id())),
+    match head {
+        Ok(head) => Some(head),
         Err(error) => {
-            report(&error, failures);
+            report(error, failures);
             None
         }
     }
 }
 
-pub(super) fn entry(
-    store: &StashStore<'_>,
-    stash: Stash,
-    head: Option<Option<uuid::Uuid>>,
-    manifest: bool,
-) -> Result<Entry> {
-    Ok(Entry {
-        head: head.map(|head| head == Some(stash.id())),
-        backup: store.backup_path(&stash),
-        manifest: if manifest {
-            Some(store.manifest(&stash)?)
-        } else {
-            None
-        },
-        stash,
-    })
-}
-
-pub(super) fn report(error: &anyhow::Error, failures: &mut usize) {
-    diagnostics::error(error);
+pub(super) fn report(error: PortableError, failures: &mut usize) {
+    diagnostics::error(&error.into_inner());
     *failures += 1;
 }

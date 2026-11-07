@@ -16,6 +16,8 @@ pub(crate) struct File<'a> {
     pub method: Option<&'a str>,
     pub failed_stage: Option<&'a str>,
     pub metadata_requested: bool,
+    pub overall_status: &'static str,
+    pub query_status: Option<&'static str>,
     pub metadata_status: Option<&'a str>,
     pub reason: Option<&'a str>,
     pub identifications: Vec<(&'a str, &'static str)>,
@@ -42,6 +44,10 @@ pub(crate) fn file(out: &mut ConsoleWriter<'_>, file: &File<'_>) -> Result<()> {
     if let Some(method) = file.method {
         writeln!(out, "Method: {method}")?;
     }
+    writeln!(out, "Overall result: {}", text(file.overall_status))?;
+    if let Some(status) = file.query_status {
+        writeln!(out, "Identification result: {}", text(status))?;
+    }
     if let Some(stage) = file.failed_stage {
         writeln!(out, "Result: {}", style.danger(format!("{stage} failed")))?;
     }
@@ -63,10 +69,11 @@ pub(crate) fn summary(
     added: usize,
     reused: usize,
     failed: usize,
+    partial_failed: usize,
     selection_failures: usize,
 ) -> Result<()> {
     writeln!(out)?;
-    writeln!(out, "{}", OutputStyle::new().muted(format!("{files} files · {added} objects added · {reused} objects reused · {failed} files failed · {selection_failures} selection failures")))?;
+    writeln!(out, "{}", OutputStyle::new().muted(format!("{files} files · {added} objects added · {reused} objects reused · {failed} files failed · {partial_failed} files partially failed · {selection_failures} selection failures")))?;
     Ok(())
 }
 

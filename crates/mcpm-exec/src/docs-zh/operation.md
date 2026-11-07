@@ -79,10 +79,9 @@ async fn main() -> Result<()> {
     }
     assert_eq!(received, [0, 1, 2]);
 
-    // 远端错误的原因链完整保留：操作、上下文、I/O 错误。
+    // 捕获远端诊断树，不把传输标记作为原因展示。
     let error = call::<Load>(&client, &"/missing".to_owned()).await.unwrap_err();
-    assert_eq!(error.chain().count(), 3);
-    assert!(format!("{error:#}").starts_with("operation `load` failed: failed to read /missing: "));
+    eprintln!("{:?}", mcpm_exec::error::ErrorReport::capture(&error));
     Ok(())
 }
 ```
@@ -245,8 +244,8 @@ panic 消息结束。
   调用返回 `None`。
 - `None`：producer 返回 `Ok(())`。流已结束。
 
-调用方，`error` 是 `RemoteError`（item 来自对端）。执行方（本地流），`error` 是 producer
-的 `anyhow::Error`。
+调用方收到的对端失败包含 `mcpm_exec::error::RemoteError` 标记，其 source 保存重建的诊断树。
+本地流保留 producer 原始的 `anyhow::Error`。
 
 流结束前丢弃它会中止 producer task（本地）或中止 Channel（远端）。
 
@@ -260,15 +259,20 @@ panic 消息结束。
 
 ### 错误传播
 
-执行方的所有 `anyhow::Error` 连同完整原因链传给调用方：
+- `run` 返回 `Err(e)`：发送 `ErrorReport::capture(&e)`，包裹在 `{"error":{...}}` 中。调用方恢复
+  错误树、添加 `RemoteError` 标记，并包裹在 ``operation `ID` failed`` 下。
+- 流 producer 返回 `Err(e)` 或 panic：同样序列化，作为流错误带 `finish` 发送。调用方的
+  `next()` 返回 `Some(Err(e))`，包裹在 `remote stream failed` 下。
+- 错误信封替换了旧的 `message`/`source` 线路链；客户端、link 和 daemon 必须使用匹配构建。
 
-- `run` 返回 `Err(e)`：`e` 的原因链序列化为嵌套的 `{"message","source"}` 并作为
-  `{"error":{...}}` 发送。调用方重建为 `RemoteError` 并包裹在 ``operation `ID` failed`` 下。
-- 流 producer 返回 `Err(e)` 或 panic：同样序列化，作为流错误 `{"error":{...}}` 带 `finish`
-  发送。调用方的 `next()` 返回 `Some(Err(e))`，包裹在 `remote stream failed` 下。
+共同模型（独立分支、无损捕获、远端标记、数据内错误）见 [错误模块](crate::error)。
+使用 `error::contains::<RemoteError>` 检查对端失败，也能检查独立分支。
 
-示例原因链：``operation `load` failed: failed to read /missing: No such file or directory``。
-外层上下文由 `call` 添加，中层上下文由 `run` 添加，内层错误由 I/O 操作添加。
+### 作为操作数据承载的错误
+
+单项失败不应中断整个操作时使用 `PortableError`，例如 `Vec<Result<Entry, PortableError>>`，
+或 `StreamingOutput<T>` 中的失败事件。调用方只需 `into_inner()`。整体失败仍由 `run` 或流
+producer 返回 `Err`，其自动传输同上。
 
 ### 取消
 
@@ -306,20 +310,20 @@ panic 消息结束。
 | --- | --- | --- |
 | 请求 | 调用方 | `{"op":"add","input":[2,3]}` |
 | 结果 | 执行方 | `{"ok":5}`，普通输出带 `finish` |
-| 错误 | 执行方 | `{"error":{"message":"…","source":{"message":"…"}}}`，带 `finish` |
+| 错误 | 执行方 | `{"error":{"message":"…","causes":["…"],"branches":[{"message":"…","causes":[]}]}}`，带 `finish` |
 | 流握手 | 执行方 | `{"ok":{}}` |
 | 流 item | 执行方 | `{"item":0}` |
 | 流错误 | 执行方 | `{"error":{…}}`，带 `finish` |
 | 流结束 | 执行方 | 无 body，`finish` |
 
-- `source` 是下一个原因，最后一个原因省略该字段。
+- `message` 是当前上下文，`causes` 按从外到内排列；`branches` 保存独立错误树，无分支时省略。
 - 协议不期望的消息（例如调用方的第二条消息）会使操作失败。
 
 ## 错误
 
 | 类型 | 含义 |
 | --- | --- |
-| `RemoteError` | 来自对端的错误；`source` 链保存远端原因。 |
+| `error::RemoteError` | 对端失败标记，source 保存重建的原因链和独立分支。 |
 | `ProtocolError` | `Invalid`（请求、响应或流消息格式错误）、`Missing`（响应前 Channel 已结束）、`Unexpected` |
 | `DuplicateOperation` | 两个已注册操作的 `ID` 相同。 |
 | `StreamClosed` | 流的消费方已离开。 |

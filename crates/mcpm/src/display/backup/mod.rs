@@ -6,10 +6,11 @@ use std::{
 };
 
 use anyhow::Result;
-use mcpm_lib::local::mcmod::backup::{
-    ChecksumMismatch, Comparison, DirectoryChecksum, Event, FileDisposition, FileSource, Manifest,
-    Operation, Outcome, Stage, VerificationError, VerifiedBackup,
+use mcpm_backend::operations::mods::backup::{
+    BackupOperation as Operation, Comparison, DirectoryChecksum, FileDisposition, FileSource,
+    Manifest, Outcome, VerifiedBackup,
 };
+use mcpm_lib::local::mcmod::backup::{ChecksumMismatch, Event, Stage, VerificationError};
 
 use super::{
     console::ConsoleWriter,
@@ -24,7 +25,6 @@ mod summary;
 pub(crate) use summary::{file, summary};
 
 mod checksum;
-pub(crate) use checksum::file_difference;
 mod progress;
 pub(crate) use progress::FileProgress;
 
@@ -50,7 +50,7 @@ impl<W: Write> Presentation<W> {
     pub(crate) fn event(&mut self, event: Event) -> Result<()> {
         self.progress.event(event);
         match event {
-            Event::Progress { .. } => {}
+            Event::Progress { .. } | Event::BeforeCommit => {}
             Event::StageDone(stage) => {
                 if terminal::stdout_is_tty() {
                     let message = match stage {
@@ -83,7 +83,11 @@ impl<W: Write> Presentation<W> {
                         writeln!(console.subwriter(), "Method: cache-only")?;
                     }
                     FileDisposition::Transferred { source, method } => {
-                        file(&mut console, record, Some((method, outcome.operation())))?;
+                        file(
+                            &mut console,
+                            record,
+                            Some((method.into(), outcome.operation())),
+                        )?;
                         if outcome.operation() == Operation::Apply {
                             let source = match source {
                                 FileSource::Backup => "backup",

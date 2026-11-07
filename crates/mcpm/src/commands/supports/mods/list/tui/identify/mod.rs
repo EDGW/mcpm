@@ -1,11 +1,21 @@
-//! Bounded concurrent outer-JAR source lookups and provider-neutral result states for the TUI.
+//! Adapts the Host identification stream to per-source list presentation and file-level facts.
 
-use crate::commands::source_support::identify::{self as acquisition, Event, Location, Outcome};
+use crate::commands::source_support::identify::Location;
 use anyhow::Result;
+use mcpm_backend::operations::mods::{
+    identification::{QueryResult, SourceResolution},
+    source::{
+        Configuration,
+        identify::{Event, Identify, Input, Target},
+    },
+};
 use mcpm_lib::source::{FileMatch, MatchedFileRole};
 use std::{
     path::PathBuf,
-    sync::mpsc::{Receiver, channel},
+    sync::{
+        Arc,
+        mpsc::{Receiver, channel},
+    },
 };
 use tracing::Instrument;
 
@@ -44,8 +54,12 @@ pub(super) enum State {
     #[default]
     Queued,
     Loading,
-    Matched(FileMatch),
+    Matched {
+        file: FileMatch,
+        cached: bool,
+    },
     Unmatched,
+    Skipped,
     Failed {
         error: crate::diagnostics::ErrorReport,
         remote: bool,
@@ -57,38 +71,82 @@ impl State {
             Self::Queued => "Waiting".into(),
             Self::Loading => format!("{spinner} Identifying…"),
             Self::Unmatched => "No match".into(),
+            Self::Skipped => "Not queried".into(),
             Self::Failed { error, remote } => {
                 crate::display::error::lines(error, *remote).join("\n")
             }
-            Self::Matched(found) => format!(
-                "✓ Project ID: {} · File ID: {} · {} · {} · {} bytes",
-                found.reference.project.id.0,
-                found.reference.id.0,
-                found.filename,
-                match found.role {
+            Self::Matched { file, cached } => format!(
+                "✓ Project ID: {} · File ID: {} · {} · {} · {} bytes · {}",
+                file.reference.project.id.0,
+                file.reference.id.0,
+                file.filename,
+                match file.role {
                     MatchedFileRole::Primary => "Primary",
                     MatchedFileRole::Additional => "Additional",
                 },
-                found.size,
+                file.size,
+                if *cached { "Cache" } else { "Query" },
             ),
+        }
+    }
+
+    pub(super) fn for_source(
+        source: &mcpm_backend::operations::mods::identification::SourceResult,
+    ) -> Self {
+        match &source.resolution {
+            SourceResolution::Cached(file) => Self::Matched {
+                file: file.clone(),
+                cached: true,
+            },
+            SourceResolution::Queried(Some(file)) => Self::Matched {
+                file: file.clone(),
+                cached: false,
+            },
+            SourceResolution::Queried(None) => Self::Unmatched,
+            SourceResolution::Failed(error) => {
+                let (error, remote) = crate::diagnostics::capture(error.as_inner());
+                Self::Failed { error, remote }
+            }
+            SourceResolution::Skipped => Self::Skipped,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct Failure {
+    pub error: crate::diagnostics::ErrorReport,
+    pub remote: bool,
+}
+impl Failure {
+    fn capture(error: &anyhow::Error) -> Self {
+        let (error, remote) = crate::diagnostics::capture(error);
+        Self { error, remote }
+    }
+    pub(super) fn state(&self) -> State {
+        State::Failed {
+            error: self.error.clone(),
+            remote: self.remote,
         }
     }
 }
 
 #[derive(Debug)]
 pub(super) enum Update {
-    State {
+    Loading {
         files: Vec<usize>,
-        platform: Platform,
-        state: State,
     },
-    Cache {
+    Item {
         files: Vec<usize>,
-        sources: Vec<Platform>,
+        result: std::result::Result<Arc<QueryResult>, Failure>,
+    },
+    /// Transport/cancellation is lifecycle failure, not a fabricated source query result.
+    Stopped {
+        files: Vec<usize>,
+        failure: Failure,
     },
 }
 
-/// The TUI adapts shared identification events without owning lookup scheduling.
+/// The TUI consumes the same Host operation as the source identify command.
 pub(super) fn start(
     paths: Vec<PathBuf>,
     parallelism: usize,
@@ -99,89 +157,68 @@ pub(super) fn start(
     if count == 0 {
         return Ok(receiver);
     }
-    let sources = Platform::ALL.map(|platform| platform.id().to_owned());
-    let identification =
-        acquisition::Identification::start(paths, &sources, parallelism, location)?;
-    tracing::info!(
-        files = count,
+    let executor = location.executor.clone();
+    let input = Input {
+        target: Target::Paths {
+            paths,
+            cache: location.cache.cloned(),
+        },
+        sources: Platform::ALL
+            .into_iter()
+            .map(|platform| Configuration::from(platform.id()))
+            .collect(),
+        force: false,
         parallelism,
-        "Starting mod source identification"
-    );
+    };
     tokio::spawn(
         async move {
-            let mut completed = vec![[false; 2]; count];
-            let mut emit = |event| {
-                if let Event::Item {
-                    indices, source, ..
-                } = &event
-                {
-                    for index in indices {
-                        completed[*index][*source] = true;
+            let mut completed = vec![false; count];
+            let result: Result<()> = async {
+                let mut stream = executor.call::<Identify>(input).await?;
+                let mut done = false;
+                while let Some(event) = stream.next().await.transpose()? {
+                    match event {
+                        Event::Prepared { diagnostics, .. } => {
+                            for error in diagnostics {
+                                crate::diagnostics::error(error.as_inner());
+                            }
+                        }
+                        Event::Loading { indices } => {
+                            sender.send(Update::Loading { files: indices })?
+                        }
+                        Event::Item { indices, result } => {
+                            for &index in &indices {
+                                completed[index] = true;
+                            }
+                            sender.send(Update::Item {
+                                files: indices,
+                                result: result
+                                    .map(Arc::new)
+                                    .map_err(|error| Failure::capture(error.as_inner())),
+                            })?;
+                        }
+                        Event::Done(summary) => {
+                            done = true;
+                            tracing::debug!(
+                                ?summary,
+                                "Mod list received identification completion"
+                            );
+                        }
                     }
                 }
-                send_update(event, &sender)
-            };
-            let result = identification.run(&mut emit).await;
+                anyhow::ensure!(done, "missing identification completion");
+                Ok(())
+            }
+            .await;
             if let Err(error) = result {
                 crate::logging::record_error(&error);
-                let (report, remote) = crate::diagnostics::capture(&error);
-                for platform in Platform::ALL {
-                    let _ = sender.send(Update::State {
-                        files: (0..count)
-                            .filter(|index| !completed[*index][platform.index()])
-                            .collect(),
-                        platform,
-                        state: State::Failed {
-                            error: report.clone(),
-                            remote,
-                        },
-                    });
-                }
+                let _ = sender.send(Update::Stopped {
+                    files: (0..count).filter(|&index| !completed[index]).collect(),
+                    failure: Failure::capture(&error),
+                });
             }
         }
         .in_current_span(),
     );
     Ok(receiver)
-}
-
-fn send_update(event: Event, sender: &std::sync::mpsc::Sender<Update>) -> Result<()> {
-    let (indices, source, state) = match event {
-        Event::Cache { indices, sources } => {
-            sender.send(Update::Cache {
-                files: indices,
-                sources: sources
-                    .into_iter()
-                    .map(|index| Platform::ALL[index])
-                    .collect(),
-            })?;
-            return Ok(());
-        }
-        Event::Loading { indices, source } => (indices, source, State::Loading),
-        Event::Item {
-            indices,
-            source,
-            outcome,
-        } => (
-            indices,
-            source,
-            match outcome {
-                Outcome::Matched { file } => State::Matched(file),
-                Outcome::Unmatched => State::Unmatched,
-                Outcome::Failed { error, remote } => State::Failed { error, remote },
-            },
-        ),
-        Event::Done { failed } => {
-            tracing::debug!(
-                failed,
-                "Mod list received all source identification results"
-            );
-            return Ok(());
-        }
-    };
-    sender.send(Update::State {
-        files: indices,
-        platform: Platform::ALL[source],
-        state,
-    })?;
-    Ok(())
 }

@@ -1,8 +1,7 @@
-//! Source-identification CLI options, ordered presentation and shared local acquisition.
+//! Source-identification CLI options and ordered presentation of the Host result stream.
 
 use crate::commands::supports::mods::reuse::QueryArgs;
 use mcpm_lib::local::cache::mods::ModsCacheSelection;
-use mcpm_lib::local::runtime::RuntimeEnvironment;
 use std::{
     io::{self, Write},
     path::PathBuf,
@@ -10,24 +9,23 @@ use std::{
 
 use anyhow::{Result, ensure};
 use clap::Args;
-use mcpm_lib::source::SourceId;
+use mcpm_backend::operations::mods::source::{
+    Configuration,
+    identify::{Event, Identify, Input, Target},
+};
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 use crate::commands::execution::{DEFAULT_PARALLELISM, Runtime};
 
 mod columns;
 mod model;
 mod output;
-mod remote;
-mod summary;
-mod worker;
-
-pub(in crate::commands) use model::{Event, Location, Outcome};
-pub(in crate::commands) use worker::{Identification, Sources, sources as prepare_sources};
+pub(in crate::commands) use model::Location;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = format!("Modes: Console (field groups) and Raw (TSV; --raw or redirected stdout); Remote supported through --ssh.\n\nPaths are literal file paths, resolved on the remote host with --ssh. Redirected stdin is appended, one path per line. --columns, --column and -C select fields; --headers adds a Raw header.\nThe default cache is read-only: hits skip provider requests, misses never write. --no-cache disables lookup; --cache-dir selects an initialized cache on the file host.\nUnmatched files are reported as unmatched; read or request failures exit unsuccessfully.\n\nExamples:\n  {tools} mods source identify --source modrinth ./mods/create.jar\n  {tools} mods source identify --source curseforge ./mods/a.jar ./mods/b.jar\n  {tools} mods source identify --source 'curseforge@KEY' ./mods/create.jar\n  printf '%s\\n' ./mods/a.jar ./mods/b.jar | {tools} mods source identify --source modrinth\n  {tools} --raw mods source identify --source modrinth ./mods/create.jar --columns path,project,id,status", tools = crate::program::roots().tools)
+    after_help = format!("Modes: Console (field groups) and Raw (TSV; --raw or redirected stdout); Remote supported through --ssh.\n\nPaths are literal file paths on the selected execution host; file reads, cache reuse and source requests run there. Redirected stdin is appended, one path per line.\n--columns, --column and -C select fields; --headers adds a Raw header. Optional Raw columns query_status, cache_coverage and origin describe Host query results.\nThe default cache is read-only: hits skip source requests, misses never write. --no-cache disables lookup; --cache-dir selects an initialized cache on the file host.\nUnmatched files are reported as unmatched; preparation or source failures exit unsuccessfully while preserving available matches.\n\nExamples:\n  {tools} mods source identify --source modrinth ./mods/create.jar\n  {tools} mods source identify --source curseforge ./mods/a.jar ./mods/b.jar\n  {tools} mods source identify --source 'curseforge@KEY' ./mods/create.jar\n  printf '%s\\n' ./mods/a.jar ./mods/b.jar | {tools} mods source identify --source modrinth\n  {tools} --raw mods source identify --source modrinth ./mods/create.jar --columns path,project,id,status,query_status,cache_coverage,origin", tools = crate::program::roots().tools)
 )]
 pub(in crate::commands) struct IdentifyArgs {
     /// Files to identify (remote paths with --ssh) by their contents, not their names.
@@ -50,7 +48,7 @@ pub(in crate::commands) struct IdentifyArgs {
 pub(in crate::commands) struct IdentifyOptions {
     /// modrinth, curseforge (Curse.tools), or curseforge@KEY (official API).
     #[arg(long, value_name = "SOURCE")]
-    source: String,
+    source: Configuration,
     /// Maximum simultaneous file lookups; results retain input order.
     #[arg(short = 'p', long, default_value_t = NonZeroUsize::new(DEFAULT_PARALLELISM).unwrap(), value_name = "COUNT")]
     parallelism: NonZeroUsize,
@@ -72,10 +70,7 @@ impl IdentifyOptions {
 impl std::fmt::Debug for IdentifyOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IdentifyOptions")
-            .field(
-                "source",
-                &self.source.split('@').next().unwrap_or(&self.source),
-            )
+            .field("source", &self.source.label())
             .field("parallelism", &self.parallelism)
             .field("columns", &self.columns)
             .finish()
@@ -84,9 +79,12 @@ impl std::fmt::Debug for IdentifyOptions {
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    ssh.validate()?;
     let paths = crate::commands::stdin::append(args.paths)?;
-    let environment = RuntimeEnvironment::new().with_mods_cache(if args.options.cache.no_cache {
+    ensure!(
+        !paths.is_empty(),
+        "provide file paths as arguments or one per stdin line"
+    );
+    let cache = if args.options.cache.no_cache {
         None
     } else {
         Some(
@@ -94,32 +92,27 @@ pub(in crate::commands) fn run(args: IdentifyArgs, ssh: crate::ssh::SshArgs) -> 
                 .map(|path| ModsCacheSelection::Directory { path })
                 .unwrap_or(ModsCacheSelection::Default),
         )
-    });
-    if !ssh.is_requested() {
-        return present(args.options, paths, Location::Local(&environment));
-    }
-    ensure!(
-        !paths.is_empty(),
-        "provide file paths as arguments or one per stdin line"
-    );
-    let _span = tracing::info_span!("source_identify", source = "ssh").entered();
-    let mut session = ssh.connect()?;
-    let result = present(
+    };
+    let runtime = Runtime::new()?;
+    let (executor, _, _) = runtime.block_on(ssh.create_executor(None))?;
+    present(
         args.options,
         paths,
-        Location::Remote(&session, &environment),
-    );
-    session.close()?;
-    result
+        Location::new(&executor, cache.as_ref()),
+    )
 }
 
-/// Identifies paths using resources selected by the caller on their owning host.
-pub(in crate::commands) fn run_paths_at(
+pub(in crate::commands) fn run_selection_at(
     options: IdentifyOptions,
-    paths: Vec<PathBuf>,
-    location: Location<'_>,
+    scope: mcpm_backend::operations::mods::loading::ScopeInput,
+    selection: mcpm_backend::operations::mods::loading::selection::SelectionInput,
+    executor: &mcpm_exec::service::Executor,
 ) -> Result<()> {
-    present(options, paths, location)
+    present_target(
+        options,
+        Target::Selection { scope, selection },
+        Location::new(executor, None),
+    )
 }
 
 fn present(options: IdentifyOptions, paths: Vec<PathBuf>, location: Location<'_>) -> Result<()> {
@@ -127,119 +120,89 @@ fn present(options: IdentifyOptions, paths: Vec<PathBuf>, location: Location<'_>
         !paths.is_empty(),
         "provide file paths as arguments or one per stdin line"
     );
-    let started = std::time::Instant::now();
-    tracing::info!(
-        files = paths.len(),
-        parallelism = options.parallelism.get(),
-        remote = !location.is_local(),
-        "Starting source identify command"
-    );
-    tracing::debug!(?options, "Selected source identify options");
+    present_target(
+        options,
+        Target::Paths {
+            paths,
+            cache: location.cache.cloned(),
+        },
+        location,
+    )
+}
+
+fn present_target(options: IdentifyOptions, target: Target, location: Location<'_>) -> Result<()> {
     let runtime = Runtime::new()?;
     let progress =
         crate::progress::Progress::new("Preparing file identification...", "Identifying files");
-    progress.set_total(paths.len());
     let columns = options.columns.selected();
-    let source = SourceId(
-        options
-            .source
-            .split('@')
-            .next()
-            .unwrap_or(&options.source)
-            .to_owned(),
-    );
     let mut output = io::stdout().lock();
     output::headers(&mut output, &columns, options.headers)?;
-    let mut buffered = vec![None; paths.len()];
-    let mut next = 0;
-    let mut failed = 0;
-    let mut remote_failure = false;
-    let mut emit = |event| -> Result<()> {
-        if let Event::Done { failed: total } = &event {
-            ensure!(
-                *total == failed && next == paths.len(),
-                "identification completion disagrees with ordered results"
-            );
-            tracing::debug!(
-                failed = total,
-                rows = next,
-                "Finished ordered identification output"
-            );
-        }
-        if let Event::Item {
-            indices, outcome, ..
-        } = event
-        {
-            for index in indices {
-                buffered[index] = Some(outcome.clone());
-                progress.advance();
-            }
-            // A fast later lookup advances progress but never overtakes an earlier row/error.
-            while next < buffered.len() {
-                let Some(outcome) = buffered[next].take() else {
-                    break;
-                };
-                match outcome {
-                    Outcome::Matched { file } => output::write_match(
-                        &mut output,
-                        next + 1,
-                        &paths[next],
-                        &source,
-                        Some(&file),
-                        &columns,
-                    )?,
-                    Outcome::Unmatched => output::write_match(
-                        &mut output,
-                        next + 1,
-                        &paths[next],
-                        &source,
-                        None,
-                        &columns,
-                    )?,
-                    Outcome::Failed { error, remote } => {
-                        let error = error.into_error();
-                        let error = if remote {
-                            crate::diagnostics::RemoteError::wrap(error)
-                        } else {
-                            error
-                        };
-                        progress.report(&error);
-                        failed += 1;
-                        remote_failure |= remote;
+    let parallelism = options.parallelism();
+    runtime.block_on(async {
+        let mut stream = location.executor.call::<Identify>(Input {
+            target,
+            sources: vec![options.source],
+            force: false,
+            parallelism,
+        }).await?;
+        let mut paths = Vec::new();
+        let mut buffered = Vec::new();
+        let mut next = 0;
+        let mut summary = None;
+        let mut prepared = false;
+        while let Some(event) = stream.next().await.transpose()? {
+            match event {
+                Event::Prepared { paths: resolved, diagnostics, .. } => {
+                    ensure!(!prepared, "duplicate identification preparation");
+                    prepared = true;
+                    paths = resolved;
+                    buffered = vec![None; paths.len()];
+                    progress.set_total(paths.len());
+                    for error in diagnostics {
+                        progress.report(error.as_inner());
                     }
                 }
-                next += 1;
+                Event::Loading { .. } => {}
+                Event::Item { indices, result } => {
+                    ensure!(prepared, "missing identification preparation");
+                    let result = result.map(Arc::new).map_err(Arc::new);
+                    for index in indices {
+                        ensure!(index < buffered.len(), "invalid identification result index");
+                        if index >= next && buffered[index].is_none() {
+                            buffered[index] = Some(result.clone());
+                            progress.advance();
+                        }
+                    }
+                    // Duplicate paths retain their input rows; fast later results never overtake them.
+                    while next < buffered.len() {
+                        let Some(result) = buffered[next].take() else { break };
+                        match result {
+                            Ok(result) => {
+                                output::write_result(&mut output, next + 1, &paths[next], &result, &columns)?;
+                                for error in result.errors() {
+                                    progress.report(error.as_inner());
+                                }
+                            }
+                            Err(error) => progress.report(error.as_inner()),
+                        }
+                        next += 1;
+                    }
+                    output.flush()?;
+                }
+                Event::Done(done) => summary = Some(done),
             }
-            output.flush()?;
         }
+        ensure!(prepared, "missing identification preparation");
+        ensure!(next == paths.len(), "missing identification file results");
+        let summary = summary.ok_or_else(|| anyhow::anyhow!("missing identification completion"))?;
+        ensure!(
+            !summary.has_failures(),
+            "identification failed for {} file(s), partially failed for {} file(s), with {} preparation failure(s) and {} selection failure(s)",
+            summary.failed,
+            summary.partial_failed,
+            summary.preparation_failed,
+            summary.selection_failed,
+        );
         Ok(())
-    };
-    let result = runtime.block_on(async {
-        Identification::start(
-            paths.clone(),
-            &[options.source],
-            options.parallelism.get(),
-            location,
-        )?
-        .run(&mut emit)
-        .await
-    });
-    drop(progress);
-    tracing::debug!(
-        files = paths.len(),
-        failed,
-        success = result.is_ok() && failed == 0,
-        elapsed_ms = started.elapsed().as_millis(),
-        "Source identify command ended"
-    );
-    result?;
-    if failed > 0 {
-        let error = anyhow::anyhow!("failed to identify {failed} file(s)");
-        return Err(if remote_failure {
-            crate::diagnostics::RemoteError::wrap(error)
-        } else {
-            error
-        });
-    }
-    Ok(())
+    })
 }

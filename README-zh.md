@@ -73,7 +73,7 @@ curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts
 - 保留旧 Windows 程序 `%LOCALAPPDATA%\Programs\mcpm\mcpm.exe` 及其 PATH 项。如果旧程序仍优先被找到，安装器会提示；验证新程序后再显式移除旧程序和旧 PATH 项。
 - 没有安装记录的 `bin` 目录不会被自动接管或覆盖，需要先处理冲突。
 - 新脚本只管理新目录布局，不负责卸载旧版单文件安装。
-- 非交互 SSH 会话可能不会加载 shell 配置。`server info`、`server init` 要求远端安装 `mcpmd`；不在 PATH 中时用 `--ssh-mcpmd` 指定其绝对路径。迁移期间，未迁移的 mods/cache 命令仍要求远端安装 `mcpm-tools`。
+- 非交互 SSH 会话可能不会加载 shell 配置。安装器会将 `mcpmd` 位置记录到 Unix 的 `~/.mcpm/mcpmd.path` 或 Windows 的 `%LOCALAPPDATA%\mcpm\mcpmd.path`。未指定 `--ssh-mcpmd` 时，SSH 读取远端主机的记录；文件不存在仅发出 warning 并尝试远端 PATH，fallback 也失败才报错。详见[远端程序查找](crates/mcpmd/docs-zh/README.md#远端程序查找)。未迁移的 mods/cache 命令仍要求远端安装 `mcpm-tools`。
 
 ### 手动安装
 

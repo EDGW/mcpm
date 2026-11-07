@@ -1,4 +1,4 @@
-//! Cache management command selection and shared directory/Raw header options.
+//! Cache CLI flows over Executor; file operations and provider requests run on Host.
 
 use std::{
     io::{self, Write},
@@ -7,18 +7,21 @@ use std::{
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
+use mcpm_backend::operations::cache::CacheInput;
+use mcpm_exec::service::Executor;
 use mcpm_lib::local::cache::mods::ModsCacheSelection;
+use tokio::sync::OnceCell;
+
+use crate::{commands::execution::Runtime, ssh::SshArgs};
 
 mod batch;
 mod columns;
-mod entry;
 mod export;
 mod import;
 mod info;
 mod init;
 mod input;
 mod list;
-mod protection;
 mod rebuild_index;
 mod refresh;
 mod remove;
@@ -26,7 +29,7 @@ mod verify;
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Modes: Console and Raw (--raw or redirected stdout). Raw list, info and simple operations use TSV; refresh succeeds silently.\n\nDefault directory: ~/.mcpm/cache/mods. Import stores content only; refresh populates the named meta or ident metadata. Verify checks content only. Exports never overwrite or create parent directories. No automatic eviction. All operations are local.\n\nCommands that modify a server stash cache are refused, including verify --autoremove. Do not manage stash caches manually: snapshots depend on their contents. --no-protect-stash bypasses this protection. Read-only list, info, verify and exports outside stash caches remain available."
+    after_help = "Modes: Console and Raw (--raw or redirected stdout). Raw list, info and simple operations use TSV; refresh succeeds silently.\n\nDefault directory: ~/.mcpm/cache/mods on the selected host. --ssh selects remote cache management, including metadata refresh and provider requests. Import and export paths belong to the selected host, not the calling computer. Import stores content only; info/list read saved metadata without identifying or requesting providers. Verify checks content only. Exports never overwrite or create parent directories. No automatic eviction.\n\nCommands that modify a server stash cache are refused, including verify --autoremove. Do not manage stash caches manually: snapshots depend on their contents. --no-protect-stash bypasses this protection. Read-only list, info, verify and exports outside stash caches remain available. remove --all requires confirmation; use --yes in Raw or non-interactive mode."
 )]
 pub(crate) struct CacheArgs {
     /// Cache root; explicit directories must already be initialized.
@@ -64,38 +67,65 @@ enum Command {
     RebuildIndex,
 }
 
-impl Command {
-    fn writes_cache(&self) -> bool {
-        match self {
-            Self::Init
-            | Self::Import(_)
-            | Self::Refresh(_)
-            | Self::Remove(_)
-            | Self::RebuildIndex => true,
-            Self::Verify(args) => args.autoremove(),
-            Self::List(_) | Self::Info(_) | Self::Export(_) => false,
-        }
-    }
-}
-
-pub(crate) fn run(args: CacheArgs) -> Result<()> {
+pub(crate) fn run(args: CacheArgs, ssh: SshArgs) -> Result<()> {
     let selection = match args.directory {
         Some(path) => ModsCacheSelection::Directory { path },
         None => ModsCacheSelection::Default,
     };
-    let selection = protection::check(selection, &args.command, args.no_protect_stash)?;
     let mut out = io::stdout().lock();
-    match args.command {
-        Command::Init => init::run(selection, &mut out, args.headers)?,
-        Command::Import(args_) => import::run(args_, selection, &mut out, args.headers)?,
-        Command::List(args_) => list::run(args_, selection, &mut out, args.headers)?,
-        Command::Info(args_) => info::run(args_, selection, &mut out, args.headers)?,
-        Command::Refresh(args_) => refresh::run(args_, selection, &mut out)?,
-        Command::Verify(args_) => verify::run(args_, selection, &mut out, args.headers)?,
-        Command::Export(args_) => export::run(args_, selection, &mut out, args.headers)?,
-        Command::Remove(args_) => remove::run(args_, selection, &mut out, args.headers)?,
-        Command::RebuildIndex => rebuild_index::run(selection, &mut out, args.headers)?,
+    let command = args.command;
+    let target = if ssh.is_requested() {
+        match ssh.destination() {
+            Some(destination) => format!(
+                "remote host \"{}\"",
+                crate::display::style::text(&destination)
+            ),
+            None => "the selected remote host".into(),
+        }
+    } else {
+        "this computer".into()
+    };
+    let context = Context {
+        cache: CacheInput {
+            selection,
+            no_protect_stash: args.no_protect_stash,
+        },
+        headers: args.headers,
+        target,
+        ssh,
+        executor: OnceCell::new(),
+    };
+    Runtime::new()?.block_on(async {
+        match command {
+            Command::Init => init::run(&context, &mut out).await?,
+            Command::Import(args) => import::run(args, &context, &mut out).await?,
+            Command::List(args) => list::run(args, &context, &mut out).await?,
+            Command::Info(args) => info::run(args, &context, &mut out).await?,
+            Command::Verify(args) => verify::run(args, &context, &mut out).await?,
+            Command::Export(args) => export::run(args, &context, &mut out).await?,
+            Command::Remove(args) => remove::run(args, &context, &mut out).await?,
+            Command::RebuildIndex => rebuild_index::run(&context, &mut out).await?,
+            Command::Refresh(args) => refresh::run(args, &context, &mut out).await?,
+        }
+        out.flush().map_err(Into::into)
+    })
+}
+
+/// Resolve execution only after each leaf has validated its input; reuse one connection.
+struct Context {
+    cache: CacheInput,
+    headers: bool,
+    target: String,
+    ssh: SshArgs,
+    executor: OnceCell<Executor>,
+}
+impl Context {
+    async fn executor(&self) -> Result<&Executor> {
+        self.executor
+            .get_or_try_init(|| async {
+                let (executor, _, _) = self.ssh.create_executor(None).await?;
+                Ok(executor)
+            })
+            .await
     }
-    out.flush()?;
-    Ok(())
 }

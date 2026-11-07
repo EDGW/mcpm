@@ -35,6 +35,7 @@ impl FileProgress {
                 }
             }
             Event::StageDone(_) => self.clear(),
+            Event::BeforeCommit => {}
         }
     }
 

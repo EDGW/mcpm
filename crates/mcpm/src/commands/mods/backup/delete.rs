@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use mcpm_lib::local::mcmod::backup;
+use mcpm_backend::operations::mods::backup::{Delete, DeleteEvent, DeleteInput};
 
 use super::input;
 
@@ -24,25 +24,35 @@ pub(super) struct DeleteArgs {
     headers: bool,
 }
 
-pub(super) fn run(args: DeleteArgs) -> Result<()> {
+pub(super) async fn run(args: DeleteArgs, context: &super::Context) -> Result<()> {
     let backups = input::directories(args.backups)?;
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<Delete>(DeleteInput { backups })
+        .await?;
     let mut output = io::stdout().lock();
-    let mut failed = 0_usize;
-    for (index, path) in backups.into_iter().enumerate() {
-        let result =
-            backup::delete(&path).with_context(|| format!("failed to delete backup {path:?}"));
-        crate::display::backup::deletion_result(
-            &mut output,
-            &path,
-            result.is_ok(),
-            args.headers && index == 0,
-        )?;
-        output.flush()?;
-        if let Err(error) = result {
-            failed += 1;
-            crate::diagnostics::error(&error);
+    let mut failed = None;
+    let mut first = true;
+    while let Some(event) = stream.next().await {
+        match event? {
+            DeleteEvent::Item { path, result } => {
+                crate::display::backup::deletion_result(
+                    &mut output,
+                    &path,
+                    result.is_ok(),
+                    args.headers && first,
+                )?;
+                first = false;
+                output.flush()?;
+                if let Err(error) = result {
+                    crate::diagnostics::error(&error.into_inner());
+                }
+            }
+            DeleteEvent::Finished { failed: count } => failed = Some(count),
         }
     }
+    let failed = failed.context("backup deletion ended without a summary")?;
     ensure!(failed == 0, "{failed} backups could not be deleted");
     Ok(())
 }

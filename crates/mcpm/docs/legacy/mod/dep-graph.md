@@ -99,6 +99,31 @@ mcpm-tools mods dep-graph view -i graph.json fabric:examplemod --no-default-igno
 
 Filtering applies to every dependency level and prunes traversal through hidden edges. A node can still appear through another visible path. In forward mode, shallowest-level expansion and `[shared]` markers are computed from the filtered graph, so hidden relations do not determine folding. Reverse mode expands each path without shared-node folding. Filters do not modify the stored graph or identification failure records.
 
+### Duplicate Primary candidates and problem views
+
+A `(loader, modid)` node with more than one Primary candidate is a duplicate problem, labeled `[duplicate primary: N]`. Equal versions still count. Nested and External candidates do not count, and identical IDs under different loaders remain separate. Unfiltered views also show this label.
+
+| Option | Behavior |
+| --- | --- |
+| `--duplicate-primary` | Select only duplicate Primary nodes and context paths leading to them; union with relations selected by explicit `--rule` options. |
+| `--problem` / `-p` | Select Required unmatched/unknown, Breaks/Conflicts matched/unknown, and duplicate Primary nodes; disable default ignores and hide unrelated isolated roots. |
+| `--no-duplicate-primary` | Disable duplicate-Primary selection, overriding its `--problem` default; labels on otherwise visible nodes remain. |
+
+```sh
+mcpm-tools mods dep-graph view -i graph.json --duplicate-primary
+mcpm-tools mods dep-graph view -i graph.json --problem
+mcpm-tools mods dep-graph view -i graph.json --problem --no-duplicate-primary
+mcpm-tools mods dep-graph view -i graph.json --duplicate-primary --rule required:unmatched
+```
+
+- The positive and negative switches conflict. Without either, only `--problem` enables duplicate selection by default.
+- Duplicate nodes survive without dependency edges, including `--ignore-isolated-root`. All conflicting Primary candidates remain visible as evidence without requiring a dependency error on those candidates.
+- `--type` / `--types` and `--rule` control relations, not duplicate classification. Hidden edges cannot form context paths. Explicit `--ignore` / `--ignores` also disable duplicate-problem selection for the matching node.
+- `--reverse` retains context along reverse paths. Duplicate roots still display Primary evidence leaves, which do not expand forward dependencies.
+- Candidate totals describe the complete node and can include Nested/External candidates hidden by problem filtering. The duplicate label separately reports the Primary count.
+- The existing any-matching-candidate dependency rule is unchanged; no active candidate is selected. Duplicate problems derive from existing graph data without a snapshot-format change. Primary candidates from `.jar.disabled` count too, since snapshots do not retain enabled state.
+- Server `mcpm mods dep-graph view` shares these options and semantics. `mcpm mods check` automatically uses the same `--problem` scope.
+
 ### Reverse dependencies
 
 ```sh

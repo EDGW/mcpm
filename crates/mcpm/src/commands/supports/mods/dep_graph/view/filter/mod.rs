@@ -1,16 +1,8 @@
-//! Base edge filters and per-relation match rules for dependency tree presentation.
-
-use std::str::FromStr;
+//! CLI node-problem and relation filters converted into backend graph inspection input.
 
 use clap::{Args, ValueEnum};
-use mcpm_lib::local::mcmod::dependency::{
-    Dependency, DependencyKind, graph::identifier::DependencyIdentifier,
-};
-use thiserror::Error;
-
-mod rule;
-pub(super) mod visibility;
-use rule::Rule;
+use mcpm_backend::operations::mods::dep_graph::{FilterInput, IgnoreSelector, Rule};
+use mcpm_lib::local::mcmod::dependency::DependencyKind;
 
 #[derive(Args, Default, Debug)]
 pub(super) struct FilterArgs {
@@ -38,9 +30,15 @@ pub(super) struct FilterArgs {
     /// Match states for TYPE; defaults to all. Last rule per type wins, overriding --problem.
     #[arg(short = 'r', long = "rule", value_name = "TYPE:MATCH[,MATCH...]")]
     rules: Vec<Rule>,
-    /// Shortcut for required:unmatched,unknown; breaks/conflicts:matched,unknown; hide isolated roots; disable default ignores.
+    /// Show dependency problems and duplicate Primary candidates; hide nonproblem isolated roots and disable default ignores.
     #[arg(short = 'p', long)]
     problem: bool,
+    /// Select nodes with multiple Primary candidates and paths leading to them; union with --rule.
+    #[arg(long, conflicts_with = "no_duplicate_primary")]
+    duplicate_primary: bool,
+    /// Disable duplicate-Primary selection, including its --problem default; labels remain visible.
+    #[arg(long, conflicts_with = "duplicate_primary")]
+    no_duplicate_primary: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum, Debug)]
@@ -68,127 +66,26 @@ impl RelationType {
     }
 }
 
-#[derive(Debug, Clone)]
-struct IgnoreSelector {
-    loader: Option<String>,
-    id: String,
-}
-
-#[derive(Debug, Error)]
-#[error("invalid ignore selector {value:?}: expected loader:id, :id, or id with a nonempty id")]
-struct InvalidIgnoreSelector {
-    value: String,
-}
-
-impl FromStr for IgnoreSelector {
-    type Err = InvalidIgnoreSelector;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let (loader, id) = match value.split_once(':') {
-            Some((loader, id)) => ((!loader.is_empty()).then(|| loader.to_owned()), id),
-            None => (None, value),
-        };
-        if id.is_empty() {
-            return Err(InvalidIgnoreSelector {
-                value: value.into(),
-            });
-        }
-        Ok(Self {
-            loader,
-            id: id.into(),
-        })
-    }
-}
-
-impl IgnoreSelector {
-    fn matches(&self, target: &DependencyIdentifier) -> bool {
-        self.id == target.id()
-            && self
-                .loader
-                .as_deref()
-                .is_none_or(|loader| loader == target.loader().as_str())
-    }
-}
-
-#[derive(Debug)]
-pub(super) struct ViewFilter {
-    ignores: Vec<IgnoreSelector>,
-    ignore_minecraft: bool,
-    kinds: Vec<DependencyKind>,
-    rules: Vec<Rule>,
-}
-
 impl FilterArgs {
-    pub(super) fn problem() -> Self {
-        Self {
-            problem: true,
-            ..Self::default()
-        }
-    }
-
-    pub(super) fn hides_isolated_roots(&self) -> bool {
-        self.problem
-    }
-
-    pub(super) fn into_filter(self) -> ViewFilter {
-        let kinds = if self.kind.is_empty() && self.kinds.is_empty() {
-            vec![
-                DependencyKind::Required,
-                DependencyKind::Breaks,
-                DependencyKind::Conflicts,
-            ]
-        } else {
-            self.kind
+    pub(super) fn into_input(self) -> FilterInput {
+        FilterInput {
+            ignores: self.ignore.into_iter().chain(self.ignores).collect(),
+            no_default_ignores: self.no_default_ignores,
+            kinds: self
+                .kind
                 .into_iter()
                 .chain(self.kinds)
                 .map(RelationType::kind)
-                .collect()
-        };
-        let mut rules = if self.problem {
-            Rule::problem()
-        } else {
-            Vec::new()
-        };
-        // Explicit rules override the shortcut; the last rule for a type wins.
-        rules.extend(self.rules);
-        ViewFilter {
-            ignores: self.ignore.into_iter().chain(self.ignores).collect(),
-            ignore_minecraft: !(self.no_default_ignores || self.problem),
-            kinds,
-            rules,
+                .collect(),
+            rules: self.rules,
+            problem: self.problem,
+            duplicate_primary: if self.duplicate_primary {
+                Some(true)
+            } else if self.no_duplicate_primary {
+                Some(false)
+            } else {
+                None
+            },
         }
-    }
-}
-
-impl ViewFilter {
-    pub(super) fn accepts(
-        &self,
-        kind: DependencyKind,
-        state: mcpm_lib::local::mcmod::dependency::DependencyMatch,
-    ) -> bool {
-        self.rules
-            .iter()
-            .rev()
-            .find(|rule| rule.kind == kind)
-            .is_none_or(|rule| rule.accepts(state))
-    }
-
-    pub(super) fn has_rules(&self) -> bool {
-        self.kinds.iter().any(|kind| !self.unrestricted(*kind))
-    }
-
-    pub(super) fn unrestricted(&self, kind: DependencyKind) -> bool {
-        self.rules
-            .iter()
-            .rev()
-            .find(|rule| rule.kind == kind)
-            .is_none_or(Rule::is_all)
-    }
-
-    /// Filters declared edges only; an explicitly selected root remains visible.
-    pub(super) fn includes(&self, target: &DependencyIdentifier, dependency: &Dependency) -> bool {
-        self.kinds.contains(&dependency.kind)
-            && !(self.ignore_minecraft && target.id() == "minecraft")
-            && !self.ignores.iter().any(|ignore| ignore.matches(target))
     }
 }

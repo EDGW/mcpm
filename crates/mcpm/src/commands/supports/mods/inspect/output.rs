@@ -49,12 +49,7 @@ impl<'a> Presentation<'a> {
                 }
             }
             Event::Error { error } => {
-                let error = error.into_error();
-                let error = if self.remote {
-                    crate::diagnostics::RemoteError::wrap(error)
-                } else {
-                    error
-                };
+                let error = error.into_inner();
                 match &self.progress {
                     Some(progress) => progress.report(&error),
                     None => crate::diagnostics::error(&error),

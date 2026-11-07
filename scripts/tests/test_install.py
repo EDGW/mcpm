@@ -41,6 +41,7 @@ class InstallerLifecycle(unittest.TestCase):
         self.asset = f'mcpm-macos-{arch}' if system == 'Darwin' else f'mcpm-linux-{arch}-musl'
         self.install = self.home / '.local/share/mcpm'
         self.links = self.home / '.local/bin'
+        self.record = self.home / '.mcpm/mcpmd.path'
         self.env = dict(os.environ, HOME=str(self.home),
                         PATH=f'{self.shims}{os.pathsep}{os.environ["PATH"]}',
                         MCPM_TEST_RELEASES=str(self.releases))
@@ -105,6 +106,7 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
         data.mkdir()
         (data / 'config').write_text('keep me')
         self.run_installer('v0.1.0-dev.26w43c')
+        self.assertEqual(self.record.read_text(), str(self.install / 'bin/mcpmd') + '\n')
         for name in NAMES:
             self.assertEqual((self.links / name).resolve(), (self.install / 'bin' / name).resolve())
         (self.install / 'bin' / NAMES[0]).unlink()
@@ -122,6 +124,7 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
         self.assertEqual((data / 'config').read_text(), 'keep me')
         self.assertFalse((self.install / 'manifest').exists())
         self.assertFalse((self.links / NAMES[1]).exists())
+        self.assertFalse(self.record.exists())
 
     def test_rejects_old_versions_before_download_and_understands_semver(self):
         for version in ['v0.1.0-dev.26w43b', 'v0.1.0-dev.26w42z', 'v0.0.9', 'v0.1.0-alpha', 'v0.1.0-dev', 'nonsense']:
@@ -153,6 +156,8 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
 
     def test_commit_failure_rolls_back_and_concurrent_install_is_refused(self):
         self.run_installer('v0.1.0-dev.26w43c')
+        foreign_record = b'/custom/daemon with spaces\n'
+        self.record.write_bytes(foreign_record)
         original = self.snapshot()
         real_mv = shlex.quote(shutil.which('mv'))
         marker = shlex.quote(str(self.root / 'failed-once'))
@@ -165,12 +170,29 @@ exec {real_mv} "$@"
 ''')
         self.run_installer('v0.1.0-dev.26w43d', success=False)
         self.assertEqual(self.snapshot(), original)
+        self.assertEqual(self.record.read_bytes(), foreign_record)
         self.assertFalse(list(self.install.glob('.stage.*')))
         (self.install / '.install-lock').mkdir()
         result = self.run_installer('v0.1.0-dev.26w43d', success=False)
         self.assertIn('another installer', result.stderr)
         self.assertTrue((self.install / '.install-lock').exists())
         self.assertEqual(self.snapshot(), original)
+
+    def test_uninstall_preserves_a_record_pointing_at_another_installation(self):
+        self.run_installer('v0.1.0-dev.26w43c')
+        self.record.write_text('/other/mcpmd\n')
+        self.run_installer('--uninstall')
+        self.assertEqual(self.record.read_text(), '/other/mcpmd\n')
+
+    def test_failed_fresh_install_leaves_no_daemon_registration(self):
+        real_mv = shlex.quote(shutil.which('mv'))
+        self.shim('mv', f'''#!/bin/sh
+case "$1" in */new-manifest) exit 1 ;; esac
+exec {real_mv} "$@"
+''')
+        self.run_installer('v0.1.0-dev.26w43c', success=False)
+        self.assertFalse(self.record.exists())
+        self.assertFalse((self.install / 'bin').exists())
 
     def test_unmanaged_installation_is_never_adopted_or_removed(self):
         (self.install / 'bin').mkdir(parents=True)

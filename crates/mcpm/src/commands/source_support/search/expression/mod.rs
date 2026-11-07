@@ -78,6 +78,20 @@ impl Expression {
         Ok(expression)
     }
 
+    /// Explicit expression fields, including `*`, suppress only their own Host defaults.
+    pub(super) fn server_context(
+        &self,
+        server: Option<&mcpm_backend::operations::mods::source::server::Context>,
+    ) -> Option<mcpm_backend::operations::mods::source::server::Context> {
+        server.map(
+            |server| mcpm_backend::operations::mods::source::server::Context {
+                path: server.path.clone(),
+                default_version: server.default_version && self.versions.is_none(),
+                default_loader: server.default_loader && self.loaders.is_none(),
+            },
+        )
+    }
+
     pub(super) fn apply(self, defaults: &SearchQuery) -> SearchQuery {
         SearchQuery {
             query: self.keywords,

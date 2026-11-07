@@ -124,13 +124,24 @@ function Set-InstallPath {
     return (-not $contains -and -not $Remove)
 }
 
+# Both files live in the configuration directory so replacement stays on one filesystem.
+function Publish-DaemonRecord {
+    param([string]$Temporary, [string]$Destination)
+    if ([IO.File]::Exists($Destination)) { [IO.File]::Replace($Temporary, $Destination, [NullString]::Value) }
+    else { [IO.File]::Move($Temporary, $Destination) }
+}
+
 function Invoke-Install {
     if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is required.' }
+    if (-not ([IO.Path]::IsPathRooted($env:LOCALAPPDATA))) { throw 'LOCALAPPDATA must be an absolute path.' }
     if ($Uninstall -and $Version) { throw 'Specify either -Version or -Uninstall.' }
     if (-not $Uninstall) { Assert-SupportedVersion $Version }
     $installDir = Join-Path $env:LOCALAPPDATA 'Programs\mcpm'
     $binDir = Join-Path $installDir 'bin'
     $manifestPath = Join-Path $installDir 'manifest'
+    $recordDir = Join-Path $env:LOCALAPPDATA 'mcpm'
+    $recordPath = Join-Path $recordDir 'mcpmd.path'
+    $daemonPath = Join-Path $binDir 'mcpmd.exe'
     Assert-RegularDirectory $installDir
     Assert-RegularDirectory $binDir
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
@@ -140,6 +151,8 @@ function Invoke-Install {
     $transaction = $false
     $newBin = $false
     $newManifest = $false
+    $recordChanged = $false
+    $recordTemp = $null
     $originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $originalProcessPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
     try {
@@ -152,6 +165,11 @@ function Invoke-Install {
             if (-not $old) {
                 Write-Output "No managed mcpm installation at $installDir. Legacy installations are not removed."
                 return
+            }
+            if ((Test-Path -LiteralPath $recordPath -PathType Leaf) -and
+                -not ((Get-Item -LiteralPath $recordPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+                ([IO.File]::ReadAllText($recordPath) -ceq "$daemonPath`n")) {
+                Remove-Item -LiteralPath $recordPath
             }
             foreach ($name in $old.Files) {
                 $path = Join-Path $binDir $name
@@ -204,6 +222,7 @@ function Invoke-Install {
         $manifest = Read-Manifest (Join-Path $package 'manifest')
         if ($manifest.Version -cne $Version -or $manifest.Asset -cne $asset) { throw 'Archive version or platform does not match request.' }
         if ($entries.Count -ne $manifest.Files.Count + 1) { throw 'Archive files do not match manifest.' }
+        if ('mcpmd.exe' -cnotin $manifest.Files) { throw 'Package does not contain mcpmd.exe.' }
         foreach ($name in $manifest.Files) {
             $binary = Join-Path (Join-Path $package 'bin') $name
             if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Missing executable: $name" }
@@ -222,6 +241,17 @@ function Invoke-Install {
         $manifest.UserPathAdded = (-not $userHasBin) -or ($old -and $old.UserPathAdded)
         $manifest.ProcessPathAdded = (-not $processHasBin) -or ($old -and $old.ProcessPathAdded)
         Write-Manifest (Join-Path $stage 'new-manifest') $manifest
+        Assert-RegularDirectory $recordDir
+        New-Item -ItemType Directory -Path $recordDir -Force | Out-Null
+        if (Test-Path -LiteralPath $recordPath) {
+            $item = Get-Item -LiteralPath $recordPath -Force
+            if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw "Expected a regular mcpmd record: $recordPath"
+            }
+            Copy-Item -LiteralPath $recordPath -Destination (Join-Path $stage 'old-record')
+        }
+        $recordTemp = Join-Path $recordDir ('.mcpmd-path-' + [guid]::NewGuid().ToString('N'))
+        [IO.File]::WriteAllText($recordTemp, "$daemonPath`n", (New-Object Text.UTF8Encoding($false)))
         $transaction = $true
         if (Test-Path -LiteralPath $binDir) { Move-Item -LiteralPath $binDir -Destination (Join-Path $stage 'old-bin') }
         if ($old) { Move-Item -LiteralPath $manifestPath -Destination (Join-Path $stage 'old-manifest') }
@@ -229,6 +259,8 @@ function Invoke-Install {
         Move-Item -LiteralPath (Join-Path $package 'bin') -Destination $binDir
         Set-InstallPath User $binDir | Out-Null
         Set-InstallPath Process $binDir | Out-Null
+        $recordChanged = $true
+        Publish-DaemonRecord $recordTemp $recordPath
         $newManifest = $true
         Move-Item -LiteralPath (Join-Path $stage 'new-manifest') -Destination $manifestPath
         $committed = $true
@@ -243,6 +275,14 @@ function Invoke-Install {
             try {
                 [Environment]::SetEnvironmentVariable('Path', $originalUserPath, 'User')
                 [Environment]::SetEnvironmentVariable('Path', $originalProcessPath, 'Process')
+                if ($recordChanged) {
+                    $oldRecord = Join-Path $stage 'old-record'
+                    if (Test-Path -LiteralPath $oldRecord) {
+                        Copy-Item -LiteralPath $oldRecord -Destination $recordTemp -Force
+                        Publish-DaemonRecord $recordTemp $recordPath
+                        Remove-Item -LiteralPath $oldRecord
+                    } elseif (Test-Path -LiteralPath $recordPath) { Remove-Item -LiteralPath $recordPath }
+                }
                 if ($newBin -and (Test-Path -LiteralPath $binDir)) { Remove-Item -LiteralPath $binDir -Recurse -Force }
                 if ($newManifest -and (Test-Path -LiteralPath $manifestPath)) { Remove-Item -LiteralPath $manifestPath -Force }
                 if (Test-Path -LiteralPath (Join-Path $stage 'old-bin')) { Move-Item -LiteralPath (Join-Path $stage 'old-bin') -Destination $binDir }
@@ -252,8 +292,11 @@ function Invoke-Install {
         throw $failure
     } finally {
         try {
+            if ($recordTemp -and (Test-Path -LiteralPath $recordTemp)) { Remove-Item -LiteralPath $recordTemp -Force }
             if ($stage -and (Test-Path -LiteralPath $stage)) {
-                $hasBackup = (Test-Path -LiteralPath (Join-Path $stage 'old-bin')) -or (Test-Path -LiteralPath (Join-Path $stage 'old-manifest'))
+                $hasBackup = (Test-Path -LiteralPath (Join-Path $stage 'old-bin')) -or
+                    (Test-Path -LiteralPath (Join-Path $stage 'old-manifest')) -or
+                    (Test-Path -LiteralPath (Join-Path $stage 'old-record'))
                 if ($committed -or -not $hasBackup) { Remove-Item -LiteralPath $stage -Recurse -Force }
             }
         } finally {

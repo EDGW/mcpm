@@ -1068,3 +1068,59 @@ fn fallback_rejects_data_symlinks_non_directories_and_permission_errors() {
         assert!(!fixture.target.exists());
     }
 }
+
+#[test]
+fn cancellation_at_publication_keeps_the_previous_target_and_cleans_staging() {
+    let fixture = Fixture::new();
+    let root_entries = || {
+        let mut entries = fs::read_dir(fixture.root.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        entries.sort();
+        entries
+    };
+    let before_create = root_entries();
+    let cancelled = create(
+        &fixture.source,
+        &fixture.backup,
+        &RuntimeEnvironment::new().with_backup_cache(ModsCacheSelection::Directory {
+            path: fixture.cache.path().to_owned(),
+        }),
+        CreateOptions {
+            storage: CreateStorage::Full(CacheLinkPreference::Copy),
+            parallelism: NonZeroUsize::new(2).unwrap(),
+        },
+        |event| {
+            anyhow::ensure!(!matches!(event, Event::BeforeCommit), "cancel publication");
+            Ok(())
+        },
+    );
+    assert!(cancelled.is_err());
+    assert!(!fixture.backup.exists());
+    assert_eq!(root_entries(), before_create);
+    fixture.create(CacheLinkPreference::Copy);
+    fs::create_dir(&fixture.target).unwrap();
+    fs::write(fixture.target.join("previous"), b"keep this directory").unwrap();
+    let before_apply = root_entries();
+    let cancelled = apply(
+        &fixture.backup,
+        &fixture.target,
+        ApplyOptions {
+            mode: CacheLinkPreference::Copy,
+            force: true,
+            parallelism: NonZeroUsize::new(2).unwrap(),
+        },
+        |event| {
+            anyhow::ensure!(!matches!(event, Event::BeforeCommit), "cancel publication");
+            Ok(())
+        },
+    );
+    assert!(cancelled.is_err());
+    assert_eq!(
+        fs::read(fixture.target.join("previous")).unwrap(),
+        b"keep this directory"
+    );
+    assert!(!fixture.target.join("first.jar").exists());
+    assert_eq!(root_entries(), before_apply);
+}

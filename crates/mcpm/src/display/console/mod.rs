@@ -60,5 +60,47 @@ impl Write for ConsoleWriter<'_> {
     }
 }
 
+/// Indented, wrapped Tip layout: primary-bold label and primary-only inline code.
+pub(crate) fn tip(
+    out: &mut ConsoleWriter<'_>,
+    message: &str,
+    normal_lines: usize,
+    style: Option<&super::style::OutputStyle>,
+) -> io::Result<()> {
+    writeln!(out)?;
+    let mut out = out.subwriter();
+    let options = textwrap::Options::new(textwrap::termwidth().saturating_sub(INDENT.len()).max(1))
+        .word_splitter(textwrap::WordSplitter::NoHyphenation);
+    let mut rendered = String::with_capacity(message.len());
+    for (line_index, paragraph) in message.split('\n').enumerate() {
+        rendered.clear();
+        let body = if line_index == 0 {
+            if let Some(body) = paragraph.strip_prefix("Tip:") {
+                match style {
+                    Some(style) => rendered.push_str(&style.primary("Tip:")),
+                    None => rendered.push_str("Tip:"),
+                }
+                body
+            } else {
+                paragraph
+            }
+        } else {
+            paragraph
+        };
+        for (index, part) in body.split('`').enumerate() {
+            match style {
+                Some(style) if index % 2 == 1 => rendered.push_str(&style.primary_plain(part)),
+                Some(style) if line_index < normal_lines => rendered.push_str(&style.normal(part)),
+                Some(style) => rendered.push_str(&style.muted(part)),
+                None => rendered.push_str(part),
+            }
+        }
+        for line in textwrap::wrap(&rendered, &options) {
+            writeln!(out, "{line}")?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;

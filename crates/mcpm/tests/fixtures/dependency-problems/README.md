@@ -77,7 +77,7 @@ external matches its loader/modid without checking versions. A versioned externa
 uses its own loader's version predicate. Different versions of the same external
 remain separate candidates; identical loader/modid/version inputs are deduplicated.
 
-`--problem` also enables `--ignore-isolated-root` and `--no-default-ignores`.
+`--problem` also selects nodes with multiple Primary candidates, enables `--no-default-ignores`, and hides unrelated isolated roots. Duplicate-Primary nodes survive even without dependency edges; `--no-duplicate-primary` disables that part of problem selection. Nested/External candidates do not count as duplicate Primary candidates.
 Explicit `--ignore` / `--ignores` still apply.
 
 For a registered server, the same graph commands are available under

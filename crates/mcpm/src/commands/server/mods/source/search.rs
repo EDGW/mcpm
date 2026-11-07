@@ -1,4 +1,4 @@
-//! Applies registered server compatibility defaults to remote project searches.
+//! Sends registered server context to Host project searches.
 
 use anyhow::Result;
 use clap::Args;
@@ -7,7 +7,7 @@ use crate::commands::source_support::search;
 
 #[derive(Args, Debug)]
 #[command(
-    after_help = format!("Modes: TUI (default in terminals), Console (--no-ui), Raw (--raw or redirected stdout); Remote supported through --ssh.\n\nQUERY accepts keywords followed by @version VALUE and @loader VALUE.\nUse (A | B) for alternatives and * to clear a field; quote the whole expression.\nFields override explicit options and server defaults. Omit QUERY to browse.\nWith --ssh, --server is resolved remotely; source requests and UI remain local.\nMinecraft version and loader default to the registered server; explicit filters override each default.\nUse --all-versions to disable both compatibility filters. Enter on a result opens files with the same filters; Esc returns.\nTUI: / edits the top search field; Enter submits, Esc discards edits.\nValue suggestions: Up/Down selects, Enter/Tab inserts, Esc closes; Enter again searches.\nLoader suggestions: Forge, NeoForge, Fabric. Versions load from the current source.\nVersion catalogs are cached for this session; Ctrl-R retries failed loads.\nTab switches Search / Results / Details.\nDetails: Up/Down selects a field, c copies its full value, Enter expands/collapses.\n\nExamples:\n  {server} mods source search create --server ./my-server --source modrinth\n  {server} mods source search \"Steam 'n' Rails\" --source curseforge -N\n  {server} mods source search create --source modrinth --all-versions\n  {server} mods source search create --source modrinth --game-version 1.21.1 --columns name,id", server = crate::program::roots().server)
+    after_help = format!("Modes: TUI (default in terminals), Console (--no-ui), Raw (--raw or redirected stdout); Remote supported through --ssh.\n\nQUERY accepts keywords followed by @version VALUE and @loader VALUE.\nUse (A | B) for alternatives and * to clear a field; quote the whole expression.\nFields override explicit options and server defaults. Omit QUERY to browse.\nWith --ssh, --server and source requests run on the selected host; the UI remains local.\nMinecraft version and loader default to the registered server; explicit filters override each default.\nUse --all-versions to disable automatic defaults without clearing explicit filters. Enter on a result opens files with the same filters; Esc returns.\nTUI: / edits the top search field; Enter submits, Esc discards edits.\nValue suggestions: Up/Down selects, Enter/Tab inserts, Esc closes; Enter again searches.\nLoader suggestions: Forge, NeoForge, Fabric. Versions load from the current source.\nVersion catalogs are cached for this session; Ctrl-R retries failed loads.\nTab switches Search / Results / Details.\nDetails: Up/Down selects a field, c copies its full value, Enter expands/collapses.\n\nExamples:\n  {server} mods source search create --server ./my-server --source modrinth\n  {server} mods source search \"Steam 'n' Rails\" --source curseforge -N\n  {server} mods source search create --source modrinth --all-versions\n  {server} mods source search create --source modrinth --game-version 1.21.1 --columns name,id", server = crate::program::roots().server)
 )]
 pub(super) struct ServerSearchArgs {
     #[command(flatten)]
@@ -16,10 +16,10 @@ pub(super) struct ServerSearchArgs {
     search: search::SearchArgs,
 }
 
-pub(super) fn run(mut args: ServerSearchArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
-    if let Some(defaults) = args.server.defaults(ssh, super::remote::SEARCH)? {
-        args.search
-            .apply_defaults(&defaults.version, &defaults.loader);
-    }
-    search::run(args.search)
+pub(super) fn run(args: ServerSearchArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+    let runtime = crate::commands::execution::Runtime::new()?;
+    let (executor, path, _) =
+        runtime.block_on(ssh.create_executor(Some(args.server.path.clone())))?;
+    let context = args.server.context(path.expect("server source path"));
+    search::run_at(args.search, &executor, Some(context))
 }

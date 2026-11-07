@@ -1,21 +1,23 @@
 //! Shared stash fields, workspace differences and operation results in Console and Raw TSV.
 
-use std::{io::Write, path::PathBuf};
+use std::io::Write;
 
 use anyhow::Result;
 use clap::ValueEnum;
-use mcpm_lib::local::{
-    mc::server::stash::{Stash, Status, WorkspaceState},
-    mcmod::backup::{FileDifference, Manifest},
+use mcpm_backend::operations::server::stash::{
+    Difference, ManifestSnapshot, StashSnapshot, StatusComparison,
 };
 
 use super::{
-    backup,
     console::ConsoleWriter,
     size::size,
     style::{OutputStyle, text, tsv},
 };
 use crate::terminal;
+
+mod details;
+mod progress;
+pub(crate) use progress::FileProgress;
 
 /// List columns are lightweight; manifest-derived fields belong to info only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -77,38 +79,38 @@ impl Column {
 
 /// Captured under a shared lease; rendering does not access server files.
 pub(crate) struct Entry {
-    pub stash: Stash,
+    pub stash: StashSnapshot,
     pub head: Option<bool>,
-    pub backup: PathBuf,
-    pub manifest: Option<Manifest>,
+    pub backup: String,
+    pub manifest: Option<ManifestSnapshot>,
 }
 
 impl Entry {
     fn value(&self, column: Column) -> String {
         match column {
-            Column::Name => self.stash.name().into(),
-            Column::Id => self.stash.id().to_string(),
-            Column::Time => self.stash.created_at().to_rfc3339(),
+            Column::Name => self.stash.name.clone(),
+            Column::Id => self.stash.id.to_string(),
+            Column::Time => self.stash.created_at.clone(),
             Column::Head => self.head.map(|head| head.to_string()).unwrap_or_default(),
-            Column::Backup => self.stash.backup_id().to_string(),
-            Column::Path => self.backup.to_string_lossy().into_owned(),
+            Column::Backup => self.stash.backup_id.to_string(),
+            Column::Path => self.backup.clone(),
             Column::Checksum => self
                 .manifest
                 .as_ref()
-                .map(|m| m.checksum().to_string())
+                .map(|m| m.checksum.clone())
                 .unwrap_or_default(),
             Column::Files => self
                 .manifest
                 .as_ref()
-                .map(|m| m.files().len().to_string())
+                .map(|m| m.files.len().to_string())
                 .unwrap_or_default(),
             Column::Size => self
                 .manifest
                 .as_ref()
                 .map(|m| {
-                    m.files()
+                    m.files
                         .iter()
-                        .map(|f| u128::from(f.size()))
+                        .map(|f| u128::from(f.size))
                         .sum::<u128>()
                         .to_string()
                 })
@@ -168,7 +170,7 @@ pub(crate) fn entries(
                     Column::Size => entry
                         .manifest
                         .as_ref()
-                        .map(|m| size(m.files().iter().map(|f| u128::from(f.size())).sum(), &style))
+                        .map(|m| size(m.files.iter().map(|f| u128::from(f.size)).sum(), &style))
                         .unwrap_or_default(),
                     _ => style.muted(text(&value)),
                 };
@@ -182,8 +184,8 @@ pub(crate) fn entries(
             writeln!(
                 console,
                 "{}  {}  {}",
-                style.primary(text(entry.stash.name())),
-                style.secondary(entry.stash.created_at()),
+                style.primary(text(&entry.stash.name)),
+                style.secondary(&entry.stash.created_at),
                 if entry.head == Some(true) {
                     style.secondary("HEAD")
                 } else {
@@ -193,8 +195,8 @@ pub(crate) fn entries(
         }
         if details && let Some(manifest) = &entry.manifest {
             let mut files = console.subwriter();
-            for record in manifest.files() {
-                backup::file(&mut files, record, None)?;
+            for record in &manifest.files {
+                details::file(&mut files, record)?;
             }
         }
     }
@@ -204,7 +206,7 @@ pub(crate) fn entries(
 pub(crate) fn operation(
     out: &mut impl Write,
     operation: &str,
-    stash: Option<&Stash>,
+    stash: Option<&StashSnapshot>,
     target: &str,
     status: &str,
     headers: bool,
@@ -218,13 +220,13 @@ pub(crate) fn operation(
             "{}\t{}\t{}\t{}\t{}",
             tsv(operation),
             tsv(target),
-            stash.map(|s| s.id().to_string()).unwrap_or_default(),
-            stash.map(|s| tsv(s.name())).unwrap_or_default(),
+            stash.map(|s| s.id.to_string()).unwrap_or_default(),
+            stash.map(|s| tsv(&s.name)).unwrap_or_default(),
             tsv(status)
         )?;
     } else {
         let style = OutputStyle::new();
-        let name = stash.map(|s| s.name()).unwrap_or(target);
+        let name = stash.map(|s| s.name.as_str()).unwrap_or(target);
         let status = if status == "failed" {
             style.danger(status)
         } else {
@@ -237,31 +239,35 @@ pub(crate) fn operation(
             style.primary(text(name))
         )?;
         if let Some(stash) = stash {
-            writeln!(console.subwriter(), "{}", style.muted(stash.id()))?;
+            writeln!(console.subwriter(), "{}", style.muted(stash.id))?;
         }
     }
     Ok(())
 }
 
-pub(crate) fn status(out: &mut impl Write, status: &Status, headers: bool) -> Result<()> {
-    let state = match status.state() {
-        WorkspaceState::Clean => "clean",
-        WorkspaceState::Modified => "modified",
-        WorkspaceState::Untracked => "untracked",
+pub(crate) fn status(out: &mut impl Write, status: &StatusComparison, headers: bool) -> Result<()> {
+    let state = match &status.comparison {
+        None => "untracked",
+        Some(comparison) if comparison.expected == comparison.actual => "clean",
+        Some(_) => "modified",
     };
     let head_id = status
         .head
         .as_ref()
-        .map(|s| s.id().to_string())
+        .map(|s| s.id.to_string())
         .unwrap_or_default();
-    let head_name = status.head.as_ref().map(|s| s.name()).unwrap_or_default();
+    let head_name = status
+        .head
+        .as_ref()
+        .map(|s| s.name.as_str())
+        .unwrap_or_default();
     if terminal::stdout_is_tty() {
         let style = OutputStyle::new();
         let mut console = ConsoleWriter::new(out);
         writeln!(
             console,
             "Status: {}",
-            if status.state() == WorkspaceState::Clean {
+            if state == "clean" {
                 style.success(state)
             } else {
                 style.warning(state)
@@ -272,8 +278,8 @@ pub(crate) fn status(out: &mut impl Write, status: &Status, headers: bool) -> Re
             writeln!(console.subwriter(), "{}", style.muted(head_id))?;
         }
         if let Some(comparison) = &status.comparison {
-            for difference in comparison.differences() {
-                backup::file_difference(&mut console, difference)?;
+            for difference in &comparison.differences {
+                details::difference(&mut console, difference)?;
             }
         }
     } else {
@@ -286,12 +292,12 @@ pub(crate) fn status(out: &mut impl Write, status: &Status, headers: bool) -> Re
         let expected = status
             .comparison
             .as_ref()
-            .map(|c| c.expected().to_string())
+            .map(|c| c.expected.as_str())
             .unwrap_or_default();
         let actual = status
             .comparison
             .as_ref()
-            .map(|c| c.actual().to_string())
+            .map(|c| c.actual.as_str())
             .unwrap_or_default();
         let prefix = format!(
             "{state}\t{head_id}\t{}\t{expected}\t{actual}",
@@ -300,18 +306,18 @@ pub(crate) fn status(out: &mut impl Write, status: &Status, headers: bool) -> Re
         let differences = status
             .comparison
             .as_ref()
-            .map(|c| c.differences())
+            .map(|c| c.differences.as_slice())
             .unwrap_or_default();
         if differences.is_empty() {
             writeln!(out, "{prefix}\t\t")?;
         }
         for difference in differences {
             let (change, record) = match difference {
-                FileDifference::Missing { expected } => ("removed", expected),
-                FileDifference::Unexpected { actual } => ("added", actual),
-                FileDifference::Changed { actual, .. } => ("modified", actual),
+                Difference::Missing { expected } => ("removed", expected),
+                Difference::Unexpected { actual } => ("added", actual),
+                Difference::Changed { actual, .. } => ("modified", actual),
             };
-            writeln!(out, "{prefix}\t{change}\t{}", tsv(record.path()))?;
+            writeln!(out, "{prefix}\t{change}\t{}", tsv(&record.path))?;
         }
     }
     Ok(())

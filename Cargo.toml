@@ -4,7 +4,7 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-version = "0.1.0-dev.26w43d"
+version = "0.1.0-dev.26w45a"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.104" }
@@ -19,7 +19,6 @@ ctrlc = { version = "3.5.2" }
 dirs = { version = "6" }
 imohash = { version = "0.1.2" }
 indicatif = { version = "0.18" }
-inventory = { version = "0.3" }
 lazy_static = { version = "1.5.1" }
 libc = { version = "0.2.190" }
 mcpm-lib = { path = "crates/mcpm-lib" }

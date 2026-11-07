@@ -1,15 +1,36 @@
 > 尚未迁移到新文档体系。此处保留旧文档；已迁移命令以文档根目录中的新版本为准。
 
-# 服务器 Mod 检查与缓存
+# 服务器 Mod 检查、摘要与缓存
 
 服务器 Mod 命令使用已登记服务器的 loader 和 mods 目录。本地服务器、显式 SSH 连接和已保存的 Remote 工作区遵循相同行为。
 
 - `--server PATH` 选择服务器，默认 `.`。
-- ITEM 支持文件名、精确 Mod ID、精确名称，以及 `--file`、`--modid`、`--name`、`--all`。stdin 每行追加一项并自动匹配；info/deps/cache 还支持 `--input file|modid|name|unspecified`。
+- ITEM 支持文件名、精确 Mod ID、精确名称，以及 `--file`、`--modid`、`--name`、`--all`。stdin 每行追加一项并自动匹配；info/deps/cache/digest 还支持 `--input file|modid|name|unspecified`。
 - 文件输入相对于服务器 mods 目录，接受 `mods/` 前缀，拒绝父路径穿越和绝对文件路径。
 - SSH 模式下，服务器元数据、文件选择和缓存路径均在远端解析，输出在本地展示。Remote 工作区自动使用已保存的连接。
 - 缓存资源取自 Server 的运行环境。当前各缓存用途共享文件主机的 global 缓存（`~/.mcpm/cache/mods`），暂未提供 Server 专属缓存设置。
 - 远端错误始终显示；远端日志需要 `--remote-logs`，并遵循 `--log-level`。
+
+## 摘要
+
+```sh
+mcpm mods digest example.jar --server /srv/minecraft
+mcpm mods digest create --murmur2
+mcpm mods digest 'Create' --headers --raw
+mcpm mods digest --all --parallelism 4
+printf '%s\n' create jei | mcpm mods digest --input modid
+```
+
+- 与 `mods info XXX` 一样，位置参数按文件名、精确 Mod ID、精确名称依次匹配；也可组合显式选择和 stdin。空输入不扫描目录，完整范围需使用 `--all`。
+- 始终计算整个外层文件的大小和 SHA-1；`--murmur2` 追加 CurseForge 兼容指纹。嵌套 Mod ID/name 命中时，摘要仍属于外层归档。
+- 文件选择与 `--all` 不解析 Mod 元数据，因此损坏或无法识别的 JAR 也能计算摘要；ID/name 选择才使用服务器声明的 loader 建立索引。`--all` 非递归枚举 `.jar` 和 `.jar.disabled`，按路径排序。
+- 重复选择或文件路径别名只输出一次，保留首次命中的顺序。`--parallelism` 为正整数，默认 10，约束选择索引和摘要读取。不访问 Mod 缓存，不查询来源服务，不上传文件。
+- 支持 Console 字段组和 Raw TSV。Raw 列固定为 `file`、`size`、`sha1`、`murmur2`；未请求的指纹和失败文件的摘要字段留空，`--headers` 在首条结果前输出列名。
+- 选择索引扫描和摘要计算分别显示 stderr 进度条；摘要进度按已完成的输入位置推进，包含失败项，不等待有序结果输出。独立文件入口也显示摘要进度。仅 stderr 为终端时显示，重定向 stdout 不关闭进度；`--raw` 始终关闭。完成或出错退出前清理进度条。
+- 选择或单文件失败后继续输出有效结果；任何失败均返回非零。选择索引扫描中的文件错误也会计为失败，即使该文件最终未被选中。选择错误写 stderr，读取失败的文件保留空摘要行。
+- 支持显式 `--ssh` 和已登记 Remote workspace，通过现有 `mod.digest` operation 在文件主机执行，远端使用与本机匹配的 `mcpmd`。`mcpm-server mods digest` 和 `mcpm-tools server mods digest` 使用相同入口。
+
+独立的 `mcpm-tools mods digest FILE...` 仍将参数和 stdin 解释为字面文件路径，不进行服务器选择；重复路径共享读取但保留每个输出位置。
 
 ## Info 与依赖
 
@@ -28,6 +49,21 @@ Info 默认查询 Server 运行环境的 Mod 缓存：
 - Console 显示全部缓存、部分缓存、总项目数，使用小写英文，统计前空一行。
 
 Deps 保持直接识别，不查询持久缓存。
+
+## 依赖图与检查
+
+```sh
+mcpm mods dep-graph build --server /srv/minecraft -o graph.json
+mcpm mods dep-graph view -i graph.json --duplicate-primary
+mcpm mods dep-graph view -i graph.json --problem
+mcpm mods dep-graph view -i graph.json --problem --no-duplicate-primary
+mcpm mods check --server /srv/minecraft
+```
+
+- Server `dep-graph view` 和独立 Mod 图共用筛选参数，详见[重复 Primary 与问题视图](../mod/dep-graph.md#重复-primary-与问题视图)。
+- `check` 使用同一后端问题视图，同时展示依赖问题和同一 loader/modid 下的多个 Primary candidate；相同版本也算重复，Nested/External 不计数。没有依赖边的重复节点仍会展示。
+- 没有问题且识别完整时显示 `Check passed. No problems found.`；没有问题树但存在识别失败时显示 incomplete，不将不完整结果作为检查通过。
+- 本地、显式 SSH 和 Remote workspace 共用相同判定；远端通过现有图 operation 和 mcpmd 执行，不新增检查协议或快照格式。
 
 ## 列表
 

@@ -10,7 +10,7 @@ UTF-8 text, one `key=value` record per line:
 
 ```text
 format=1
-version=v0.1.0-dev.26w43d
+version=v0.1.0-dev.26w45a
 asset=mcpm-macos-arm64
 file=mcpm
 file=mcpm-client
@@ -29,12 +29,19 @@ file=mcpmd
 
 1. Acquire the installation lock, read the existing ownership record, and check for unmanaged files.
 2. Download into a staging directory on the installation filesystem; verify the checksum, archive layout, manifest, and executable versions.
-3. Move managed `bin` and manifest into the staging backup. Install the new `bin`, Unix links or Windows PATH entries, and commit the new manifest.
-4. Clean up after success. On failure, restore the previous suite and PATH. If restoration fails, retain the backup and report its location.
+3. Back up managed `bin`, manifest, and any existing daemon location record. Install the new `bin`, Unix links or Windows PATH entries, publish the daemon record, and commit the new manifest.
+4. Clean up after success. On failure, restore the previous suite, daemon record, and PATH. If restoration fails, retain the backup and report its location.
 
 The file set is not replaced atomically. Locks serialize cooperating installers; they do not stop users from launching programs. Unix handles signals through cleanup, but a forced termination or power loss can leave a staging backup or stale directory lock. Windows uses an exclusive file handle whose lock is released when the process exits; the empty lock file stays in place to avoid delete/open races.
 
 Uninstall removes only recorded executables and owned links/PATH entries. Unknown files, legacy installations, and user data are preserved. Upgrade refuses unmanaged files in `bin` rather than moving or deleting them as part of the suite.
+
+### Daemon location record
+
+- Install, upgrade, and repair write the final absolute `mcpmd` path to `~/.mcpm/mcpmd.path` on Unix or `%LOCALAPPDATA%\mcpm\mcpmd.path` on Windows. Packages must include the daemon.
+- The file is UTF-8 text with one absolute executable path and a trailing LF; readers also accept CRLF or no final newline. It is not shell code and does not modify `settings.toml`.
+- Publication uses a temporary file in the record directory and same-filesystem replacement. Failed installs restore the previous record, or remove the new record if none existed.
+- Uninstall removes the record only when it still contains this installer's daemon path. Records pointing at another installation and all user settings remain untouched.
 
 ## Validation
 
@@ -43,7 +50,7 @@ shellcheck scripts/install.sh
 python3 scripts/tests/test_install.py
 python3 scripts/package.py --binary-dir target/debug \
   --target aarch64-apple-darwin --asset mcpm-macos-arm64 \
-  --tag v0.1.0-dev.26w43d
+  --tag v0.1.0-dev.26w45a
 ```
 
 Adjust target and asset to the host. Packaging runs the executables, so the build must be runnable on that host.

@@ -10,7 +10,7 @@ The command reference is currently difficult to read and will be improved over t
 
 ## Installation
 
-Install pre-release [v0.1.0-dev.26w43d](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d).
+Install pre-release [v0.1.0-dev.26w45a](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w45a).
 The installer supports **v0.1.0-dev.26w43c and newer**; older tags are rejected before downloading.
 All six executables are installed together: `mcpm`, `mcpm-server`, `mcpmc`, `mcpm-client`, `mcpm-tools`, and `mcpmd`.
 
@@ -25,13 +25,13 @@ Installation does not require administrator privileges. Configuration, caches, a
 ### Windows (PowerShell 5.1 or later)
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.ps1))) -Version v0.1.0-dev.26w43d
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.ps1))) -Version v0.1.0-dev.26w45a
 ```
 
 Uninstall:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.ps1))) -Uninstall
 ```
 
 PATH changes apply to the current PowerShell session and newly opened terminals. Other existing terminals need to be reopened. Close running mcpm processes before upgrading if Windows reports files in use.
@@ -41,7 +41,7 @@ PATH changes apply to the current PowerShell session and newly opened terminals.
 Requires `curl`, `tar`, and either `sha256sum` or `shasum`.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- v0.1.0-dev.26w43d
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.sh | sh -s -- v0.1.0-dev.26w45a
 ```
 
 If `~/.local/bin` is not already on PATH, add the following line to your shell configuration (`~/.zshrc` for zsh or `~/.bashrc` for bash):
@@ -55,7 +55,7 @@ Reload that configuration or open a new terminal. The installer prints this inst
 Uninstall:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.sh | sh -s -- --uninstall
 ```
 
 ### Upgrade, repair and uninstall behavior
@@ -73,11 +73,11 @@ curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts
 - Previous Windows installations at `%LOCALAPPDATA%\Programs\mcpm\mcpm.exe` and their PATH entries are kept. The installer warns when this executable still takes precedence; remove the old executable and old PATH entry explicitly after checking the new suite.
 - An untracked `bin` directory is never silently adopted or replaced. Resolve a reported conflict before installing.
 - These scripts manage the new layout only; they do not uninstall the old single-file layout.
-- Noninteractive SSH sessions may not load your shell configuration. `server info` and `server init` require remote `mcpmd`; use `--ssh-mcpmd` with its absolute path if it is not on PATH. Unmigrated mods/cache commands still require `mcpm-tools` remotely during the transition.
+- Noninteractive SSH sessions may not load your shell configuration. Installers record `mcpmd` in `~/.mcpm/mcpmd.path` on Unix or `%LOCALAPPDATA%\mcpm\mcpmd.path` on Windows. Without an explicit `--ssh-mcpmd`, SSH reads the remote host's record; a missing file warns and falls back to remote PATH. If that fallback also fails, the command reports an error. See [remote discovery](crates/mcpmd/docs/README.md#remote-executable-discovery). Unmigrated mods/cache commands still require remote `mcpm-tools`.
 
 ### Manual installation
 
-[Release assets](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d) contain a complete `bin/` directory and a `manifest`:
+[Release assets](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w45a) contain a complete `bin/` directory and a `manifest`:
 
 - macOS/Linux: `mcpm-PLATFORM-ARCH[-LIBC].tar.gz`.
 - Windows: `mcpm-windows-x86_64.zip`.

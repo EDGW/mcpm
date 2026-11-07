@@ -40,6 +40,14 @@ impl Columns {
     }
 }
 
+pub(super) fn read_options(columns: &[Column]) -> mcpm_backend::operations::cache::ReadOptions {
+    mcpm_backend::operations::cache::ReadOptions {
+        sha256: columns.contains(&Column::Sha256),
+        metadata: columns.contains(&Column::Metadatas),
+        metadata_details: crate::terminal::stdout_is_tty(),
+    }
+}
+
 fn letters(value: &str) -> Result<String, String> {
     if value.is_empty() || !value.chars().all(|ch| "BFSHTM".contains(ch)) {
         return Err("expected column letters BFSHTM".into());

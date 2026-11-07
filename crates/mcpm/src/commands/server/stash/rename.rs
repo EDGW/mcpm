@@ -3,21 +3,29 @@
 use std::io::Write;
 
 use anyhow::Result;
-use mcpm_lib::local::mc::server::stash::StashStore;
+use mcpm_backend::operations::server::stash::{Rename, RenameInput};
 
 use super::{Context, input};
 use crate::display::stash;
 
-pub(super) fn run(rename: RenameArgs, context: &Context, mut out: &mut impl Write) -> Result<()> {
-    let server = context.server()?;
-    let mut store = StashStore::write(&server)?;
-    let stash = store.rename(&rename.selection.selector(), rename.new_name)?;
-    drop(store);
+pub(super) async fn run(
+    rename: RenameArgs,
+    context: &Context,
+    mut out: &mut impl Write,
+) -> Result<()> {
+    let stash = context
+        .executor
+        .call::<Rename>(RenameInput {
+            path: context.path.clone(),
+            selector: rename.selection.selector(),
+            new_name: rename.new_name,
+        })
+        .await?;
     stash::operation(
         &mut out,
         "rename",
         Some(&stash),
-        &stash.id().to_string(),
+        &stash.id.to_string(),
         "renamed",
         context.headers,
     )?;

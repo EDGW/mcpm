@@ -25,23 +25,29 @@ pub fn build(
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
     on_error: impl FnMut(&anyhow::Error),
 ) -> Result<DependencyGraph> {
-    build_with_progress(directory, loaders, on_error, |_, _| {})
+    build_with_progress(directory, loaders, on_error, |_, _| Ok(()), || Ok(()))
 }
 
 /// Builds a graph with file-level progress. Reports `(0, total)` after enumeration,
 /// then `(completed, total)` after each file, including unrecognized files.
-/// Callbacks carry no terminal or presentation policy.
+/// Callbacks carry no terminal or presentation policy. A failed checkpoint or
+/// progress callback stops construction before another file is opened. Checkpoints
+/// run before directory enumeration and before each file; an in-flight file is
+/// not interrupted.
 pub fn build_with_progress(
     directory: &ModDirectory,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
     mut on_error: impl FnMut(&anyhow::Error),
-    mut on_progress: impl FnMut(usize, usize),
+    mut on_progress: impl FnMut(usize, usize) -> Result<()>,
+    mut checkpoint: impl FnMut() -> Result<()>,
 ) -> Result<DependencyGraph> {
     let mut graph = DependencyGraph::new();
+    checkpoint()?;
     let entries = directory.entries()?;
     let total = entries.len();
-    on_progress(0, total);
+    on_progress(0, total)?;
     for (index, entry) in entries.into_iter().enumerate() {
+        checkpoint()?;
         let path = entry.path().to_owned();
         let mut file = mcmod::open(
             entry,
@@ -52,7 +58,7 @@ pub fn build_with_progress(
                 graph.identification_failures.push(IdentificationFailure {
                     path: entry.path().to_owned(),
                     loader: loader.id().as_str().to_owned(),
-                    error: crate::error::ErrorReport::capture(error),
+                    error: mcpm_exec::error::ErrorReport::capture(error),
                 });
                 IdentificationErrorAction::Skip
             },
@@ -64,7 +70,7 @@ pub fn build_with_progress(
         for metadata in &file.metadata {
             graph.add_modfile(metadata);
         }
-        on_progress(index + 1, total);
+        on_progress(index + 1, total)?;
     }
     graph.identification_failures.sort_by(|left, right| {
         left.path

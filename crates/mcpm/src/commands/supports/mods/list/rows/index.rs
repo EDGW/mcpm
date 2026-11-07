@@ -4,8 +4,8 @@ use crate::theme::Role;
 use clap::ValueEnum;
 use unicode_width::UnicodeWidthStr;
 
-use super::super::super::mod_records::ModRecord;
 use super::{Paint, Piece, Row, loader_style};
+use mcpm_backend::operations::mods::loading::mod_records::ModRecord;
 
 #[derive(Clone, Copy, ValueEnum, Debug)]
 pub(crate) enum IndexType {

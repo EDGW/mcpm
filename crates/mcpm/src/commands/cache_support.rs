@@ -21,3 +21,13 @@ impl From<FileStrategy> for CacheLinkPreference {
         }
     }
 }
+
+impl From<FileStrategy> for mcpm_backend::operations::cache::TransferPreference {
+    fn from(value: FileStrategy) -> Self {
+        match value {
+            FileStrategy::Copy => Self::Copy,
+            FileStrategy::HardLink => Self::HardLink,
+            FileStrategy::PreferHardLink => Self::PreferHardLink,
+        }
+    }
+}

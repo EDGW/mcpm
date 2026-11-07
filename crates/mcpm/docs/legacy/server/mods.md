@@ -1,15 +1,36 @@
 > Not yet migrated to the new documentation structure. This is retained legacy documentation; migrated commands are documented outside legacy/.
 
-# Server mod inspection and caching
+# Server mod inspection, digests and caching
 
 Server mod commands use the registered server's loader and mods directory. Local servers, explicit SSH connections and saved Remote workspaces share the same behavior.
 
 - `--server PATH` selects the registered server; default: `.`.
-- ITEM selection supports filenames, exact mod IDs and exact names, plus `--file`, `--modid`, `--name` and `--all`. Additional stdin lines use automatic matching; info/deps/cache also support `--input file|modid|name|unspecified`.
+- ITEM selection supports filenames, exact mod IDs and exact names, plus `--file`, `--modid`, `--name` and `--all`. Additional stdin lines use automatic matching; info/deps/cache/digest also support `--input file|modid|name|unspecified`.
 - File inputs are relative to the server's mods directory. `mods/` prefixes are accepted; parent traversal and absolute file inputs are rejected.
 - With SSH, server metadata, file selection and cache paths resolve on the remote host. Output is rendered locally. Saved Remote workspaces select their stored connection automatically.
 - Cache resources come from the Server runtime environment. They currently share the file host’s global cache (`~/.mcpm/cache/mods`); per-server cache settings are not yet available.
 - Remote errors always appear. Remote logs require `--remote-logs` and follow `--log-level`.
+
+## Digests
+
+```sh
+mcpm mods digest example.jar --server /srv/minecraft
+mcpm mods digest create --murmur2
+mcpm mods digest 'Create' --headers --raw
+mcpm mods digest --all --parallelism 4
+printf '%s\n' create jei | mcpm mods digest --input modid
+```
+
+- Like `mods info XXX`, positional inputs match filename, exact mod ID, then exact display name. Combine them with explicit selectors and stdin. Empty input does not scan the directory; use `--all` for the complete scope.
+- Always computes the whole outer file's size and SHA-1; `--murmur2` adds the CurseForge-compatible fingerprint. A nested ID/name match still hashes its outer archive.
+- File selections and `--all` do not parse Mod metadata, so damaged or unrecognized JARs can be hashed. Only ID/name matching builds an index using the server's declared loader. `--all` enumerates `.jar` and `.jar.disabled` files nonrecursively in path order.
+- Repeated selections and physical path aliases produce one row, preserving first-selection order. Positive `--parallelism` defaults to 10 and bounds indexing and digest reads. No Mod-cache access, source queries, or file uploads.
+- Modes: Console field groups and Raw TSV. Raw columns are fixed: `file`, `size`, `sha1`, `murmur2`. Unrequested fingerprints and failed-file summary fields are blank; `--headers` prints column names before the first row.
+- Selection indexing and digest computation have separate stderr progress bars. Digest progress counts completed input positions, including failures, without waiting for ordered output. Standalone file digests use the same progress display. Bars require a terminal stderr; redirecting stdout does not disable them, while `--raw` always does. Progress is cleared on completion or error exit.
+- Selection and file failures preserve valid results and cause a nonzero exit. File errors during lazy selection indexing also count, even for unselected files. Selection diagnostics go to stderr; unreadable files retain a blank-summary row.
+- Explicit `--ssh` and registered Remote workspaces run the existing `mod.digest` operation on the file host through a matching `mcpmd`. `mcpm-server mods digest` and `mcpm-tools server mods digest` share this entry.
+
+Standalone `mcpm-tools mods digest FILE...` still treats arguments and stdin as literal file paths without server selection. Duplicate paths share reads but retain every output position.
 
 ## Info and dependencies
 
@@ -28,6 +49,21 @@ Info queries the Server runtime’s Mod cache by default:
 - Console displays lowercase fully cached, partially cached and total item counts, preceded by a blank line.
 
 Deps retains direct identification without persistent cache lookup.
+
+## Dependency graphs and checks
+
+```sh
+mcpm mods dep-graph build --server /srv/minecraft -o graph.json
+mcpm mods dep-graph view -i graph.json --duplicate-primary
+mcpm mods dep-graph view -i graph.json --problem
+mcpm mods dep-graph view -i graph.json --problem --no-duplicate-primary
+mcpm mods check --server /srv/minecraft
+```
+
+- Server `dep-graph view` shares the standalone graph filters; see [Duplicate Primary candidates and problem views](../mod/dep-graph.md#duplicate-primary-candidates-and-problem-views).
+- `check` uses the same backend problem view for dependency problems and multiple Primary candidates under one loader/modid. Equal versions still conflict; Nested/External do not count. Duplicate nodes remain visible without dependency edges.
+- Complete identification with no problems prints `Check passed. No problems found.`. An empty problem view with identification failures reports incomplete instead of passing.
+- Local, explicit SSH and Remote workspaces share this policy. Remote execution uses existing graph operations and mcpmd without adding a check protocol or changing snapshot formats.
 
 ## List
 

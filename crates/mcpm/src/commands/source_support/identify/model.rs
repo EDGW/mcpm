@@ -1,66 +1,29 @@
-//! Shared source-identification request, indexed events and provider-neutral result models.
+//! Flow-owned executor and read-only cache location for Host identification.
 
-use mcpm_lib::local::runtime::RuntimeEnvironment;
-use mcpm_lib::source::FileMatch;
+use mcpm_lib::local::cache::mods::ModsCacheSelection;
 
-/// Business result shared by CLI output, TUI state and remote messages.
-#[derive(Debug, Clone)]
-pub(in crate::commands) enum Outcome {
-    Matched {
-        file: FileMatch,
-    },
-    Unmatched,
-    Failed {
-        remote: bool,
-        error: crate::diagnostics::ErrorReport,
-    },
-}
-impl Outcome {
-    pub(super) fn status(&self) -> &'static str {
-        match self {
-            Self::Matched { .. } => "matched",
-            Self::Unmatched => "unmatched",
-            Self::Failed { .. } => "failed",
-        }
-    }
-}
-
-/// Indices refer to the original inputs; duplicate physical files share one lookup.
-#[derive(Debug, Clone)]
-pub(in crate::commands) enum Event {
-    /// Verified source-cache reuse for one physical file, before provider requests complete.
-    Cache {
-        indices: Vec<usize>,
-        sources: Vec<usize>,
-    },
-    Loading {
-        indices: Vec<usize>,
-        source: usize,
-    },
-    Item {
-        indices: Vec<usize>,
-        source: usize,
-        outcome: Outcome,
-    },
-    Done {
-        failed: usize,
-    },
-}
-
-/// Where the input bytes live; remote acquisition reuses a caller-owned session.
-#[derive(Debug, Clone, Copy)]
-pub(in crate::commands) enum Location<'a> {
-    Local(&'a RuntimeEnvironment),
-    Remote(&'a crate::remote::client::Session, &'a RuntimeEnvironment),
+/// A flow-owned executor and the resolved cache selection on the file host.
+#[derive(Clone, Copy)]
+pub(in crate::commands) struct Location<'a> {
+    pub executor: &'a mcpm_exec::service::Executor,
+    pub cache: Option<&'a ModsCacheSelection>,
 }
 impl<'a> Location<'a> {
-    pub(in crate::commands) fn environment(self) -> &'a RuntimeEnvironment {
-        match self {
-            Self::Local(environment) | Self::Remote(_, environment) => environment,
-        }
+    pub(in crate::commands) fn new(
+        executor: &'a mcpm_exec::service::Executor,
+        cache: Option<&'a ModsCacheSelection>,
+    ) -> Self {
+        Self { executor, cache }
     }
-
     pub(in crate::commands) fn is_local(self) -> bool {
-        matches!(self, Self::Local(_))
+        !self.executor.is_remote()
+    }
+}
+impl std::fmt::Debug for Location<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Location")
+            .field("cache", &self.cache)
+            .field("remote", &!self.is_local())
+            .finish()
     }
 }

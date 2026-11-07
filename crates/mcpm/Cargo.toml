@@ -27,29 +27,28 @@ path = "src/bin/mcpm-tools.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+vte = { version = "0.15.0", default-features = false }
 arboard = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 chrono = { workspace = true, features = ["clock"] }
 console = { workspace = true }
 crossterm = { workspace = true, features = ["events", "windows"] }
 indicatif = { workspace = true }
-inventory = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 terminal-colorsaurus = { workspace = true }
-ratatui = { workspace = true, features = ["crossterm_0_29", "unstable-rendered-line-info"] }
+ratatui = { workspace = true, features = ["crossterm_0_29", "unstable-rendered-line-info", "scrolling-regions"] }
 regex = { workspace = true }
 mcpm-lib = { workspace = true }
 mcpm-backend = { workspace = true }
 mcpm-exec = { workspace = true }
 owo-colors = { workspace = true }
-reqwest = { workspace = true, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
 shlex = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "macros", "sync"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "macros", "sync", "signal"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi", "registry"] }
 unicode-width = { workspace = true }

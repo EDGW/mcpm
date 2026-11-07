@@ -1,63 +1,33 @@
-//! Validates saved dependency graphs and prints their statistics.
-
-use std::{
-    fs::File,
-    io::{self, Write},
-    path::PathBuf,
-};
+//! Displays statistics from caller-side saved graph inspection.
 
 use anyhow::{Context, Result};
 use clap::Args;
-use mcpm_lib::local::{
-    mcmod::dependency::graph::{candidate::DependencyCandidate, storage},
-    modloader::BUILTIN_LOADERS,
+use mcpm_backend::operations::mods::dep_graph::{
+    GraphInput, Inspect, InspectAction, InspectInput, InspectOutput,
 };
-
+use std::{
+    io::{self, Write},
+    path::PathBuf,
+};
 #[derive(Args, Debug)]
 pub(super) struct TestArgs {
-    /// Saved dependency graph JSON file.
+    /// Locally saved dependency graph JSON file.
     #[arg(value_name = "FILE")]
     file: PathBuf,
 }
-
-pub(super) fn run(args: TestArgs) -> Result<()> {
-    let file = File::open(&args.file)
-        .with_context(|| format!("failed to open dependency graph {:?}", args.file))?;
-    let graph = storage::read_json(file, &BUILTIN_LOADERS)
-        .with_context(|| format!("failed to restore dependency graph {:?}", args.file))?;
-    let mut nodes = 0;
-    let mut empty_nodes = 0;
-    let mut external = 0;
-    let mut primary = 0;
-    let mut nested = 0;
-    let mut edges = 0;
-    for node in graph.nodes() {
-        nodes += 1;
-        if node.candidates().is_empty() {
-            empty_nodes += 1;
-        }
-        for candidate in node.candidates() {
-            match candidate.as_ref() {
-                DependencyCandidate::External(_) => external += 1,
-                DependencyCandidate::PrimaryMod(candidate) => {
-                    primary += 1;
-                    edges += candidate.outgoing().len();
-                }
-                DependencyCandidate::NestedMod(candidate) => {
-                    nested += 1;
-                    edges += candidate.outgoing().len();
-                }
-            }
-        }
-    }
+pub(super) async fn run(args: TestArgs) -> Result<()> {
+    let executor = mcpm_exec::service::Executor::open(mcpm_exec::service::Target::Local).await?;
+    let InspectOutput::Test(result) = executor
+        .call::<Inspect>(InspectInput {
+            graph: GraphInput::File(args.file),
+            action: InspectAction::Test,
+        })
+        .await?
+    else {
+        anyhow::bail!("unexpected dependency graph inspection result");
+    };
     let mut output = io::stdout().lock();
-    writeln!(
-        output,
-        "Nodes: {nodes}\nCandidates: {} (external: {external}, primary: {primary}, nested: {nested})\nEdges: {edges}\nEmpty nodes: {empty_nodes}\nIdentification failures: {}",
-        external + primary + nested,
-        graph.identification_failures().len(),
-    )
-    .context("failed to write dependency graph statistics")?;
+    writeln!(output, "Nodes: {}\nCandidates: {} (external: {}, primary: {}, nested: {})\nEdges: {}\nEmpty nodes: {}\nIdentification failures: {}", result.nodes, result.external + result.primary + result.nested, result.external, result.primary, result.nested, result.edges, result.empty_nodes, result.identification_failures).context("failed to write dependency graph statistics")?;
     output
         .flush()
         .context("failed to flush dependency graph statistics")?;

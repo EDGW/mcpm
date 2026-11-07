@@ -4,9 +4,12 @@ use std::io::Write;
 
 use anyhow::Result;
 use clap::Args;
-use mcpm_lib::local::cache::mods::ModsCacheSelection;
+use mcpm_backend::operations::cache::{Info, InfoInput};
 
-use super::{columns::Columns, entry, input::Inputs};
+use super::{
+    columns::{self, Columns},
+    input::Inputs,
+};
 use crate::display::cache::{self, Column};
 
 #[derive(Debug, Args)]
@@ -20,29 +23,32 @@ pub(super) struct InfoArgs {
     columns: Columns,
 }
 
-pub(super) fn run(
+pub(super) async fn run(
     args: InfoArgs,
-    selection: ModsCacheSelection,
+    context: &super::Context,
     out: &mut impl Write,
-    headers: bool,
 ) -> Result<()> {
     let inputs = args.inputs.read()?;
     let columns = args.columns.selected(&Column::ALL);
-    let cache = selection.open()?;
-    let ids = inputs.resolve(&cache)?;
-    cache::headers(out, &columns, headers)?;
-    for (index, id) in ids.into_iter().enumerate() {
-        if index > 0 && crate::terminal::stdout_is_tty() {
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<Info>(InfoInput {
+            cache: context.cache.clone(),
+            selection: inputs.into(),
+            options: columns::read_options(&columns),
+        })
+        .await?;
+    cache::headers(out, &columns, context.headers)?;
+    let mut first = true;
+    while let Some(observed) = stream.next().await {
+        let observed = observed?;
+        if !first && crate::terminal::stdout_is_tty() {
             writeln!(out)?;
         }
-        let observed = entry::observe(
-            &cache,
-            id,
-            cache.inspect(&id),
-            &columns,
-            crate::terminal::stdout_is_tty(),
-        )?;
         cache::info(out, &observed, &columns)?;
+        out.flush()?;
+        first = false;
     }
     Ok(())
 }

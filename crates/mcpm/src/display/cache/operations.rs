@@ -3,6 +3,7 @@
 use std::{io::Write, path::Path};
 
 use anyhow::Result;
+use mcpm_backend::operations::cache::VerificationSummary;
 use mcpm_lib::local::cache::{ImportOutcome, TransferMethod, hash::Blake3Hash};
 
 use super::super::{
@@ -45,14 +46,16 @@ pub(crate) fn method(method: TransferMethod) -> &'static str {
     }
 }
 
-pub(crate) fn initialized(out: &mut impl Write, path: &Path, headers: bool) -> Result<()> {
+pub(crate) fn initialized(
+    out: &mut impl Write,
+    path: &Path,
+    version: usize,
+    headers: bool,
+) -> Result<()> {
     row(
         out,
         &["directory", "version"],
-        &[
-            path.to_string_lossy().into_owned(),
-            mcpm_lib::local::cache::codec::CACHE_DIRECTORY_VERSION.to_string(),
-        ],
+        &[path.to_string_lossy().into_owned(), version.to_string()],
         headers,
         format!(
             "Initialized: {}",
@@ -157,20 +160,6 @@ pub(crate) fn verification(
             }
         ),
     )
-}
-
-#[derive(Default)]
-pub(crate) struct VerificationSummary {
-    pub available: usize,
-    pub failed: usize,
-    pub removal: Option<RemovalSummary>,
-}
-
-#[derive(Default)]
-pub(crate) struct RemovalSummary {
-    pub removed: usize,
-    pub absent: usize,
-    pub failed: usize,
 }
 
 /// Verification statistics use stderr so Raw stdout remains a stream of TSV receipts.

@@ -1,14 +1,9 @@
 //! Loader metadata refresh over cached bytes, with rendering delegated to display.
 
-use super::super::batch;
 use super::Presentation;
 use crate::commands::supports::mods::loaders::LoaderArgs;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
-use mcpm_lib::local::cache::{
-    hash::Blake3Hash,
-    mods::{MetadataRefresh, ModsCacheDir},
-};
 
 #[derive(Debug, Args)]
 #[command(
@@ -19,27 +14,38 @@ pub(super) struct MetaArgs {
     loaders: LoaderArgs,
 }
 
-pub(super) fn run(
+pub(super) async fn run(
     args: MetaArgs,
-    ids: Vec<Blake3Hash>,
-    cache: &ModsCacheDir,
-    mode: MetadataRefresh,
+    selection: mcpm_backend::operations::cache::Selection,
+    force: bool,
     parallelism: usize,
+    context: &super::super::Context,
     output: &mut Presentation<'_>,
 ) -> Result<()> {
-    let loaders = args.loaders.select();
-    batch::run(
-        &ids,
-        parallelism,
-        batch::FailurePolicy::Stop,
-        |id| {
-            cache
-                .refresh_metadata(id, &loaders, mode)
-                .with_context(|| format!("failed to refresh Loader metadata for {id}"))
-        },
-        |id, result| {
-            let entry = output.check(id, result)?;
-            output.meta(&entry)
-        },
-    )
+    use mcpm_backend::operations::cache::refresh::{Meta, MetaEvent, MetaInput};
+    let loaders = args.loaders.ids();
+    let mut stream = context
+        .executor()
+        .await?
+        .call::<Meta>(MetaInput {
+            cache: context.cache.clone(),
+            selection,
+            loaders,
+            force,
+            parallelism,
+        })
+        .await?;
+    let mut done = false;
+    while let Some(event) = stream.next().await {
+        match event? {
+            MetaEvent::Selected(count) => output.selected(count),
+            MetaEvent::Entry { id, result } => {
+                let receipt = output.check(id, result.map_err(|error| error.into_inner()))?;
+                output.meta(&receipt)?;
+            }
+            MetaEvent::Done => done = true,
+        }
+    }
+    anyhow::ensure!(done, "missing metadata refresh completion");
+    Ok(())
 }

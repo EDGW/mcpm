@@ -5,6 +5,8 @@ use std::fmt;
 use md5::{Digest, Md5};
 use serde_json::Value;
 
+use crate::secret::Secret;
+
 /// Caller-supplied identity. No account login or token refresh is performed.
 /// Debug intentionally omits credentials and user properties.
 #[derive(Clone)]
@@ -63,23 +65,5 @@ impl fmt::Debug for Identity {
             .field("uuid", &self.uuid)
             .field("user_type", &self.user_type)
             .finish_non_exhaustive()
-    }
-}
-
-#[derive(Clone)]
-pub struct Secret(String);
-
-impl Secret {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-    pub fn expose(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Debug for Secret {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("<redacted>")
     }
 }

@@ -7,7 +7,7 @@ PUT <3:
 - 显式 `--ssh` 优先，传入路径属于指定主机；仅在没有 `--ssh` 时才用 workspace 决定 Local 或 Remote。连接失败不回退本地。
 - `SshArgs::create_executor(Some(path))` 解析路径并为 flow 创建一个 Executor；`None` 不检查 workspace，只根据显式 SSH 或 Local 创建，适用于无路径命令。
 - 本地直接执行 operation，不经过 serde；远端连接本机 per-user `mcpmd link`，复用其持有的 SSH 子进程和远端 `mcpmd serve`。多个客户端使用独立 IPC 流，共享 SSH Session 时 JSON 帧不交错。
-- 已迁移操作在远端仅需 `mcpmd`；不在远端 PATH 时使用 `--ssh-mcpmd PATH`。本机优先寻找 mcpm 同目录的 mcpmd，再查 PATH。
+- 已迁移操作在远端仅需 `mcpmd`。显式 `--ssh-mcpmd PATH` 优先；否则按远端 OS 读取安装位置记录，仅在文件不存在时发出 warning 并尝试远端 PATH。详见[远端程序查找](../../../mcpmd/docs-zh/README.md#远端程序查找)。本机依次查找同目录程序、安装位置记录、PATH。
 - 进度、候选选择与输出留在本机。`mcpmd.logs` 传回结构化日志；`--remote-logs` 控制控制台显示，进程日志仍保存 debug 记录。
 
 ### 认证与启动

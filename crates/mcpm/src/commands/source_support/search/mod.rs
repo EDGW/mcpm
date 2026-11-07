@@ -4,6 +4,7 @@ use std::io;
 
 use anyhow::{Context, Result};
 use clap::{Args, ValueEnum};
+use mcpm_backend::operations::mods::source::{Configuration, server::Context as ServerContext};
 use mcpm_lib::source::{SearchQuery, SearchSort};
 
 use crate::terminal;
@@ -14,7 +15,7 @@ mod output;
 mod tui;
 mod versions;
 
-#[derive(Args, Debug)]
+#[derive(Args)]
 #[command(after_help = format!("{}\n\n{}", expression::HELP, ui_help()))]
 pub(in crate::commands) struct SearchArgs {
     /// Keywords followed by optional @version/@loader filters; quote the expression.
@@ -22,7 +23,7 @@ pub(in crate::commands) struct SearchArgs {
     query: Option<String>,
     /// modrinth, curseforge (Curse.tools), or curseforge@KEY (official API).
     #[arg(long, value_name = "SOURCE")]
-    source: String,
+    source: Configuration,
     /// Filter projects by Minecraft version.
     #[arg(long)]
     game_version: Option<String>,
@@ -45,16 +46,25 @@ pub(in crate::commands) struct SearchArgs {
     columns: columns::ColumnArgs,
 }
 
-impl SearchArgs {
-    /// Fills omitted filters from the command's context.
-    pub(in crate::commands) fn apply_defaults(&mut self, game_version: &str, loader: &str) {
-        self.game_version
-            .get_or_insert_with(|| game_version.to_owned());
-        self.loader.get_or_insert_with(|| loader.to_owned());
+impl std::fmt::Debug for SearchArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SearchArgs")
+            .field("source", &self.source.label())
+            .finish_non_exhaustive()
     }
 }
 
-pub(in crate::commands) fn run(args: SearchArgs) -> Result<()> {
+pub(in crate::commands) fn run(args: SearchArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
+    let runtime = crate::commands::execution::Runtime::new()?;
+    let (executor, _, _) = runtime.block_on(ssh.create_executor(None))?;
+    run_at(args, &executor, None)
+}
+
+pub(in crate::commands) fn run_at(
+    args: SearchArgs,
+    executor: &mcpm_exec::service::Executor,
+    server: Option<ServerContext>,
+) -> Result<()> {
     let expression = args.query.unwrap_or_default();
     let defaults = SearchQuery {
         game_versions: args.game_version.into_iter().collect(),
@@ -67,18 +77,23 @@ pub(in crate::commands) fn run(args: SearchArgs) -> Result<()> {
         limit: args.limit,
         ..Default::default()
     };
-    let mut query = expression::Expression::parse(&expression)?.apply(&defaults);
+    let parsed = expression::Expression::parse(&expression)?;
+    let query_server = parsed.server_context(server.as_ref());
+    let mut query = parsed.apply(&defaults);
     query.offset = args.offset;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .context("failed to create source search runtime")?;
-    // Client construction and all requests stay inside the runtime's lifetime.
-    let _runtime_guard = runtime.enter();
-    let source = super::config::build_source(&args.source)?;
+    let source = args.source;
     let progress = super::progress::Progress::new("Searching projects...");
     let page = runtime
-        .block_on(source.search(&query))
+        .block_on(super::config::search(
+            executor,
+            &source,
+            &query,
+            query_server.as_ref(),
+        ))
         .context("mod source search failed")?;
     drop(progress);
     if !args.no_ui
@@ -86,7 +101,17 @@ pub(in crate::commands) fn run(args: SearchArgs) -> Result<()> {
         && terminal::stdout_is_tty()
         && terminal::stderr_is_tty()
     {
-        tui::run(source.as_ref(), &runtime, defaults, expression, query, page)
+        tui::run(
+            executor,
+            &source,
+            &runtime,
+            defaults,
+            expression,
+            query,
+            page,
+            server.as_ref(),
+            query_server,
+        )
     } else {
         output::write_page(&mut io::stdout().lock(), &page, &args.columns.selected())
             .context("failed to write source search results")
@@ -118,10 +143,11 @@ impl From<Sort> for SearchSort {
 
 fn ui_help() -> String {
     format!(
-        r#"Modes: TUI (default in terminals), Console (--no-ui), Raw (--raw or redirected stdout).
+        r#"Modes: TUI (default in terminals), Console (--no-ui), Raw (--raw or redirected stdout); Remote supported through --ssh.
 
 Quote the whole expression as one shell argument. Omit QUERY to browse.
 Use --game-version and --loader for default compatibility filters.
+Source requests, version catalogs and file browsing use the selected execution host.
 
 TUI: / edits the top search field; Enter submits, Esc discards edits.
 Value suggestions: Up/Down selects, Enter/Tab inserts, Esc closes; Enter again searches.

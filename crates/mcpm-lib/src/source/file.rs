@@ -3,10 +3,10 @@
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use super::ProjectRef;
+use super::{ProjectRef, SourceId};
 
 /// An installable file identified by a publication in its project.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectFile {
     pub reference: FileRef,
     pub name: String,
@@ -36,7 +36,7 @@ pub struct FileRef {
     pub id: FileId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReleaseType {
     Release,
     Beta,
@@ -52,14 +52,14 @@ pub enum FileHash {
     Md5(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileDependency {
     pub target: DependencyTarget,
     pub kind: DependencyKind,
 }
 
 /// Dependency declarations do not imply a version range or proven compatibility.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DependencyTarget {
     Project(ProjectRef),
     File(FileRef),
@@ -67,7 +67,7 @@ pub enum DependencyTarget {
     Filename(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DependencyKind {
     Required,
     Optional,
@@ -78,7 +78,7 @@ pub enum DependencyKind {
 }
 
 /// AND-combined fields, OR within each list, applied before pagination; newest first.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileQuery {
     /// Match any listed Minecraft version; empty means unrestricted.
     pub game_versions: Vec<String>,
@@ -102,7 +102,7 @@ impl Default for FileQuery {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilePage {
     pub files: Vec<ProjectFile>,
     pub offset: u64,
@@ -124,23 +124,23 @@ pub struct FileMatch {
 
 impl FileMatch {
     /// Rebinds a cached platform reference to a configured source for subsequent API calls.
-    pub fn for_source(&self, source: &dyn super::Source) -> Option<Self> {
-        if self.reference.project.source != source.identification_cache_id() {
+    pub fn for_source(&self, id: &SourceId, cache_id: &SourceId) -> Option<Self> {
+        if self.reference.project.source != *cache_id {
             return None;
         }
         let mut file = self.clone();
-        file.reference.project.source = source.id().clone();
+        file.reference.project.source = id.clone();
         Some(file)
     }
 
     /// Converts a trusted configured-source result to its shared persistent namespace.
-    pub fn for_cache(&self, source: &dyn super::Source) -> anyhow::Result<Self> {
+    pub fn for_cache(&self, id: &SourceId, cache_id: &SourceId) -> anyhow::Result<Self> {
         anyhow::ensure!(
-            self.reference.project.source == *source.id(),
+            self.reference.project.source == *id,
             "source match belongs to another configured source"
         );
         let mut file = self.clone();
-        file.reference.project.source = source.identification_cache_id();
+        file.reference.project.source = cache_id.clone();
         Ok(file)
     }
 

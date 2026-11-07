@@ -1,21 +1,23 @@
-//! Resolves directory and loader inputs for shared dependency graph commands.
+//! Builds graph requests without opening or normalizing Host directory inputs.
 
-use std::path::PathBuf;
-
-use anyhow::{Context, Result};
-use clap::Args;
-use mcpm_lib::local::mcmod::ModDirectory;
-
-use crate::commands::supports::mods::{
-    dep_graph::{self, BuildOptions},
-    loaders::LoaderArgs,
+use crate::{
+    commands::{
+        execution::Runtime,
+        supports::mods::{
+            dep_graph::{self, BuildOptions},
+            loaders::LoaderArgs,
+        },
+    },
+    ssh::SshArgs,
 };
-
+use anyhow::Result;
+use clap::Args;
+use mcpm_backend::operations::mods::loading::ScopeInput;
+use std::path::PathBuf;
 pub(super) type DepGraphArgs = dep_graph::DepGraphArgs<BuildArgs>;
-
 #[derive(Args, Debug)]
 pub(super) struct BuildArgs {
-    /// Directory containing .jar and .jar.disabled files (not scanned recursively).
+    /// Host directory containing .jar and .jar.disabled files (not scanned recursively).
     #[arg(value_name = "DIR")]
     directory: PathBuf,
     #[command(flatten)]
@@ -23,11 +25,14 @@ pub(super) struct BuildArgs {
     #[command(flatten)]
     options: BuildOptions,
 }
-
-pub(super) fn run(args: DepGraphArgs) -> Result<()> {
-    args.run(|args| {
-        let directory = ModDirectory::new(args.directory)
-            .context("failed to open dependency graph input directory")?;
-        args.options.run(&directory, &args.loaders.select(), [])
-    })
+pub(super) fn run(args: DepGraphArgs, ssh: SshArgs) -> Result<()> {
+    Runtime::new()?.block_on(args.run(ssh, |args, ssh| async move {
+        let mut scope = ScopeInput::Directory {
+            directory: args.directory,
+            loaders: args.loaders.ids(),
+            cache: None,
+        };
+        let executor = crate::commands::supports::mods::target::executor(&mut scope, ssh).await?;
+        args.options.run(scope, &executor).await
+    }))
 }

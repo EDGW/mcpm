@@ -120,7 +120,7 @@ With `--remote`, a Host operation validates the existing remote Local Server and
 }
 ```
 
-Omitted or null `ssh_mcpmd` selects `mcpmd` on the remote PATH. The remote directory retains its remote-platform interpretation. Links are shared by connection, independently of the server path.
+Omitted or null `ssh_mcpmd` uses the remote OS's installer record. If that file is absent, emit a warning and try `mcpmd` on the remote PATH; a failed fallback is an error. The remote directory retains its remote-platform interpretation. Links are shared by connection, independently of the server path.
 
 Later `server init/info` and supported `server mods list/info/deps/source` commands use the saved connection when no global SSH options are supplied. Thus `server init ./workspace --force ...` reinitializes the remote Local Server. To replace the connection saved locally, use the complete `--ssh ... server init ./workspace --remote ... --force` invocation again. Explicit `--ssh` takes precedence and makes the positional path remote; `--ssh-mcpmd` alone remains invalid.
 

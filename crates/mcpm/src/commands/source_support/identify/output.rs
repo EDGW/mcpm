@@ -1,3 +1,3 @@
-//! Source command presentation delegates FileMatch rendering to the shared display layer.
+//! Source command presentation delegates Host identification facts to the shared display layer.
 
-pub(super) use crate::display::source_match::{headers, write_match};
+pub(super) use crate::display::source_match::{headers, write_result};

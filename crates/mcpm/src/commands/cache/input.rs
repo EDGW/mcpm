@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use mcpm_lib::local::cache::{hash::Blake3Hash, mods::ModsCacheDir};
+use mcpm_lib::local::cache::hash::Blake3Hash;
 
 #[derive(Debug, Args)]
 pub(super) struct Inputs {
@@ -53,16 +53,13 @@ impl Selection {
     pub(super) fn is_all(&self) -> bool {
         matches!(self, Self::All)
     }
+}
 
-    pub(super) fn resolve(self, cache: &ModsCacheDir) -> Result<Vec<Blake3Hash>> {
-        match self {
-            Self::Ids(ids) => Ok(ids),
-            Self::All => Ok(cache
-                .scan()
-                .context("failed to select all cache entries")?
-                .into_iter()
-                .map(|entry| entry.key)
-                .collect()),
+impl From<Selection> for mcpm_backend::operations::cache::Selection {
+    fn from(selection: Selection) -> Self {
+        match selection {
+            Selection::Ids(ids) => Self::Ids(ids),
+            Selection::All => Self::All,
         }
     }
 }

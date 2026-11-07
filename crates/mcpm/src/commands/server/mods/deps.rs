@@ -24,7 +24,7 @@ pub(super) fn run(args: DepsArgs, ssh: crate::ssh::SshArgs) -> Result<()> {
     super::inspection::run(
         args.files,
         crate::commands::supports::mods::reuse::QueryArgs { no_cache: true },
-        args.loading.parallelism().into(),
+        args.loading.parallelism(),
         inspect::Display::Dependencies(&args.paths_output),
         ssh,
     )
