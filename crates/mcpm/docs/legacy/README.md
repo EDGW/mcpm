@@ -16,7 +16,7 @@ Inspection commands read mod archives without modifying them. `mcpm-tools mods c
 
 [Client list](client/list.md) · [client check](client/check.md) · [client launch](client/launch.md)
 
-[Server init](server/init.md) · [server info](server/info.md) · [server launch](server/launch.md) · [server mods](server/mods.md) · [server mod sources](server/source.md)
+[Server init](server/init.md) · [server info](server/info.md) · [server mods](server/mods.md) · [server mod sources](server/source.md)
 
 [Mod commands](mod/README.md): [list](mod/list.md) · [info](mod/info.md) · [cache](mod/cache.md) · [deps](mod/deps.md) · [dep-graph](mod/dep-graph.md)
 

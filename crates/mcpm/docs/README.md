@@ -96,9 +96,10 @@ SSH uses key or ssh-agent authentication without prompts. Accept unknown host ke
 ## Command documentation
 
 - [Server: basics (info, init)](server/basics.md)
+- [Server: launch and attach](server/launch.md)
 - [Server: stash](server/stash.md)
 - [mcpmd: serve and link](../../mcpmd/docs/README.md)
-- [Legacy: not yet migrated (client, mods, cache, launch, and others)](legacy/README.md)
+- [Legacy: not yet migrated (client, mods, cache, and others)](legacy/README.md)
 - [Backend modules](../../mcpm-backend/docs/README.md)
 
 [简体中文](../docs-zh/README.md)

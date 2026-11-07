@@ -13,7 +13,7 @@ Examples use `mcpm`. General terms, global options, and output modes are defined
 | Page | Content |
 | --- | --- |
 | [Basics](basics.md) | `info` and `init` |
-| [Launch and attach](../legacy/server/launch.md) | `launch`, `attach`; TUI by default, Console/Raw available |
+| [Launch and attach](launch.md) | `launch`, `attach`; TUI by default, Console/Raw available |
 | [Stash](stash.md) | `create`, `switch`, `status`, `list`, `info`, `rename`, `delete`, and `verify` |
 
 ## Target selection
@@ -32,7 +32,7 @@ Examples use `mcpm`. General terms, global options, and output modes are defined
 - Connection, registration, or target errors never fall back to local execution.
 - Remote execution requires `mcpmd` on the remote machine with the same build identity as the local executables.
 
-The commands listed here use Host operations and accept Remote workspaces and explicit `--ssh`. Other command references not yet organized here remain under [legacy](../legacy/README.md).
+The commands listed here accept Remote workspaces and explicit `--ssh`. `mods` and other command references not yet organized here remain under [legacy](../legacy/README.md).
 
 ## Output
 
