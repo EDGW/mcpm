@@ -121,7 +121,33 @@ uninstall() {
 }
 
 main() {
-    [ "$#" -eq 1 ] || fail 'usage: install.sh VERSION | --uninstall'
+    requested='' proxy=''
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --proxy)
+                [ -z "$proxy" ] || fail '--proxy may only be specified once'
+                [ "$#" -ge 2 ] && [ -n "$2" ] || fail '--proxy requires a URL prefix'
+                proxy=$2
+                while [ "${proxy%/}" != "$proxy" ]; do proxy=${proxy%/}; done
+                case "$proxy" in http://?*|https://?*) ;; *) fail '--proxy requires an http:// or https:// URL prefix' ;; esac
+                shift 2
+                ;;
+            --uninstall)
+                [ -z "$requested" ] || fail 'specify either VERSION or --uninstall'
+                requested=$1
+                shift
+                ;;
+            -*)
+                fail 'usage: install.sh [--proxy URL] VERSION | --uninstall'
+                ;;
+            *)
+                [ -z "$requested" ] || fail 'specify exactly one VERSION'
+                requested=$1
+                shift
+                ;;
+        esac
+    done
+    [ -n "$requested" ] || fail 'usage: install.sh [--proxy URL] VERSION | --uninstall'
     [ -n "${HOME-}" ] || fail 'HOME is required'
     case "$HOME" in /*) ;; *) fail 'HOME must be an absolute path' ;; esac
     install_dir=$HOME/.local/share/mcpm
@@ -130,14 +156,14 @@ main() {
     record_path=$record_dir/mcpmd.path
     stage='' transaction=no committed=no new_bin=no new_manifest=no created_links=''
     record_temp='' record_changed=no
-    if [ "$1" != --uninstall ]; then validate_version "$1"; fi
+    if [ "$requested" != --uninstall ]; then validate_version "$requested"; fi
     mkdir -p "$install_dir"
     [ ! -L "$install_dir" ] && [ ! -L "$install_dir/bin" ] || fail 'installation directories must not be symbolic links'
     mkdir "$install_dir/.install-lock" 2>/dev/null || fail "another installer is running (lock: $install_dir/.install-lock)"
     trap cleanup EXIT
     trap 'exit 1' HUP INT TERM
-    if [ "$1" = --uninstall ]; then uninstall; return; fi
-    version=$1
+    if [ "$requested" = --uninstall ]; then uninstall; return; fi
+    version=$requested
     case "$(uname -s)" in Darwin) platform=macos ;; Linux) platform=linux ;; *) fail 'supported systems: macOS and Linux' ;; esac
     case "$(uname -m)" in x86_64|amd64) architecture=x86_64 ;; arm64|aarch64) architecture=arm64 ;; *) fail 'supported architectures: x86_64 and ARM64' ;; esac
     asset=mcpm-$platform-$architecture
@@ -156,6 +182,7 @@ main() {
     fi
     stage=$(mktemp -d "$install_dir/.stage.XXXXXXXX")
     url=https://github.com/EDGW/mcpm/releases/download/$version/$asset.tar.gz
+    if [ -n "$proxy" ]; then url=$proxy/$url; fi
     printf 'Downloading %s...\n' "$url"
     curl --fail --silent --show-error --location "$url" --output "$stage/package.tar.gz"
     curl --fail --silent --show-error --location "$url.sha256" --output "$stage/checksum"

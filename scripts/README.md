@@ -4,6 +4,24 @@
 - `install.sh` and `install.ps1` are standalone bootstrap scripts. Each owns manifest interpretation and serialization on its platform; manifests are data and are never evaluated as shell code.
 - Both installers support SemVer tags starting at `v0.1.0-dev.26w43c`. Older releases use a different distribution layout and are rejected before download.
 
+## GitHub URL-prefix proxy
+
+Run an updated installer from a checkout with `--proxy URL` on Unix or `-Proxy URL` in PowerShell:
+
+```sh
+sh scripts/install.sh v0.1.0-dev.26w45a --proxy https://gh-proxy.com
+```
+
+```powershell
+./scripts/install.ps1 -Version v0.1.0-dev.26w45a -Proxy https://gh-proxy.com
+```
+
+- The proxy prefix is prepended to the complete GitHub URL for both the archive and its `.sha256` file, for example `https://gh-proxy.com/https://github.com/EDGW/mcpm/releases/download/...`.
+- HTTP and HTTPS prefixes are accepted, with or without a trailing slash. The Unix option may appear before or after the version.
+- Omitting the option keeps the original direct URLs. Proxy failures do not silently fall back to direct downloads; checksum verification and rollback remain unchanged.
+- This option does not affect the initial download of the installer itself. If necessary, also prefix that Raw URL. Use a script version containing this option; proxying an older script does not add the option.
+- This is a URL-prefix service, not an HTTP/SOCKS forward proxy. Only use providers you trust: a checksum fetched from the same proxy is not independent proof of publisher authenticity.
+
 ## Package and installation manifests
 
 UTF-8 text, one `key=value` record per line:

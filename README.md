@@ -58,6 +58,8 @@ Uninstall:
 curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.sh | sh -s -- --uninstall
 ```
 
+To use a GitHub URL-prefix proxy with an updated checkout's installer, see [proxy options](scripts/README.md#github-url-prefix-proxy). 
+
 ### Upgrade, repair and uninstall behavior
 
 - Run the installation command with a supported tag to upgrade or downgrade the complete suite. Repeat the same version to repair missing executables.

@@ -58,6 +58,8 @@ export PATH="$HOME/.local/bin:$PATH"
 curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- --uninstall
 ```
 
+从包含新安装器的源码目录安装时，可以使用 [GitHub URL 前缀代理参数](scripts/README.md#github-url-prefix-proxy)。
+
 ### 升级、修复与卸载行为
 
 - 使用支持的版本标签重新安装，即可整套升级或降级；重复安装同一版本可修复丢失的程序。

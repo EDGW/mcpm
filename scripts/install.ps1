@@ -3,7 +3,9 @@
 [CmdletBinding()]
 param(
     [string]$Version,
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [ValidateNotNullOrEmpty()]
+    [string]$Proxy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -132,6 +134,10 @@ function Publish-DaemonRecord {
 }
 
 function Invoke-Install {
+    if ($Proxy) {
+        $Proxy = $Proxy.TrimEnd('/')
+        if ($Proxy -notmatch '^https?://.+') { throw '-Proxy requires an http:// or https:// URL prefix.' }
+    }
     if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is required.' }
     if (-not ([IO.Path]::IsPathRooted($env:LOCALAPPDATA))) { throw 'LOCALAPPDATA must be an absolute path.' }
     if ($Uninstall -and $Version) { throw 'Specify either -Version or -Uninstall.' }
@@ -198,6 +204,7 @@ function Invoke-Install {
         New-Item -ItemType Directory -Path $stage | Out-Null
         $asset = 'mcpm-windows-x86_64'
         $url = "https://github.com/EDGW/mcpm/releases/download/$Version/$asset.zip"
+        if ($Proxy) { $url = "$Proxy/$url" }
         $archivePath = Join-Path $stage 'package.zip'
         $checksumPath = Join-Path $stage 'checksum'
         Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $archivePath

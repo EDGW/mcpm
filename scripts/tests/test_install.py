@@ -2,6 +2,7 @@
 """Exercise Unix installation transactions against offline release archives in an isolated home."""
 
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import os
@@ -11,6 +12,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import threading
 import unittest
 
 
@@ -89,8 +91,8 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
         archive.with_name(archive.name + '.sha256').write_text(f'{digest}  {archive.name}\n')
         return archive
 
-    def run_installer(self, version, success=True):
-        result = subprocess.run(['sh', str(REPO / 'scripts/install.sh'), version],
+    def run_installer(self, version, *options, success=True):
+        result = subprocess.run(['sh', str(REPO / 'scripts/install.sh'), version, *options],
                                 env=self.env, capture_output=True, text=True, timeout=30)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -201,6 +203,51 @@ exec {real_mv} "$@"
         self.run_installer('v0.1.0-dev.26w43c', success=False)
         self.run_installer('--uninstall')
         self.assertEqual(foreign.read_text(), 'manual install')
+
+    def test_proxy_install_and_corrupt_proxied_upgrade_preserve_integrity(self):
+        releases = self.releases
+        route = '/download/https://github.com/EDGW/mcpm/releases/download/'
+
+        class Proxy(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if not self.path.startswith(route):
+                    self.send_error(404)
+                    return
+                try:
+                    data = (releases / self.path[len(route):]).read_bytes()
+                except FileNotFoundError:
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *_):
+                pass
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Proxy)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        # Use real curl; block accidental direct network access while allowing the local proxy.
+        self.env.update(PATH=os.environ['PATH'], no_proxy='127.0.0.1',
+                        http_proxy='http://127.0.0.1:1', https_proxy='http://127.0.0.1:1',
+                        all_proxy='http://127.0.0.1:1')
+        prefix = f'http://127.0.0.1:{server.server_port}/download'
+        try:
+            self.run_installer('--proxy', prefix + '/', 'v0.1.0-dev.26w43c')
+            original = self.snapshot()
+            self.assertEqual(
+                subprocess.check_output([self.install / 'bin/mcpm', '-V'], text=True).strip(),
+                'mcpm 0.1.0-dev.26w43c')
+            checksum = self.releases / 'v0.1.0-dev.26w43d' / f'{self.asset}.tar.gz.sha256'
+            checksum.write_text('0' * 64 + '\n')
+            self.run_installer('v0.1.0-dev.26w43d', '--proxy', prefix, success=False)
+            self.assertEqual(self.snapshot(), original)
+        finally:
+            server.shutdown()
+            thread.join()
+            server.server_close()
 
 
 if __name__ == '__main__':
