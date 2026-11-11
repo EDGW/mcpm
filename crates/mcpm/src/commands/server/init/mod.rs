@@ -57,7 +57,7 @@ pub(super) struct InitArgs {
     /// Disable the local TUI; multiple candidates require more specific manual filters.
     #[arg(long)]
     no_ui: bool,
-    /// Show an entire legacy command snapshot when one is available.
+    /// Show the complete startup command generated from launch.toml and conf.toml.
     #[arg(long)]
     full_command: bool,
 }
@@ -76,6 +76,7 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
             args.force,
             args.no_git,
             args.git,
+            args.full_command,
         )
         .await?;
         return write_info(&info, args.full_command);
@@ -127,7 +128,7 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
     };
     let mut stream = executor
         .call::<Init>(Initialize {
-            path,
+            path: path.clone(),
             metadata,
             force: args.force,
             no_git: args.no_git,
@@ -146,10 +147,19 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
         }
     }
     progress.borrow_mut().take();
-    write_info(
-        &result.context("initialization stream ended without its result")?,
-        args.full_command,
-    )
+    let mut result = result.context("initialization stream ended without its result")?;
+    if args.full_command {
+        result.server = executor
+            .call::<mcpm_backend::operations::server::info::Info>(
+                mcpm_backend::operations::server::info::InfoInput {
+                    path,
+                    full_command: true,
+                    allow_legacy: false,
+                },
+            )
+            .await?;
+    }
+    write_info(&result, args.full_command)
 }
 
 fn write_info(info: &Initialized, full_command: bool) -> Result<()> {

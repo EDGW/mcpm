@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, ensure};
-use mcpm_lib::local::mc::server::MinecraftServer;
+use mcpm_lib::local::mc::server::{MinecraftServer, MinecraftServerError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -135,12 +135,29 @@ pub fn require_local(root: &Path) -> Result<()> {
 
 pub fn load_local(root: PathBuf) -> Result<MinecraftServer> {
     require_local(&root)?;
-    Ok(MinecraftServer::load(root)?)
+    MinecraftServer::load(root).map_err(MinecraftServerError::into_diagnostic)
 }
 
 pub fn inspect_local(root: PathBuf) -> Result<MinecraftServer> {
     require_local(&root)?;
-    Ok(MinecraftServer::inspect(root)?)
+    MinecraftServer::inspect(root).map_err(MinecraftServerError::into_diagnostic)
+}
+
+/// Requires a current Local registration without constructing runtime resources.
+pub fn require_current(root: &Path) -> Result<()> {
+    require_local(root)?;
+    mcpm_lib::local::mc::server::require_current_metadata(root)
+        .map_err(MinecraftServerError::into_diagnostic)
+}
+
+/// Initialization may create registration, but cannot bypass an existing legacy format.
+pub fn require_current_if_registered(root: &Path) -> Result<()> {
+    let path = root.join(".mcpm/server.json");
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).context("failed to inspect server registration"),
+        Ok(_) => require_current(root),
+    }
 }
 
 /// Serializes mcpm registration writers across processes. Readers may observe an

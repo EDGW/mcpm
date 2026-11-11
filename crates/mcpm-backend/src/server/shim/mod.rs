@@ -154,7 +154,7 @@ pub async fn serve() -> Result<()> {
 
 pub(crate) async fn launch(mut input: LaunchInput) -> Result<Launched> {
     input.server = std::fs::canonicalize(&input.server).context("failed to resolve server root")?;
-    crate::workspace::require_local(&input.server)?;
+    crate::workspace::require_current(&input.server)?;
     ensure!(
         !input.launch_request_id.is_empty() && input.launch_request_id.len() <= 128,
         "invalid launch request id"
@@ -354,6 +354,9 @@ fn locate(request_input: &mut Request) -> Result<(Record, Option<PathBuf>)> {
         .map(std::fs::canonicalize)
         .transpose()
         .context("failed to resolve server root")?;
+    if let Some(server) = &server {
+        crate::workspace::require_current(server)?;
+    }
     let record: Record = if let Some(server) = &server {
         read_optional(&server.join(".mcpm/run/instance.json"))?
             .context("no shim instance; launch the server first")?

@@ -5,7 +5,7 @@ use std::{fs, io, path::PathBuf, time::Instant};
 use anyhow::{Context, Result, bail, ensure};
 use mcpm_lib::local::{
     mc::server::{
-        MinecraftServer, MinecraftServerMetadata,
+        MinecraftServer, MinecraftServerError, MinecraftServerMetadata,
         config::{self, OverwritePolicy},
         identify,
     },
@@ -18,7 +18,7 @@ use super::git;
 use super::model::{Candidate, Initialize, Initialized, Phase, Recognize};
 use crate::workspace::{self, Writer};
 
-/// Recognition never loads registration metadata, creates directories, or writes configuration.
+/// Recognition never writes registration and refuses registered legacy formats.
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn recognize(
     args: Recognize,
@@ -27,6 +27,7 @@ pub(super) fn recognize(
 ) -> Result<Vec<Candidate>> {
     checkpoint()?;
     workspace::require_local(&args.path)?;
+    workspace::require_current_if_registered(&args.path)?;
     validate_options(&args)?;
     phase(Phase::Recognizing)?;
     checkpoint()?;
@@ -47,13 +48,18 @@ pub(super) fn recognize(
                 .loader
                 .as_ref()
                 .is_none_or(|loader| match &metadata.loader {
-                    Some(info) => info.loader_type == *loader,
-                    None => loader == "vanilla",
+                    mcpm_lib::local::mc::server::ServerLoader::Modded(info) => {
+                        info.loader_type == *loader
+                    }
+                    mcpm_lib::local::mc::server::ServerLoader::Vanilla => loader == "vanilla",
+                    mcpm_lib::local::mc::server::ServerLoader::Unrecognized => {
+                        loader == "unrecognized"
+                    }
                 })
             && args.loader_version.as_ref().is_none_or(|version| {
                 metadata
                     .loader
-                    .as_ref()
+                    .declaration()
                     .is_some_and(|info| info.version == *version)
             })
     });
@@ -83,6 +89,7 @@ pub(super) fn initialize(
     git::validate_options(args.git, args.no_git)?;
     tracing::info!(path = %args.path.display(), force = args.force, "Validating complete server initialization data");
     workspace::require_local(&args.path)?;
+    workspace::require_current_if_registered(&args.path)?;
     validate_metadata(&args.metadata)?;
     let manifest = args.path.join(".mcpm/server.json");
     match fs::symlink_metadata(&manifest) {
@@ -104,6 +111,7 @@ pub(super) fn initialize(
     checkpoint()?;
     phase(Phase::Writing)?;
     checkpoint()?;
+    workspace::require_current_if_registered(&args.path)?;
     tracing::info!(path = %args.path.display(), force = args.force, "Writing server registration metadata");
     let writer = Writer::acquire(&args.path)?;
     workspace::require_local(&args.path)?;
@@ -129,9 +137,11 @@ pub(super) fn initialize(
     let server = if let Some(publication) = &publication {
         publication.server.clone()
     } else if args.force {
-        MinecraftServer::replace(args.path, args.metadata)?
+        MinecraftServer::replace(args.path, args.metadata)
+            .map_err(MinecraftServerError::into_diagnostic)?
     } else {
-        MinecraftServer::create(args.path, args.metadata)?
+        MinecraftServer::create(args.path, args.metadata)
+            .map_err(MinecraftServerError::into_diagnostic)?
     };
     writer.mark_local().context("Local server registration/configuration was written, but publishing mcpm.json failed; inspect the completed files before retrying")?;
     tracing::info!(path = %server.path().display(), "Server registration written");
@@ -176,20 +186,12 @@ pub(super) fn validate_options(args: &Recognize) -> Result<()> {
 }
 
 fn validate_metadata(metadata: &MinecraftServerMetadata) -> Result<()> {
-    if let Some(loader) = &metadata.loader {
+    if let Some(loader) = metadata.loader.declaration() {
         ensure!(
             BUILTIN_LOADERS.contains_key(loader.loader_type.as_str()),
             InitializationError::UnsupportedLoader {
                 loader: loader.loader_type.clone()
             }
-        );
-    }
-    if let Some(start) = &metadata.start {
-        ensure!(
-            !start.executable.trim().is_empty()
-                && !start.executable.contains('\0')
-                && start.arguments.iter().all(|arg| !arg.contains('\0')),
-            InitializationError::InvalidStart
         );
     }
     // Metadata format and nonempty versions are validated by MinecraftServer's
@@ -209,10 +211,6 @@ enum InitializationError {
     UnsupportedLoader { loader: String },
     #[error("vanilla does not have a loader version")]
     VanillaLoaderVersion,
-    #[error(
-        "invalid server start snapshot: executable must be nonempty, and executable/arguments must not contain NUL"
-    )]
-    InvalidStart,
 }
 
 #[cfg(test)]
@@ -232,7 +230,7 @@ mod tests {
         Initialize {
             path: path.into(),
             metadata: serde_json::from_value(serde_json::json!({
-                "version":1,"minecraft_version":"1.21.1","loader":null
+                "version":4,"minecraft_version":"1.21.1","loader":{"type":"vanilla"}
             }))
             .unwrap(),
             force,
@@ -248,7 +246,8 @@ mod tests {
             for force in [false, true] {
                 let root = tempfile::tempdir().unwrap();
                 let manifest = root.path().join(".mcpm/server.json");
-                let old = b"existing invalid configuration\n";
+                let old =
+                    br#"{"version":4,"minecraft_version":"1.21.1","loader":{"type":"vanilla"}}"#;
                 if force {
                     fs::create_dir(root.path().join(".mcpm")).unwrap();
                     fs::write(&manifest, old).unwrap();

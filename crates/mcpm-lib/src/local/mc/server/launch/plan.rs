@@ -4,7 +4,7 @@ use crate::download::Downloader;
 use crate::local::{
     java::{capabilities, command},
     mc::server::{
-        MinecraftServer,
+        MinecraftServer, MinecraftServerError,
         authlib_injector::{self, JarPolicy},
         config::{self, Platform},
     },
@@ -91,9 +91,9 @@ pub async fn prepare_with_progress(
 ) -> Result<LaunchPlan> {
     progress(Event::Stage(Stage::Configuration))?;
     let root = std::fs::canonicalize(root).context("failed to resolve local server root")?;
-    let (launch, conf) = {
+    let (mut launch, conf) = {
         let _lock = config::ConfigurationLock::acquire(&root, false)?;
-        MinecraftServer::inspect(&root)?;
+        MinecraftServer::inspect(&root).map_err(MinecraftServerError::into_diagnostic)?;
         let (launch, conf) = config::read(&root, overrides)?;
         (launch, conf)
     };
@@ -123,8 +123,7 @@ pub async fn prepare_with_progress(
         conf.java.executable.as_deref().unwrap_or("java"),
         &environment,
     )?;
-    let mut jvm = launch.jvm.extra_arguments.clone();
-    jvm.extend(conf.jvm_arguments()?);
+    let jvm = super::description::base_jvm(&mut launch, &conf)?;
     let managed = conf
         .authlib_injector
         .as_ref()
@@ -144,20 +143,8 @@ pub async fn prepare_with_progress(
             None => authlib_injector::managed_path(&root),
         };
         validate_agents(&jvm, &directory, &path)?;
-        jvm.extend(auth.arguments(&path)?);
     }
-    let arguments: Vec<_> = jvm
-        .into_iter()
-        .chain(launch.entry.arguments())
-        .chain(launch.application.extra_arguments)
-        .chain(conf.server_arguments())
-        .chain(conf.application.extra_arguments)
-        .collect();
-    let parsed = command::JavaCommand::parse(&arguments)?;
-    ensure!(
-        parsed.entry == launch.entry,
-        "assembled Java entry differs from declared launch entry"
-    );
+    let arguments = super::description::finish_arguments(&root, launch, conf, jvm)?;
     // Environment options belong to Java. Only the launcher's @file switch matters
     // when mcpm itself needs to choose a transport for an oversized command.
     let estimated_length = arguments.iter().fold(0usize, |total, argument| {

@@ -180,11 +180,10 @@ mod tests {
             MinecraftServerMetadata {
                 version: SERVER_METADATA_VERSION,
                 minecraft_version: "1.21.1".into(),
-                loader: Some(ServerModLoader {
+                loader: mcpm_lib::local::mc::server::ServerLoader::Modded(ServerModLoader {
                     loader_type: "fabric".into(),
                     version: "0.16.0".into(),
                 }),
-                start: None,
             },
         )
         .unwrap();

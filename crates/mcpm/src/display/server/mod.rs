@@ -13,9 +13,7 @@ use crate::{
     server::RemoteInfo,
     terminal,
 };
-use mcpm_backend::operations::server::info::{ServerInfo, StartCommand};
-
-const COMMAND_LABEL: &str = "Legacy command snapshot (not used by launch): ";
+use mcpm_backend::operations::server::info::{ServerInfo, ServerLoaderInfo, StartCommand};
 
 pub(crate) fn write_snapshot(
     output: &mut impl Write,
@@ -33,9 +31,10 @@ pub(crate) fn write_snapshot(
         .as_ref()
         .map(full_command)
         .unwrap_or_else(|| "unavailable".into());
-    let (loader_name, loader_version) = match &loader {
-        Some(info) => (text(&info.name), text(&info.version)),
-        None => ("vanilla or unrecognized".into(), String::new()),
+    let (loader_name, loader_version) = match loader {
+        ServerLoaderInfo::Modded(info) => (text(&info.name), text(&info.version)),
+        ServerLoaderInfo::Vanilla => ("Vanilla".into(), String::new()),
+        ServerLoaderInfo::Unrecognized => ("Unrecognized".into(), String::new()),
     };
     if !terminal::stdout_is_tty() {
         if let Some(remote) = remote {
@@ -47,9 +46,15 @@ pub(crate) fn write_snapshot(
                 text(remote.executable.as_str()),
             )?;
         }
+        let loader_label = match loader {
+            ServerLoaderInfo::Vanilla => "vanilla",
+            ServerLoaderInfo::Unrecognized => "unrecognized",
+            ServerLoaderInfo::Modded(info) => &info.name,
+        };
         return writeln!(
             output,
-            "{name}\t{path}\t{version}\t{loader_name}\t{loader_version}\t{command}"
+            "{name}\t{path}\t{version}\t{}\t{loader_version}\t{command}",
+            text(loader_label)
         );
     }
     let mut output = ConsoleWriter::new(output);
@@ -64,16 +69,6 @@ pub(crate) fn write_snapshot(
         let separator = "─".repeat(32.min(textwrap::termwidth().saturating_sub(1)));
         writeln!(output, "\n{}\n", style.muted(separator))?;
     }
-    let command = if show_full_command {
-        command
-    } else {
-        truncate_command(
-            &command,
-            textwrap::termwidth()
-                .saturating_sub(COMMAND_LABEL.len())
-                .saturating_sub(1),
-        )
-    };
     writeln!(output, "{} {}", style.muted("Server:"), style.primary(name))?;
     writeln!(output, "{}{}", style.muted("Path: "), style.muted(path))?;
     writeln!(
@@ -82,15 +77,22 @@ pub(crate) fn write_snapshot(
         style.muted("Minecraft: "),
         style.secondary(version)
     )?;
-    let loader_name = match &loader {
-        Some(info) => style.loader(&info.id, &loader_name),
-        None => style.muted(loader_name),
+    let loader_name = match loader {
+        ServerLoaderInfo::Modded(info) => style.loader(&info.id, &loader_name),
+        ServerLoaderInfo::Vanilla => style.loader("vanilla", &loader_name),
+        ServerLoaderInfo::Unrecognized => style.muted(loader_name),
     };
     write!(output, "{}{}", style.muted("Loader: "), loader_name)?;
-    if loader.is_some() {
+    if matches!(loader, ServerLoaderInfo::Modded(_)) {
         write!(output, " {}", style.secondary(loader_version))?;
     }
     writeln!(output)?;
+    writeln!(
+        output,
+        "{}{}",
+        style.muted("Metadata version: "),
+        style.muted(server.metadata_version)
+    )?;
     if let Some(configuration) = &server.configuration {
         for (label, present) in [
             ("launch.toml", configuration.launch),
@@ -103,16 +105,21 @@ pub(crate) fn write_snapshot(
                 style.muted(if present { "configured" } else { "missing" })
             )?;
         }
-        if server.start.is_none() {
-            return Ok(());
-        }
     }
-    writeln!(
-        output,
-        "{}{}",
-        style.muted(COMMAND_LABEL),
-        style.muted(command)
-    )
+    if server.start.is_some() || show_full_command {
+        let command = if show_full_command {
+            command
+        } else {
+            truncate_command(&command, textwrap::termwidth().saturating_sub(16))
+        };
+        writeln!(
+            output,
+            "{}{}",
+            style.muted("Start command: "),
+            style.muted(command)
+        )?;
+    }
+    Ok(())
 }
 
 fn remote_ssh(remote: &RemoteInfo) -> String {
@@ -134,20 +141,38 @@ fn mask_ssh_command(command: &str) -> String {
     )
 }
 
-/// Count omitted Unicode characters while fitting display columns, including the suffix.
+fn full_command(start: &StartCommand) -> String {
+    std::iter::once(&start.executable)
+        .chain(start.arguments.iter())
+        .map(|arg| {
+            text(&if start.windows {
+                windows_quote(arg)
+            } else {
+                shlex::try_quote(arg)
+                    .map(|value| value.into_owned())
+                    .unwrap_or_else(|_| format!("{arg:?}"))
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn truncate_command(command: &str, width: usize) -> String {
     use unicode_width::UnicodeWidthChar;
     let chars: Vec<_> = command.chars().collect();
-    let total_width: usize = chars.iter().map(|ch| ch.width().unwrap_or(0)).sum();
-    if total_width <= width {
+    if chars
+        .iter()
+        .map(|ch| ch.width().unwrap_or(0))
+        .sum::<usize>()
+        <= width
+    {
         return command.into();
     }
     let mut used = 0;
     let mut best = 0;
     for (index, ch) in chars.iter().enumerate() {
         used += ch.width().unwrap_or(0);
-        let omitted = chars.len() - index - 1;
-        let suffix = format!(" (+{omitted})");
+        let suffix = format!(" (+{})", chars.len() - index - 1);
         if used + suffix.len() <= width {
             best = index + 1;
         }
@@ -166,24 +191,6 @@ fn truncate_command(command: &str, width: usize) -> String {
     format!("{} {suffix}", chars[..best].iter().collect::<String>())
 }
 
-fn full_command(start: &StartCommand) -> String {
-    std::iter::once(&start.executable)
-        .chain(start.arguments.iter())
-        .map(|arg| {
-            let quoted = if start.windows {
-                windows_quote(arg)
-            } else {
-                shlex::try_quote(arg)
-                    .map(|s| s.into_owned())
-                    .unwrap_or_else(|_| format!("{arg:?}"))
-            };
-            text(&quoted)
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-// Windows Java argv quoting. This is a display of argv, not a batch program.
 fn windows_quote(value: &str) -> String {
     if !value.is_empty() && !value.contains(|ch: char| ch.is_whitespace() || ch == '"') {
         return value.into();

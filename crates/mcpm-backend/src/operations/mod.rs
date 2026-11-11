@@ -15,6 +15,8 @@ pub fn registry() -> Result<Registry> {
     registry.register::<workspace::Inspect>()?;
     registry.register::<workspace::RegisterRemote>()?;
     registry.register::<server::info::Info>()?;
+    registry.register::<server::upgrade::PrepareUpgrade>()?;
+    registry.register::<server::upgrade::ApplyUpgrade>()?;
     registry.register::<server::shim::Prepare>()?;
     registry.register::<server::shim::Launch>()?;
     registry.register::<server::shim::Inspect>()?;

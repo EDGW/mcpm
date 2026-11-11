@@ -20,10 +20,9 @@ impl Fixture {
         MinecraftServer::create(
             root.path(),
             MinecraftServerMetadata {
-                version: 3,
+                version: 4,
                 minecraft_version: "1.21.1".into(),
-                loader: None,
-                start: None,
+                loader: mcpm_lib::local::mc::server::ServerLoader::Vanilla,
             },
         )
         .unwrap();

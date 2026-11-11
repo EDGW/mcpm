@@ -103,14 +103,17 @@ impl Screen {
                 )
             )?;
             let (id, name, version) = match &candidate.metadata.loader {
-                Some(loader) => {
+                mcpm_lib::local::mc::server::ServerLoader::Modded(loader) => {
                     let name = mcpm_lib::local::modloader::BUILTIN_LOADERS
                         .get(loader.loader_type.as_str())
                         .map(|m| m.name())
                         .unwrap_or(&loader.loader_type);
                     (loader.loader_type.as_str(), name, loader.version.as_str())
                 }
-                None => ("vanilla", "Vanilla", ""),
+                mcpm_lib::local::mc::server::ServerLoader::Vanilla => ("vanilla", "Vanilla", ""),
+                mcpm_lib::local::mc::server::ServerLoader::Unrecognized => {
+                    ("unrecognized", "Unrecognized", "")
+                }
             };
             let loader = clip(&text(name), remaining);
             remaining = remaining.saturating_sub(display_width(&loader));
@@ -122,14 +125,7 @@ impl Screen {
                 &format!(
                     " {}  {}:{} [{}]",
                     text(version),
-                    text(
-                        &candidate
-                            .metadata
-                            .start
-                            .as_ref()
-                            .map(|start| start.script.display().to_string())
-                            .unwrap_or_default()
-                    ),
+                    text(&candidate.script.display().to_string()),
                     candidate.line,
                     text(&candidate.main_class)
                 ),

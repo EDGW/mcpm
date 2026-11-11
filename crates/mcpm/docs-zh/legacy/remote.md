@@ -248,7 +248,7 @@ SSH mods list 的 TUI 在同一 Session 上请求摘要，再使用相同的本�
 
 `server.info`、`server.init.recognize`、`server.init`、`server.init.prepare_remote` 通过 `mcpmd` 使用 backend operation registry，不再注册到旧协议。工作区检查与 stub 登记属于 Shallow，即使 Executor 指向远端仍在本机执行；Git 和实际服务端准备均属于 Host operation。
 
-识别流依次返回阶段和包含配置草稿的候选，初始化流返回阶段和提交结果。本地执行使用相同类型但不经过 serde，远端复用既有 operation 帧格式。参见[初始化行为](server/init.md#远程行为)与[执行层](../../../mcpm-exec/README.md)。
+识别流依次返回阶段和包含配置草稿的候选，初始化流返回阶段和提交结果。本地执行使用相同类型但不经过 serde，远端复用既有 operation 帧格式。参见[初始化行为](../server/basics.md#远端初始化)与[执行层](../../../mcpm-exec/README.md)。
 
 ## 模块注册与 SSH
 

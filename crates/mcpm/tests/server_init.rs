@@ -75,15 +75,14 @@ fn init_identifies_loaders_and_publishes_configuration_without_legacy_command() 
             server
                 .metadata()
                 .loader
-                .as_ref()
+                .declaration()
                 .map(|l| l.loader_type.as_str()),
             loader,
             "{case}"
         );
-        if let Some(info) = server.loader() {
+        if let Some(info) = server.resolved_loader() {
             assert_eq!(info.version, version);
         }
-        assert!(server.metadata().start.is_none());
         let launch = mcpm_lib::local::mc::server::config::decode_launch(
             &fs::read_to_string(temp.path().join("launch.toml")).unwrap(),
         )
@@ -141,7 +140,7 @@ fn fml_uses_command_evidence_without_opening_dependency_jars() {
                 "{case}: {script}"
             );
             assert_eq!(
-                candidates[0].metadata.loader.as_ref().unwrap().version,
+                candidates[0].metadata.loader.declaration().unwrap().version,
                 expected_version,
                 "{case}: {script}"
             );
@@ -163,7 +162,7 @@ fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
         let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
         assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1", "{case}");
         assert_eq!(
-            candidates[0].metadata.loader.as_ref().unwrap().version,
+            candidates[0].metadata.loader.declaration().unwrap().version,
             "0.16.10",
             "{case}"
         );

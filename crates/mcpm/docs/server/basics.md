@@ -18,19 +18,25 @@ mcpm info [OPTIONS] [PATH]
 
 | Option | Description |
 | --- | --- |
-| `--full-command` | Expand the historical startup command in legacy registration. It does not unmask SSH; launch does not use the snapshot. |
+| `--full-command` | Show the complete startup command generated from `launch.toml` and `conf.toml`. It does not unmask SSH. |
 
 ### Output
 
 Console shows the name, path, Minecraft version, loader and version, and whether `launch.toml` and `conf.toml` exist on the Host that owns the server. A Remote workspace also shows the remote path, masked SSH, and mcpmd path.
 
+Legacy versions 1–3 cannot be used by launch or other server operations. Console `info` first reports an upgrade error with `mcpm info --upgrade` guidance, then displays the legacy registration and returns a nonzero exit status. Raw `info`, including redirected stdout, fails without printing metadata. Legacy `--full-command` does not prepare or generate a launch command. Reading preserves the original file.
+
+The error ends at `requires an upgrade`; a separate shared `Tip:` explains that the metadata is deprecated and gives the upgrade command. A completed upgrade uses success styling and is followed by a blank line before server information.
+
 Raw is TSV without a header, in this field order:
 
 ```text
-name path minecraft-version loader loader-version historical-command
+name path minecraft-version loader loader-version start-command
 ```
 
-A Remote workspace prepends remote path, masked SSH, and mcpmd path. A missing historical command is `unavailable`. Missing or invalid registration returns an error.
+A Remote workspace prepends remote path, masked SSH, and mcpmd path. A command not requested or missing configuration is `unavailable`. Missing or invalid registration returns an error.
+
+`--full-command` shares launch argument generation, without starting Java, downloading, or checking executable/JAR existence. V1/V2 historical `start` is ignored. Existing invalid configuration returns an error.
 
 ### Examples
 
@@ -40,6 +46,41 @@ mcpm info ./workspace
 mcpm --ssh 'ssh user@host' info /srv/minecraft
 mcpm info ./server --full-command
 ```
+
+## `mcpm info --upgrade`
+
+Upgrade Local registration versions 1–3 to version 4. Ordinary `info` never rewrites registration.
+
+```sh
+mcpm info ./server --upgrade
+mcpm --ssh 'ssh user@host' info /srv/minecraft --upgrade
+```
+
+### Registration formats
+
+- Version 4 requires a non-null `loader`: `{"type":"vanilla"}`, `{"type":"unrecognized"}`, or a concrete loader such as `{"type":"forge","version":"47.4.0"}`.
+- Versions 1–3 can be decoded using the old V3 structure only for legacy inspection and explicit upgrade; ordinary server operations require V4. Legacy `loader: null` means Unrecognized until explicitly confirmed. Legacy `start`, including any V1/V2 value, is ignored.
+- Other versions fail without rewriting. Remote workspace connection registrations use a separate format and remain unchanged.
+
+### Vanilla confirmation
+
+For a legacy Unrecognized registration, inspect only `launch.toml`. JAR entries read their manifest relative to `process.workingDirectory`; class/module entries use an explicit `mainClass`. No Java execution, downloads, `conf.toml`, or historical `start` are involved.
+
+```text
+Set loader to Vanilla? [y(es)/n(o)/C(ancel)]
+```
+
+| Answer | Result |
+| --- | --- |
+| `y`, `yes` | Write V4 Vanilla |
+| `n`, `no` | Write V4 Unrecognized |
+| `c`, `cancel`, Enter, Esc, Ctrl-C, EOF | Cancel without changing registration |
+
+Answers are case-insensitive. A missing launch file, an implicit module main class, or another main class keeps Unrecognized. Invalid configuration or unreadable JAR evidence fails without committing. Existing concrete loader IDs and versions are preserved. Version 4 is a no-op.
+
+Raw and redirected output reject legacy metadata without writing, including `info --upgrade`. Run the explicit upgrade in Console mode. For SSH and Remote workspaces, files are inspected and written on the server host; confirmation stays local. Changed registration or launch evidence invalidates the pending decision.
+
+Only `.mcpm/server.json` changes. Minecraft version, configuration, worlds, mods, Git, and connection registration are preserved. Vanilla and Unrecognized are displayed separately; their loader-version field is blank. `--full-command` remains available and uses current configuration after the upgrade.
 
 ## `mcpm init`
 
@@ -67,7 +108,7 @@ mcpm init [OPTIONS] [PATH]
 | `--no-git` | Skip Git discovery and creation on the Host that owns the server. Conflicts with `--git`. |
 | `--git` | Require a Git repository in the actual server directory itself. Conflicts with `--no-git`. |
 | `--no-ui` | Disable the candidate-selection TUI and use Console. |
-| `--full-command` | Expand the historical startup command in the result. |
+| `--full-command` | Show the complete startup command generated from `launch.toml` and `conf.toml`. |
 
 ### Paths and execution target
 
@@ -132,7 +173,7 @@ The TUI requires local terminal stdout/stderr. Candidate selection remains local
 
 | File | Content |
 | --- | --- |
-| `.mcpm/server.json` | Server identity registration |
+| `.mcpm/server.json` | Version-4 server identity registration |
 | `.mcpm/mcpm.json` | Local workspace type |
 | `.mcpm/.gitignore` | Metadata ignore rules |
 | `launch.toml` | Launch configuration imported from the candidate draft; not generated for manual identity |

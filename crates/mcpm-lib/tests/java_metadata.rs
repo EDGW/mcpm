@@ -27,7 +27,7 @@ fn fabric_installer_metadata_uses_java_duplicate_and_escape_semantics() {
     let candidates = identify(root.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].metadata.minecraft_version, "1.21.1");
-    let loader = candidates[0].metadata.loader.as_ref().unwrap();
+    let loader = candidates[0].metadata.loader.declaration().unwrap();
     assert_eq!(loader.loader_type, "fabric");
     assert_eq!(loader.version, "0.16.10");
 }
@@ -48,7 +48,7 @@ fn fabric_game_selection_uses_the_last_decoded_properties_path() {
     let candidates = identify(root.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
     assert_eq!(candidates[0].metadata.minecraft_version, "1.21.1");
     assert_eq!(
-        candidates[0].metadata.loader.as_ref().unwrap().version,
+        candidates[0].metadata.loader.declaration().unwrap().version,
         "0.16.10"
     );
 }

@@ -18,19 +18,25 @@ mcpm info [OPTIONS] [PATH]
 
 | 选项 | 说明 |
 | --- | --- |
-| `--full-command` | 展开旧登记中的历史启动命令。不解除 SSH 脱敏；launch 不使用该快照。 |
+| `--full-command` | 展示根据 `launch.toml` 与 `conf.toml` 生成的完整启动命令，不解除 SSH 脱敏。 |
 
 ### 输出
 
 Console 显示名称、路径、Minecraft 版本、Loader 和版本，以及服务端所属主机上 `launch.toml`、`conf.toml` 是否存在。Remote workspace 额外显示远端路径、脱敏 SSH 和 mcpmd 路径。
 
+版本 1–3 不能用于 launch 等服务端操作。Console `info` 先报告升级错误并提示执行 `mcpm info --upgrade`，再显示旧登记，最后以非零状态退出。Raw `info`（包括 stdout 重定向）直接报错，不输出 metadata。旧版本的 `--full-command` 不准备或生成启动命令。读取保留原文件。
+
+错误正文止于 `requires an upgrade`；另用统一格式的 `Tip:` 说明 metadata 已弃用并给出升级命令。升级成功消息使用成功色，随后空一行再显示服务端信息。
+
 Raw 为 TSV，无表头，字段依次为：
 
 ```text
-名称 路径 Minecraft版本 Loader Loader版本 历史命令
+名称 路径 Minecraft版本 Loader Loader版本 启动命令
 ```
 
-Remote workspace 在字段前增加远端路径、脱敏 SSH、mcpmd 路径。历史命令缺失时为 `unavailable`。登记缺失或损坏时返回错误。
+Remote workspace 在字段前增加远端路径、脱敏 SSH、mcpmd 路径。未请求生成命令或配置缺失时为 `unavailable`。登记缺失或损坏时返回错误。
+
+`--full-command` 复用 launch 的参数生成逻辑，不启动 Java、不下载，也不检查可执行文件或 JAR 是否存在。V1/V2 的历史 `start` 被忽略。已有配置无效时返回错误。
 
 ### 示例
 
@@ -40,6 +46,41 @@ mcpm info ./workspace
 mcpm --ssh 'ssh user@host' info /srv/minecraft
 mcpm info ./server --full-command
 ```
+
+## `mcpm info --upgrade`
+
+将 Local 登记版本 1–3 升级到版本 4。普通 `info` 不改写登记。
+
+```sh
+mcpm info ./server --upgrade
+mcpm --ssh 'ssh user@host' info /srv/minecraft --upgrade
+```
+
+### 登记格式
+
+- 版本 4 要求非空 `loader`：`{"type":"vanilla"}`、`{"type":"unrecognized"}` 或 `{"type":"forge","version":"47.4.0"}` 等明确 loader。
+- 版本 1–3 仅用于旧登记检查和显式升级，统一按旧 V3 结构解析；正常服务端操作要求 V4。旧 `loader: null` 在明确确认前视为 Unrecognized。旧 `start` 被忽略，包括 V1/V2 中任意形式的该字段。
+- 其他版本报错且不改写。Remote workspace 的连接登记使用独立格式，保持不变。
+
+### Vanilla 确认
+
+对于旧 Unrecognized 登记，只从 `launch.toml` 取证。JAR 根据 `process.workingDirectory` 定位并读取 manifest；class/module 使用明确的 `mainClass`。不运行 Java、不下载，不读取 `conf.toml` 或历史 `start`。
+
+```text
+Set loader to Vanilla? [y(es)/n(o)/C(ancel)]
+```
+
+| 输入 | 结果 |
+| --- | --- |
+| `y`、`yes` | 写入 V4 Vanilla |
+| `n`、`no` | 写入 V4 Unrecognized |
+| `c`、`cancel`、Enter、Esc、Ctrl-C、EOF | 取消，登记不变 |
+
+输入不区分大小写。配置缺失、module 无明确主类或主类不匹配时保持 Unrecognized。配置损坏或 JAR 证据不可读时失败且不提交。已有具体 loader 的 ID 和版本保留。版本 4 不改写。
+
+Raw 或输出重定向时，所有旧格式操作直接报错且不写入，包括 `info --upgrade`；显式升级应在 Console 模式执行。SSH 与 Remote workspace 的文件检查和写入在服务端主机完成，确认留在本机。登记或启动证据变化会使待提交选择失效。
+
+只修改 `.mcpm/server.json`；保留 Minecraft 版本、配置、世界、Mod、Git 和连接登记。Vanilla 与 Unrecognized 分开显示，版本列为空。`--full-command` 保留，升级后根据当前配置生成完整启动命令。
 
 ## `mcpm init`
 
@@ -67,7 +108,7 @@ mcpm init [OPTIONS] [PATH]
 | `--no-git` | 跳过服务端所属主机上的 Git 检查与创建。与 `--git` 互斥。 |
 | `--git` | 要求实际服务端目录自身具有 Git 仓库。与 `--no-git` 互斥。 |
 | `--no-ui` | 禁用候选选择 TUI，使用 Console。 |
-| `--full-command` | 展开结果中的历史启动命令。 |
+| `--full-command` | 展示根据 `launch.toml` 和 `conf.toml` 生成的完整启动命令。 |
 
 ### 路径与执行位置
 
@@ -132,7 +173,7 @@ TUI 要求本机 stdout/stderr 为终端。远端初始化时，选择界面仍�
 
 | 文件 | 内容 |
 | --- | --- |
-| `.mcpm/server.json` | 服务端身份登记 |
+| `.mcpm/server.json` | 版本 4 的服务端身份登记 |
 | `.mcpm/mcpm.json` | Local 工作区类型 |
 | `.mcpm/.gitignore` | 元数据忽略规则 |
 | `launch.toml` | 从候选草稿导入的启动配置；手动身份不生成 |

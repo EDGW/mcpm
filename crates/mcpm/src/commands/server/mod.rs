@@ -42,7 +42,7 @@ pub(crate) fn run(
         ServerCommand::Launch(args) => return launch::run(args, ssh),
         ServerCommand::Attach(args) => return attach::run(args, ssh),
         ServerCommand::Init(args) => init::run(args, ssh),
-        ServerCommand::Info(args) => info::run(args, ssh),
+        ServerCommand::Info(args) => return info::run(args, ssh),
         ServerCommand::Mods(args) => mods::run(args, ssh),
         ServerCommand::Stash(args) => stash::run(args, ssh),
     };

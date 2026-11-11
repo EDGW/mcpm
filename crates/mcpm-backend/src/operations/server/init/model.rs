@@ -2,7 +2,7 @@
 
 use super::{super::info::ServerInfo, git};
 use mcpm_lib::local::mc::server::{
-    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader,
+    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader,
     config::{ConfigurationDraft, ImportedSetting, Published},
     identify::ServerCandidate,
 };
@@ -80,12 +80,12 @@ impl Recognize {
             return Ok(None);
         };
         let loader = match loader_type {
-            "vanilla" => None,
+            "vanilla" => ServerLoader::Vanilla,
             loader_type => {
                 let Some(version) = self.loader_version.as_ref() else {
                     return Ok(None);
                 };
-                Some(ServerModLoader {
+                ServerLoader::Modded(ServerModLoader {
                     loader_type: loader_type.to_owned(),
                     version: version.clone(),
                 })
@@ -95,7 +95,6 @@ impl Recognize {
             version: SERVER_METADATA_VERSION,
             minecraft_version: minecraft_version.clone(),
             loader,
-            start: None,
         }))
     }
 }
@@ -103,6 +102,7 @@ impl Recognize {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Candidate {
     pub metadata: MinecraftServerMetadata,
+    pub script: PathBuf,
     pub line: usize,
     pub main_class: String,
     pub configuration: Option<ConfigurationDraft>,
@@ -113,6 +113,7 @@ impl From<ServerCandidate> for Candidate {
             metadata: candidate.metadata,
             line: candidate.launch.line,
             main_class: candidate.launch.main_class().to_owned(),
+            script: candidate.launch.script.clone(),
             configuration: Some(candidate.configuration),
         }
     }

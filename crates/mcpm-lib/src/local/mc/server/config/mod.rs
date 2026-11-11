@@ -40,6 +40,33 @@ pub fn configuration_files(root: &Path) -> Result<ConfigurationFiles> {
     })
 }
 
+/// Typed launch data and the exact document revision; no user tuning is loaded.
+pub(crate) struct LaunchSnapshot {
+    pub(crate) configuration: LaunchConfig,
+    pub(crate) revision: blake3::Hash,
+}
+
+/// Reads only launch.toml while the caller holds the configuration lock.
+pub(crate) fn read_launch(root: &Path) -> Result<Option<LaunchSnapshot>> {
+    let path = root.join("launch.toml");
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match fs::symlink_metadata(&path) {
+                Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(other) => return Err(other).context("failed to inspect launch.toml"),
+                Ok(_) => return Err(error).context("failed to read existing launch.toml"),
+            }
+        }
+        Err(error) => return Err(error).context("failed to read launch.toml"),
+    };
+    let text = std::str::from_utf8(&bytes).context("launch.toml is not UTF-8")?;
+    Ok(Some(LaunchSnapshot {
+        configuration: decode_launch(text)?,
+        revision: blake3::hash(&bytes),
+    }))
+}
+
 /// Reads a consistent pair while the caller owns the backend configuration lock.
 pub(crate) fn read(
     root: &Path,

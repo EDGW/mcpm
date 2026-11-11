@@ -1,10 +1,7 @@
 //! Import preservation, configuration ownership, runtime overrides and publication boundaries.
 
 use super::*;
-use crate::local::{
-    mc::server::{MinecraftServer, identify},
-    modloader::BUILTIN_LOADERS,
-};
+use crate::local::{mc::server::identify, modloader::BUILTIN_LOADERS};
 
 #[test]
 fn authentication_import_uses_manifest_identity_and_preserves_foreign_operands() {
@@ -230,13 +227,6 @@ fn import_retains_existing_conf_bytes_and_invalid_preserved_conf_blocks_publicat
             .maximum
             .as_deref(),
         Some("4G")
-    );
-    assert!(
-        MinecraftServer::inspect(root.path())
-            .unwrap()
-            .metadata()
-            .start
-            .is_none()
     );
 }
 

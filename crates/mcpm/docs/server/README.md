@@ -12,7 +12,7 @@ Examples use `mcpm`. General terms, global options, and output modes are defined
 
 | Page | Content |
 | --- | --- |
-| [Basics](basics.md) | `info` and `init` |
+| [Basics](basics.md) | `info`, `info --upgrade`, and `init`; explicit server identity and registration formats |
 | [Launch and attach](launch.md) | `launch`, `attach`; TUI by default, Console/Raw available |
 | [Stash](stash.md) | `create`, `switch`, `status`, `list`, `info`, `rename`, `delete`, and `verify` |
 

@@ -19,7 +19,7 @@ impl Operation for Prepare {
     async fn run(input: Self::Input) -> Result<Self::Output> {
         Ok(StreamingOutput::new(move |sender| async move {
             let server = std::fs::canonicalize(&input.server)?;
-            crate::workspace::require_local(&server)?;
+            crate::workspace::require_current(&server)?;
             let (updates, mut progress) =
                 tokio::sync::watch::channel::<Option<(String, Option<(u64, Option<u64>)>)>>(None);
             let observe = |event: launch::Event<'_>| {

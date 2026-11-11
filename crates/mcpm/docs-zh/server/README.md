@@ -12,7 +12,7 @@
 
 | 页面 | 内容 |
 | --- | --- |
-| [基础](basics.md) | `info`、`init` |
+| [基础](basics.md) | `info`、`info --upgrade`、`init`；明确的服务端身份与登记格式 |
 | [启动与连接](launch.md) | `launch`、`attach`；默认 TUI，支持 Console/Raw |
 | [Stash](stash.md) | `create`、`switch`、`status`、`list`、`info`、`rename`、`delete`、`verify` |
 

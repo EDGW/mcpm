@@ -6,6 +6,8 @@ pub use crate::local::java::command::{JavaCommand, JavaEntry};
 use crate::local::java::jar;
 use thiserror::Error;
 
+mod description;
+pub use description::{CommandDescription, describe};
 mod plan;
 pub use plan::{LaunchPlan, prepare, prepare_with_overrides, prepare_with_progress};
 mod progress;

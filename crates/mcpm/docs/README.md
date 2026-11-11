@@ -93,6 +93,8 @@ SSH uses key or ssh-agent authentication without prompts. Accept unknown host ke
 | Console | Default for terminal stdout; a command may select it with `--no-ui` | Formatted text |
 | Raw | `--raw`, or stdout is not a terminal | No interaction, formatting, or colors; TSV or raw data |
 
+Console confirmations style evidence, choices, default answers, retry messages, and outcomes using the active theme. Explanations, questions, and results are separated by blank lines. `NO_COLOR` preserves this layout without colors; Raw mode remains non-interactive and unstyled.
+
 ## Command documentation
 
 - [Server: basics (info, init)](server/basics.md)

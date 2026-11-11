@@ -6,9 +6,9 @@ mod script;
 mod tokens;
 mod vanilla;
 
-use super::{
-    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader, ServerStartCommand,
-};
+pub(crate) use vanilla::is_vanilla_main_class;
+
+use super::{MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader};
 use crate::local::modloader::{LoaderId, ModLoaderMeta};
 use anyhow::{Context, Result};
 use std::{
@@ -69,7 +69,7 @@ fn identify_inner(
     let mut candidates: Vec<ServerCandidate> = Vec::new();
     for launch in evidence.launches {
         tracing::debug!(script = ?launch.script, line = launch.line, main_class = %launch.main_class(), "inspecting Java server entry");
-        let mut metadata = match identify_launch(&launch, &ordered) {
+        let metadata = match identify_launch(&launch, &ordered) {
             Ok(Some(metadata)) => metadata,
             Ok(None) => {
                 diagnostics.push(
@@ -94,14 +94,9 @@ fn identify_inner(
             )
         })?;
         super::script_path::validate(&root, script)?;
-        metadata.start = Some(ServerStartCommand {
-            script: script.to_owned(),
-            executable: launch.executable.clone(),
-            arguments: launch.command.arguments(),
-            windows: launch.path_separator == ';',
-        });
         if !candidates.iter().any(|existing| {
             existing.metadata == metadata
+                && existing.launch.script == launch.script
                 && existing.launch.directory == launch.directory
                 && existing.launch.command == launch.command
                 && existing.launch.environment == launch.environment
@@ -157,11 +152,10 @@ fn identify_launch(
             recognized.push(MinecraftServerMetadata {
                 version: SERVER_METADATA_VERSION,
                 minecraft_version: identity.minecraft_version,
-                loader: Some(ServerModLoader {
+                loader: ServerLoader::Modded(ServerModLoader {
                     loader_type: loader.id().to_string(),
                     version: identity.version,
                 }),
-                start: None,
             });
         }
     }
@@ -187,8 +181,7 @@ fn identify_launch(
             MinecraftServerMetadata {
                 version: SERVER_METADATA_VERSION,
                 minecraft_version: version,
-                loader: None,
-                start: None,
+                loader: ServerLoader::Vanilla,
             }
         }
     };

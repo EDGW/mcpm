@@ -93,6 +93,8 @@ SSH 使用密钥或 ssh-agent 非交互认证；未知 host key 需先手动 SSH
 | Console | 终端 stdout 默认；命令可用 `--no-ui` 指定 | 格式化文本 |
 | Raw | `--raw`，或 stdout 不是终端 | 禁用交互、格式和颜色；输出制表符分隔值（TSV）或原始数据 |
 
+Console 确认使用当前主题区分证据、选项、默认选择、重试提示和操作结果；说明、提问、结果等不同段落之间留空行。`NO_COLOR` 保留排版并禁用颜色；Raw 保持无交互、无样式。
+
 ## 命令文档
 
 - [Server 基础：info、init](server/basics.md)
