@@ -10,6 +10,7 @@ use crossterm::{
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use mcpm_backend::operations::server::init::Candidate;
+use mcpm_rich::Role;
 use std::io::{self, Write};
 use unicode_width::UnicodeWidthChar;
 
@@ -65,7 +66,7 @@ impl Screen {
             self.output,
             Clear(ClearType::All),
             MoveTo(0, 0),
-            PrintStyledContent(theme.tui(crate::theme::Role::Primary, enabled).apply(clip(
+            PrintStyledContent(theme.tui(Role::Primary, enabled).apply(clip(
                 "Select an identified server launch to initialize",
                 width
             )))
@@ -92,9 +93,9 @@ impl Screen {
                     theme
                         .tui(
                             if start + offset == selected {
-                                crate::theme::Role::Primary
+                                Role::Primary
                             } else {
-                                crate::theme::Role::Important
+                                Role::Important
                             },
                             enabled
                         )
@@ -136,7 +137,7 @@ impl Screen {
             );
             queue!(
                 self.output,
-                PrintStyledContent(theme.tui(crate::theme::Role::Muted, enabled).apply(detail))
+                PrintStyledContent(theme.tui(Role::Muted, enabled).apply(detail))
             )?;
         }
         queue!(

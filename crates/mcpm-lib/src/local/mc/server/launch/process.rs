@@ -73,10 +73,9 @@ impl JavaProcess {
             .spawn()
             .map_err(|source| {
                 if source.kind() == std::io::ErrorKind::NotFound && plan.directory.is_dir() {
-                    anyhow::Error::new(mcpm_exec::error::ExecutableNotFound {
-                        executable: plan.executable.display().to_string(),
-                        remote: false,
-                    })
+                    anyhow::Error::new(mcpm_exec::error::TippedError::executable_not_found(
+                        plan.executable.display().to_string(),
+                    ))
                     .context(source)
                 } else {
                     anyhow::Error::from(source)

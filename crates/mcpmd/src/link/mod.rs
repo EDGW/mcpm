@@ -4,7 +4,7 @@ use crate::{LinkArgs, LinkCommand};
 use anyhow::{Context, Result, ensure};
 use mcpm_exec::{
     endpoint::{AlreadyRunning, Endpoint},
-    error::ErrorReport,
+    error::{ErrorReport, RemoteError, TipExt, TippedError},
     messaging::{Channel, Session, relay},
     operation::{self, Connection},
     service::control::{DaemonHello, Ready, Status, Stop, StopInput, VERSION},
@@ -180,11 +180,17 @@ async fn start(
             "mcpm-bootstrap:record-missing"
             | "mcpm-bootstrap:explicit-missing"
             | "mcpm-bootstrap:fallback-missing" => {
-                return Err(mcpm_exec::error::ExecutableNotFound {
-                    executable: "mcpmd".into(),
-                    remote: true,
-                }
-                .into());
+                // The discovery script ran on the remote host; mark that fact where it is read.
+                return Err(RemoteError::wrap(
+                    TippedError::executable_not_found("mcpmd").into(),
+                ))
+                .tip(mcpm_rich::rich!(
+                    "
+                    > The `mcpmd.path` file normally records mcpmd's path in mcpm's user
+                    > configuration directory. If the record is missing or is not taking effect,
+                    > consider reinstalling mcpm.
+                    "
+                ));
             }
             _ => anyhow::bail!("remote mcpmd discovery failed before protocol startup"),
         }

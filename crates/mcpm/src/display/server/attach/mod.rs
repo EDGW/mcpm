@@ -1,14 +1,12 @@
 //! Inline/Console/Raw attach output; Minecraft prefix coloring is exclusively frontend presentation.
 
-use crate::{
-    logging, terminal,
-    theme::{Role, widgets::style},
-};
+use crate::{logging, terminal, theme::widgets::style};
 use anyhow::Result;
 use mcpm_backend::operations::server::shim::{
     Channel, CommandOutcome, CommandResult, ServerStatus, Source, State,
 };
 use mcpm_exec::messaging::SessionTrafficStats;
+use mcpm_rich::Role;
 use ratatui::text::{Line, Span};
 use std::io::{self, Write};
 

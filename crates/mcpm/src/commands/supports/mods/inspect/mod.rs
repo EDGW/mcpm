@@ -55,11 +55,13 @@ pub(in crate::commands) fn run(
 /// Empty selection succeeds without scanning; interactive users receive guidance.
 pub(in crate::commands) fn prompt_for_input() -> Result<()> {
     if crate::terminal::stderr_is_tty() {
-        writeln!(
-            io::stderr().lock(),
-            "Specify at least one file, or use --all to inspect all mods."
-        )
-        .context("failed to write empty input hint")?;
+        let style = crate::display::style::OutputStyle::stderr();
+        let mut stderr = io::stderr().lock();
+        let hint =
+            mcpm_rich::rich!("Specify at least one file, or use `--all` to inspect all mods.");
+        writeln!(stderr, "{}", crate::display::rich::line(&hint, &style))
+            .context("failed to write empty input hint")?;
+        writeln!(stderr).context("failed to separate empty input hint")?;
     }
     Ok(())
 }

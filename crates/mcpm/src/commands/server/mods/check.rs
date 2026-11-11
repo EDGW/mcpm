@@ -3,12 +3,13 @@
 use super::graph_input::ServerArgs;
 use crate::{
     commands::{execution::Runtime, supports::mods::dep_graph},
-    display::style::OutputStyle,
+    display::{rich::line, style::OutputStyle},
     ssh::SshArgs,
 };
 use anyhow::{Context, Result};
 use clap::Args;
 use mcpm_backend::operations::mods::dep_graph::BuildInput;
+use mcpm_rich::rich;
 use std::io::{self, Write};
 #[derive(Args, Debug)]
 #[command(
@@ -33,11 +34,12 @@ pub(super) fn run(args: CheckArgs, ssh: SshArgs) -> Result<()> {
         if dep_graph::write_problems(&graph, &mut output)? == 0 {
             let style = OutputStyle::new();
             let result = if graph.identification_failures == 0 {
-                style.success("Check passed. No problems found.")
+                rich!("[Check passed. No problems found.](success)")
             } else {
-                style.warning("Check incomplete. Some mod files could not be identified.")
+                rich!("[Check incomplete. Some mod files could not be identified.](warning)")
             };
-            writeln!(output, "{result}").context("failed to write dependency check result")?;
+            writeln!(output, "{}", line(&result, &style))
+                .context("failed to write dependency check result")?;
         }
         output
             .flush()

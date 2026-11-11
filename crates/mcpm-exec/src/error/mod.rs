@@ -1,9 +1,14 @@
 //! Shared aggregate errors, remote failure identity and lossless diagnostic snapshots.
-#![doc = include_str!("docs/error.md")]
+#![doc = include_str!("../docs/error.md")]
 
 use std::{error::Error as StdError, fmt};
 
 use serde::{Deserialize, Serialize};
+
+// Re-exported Modules
+
+mod tip;
+pub use tip::*;
 
 /// An error carried inside operation data; local execution keeps the original error.
 ///
@@ -105,15 +110,6 @@ pub fn contains<T: StdError + 'static>(error: &(dyn StdError + 'static)) -> bool
     false
 }
 
-/// Identifies executable lookup failure without relying on localized OS error text.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, thiserror::Error)]
-#[error("executable {executable:?} was not found")]
-pub struct ExecutableNotFound {
-    pub executable: String,
-    /// Startup discovery can establish remote origin before an operation session exists.
-    pub remote: bool,
-}
-
 /// A linear context chain ending in zero or more independent diagnostic branches.
 /// Empty messages are reserved for transparent aggregate roots.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -123,8 +119,9 @@ pub struct ErrorReport {
     pub causes: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub branches: Vec<ErrorReport>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub executable_not_found: Option<ExecutableNotFound>,
+    /// Tips of [`TippedError`] nodes in this chain, outermost first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tips: Vec<ReportTip>,
 }
 
 impl ErrorReport {
@@ -143,28 +140,42 @@ impl ErrorReport {
     ) -> Self {
         fn capture(
             mut error: Option<&(dyn StdError + 'static)>,
+            mut remote: bool,
             message: &mut impl FnMut(&(dyn StdError + 'static)) -> Option<String>,
         ) -> ErrorReport {
             let mut report = ErrorReport::default();
             let mut messages = Vec::new();
             while let Some(cause) = error {
-                if let Some(missing) = cause.downcast_ref::<ExecutableNotFound>() {
-                    report.executable_not_found = Some(missing.clone());
+                error = cause.source();
+                if cause.is::<RemoteError>() {
+                    remote = true;
+                    continue;
+                }
+                if let Some(tipped) = cause.downcast_ref::<TippedError>() {
+                    report.tips.push(if remote {
+                        ReportTip {
+                            local: tipped.remote().cloned(),
+                            remote: tipped.remote().cloned(),
+                        }
+                    } else {
+                        ReportTip {
+                            local: tipped.local().cloned(),
+                            remote: tipped.remote().cloned(),
+                        }
+                    });
+                    continue;
                 }
                 if let Some(combined) = cause.downcast_ref::<CombinedError>() {
                     report.branches = combined
                         .errors()
                         .iter()
-                        .map(|branch| capture(Some(branch.as_ref()), message))
+                        .map(|branch| capture(Some(branch.as_ref()), remote, message))
                         .collect();
                     break;
                 }
-                if !cause.is::<RemoteError>()
-                    && let Some(value) = message(cause)
-                {
+                if let Some(value) = message(cause) {
                     messages.push(value);
                 }
-                error = cause.source();
             }
             if !messages.is_empty() {
                 report.message = messages.remove(0);
@@ -172,12 +183,10 @@ impl ErrorReport {
             }
             report
         }
-        capture(Some(error), &mut message)
+        capture(Some(error), false, &mut message)
     }
 
     pub fn into_error(self) -> anyhow::Error {
-        let mut missing = self.executable_not_found;
-        let missing_message = missing.as_ref().map(ToString::to_string);
         let mut branches = self.branches.into_iter().map(Self::into_error);
         let mut error = branches.next().map(|first| {
             if let Some(second) = branches.next() {
@@ -190,20 +199,25 @@ impl ErrorReport {
                 first
             }
         });
-        for context in std::iter::once(self.message).chain(self.causes).rev() {
+        let mut contexts = std::iter::once(self.message).chain(self.causes).rev();
+        if error.is_none() && !self.tips.is_empty() {
+            // Tips need a source; the innermost message provides it, as before capture.
+            error = contexts
+                .find(|context| !context.is_empty())
+                .map(anyhow::Error::msg);
+        }
+        if let Some(source) = error.take() {
+            error = Some(self.tips.into_iter().rev().fold(source, |source, tip| {
+                TippedError::new(source, tip.local, tip.remote).into()
+            }));
+        }
+        for context in contexts {
             if context.is_empty() && error.is_some() {
                 continue;
             }
-            let typed = if missing_message.as_deref() == Some(context.as_str()) {
-                missing.take()
-            } else {
-                None
-            };
-            error = Some(match (error, typed) {
-                (Some(error), Some(missing)) => error.context(missing),
-                (None, Some(missing)) => anyhow::Error::new(missing),
-                (Some(error), None) => error.context(context),
-                (None, None) => anyhow::Error::msg(context),
+            error = Some(match error {
+                Some(error) => error.context(context),
+                None => anyhow::Error::msg(context),
             });
         }
         error.unwrap_or_else(|| anyhow::anyhow!("unknown error"))
@@ -213,6 +227,7 @@ impl ErrorReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mcpm_rich::rich;
 
     #[test]
     fn nested_branches_survive_capture_serialization_and_restoration() {
@@ -243,25 +258,58 @@ mod tests {
     }
 
     #[test]
-    fn executable_identity_survives_transport_without_classifying_missing_data_files() {
-        let missing = ExecutableNotFound {
-            executable: "java".into(),
-            remote: false,
-        };
-        let original = anyhow::Error::new(missing.clone()).context("prepare Java");
+    fn guidance_survives_nested_transport_without_becoming_a_failure_cause() {
+        let upgrade = rich!("Upgrade the file.");
+        let retry = rich!("Retry after resolving both failures.");
+        let failures = anyhow::Error::new(CombinedError::new(
+            Err::<(), _>(anyhow::anyhow!("unsupported format"))
+                .tip(upgrade.clone())
+                .unwrap_err(),
+            anyhow::anyhow!("independent I/O error"),
+        ));
+        let original = Err::<(), _>(failures)
+            .tip(retry.clone())
+            .unwrap_err()
+            .context("operation failed");
         let report = ErrorReport::capture(&original);
-        assert_eq!(report.executable_not_found, Some(missing));
-        let encoded = serde_json::to_vec(&report).unwrap();
-        let restored = serde_json::from_slice::<ErrorReport>(&encoded)
-            .unwrap()
-            .into_error();
-        let remote = RemoteError::wrap(restored);
-        assert_eq!(ErrorReport::capture(&remote), report);
-        let data_file = anyhow::Error::from(std::io::Error::from(std::io::ErrorKind::NotFound));
-        assert!(
-            ErrorReport::capture(&data_file)
-                .executable_not_found
-                .is_none()
+        assert_eq!(report.message, "operation failed");
+        assert!(report.causes.is_empty());
+        assert_eq!(report.tips.len(), 1);
+        assert_eq!(report.tips[0].local, Some(retry));
+        assert_eq!(report.branches[0].message, "unsupported format");
+        assert!(report.branches[0].causes.is_empty());
+        assert_eq!(report.branches[0].tips[0].local, Some(upgrade));
+        let bytes = serde_json::to_vec(&report).unwrap();
+        let decoded: ErrorReport = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(ErrorReport::capture(&decoded.into_error()), report);
+    }
+
+    #[test]
+    fn remote_tip_becomes_final_once_a_remote_boundary_is_crossed() {
+        fn received(report: &ErrorReport) -> ErrorReport {
+            let bytes = serde_json::to_vec(report).unwrap();
+            let decoded: ErrorReport = serde_json::from_slice(&bytes).unwrap();
+            ErrorReport::capture(&RemoteError::wrap(decoded.into_error()))
+        }
+        let local = rich!("Local advice.");
+        let remote = rich!("Remote advice.");
+        let original = Err::<(), _>(anyhow::anyhow!("inner"))
+            .tips(Some(local.clone()), Some(remote.clone()))
+            .unwrap_err()
+            .context("outer");
+        let here = ErrorReport::capture(&original);
+        assert_eq!(here.tips[0].local, Some(local));
+        assert_eq!(here.causes, ["inner"]);
+        let crossed = received(&here);
+        assert_eq!(crossed.tips[0].local, Some(remote));
+        assert_eq!(
+            (&crossed.message, &crossed.causes),
+            (&here.message, &here.causes)
         );
+        assert_eq!(received(&crossed), crossed);
+
+        let missing = ErrorReport::capture(&TippedError::executable_not_found("git").into());
+        assert_eq!(missing.tips[0].local, None);
+        assert!(received(&missing).tips[0].local.is_some());
     }
 }

@@ -51,6 +51,31 @@ operation 在远端 Host 上失败时，错误被转成可以传输的 `ErrorRep
 
 错误的传输格式取代了旧的 `message`/`source` 链，因此本机的 `mcpm` 和远端的 `mcpmd` 必须是同一个构建。
 
+## Tip
+
+Tip 是用户可以照做的建议，例如要运行的命令、要修改的配置。它不是错误原因：原因链说明哪里失败了，Tip 说明
+接下来怎么做。
+
+```rust
+use mcpm_exec::error::{TipExt, TippedError};
+use mcpm_rich::rich;
+
+result.tip(rich!("Run `mcpm info --upgrade` to upgrade the metadata of {path:?}."))?;
+result.tips(None, Some(rich!("Only meaningful on the remote host.")))?;
+Err(TippedError::executable_not_found("git"))?;
+```
+
+- Tip 是用 `rich!` 构造的 `mcpm_rich::Rich`，语法见宏的 Rustdoc。
+- `.tip(tip)` 在任何地方都显示同一份 Tip。`.tips(local, remote)` 分别指定：在产生错误的进程里显示的
+  Tip，以及错误经过 `RemoteError` 之后显示的 Tip；两者都可以是 `None`。
+- 可执行文件找不到时，统一用 `TippedError::executable_not_found(name)` 构造；它只在错误来自远端时显示
+  非交互 SSH 和 PATH 的说明。
+- Tip 在 `ErrorReport.tips` 里每个 `TippedError` 对应一条，不会变成错误原因。错误经过 `RemoteError`
+  后，远端的 Tip 就固定下来，之后无论再转发多少次都不会变。前端只显示 `local`。
+- 在第一次读到远端事实的地方标记 `RemoteError`，不要在转发本地错误的地方标记。
+- 被 `TippedError` 包住的类型化错误，用 `anyhow::Error::downcast_ref` 取不到，需要遍历 `chain()`。
+- Tip 不带样式；角色、标签和布局由前端渲染。
+
 ## `PortableError`
 
 用于"一项失败不应使整个 operation 失败"的场景，例如 `Vec<Result<Entry, PortableError>>`，或流里的一个失败事件。

@@ -1,6 +1,8 @@
 //! Browser notifications retain structured diagnostics until the shared renderer presents them.
 
-use crate::{diagnostics::ErrorReport, theme::Role};
+use mcpm_rich::Role;
+
+use crate::diagnostics::ErrorReport;
 
 /// A transient browser message or a complete failure, without flattening its cause tree.
 #[derive(Debug, Clone)]

@@ -1,7 +1,7 @@
 //! Flat and tree indices for mod list records.
 
-use crate::theme::Role;
 use clap::ValueEnum;
+use mcpm_rich::Role;
 use unicode_width::UnicodeWidthStr;
 
 use super::{Paint, Piece, Row, loader_style};

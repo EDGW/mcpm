@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/mcpm", "crates/mcpm-lib", "crates/mcpm-backend", "crates/mcpmd", "crates/mcpm-exec"]
+members = ["crates/mcpm", "crates/mcpm-lib", "crates/mcpm-backend", "crates/mcpmd", "crates/mcpm-exec", "crates/mcpm-macros", "crates/mcpm-rich"]
 resolver = "3"
 
 [workspace.package]
@@ -24,9 +24,13 @@ libc = { version = "0.2.190" }
 mcpm-lib = { path = "crates/mcpm-lib" }
 mcpm-backend = { path = "crates/mcpm-backend" }
 mcpm-exec = { path = "crates/mcpm-exec" }
+mcpm-macros = { path = "crates/mcpm-macros" }
+mcpm-rich = { path = "crates/mcpm-rich" }
 md-5 = { version = "0.10" }
 murmur3 = { version = "0.5" }
 owo-colors = { version = "4" }
+proc-macro2 = { version = "1" }
+quote = { version = "1" }
 ratatui = { version = "0.30", default-features = false }
 regex = { version = "1" }
 reqwest = { version = "0.12", default-features = false }
@@ -37,6 +41,7 @@ sha1 = { version = "0.10" }
 sha2 = { version = "0.10" }
 shlex = { version = "1.3" }
 signal-hook = { version = "0.3.18" }
+syn = { version = "2", default-features = false }
 tempfile = { version = "3.27.0" }
 terminal-colorsaurus = { version = "1" }
 textwrap = { version = "0.16" }

@@ -1,5 +1,6 @@
 //! Render the completion popup with ratatui list selection and shared browser styling.
 
+use mcpm_rich::Role;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -10,10 +11,7 @@ use ratatui::{
 use super::{Completion, CompletionField, Versions};
 use crate::{
     display::style::text,
-    theme::{
-        Role,
-        widgets::{self, style},
-    },
+    theme::widgets::{self, style},
     widgets::browser::{panel, selection, short_line},
 };
 

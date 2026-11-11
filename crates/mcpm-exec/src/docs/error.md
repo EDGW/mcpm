@@ -13,8 +13,8 @@ operation can have several independent failures that each need their own context
 | `CombinedError` | Ordered independent failures; branch holders inside an error tree |
 | `ErrorReport` | Serialized snapshot of a whole tree; wire format for remote failures |
 | `RemoteError` | Marker for a failure received from another process |
-| `ExecutableNotFound` | Typed executable lookup identity retained across transport for frontend guidance |
 | `PortableError` | Error carried inside operation data rather than as the operation result |
+| `TippedError` | Attaches a local and a remote Tip (`mcpm_rich::Rich`) to an error without adding a failure message |
 | `contains::<T>` | Tree search that visits every branch |
 
 ## Ordinary errors
@@ -48,7 +48,7 @@ let error = anyhow::Error::new(CombinedError::new(first, second));
 | `message` | Outermost context message; empty for a transparent aggregate root |
 | `causes` | Remaining messages of the linear context chain, outermost first |
 | `branches` | Independent failure subtrees; omitted from JSON when empty |
-| `executable_not_found` | Optional executable identity and known remote origin; omitted when absent |
+| `tips` | One `ReportTip { local, remote }` per `TippedError` in the chain, outermost first; omitted when empty |
 
 Construction:
 
@@ -57,6 +57,9 @@ Construction:
 - Capture stops the linear chain at the first `CombinedError` and captures each branch recursively.
 - `RemoteError` markers are skipped while capturing, so relaying a received failure never
   duplicates the marker.
+- A `TippedError` contributes a `tips` entry rather than a cause message. Below a `RemoteError`
+  its remote Tip is stored as both `local` and `remote`, so the choice is final however often the
+  report is forwarded. Presentation shows `local`.
 
 Restoration with `into_error()`:
 
@@ -64,7 +67,7 @@ Restoration with `into_error()`:
 - `message` and then `causes` are re-applied as `anyhow` context in reverse order.
 - An empty message applied to an existing error is transparent; an empty message without an
   error becomes a plain message error. An empty report produces `unknown error`.
-- Executable lookup metadata restores the typed lookup failure in its original context position. It does not classify ordinary missing data files as executable errors.
+- `tips` are restored as `TippedError` layers around the innermost error, in their original order.
 
 Round trip: capturing the restored error yields the same report. This invariant is asserted by
 the module tests.
@@ -98,6 +101,34 @@ by `RemoteError::wrap(error)`.
 Because the marker is not part of the original failure, `ErrorReport::capture` omits it. Use
 `error::contains::<RemoteError>(error)` to detect peer failures; it traverses the whole tree,
 including independent branches.
+
+## Tips
+
+A Tip is advice the user can act on: a command to run, a setting to change. It is not a failure
+cause; the cause chain explains what failed, the Tip says what to do about it.
+
+```rust
+use mcpm_exec::error::{TipExt, TippedError};
+use mcpm_rich::rich;
+
+fn check(path: &std::path::Path, result: anyhow::Result<()>) -> anyhow::Result<()> {
+    result.tip(rich!("Run `mcpm info --upgrade` to upgrade the metadata of {path:?}."))?;
+    Err::<(), _>(anyhow::anyhow!("lookup failed"))
+        .tips(None, Some(rich!("Only meaningful on the remote host.")))?;
+    Err(TippedError::executable_not_found("git").into())
+}
+```
+
+- A Tip is a `mcpm_rich::Rich` built with `rich!`; the macro's Rustdoc defines the syntax.
+- `.tip(tip)` shows the same Tip everywhere. `.tips(local, remote)` separates the Tip shown in the
+  process that created the error from the one shown after the error crossed a `RemoteError`
+  boundary; either may be `None`.
+- `TippedError::executable_not_found(name)` is the only constructor for executable lookup
+  failures; it shows non-interactive SSH/PATH advice only when observed remotely.
+- Mark `RemoteError` where a remote fact is first read, not where a local error is relayed. A
+  wrapper is invisible to `anyhow::Error::downcast_ref`; traverse `chain()` to find typed errors
+  below it.
+- Tips carry no styling; frontends render roles, labels and layout.
 
 ## `PortableError`
 

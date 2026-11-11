@@ -5,8 +5,11 @@ use std::{io::Write, path::Path};
 use anyhow::Result;
 use mcpm_lib::source::FileSummary;
 
+use mcpm_rich::rich;
+
 use super::{
     console::ConsoleWriter,
+    rich::block,
     size::size,
     style::{OutputStyle, text, tsv},
 };
@@ -51,7 +54,11 @@ impl<W: Write> Presentation<W> {
                     writeln!(fields, "Murmur2: {}", style.primary(fingerprint))?;
                 }
             } else {
-                writeln!(fields, "{}", style.danger("Digest could not be computed."))?;
+                block(
+                    &mut fields,
+                    &rich!("[Digest could not be computed.](danger)"),
+                    &style,
+                )?;
             }
         } else {
             if self.headers && !self.printed {

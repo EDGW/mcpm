@@ -7,9 +7,11 @@ use mcpm_backend::operations::mods::backup::{
     BackupOperation as Operation, FileDisposition, FileRecord, FileSource, Outcome,
 };
 use mcpm_lib::local::cache::TransferMethod;
+use mcpm_rich::rich;
 
 use super::super::{
-    console::{ConsoleWriter, tip},
+    console::ConsoleWriter,
+    rich::tip,
     size::{binary, size},
     style::{OutputStyle, text, tsv},
 };
@@ -88,22 +90,21 @@ pub(crate) fn summary(out: &mut impl Write, outcome: &Outcome, headers: bool) ->
             outcome.operation(),
             Operation::Create | Operation::CreateCacheOnly
         ) {
-            let protection = if outcome.operation() == Operation::CreateCacheOnly {
-                ""
+            let tools = &crate::program::roots().tools;
+            let delete = if outcome.operation() == Operation::CreateCacheOnly {
+                rich!("Use `{tools} mods backup delete <BACKUP>` to delete this backup.")
             } else if cfg!(unix) {
-                " Its default permissions prevent ordinary recursive deletion."
+                rich!(
+                    "Use `{tools} mods backup delete <BACKUP>` to delete this backup.
+                     Its default permissions prevent ordinary recursive deletion."
+                )
             } else {
-                " This command handles the backup's directory protection."
+                rich!(
+                    "Use `{tools} mods backup delete <BACKUP>` to delete this backup.
+                     This command handles the backup's directory protection."
+                )
             };
-            tip(
-                &mut console,
-                &format!(
-                    "Tip: Use {} mods backup delete <BACKUP> to delete this backup.{protection}",
-                    crate::program::roots().tools
-                ),
-                0,
-                Some(&style),
-            )?;
+            tip(&mut console, &delete, &style)?;
         }
     } else {
         if headers {
@@ -198,12 +199,13 @@ fn hard_link_tip(
             "when applying the backup",
         ),
     };
-    let message = format!(
-        "Tip: {} of files are hard-linked to {source} and use no additional disk space; \
-         copying or transferring {object}, or moving {object} to a location that cannot preserve \
-         those hard links, will require that space again; use --mode copy {option} to store independent copies.",
-        binary(shared)
+    let message = rich!(
+        "{size} of files are hard-linked to {source} and use no additional disk space;
+         copying or transferring {object}, or moving {object} to a location that cannot preserve
+         those hard links, will require that space again; use `--mode copy` {option}
+         to store independent copies.",
+        size = binary(shared),
     );
-    tip(out, &message, 0, Some(style))?;
+    tip(out, &message, style)?;
     Ok(())
 }

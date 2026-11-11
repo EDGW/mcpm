@@ -1,5 +1,6 @@
 //! Ratatui widgets for responsive theme previews with independent card borders and content.
 
+use mcpm_rich::Role;
 use ratatui::{
     Frame,
     buffer::Buffer,
@@ -9,7 +10,7 @@ use ratatui::{
     widgets::{Block, BorderType, Padding, Paragraph, Widget, Wrap},
 };
 
-use crate::theme::{Role, Theme, config::Config};
+use crate::theme::{Theme, config::Config};
 
 const PANEL_HEIGHT: u16 = 13;
 

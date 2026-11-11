@@ -117,11 +117,8 @@ fn run(root: &Path, arguments: &[&str]) -> Result<Output> {
         .output()
         .map_err(|source| {
             if source.kind() == io::ErrorKind::NotFound && root.is_dir() {
-                anyhow::Error::new(mcpm_exec::error::ExecutableNotFound {
-                    executable: "git".into(),
-                    remote: false,
-                })
-                .context(source)
+                anyhow::Error::new(mcpm_exec::error::TippedError::executable_not_found("git"))
+                    .context(source)
             } else {
                 anyhow::Error::from(source)
             }

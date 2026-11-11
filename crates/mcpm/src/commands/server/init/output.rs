@@ -2,14 +2,17 @@
 
 use std::io::{self, Write};
 
+use mcpm_backend::operations::server::init::git::{Outcome, Status};
+use mcpm_rich::rich;
+
 use crate::{
     display::{
         console::ConsoleWriter,
+        rich::block,
         style::{OutputStyle, text},
     },
     terminal,
 };
-use mcpm_backend::operations::server::init::git::{Outcome, Status};
 
 /// Import diagnostics stay on stderr, including Raw mode, leaving server records unchanged.
 pub(super) fn write_publication(
@@ -34,16 +37,18 @@ pub(super) fn write_publication(
         }
     }
     if !publication.entry_configured {
-        writeln!(output, "{}", style.warning("No launch entry is configured; explicitly import a start script before using launch."))?;
+        let warning = rich!(
+            "[No launch entry is configured; explicitly import a start script before using
+             launch.](warning)"
+        );
+        block(&mut output, &warning, &style)?;
     }
     if !publication.imported.is_empty() && !publication.preserved.is_empty() {
-        writeln!(
-            output,
-            "{}",
-            style.warning(
-                "Existing conf.toml was preserved; source tuning settings were not merged."
-            )
-        )?;
+        let warning = rich!(
+            "[Existing](warning) `conf.toml` [was preserved; source tuning settings were not
+             merged.](warning)"
+        );
+        block(&mut output, &warning, &style)?;
     }
     Ok(())
 }
@@ -56,17 +61,15 @@ pub(super) fn write_git(output: &mut impl Write, outcome: Option<&Outcome>) -> i
         return Ok(());
     };
     let mut output = ConsoleWriter::new(output);
-    let style = OutputStyle::new();
+    let path = &outcome.path;
     let message = match outcome.status {
-        Status::Created => "Created Git repository at ",
-        Status::Existing => "Git repository already exists; skipped initialization for ",
+        Status::Created => rich!("Created Git repository at `{path}`"),
+        Status::Existing => {
+            rich!("Git repository already exists; skipped initialization for `{path}`")
+        }
     };
-    writeln!(
-        output,
-        "{}{}\n",
-        style.normal(message),
-        style.normal(text(&outcome.path))
-    )
+    block(&mut output, &message, &OutputStyle::new())?;
+    writeln!(output)
 }
 
 pub(super) fn write_success(output: &mut impl Write) -> io::Result<()> {
@@ -74,9 +77,10 @@ pub(super) fn write_success(output: &mut impl Write) -> io::Result<()> {
         return Ok(());
     }
     let mut output = ConsoleWriter::new(output);
-    writeln!(
-        output,
-        "\n{}",
-        OutputStyle::new().success("Initialized successfully.")
+    writeln!(output)?;
+    block(
+        &mut output,
+        &rich!("[Initialized successfully.](success)"),
+        &OutputStyle::new(),
     )
 }

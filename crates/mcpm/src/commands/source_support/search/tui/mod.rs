@@ -1,5 +1,6 @@
 //! Search browsing state and cancellable requests; rendering and keyboard input stay separate.
 
+use mcpm_rich::Role;
 use std::time::Duration;
 
 use super::super::config;
@@ -12,10 +13,7 @@ use tokio::runtime::Runtime;
 
 use super::super::request;
 use super::expression::{Expression, ParseError};
-use crate::{
-    theme::Role,
-    widgets::browser::{self, Screen},
-};
+use crate::widgets::browser::{self, Screen};
 use completion::Completion;
 use input::Action;
 use ratatui::{layout::Rect, widgets::TableState};

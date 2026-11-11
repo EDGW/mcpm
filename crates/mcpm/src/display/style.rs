@@ -1,13 +1,11 @@
 //! Console rendering policy and semantic styles shared by command frontends.
 
+use mcpm_rich::Role;
 use std::fmt::Display;
 
 use owo_colors::Style;
 
-use crate::{
-    terminal,
-    theme::{self, Role},
-};
+use crate::{terminal, theme};
 
 /// Escape controls in metadata so it cannot change terminal or TSV structure.
 pub(crate) fn text(value: &str) -> String {
@@ -53,41 +51,56 @@ impl OutputStyle {
         }
     }
 
+    /// Never colored: in-memory layouts such as TUI diagnostic lines.
+    pub(crate) fn plain() -> Self {
+        Self { color: false }
+    }
+
+    /// Whether styles reach the terminal; plain output must keep textual markers instead.
+    pub(crate) fn colored(&self) -> bool {
+        self.color
+    }
+
+    /// The single role-to-style entry; the named methods below are shorthands for it.
+    pub(crate) fn role(&self, role: Role, value: impl Display) -> String {
+        self.paint(value, theme::console(role))
+    }
+
     pub(crate) fn important(&self, value: impl Display) -> String {
-        self.paint(value, theme::console(Role::Important))
+        self.role(Role::Important, value)
     }
 
     pub(crate) fn primary(&self, value: impl Display) -> String {
-        self.paint(value, theme::console(Role::Primary))
+        self.role(Role::Primary, value)
     }
 
-    /// Primary foreground only, without the bold emphasis used for main output values.
-    pub(crate) fn primary_plain(&self, value: impl Display) -> String {
-        self.paint(value, theme::get().config.palette(false).primary.console())
+    /// Primary foreground without bold: commands, paths, file names and configuration keys.
+    pub(crate) fn code(&self, value: impl Display) -> String {
+        self.role(Role::Code, value)
     }
 
     pub(crate) fn secondary(&self, value: impl Display) -> String {
-        self.paint(value, theme::console(Role::Secondary))
+        self.role(Role::Secondary, value)
     }
 
     pub(crate) fn muted(&self, value: impl Display) -> String {
-        self.paint(value, theme::console(Role::Muted))
+        self.role(Role::Muted, value)
     }
 
     pub(crate) fn success(&self, value: impl Display) -> String {
-        self.paint(value, theme::console(Role::Success))
+        self.role(Role::Success, value)
     }
 
     pub(crate) fn normal(&self, value: impl Display) -> String {
-        self.paint(value, theme::console(Role::Normal))
+        self.role(Role::Normal, value)
     }
 
     pub(crate) fn warning(&self, value: impl Display) -> String {
-        self.paint(value, theme::console(Role::Warning))
+        self.role(Role::Warning, value)
     }
 
     pub(crate) fn danger(&self, value: impl Display) -> String {
-        self.paint(value, theme::console(Role::Danger))
+        self.role(Role::Danger, value)
     }
 
     pub(crate) fn loader(&self, id: &str, name: &str) -> String {

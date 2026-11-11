@@ -1,5 +1,6 @@
 //! Shared list/detail layout, table sizing, focus styling and terminal ownership.
 
+use mcpm_rich::Role;
 use std::io;
 
 use crossterm::{
@@ -18,10 +19,7 @@ use ratatui::{
 };
 
 use super::{MatchedText, Overflow};
-use crate::theme::{
-    Role,
-    widgets::{self, style},
-};
+use crate::theme::widgets::{self, style};
 
 #[derive(Debug)]
 pub(crate) struct Screen {

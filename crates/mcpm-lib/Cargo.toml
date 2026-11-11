@@ -10,6 +10,7 @@ rcon = { version = "0.6.0", features = ["rt-tokio"] }
 bytes = "1"
 tokio-util = { version = "0.7", features = ["codec", "io"] }
 mcpm-exec = { workspace = true }
+mcpm-rich = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true, features = ["std", "serde"] }
 lazy_static = { workspace = true }

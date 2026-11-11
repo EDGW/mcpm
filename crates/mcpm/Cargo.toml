@@ -41,6 +41,7 @@ regex = { workspace = true }
 mcpm-lib = { workspace = true }
 mcpm-backend = { workspace = true }
 mcpm-exec = { workspace = true }
+mcpm-rich = { workspace = true }
 owo-colors = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

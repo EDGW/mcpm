@@ -1,8 +1,9 @@
 //! Shared archive path display options for mod commands.
 
+use mcpm_rich::Role;
 use std::path::Path;
 
-use crate::theme::{self, Role};
+use crate::theme;
 use clap::{Args, ValueEnum};
 use owo_colors::Style;
 

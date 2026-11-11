@@ -5,6 +5,8 @@ use std::sync::OnceLock;
 use crossterm::style::{Attribute, ContentStyle};
 use owo_colors::Style;
 
+use mcpm_rich::Role;
+
 use crate::terminal;
 
 mod color;
@@ -13,18 +15,6 @@ pub(crate) mod widgets;
 pub(crate) use color::Color;
 
 static THEME: OnceLock<Theme> = OnceLock::new();
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Role {
-    Primary,
-    Secondary,
-    Important,
-    Normal,
-    Muted,
-    Warning,
-    Success,
-    Danger,
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct Theme {
@@ -35,6 +25,7 @@ impl Theme {
     pub(crate) fn console(&self, role: Role) -> Style {
         match role {
             Role::Primary => self.config.palette(false).primary.console().bold(),
+            Role::Code => self.config.palette(false).primary.console(),
             Role::Secondary => self.config.palette(false).secondary.console(),
             Role::Important => Style::new().white().bold(),
             Role::Normal => Style::new().white(),
@@ -52,7 +43,7 @@ impl Theme {
         }
         use crossterm::style::Color;
         style.foreground_color = Some(match role {
-            Role::Primary => self.config.palette(true).primary.tui(),
+            Role::Primary | Role::Code => self.config.palette(true).primary.tui(),
             Role::Secondary => self.config.palette(true).secondary.tui(),
             Role::Warning => Color::Yellow,
             Role::Success => Color::Green,

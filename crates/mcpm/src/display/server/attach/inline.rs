@@ -1,9 +1,7 @@
 //! Ratatui inline viewport and standard widgets; never enters the alternate screen.
 
-use crate::{
-    theme::{Role, widgets::style},
-    widgets::browser::panel,
-};
+use crate::{theme::widgets::style, widgets::browser::panel};
+use mcpm_rich::Role;
 use ratatui::{
     Terminal, TerminalOptions, Viewport,
     backend::{Backend, CrosstermBackend},

@@ -38,10 +38,9 @@ pub(crate) fn argument_files(
         .spawn()
         .map_err(|source| {
             if source.kind() == std::io::ErrorKind::NotFound && directory.is_dir() {
-                anyhow::Error::new(mcpm_exec::error::ExecutableNotFound {
-                    executable: executable.display().to_string(),
-                    remote: false,
-                })
+                anyhow::Error::new(mcpm_exec::error::TippedError::executable_not_found(
+                    executable.display().to_string(),
+                ))
                 .context(source)
             } else {
                 anyhow::Error::from(source)

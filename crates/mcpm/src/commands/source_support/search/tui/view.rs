@@ -1,5 +1,6 @@
 //! Search-specific content rendered with shared browser layout, tables, fields and terminal ownership.
 
+use mcpm_rich::Role;
 use std::io;
 
 use clap::ValueEnum;
@@ -19,10 +20,7 @@ use super::{Browser, Focus};
 use crate::{
     commands::supports::mods::loaders::Loader,
     display::style::text,
-    theme::{
-        Role,
-        widgets::{self, style},
-    },
+    theme::widgets::{self, style},
     widgets::{
         browser::{self, BrowserLayout, Screen, TableColumns, panel, short_line},
         highlighted_line,

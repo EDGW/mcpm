@@ -1482,6 +1482,7 @@ dependencies = [
  "mcpm-backend",
  "mcpm-exec",
  "mcpm-lib",
+ "mcpm-rich",
  "owo-colors",
  "ratatui",
  "regex",
@@ -1530,6 +1531,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "libc",
+ "mcpm-rich",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1554,6 +1556,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "mcpm-exec",
+ "mcpm-rich",
  "md-5",
  "murmur3",
  "netstat2",
@@ -1579,6 +1582,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "mcpm-macros"
+version = "0.1.0-dev.26w45a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "mcpm-rich"
+version = "0.1.0-dev.26w45a"
+dependencies = [
+ "mcpm-macros",
+ "serde",
+]
+
+[[package]]
 name = "mcpmd"
 version = "0.1.0-dev.26w45a"
 dependencies = [
@@ -1589,6 +1609,7 @@ dependencies = [
  "libc",
  "mcpm-backend",
  "mcpm-exec",
+ "mcpm-rich",
  "serde",
  "serde_json",
  "shlex 1.3.0",
