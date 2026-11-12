@@ -86,6 +86,7 @@ async fn recognition_is_read_only_and_transports_the_selected_configuration_draf
         &Recognize {
             path: root.path().into(),
             start_script: Some("run.sh".into()),
+            start_line: None,
             minecraft_version: None,
             loader: None,
             loader_version: None,

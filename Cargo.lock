@@ -1479,6 +1479,7 @@ dependencies = [
  "ctrlc",
  "dirs",
  "indicatif",
+ "libc",
  "mcpm-backend",
  "mcpm-exec",
  "mcpm-lib",

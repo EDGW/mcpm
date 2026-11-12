@@ -98,7 +98,12 @@ fn layout(
                     Some(label) => format!("{label} {body}"),
                     None => body,
                 };
-                wrapped(out, &line, &paragraph)?;
+                if content.len() == 1 && content[0].role == Role::Code {
+                    // Copyable commands must not acquire hard line breaks inside arguments.
+                    writeln!(out, "{line}")?;
+                } else {
+                    wrapped(out, &line, &paragraph)?;
+                }
             }
             Block::List(items) => {
                 if let Some(label) = label {

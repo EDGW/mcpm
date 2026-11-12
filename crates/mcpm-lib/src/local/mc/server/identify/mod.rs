@@ -11,10 +11,12 @@ pub(crate) use vanilla::is_vanilla_main_class;
 use super::{MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader};
 use crate::local::modloader::{LoaderId, ModLoaderMeta};
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
+use std::{num::NonZeroUsize, str::FromStr};
 use thiserror::Error;
 
 // Preserve the existing public import path.
@@ -29,6 +31,38 @@ pub struct ServerCandidate {
     pub configuration: super::config::ConfigurationDraft,
 }
 
+/// A one-based command line, optionally in a nested server-root-relative script.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StartLine {
+    pub script: Option<PathBuf>,
+    pub line: NonZeroUsize,
+}
+impl FromStr for StartLine {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        let (script, line) = match value.rsplit_once(':') {
+            Some((script, line)) => {
+                anyhow::ensure!(
+                    !script.is_empty(),
+                    "expected [SCRIPT:]LINE with a nonempty script path"
+                );
+                (Some(PathBuf::from(script)), line)
+            }
+            None => (None, value),
+        };
+        anyhow::ensure!(
+            line.bytes().all(|ch| ch.is_ascii_digit()),
+            "LINE must be a positive decimal line number"
+        );
+        let line = line
+            .parse::<NonZeroUsize>()
+            .context("LINE must be a positive decimal line number")?;
+        Ok(Self { script, line })
+    }
+}
+
 /// `script` must be relative to and contained within `root`. All script/file paths are resolved
 /// without executing anything. This extracts identity evidence, not command validity.
 /// Unavailable commands are diagnosed independently; recognized candidates survive
@@ -38,9 +72,10 @@ pub fn identify(
     root: impl AsRef<Path>,
     script: impl AsRef<Path>,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
+    start_line: Option<&StartLine>,
 ) -> Result<Vec<ServerCandidate>> {
     tracing::info!(root = ?root.as_ref(), script = ?script.as_ref(), "identifying Minecraft server");
-    let result = identify_inner(root.as_ref(), script.as_ref(), loaders);
+    let result = identify_inner(root.as_ref(), script.as_ref(), loaders, start_line);
     match &result {
         Ok(candidates) => {
             tracing::debug!(count = candidates.len(), "server identification completed")
@@ -56,6 +91,7 @@ fn identify_inner(
     root: &Path,
     script: &Path,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
+    start_line: Option<&StartLine>,
 ) -> Result<Vec<ServerCandidate>> {
     let root = std::fs::canonicalize(root)
         .with_context(|| format!("failed to resolve server directory {root:?}"))?;
@@ -63,11 +99,39 @@ fn identify_inner(
     super::script_path::validate(&root, script)?;
     let path = root.join(script);
     let evidence = script::read(&root, &path);
+    let selected_script = start_line
+        .map(|selection| {
+            let script = selection.script.as_deref().unwrap_or(script);
+            super::script_path::validate(&root, script)?;
+            std::fs::canonicalize(root.join(script))
+                .context("failed to resolve selected command script")
+        })
+        .transpose()?;
     let mut diagnostics = evidence.diagnostics;
+    if let Some(selection) = start_line {
+        diagnostics.retain(|error| {
+            script::diagnostic_at(
+                error,
+                selected_script.as_ref().unwrap(),
+                selection.line.get(),
+            )
+        });
+    }
     let mut ordered: Vec<_> = loaders.values().collect();
     ordered.sort_by(|a, b| a.id().cmp(b.id()));
     let mut candidates: Vec<ServerCandidate> = Vec::new();
     for launch in evidence.launches {
+        if let Some(selection) = start_line {
+            if launch.line != selection.line.get() {
+                continue;
+            }
+            if std::fs::canonicalize(&launch.script)
+                .context("failed to resolve candidate command script")?
+                != *selected_script.as_ref().unwrap()
+            {
+                continue;
+            }
+        }
         tracing::debug!(script = ?launch.script, line = launch.line, main_class = %launch.main_class(), "inspecting Java server entry");
         let metadata = match identify_launch(&launch, &ordered) {
             Ok(Some(metadata)) => metadata,
@@ -119,6 +183,18 @@ fn identify_inner(
         }
     }
     if candidates.is_empty() {
+        if let Some(selection) = start_line {
+            let selected_script = selection.script.as_deref().unwrap_or(script);
+            let error = anyhow::anyhow!(
+                "no identified server launch at {}:{}",
+                selected_script.display(),
+                selection.line
+            );
+            return Err(match diagnostics.into_iter().next() {
+                Some(cause) => cause.context(error),
+                None => error,
+            });
+        }
         return Err(diagnostics
             .into_iter()
             .next()

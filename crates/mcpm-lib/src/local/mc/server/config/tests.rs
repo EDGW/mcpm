@@ -24,7 +24,7 @@ fn authentication_import_uses_manifest_identity_and_preserves_foreign_operands()
     archive.finish().unwrap();
     fs::write(root.path().join("agents/foreign.jar"), b"foreign agent").unwrap();
     fs::write(root.path().join("run.sh"), "cd agents\njava '-javaagent:renamed.jar=https://example.com/api/?a=b' -Dauthlibinjector.debug -Dauthlibinjector.noLogFile=false -Dauthlibinjector.future=x -Dauthlibinjector.httpdPort=invalid -javaagent:foreign.jar=opaque -cp '-Dauthlibinjector.profileKey=disabled' cpw.mods.bootstraplauncher.BootstrapLauncher --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1\n").unwrap();
-    let candidate = identify::identify(root.path(), "run.sh", &BUILTIN_LOADERS)
+    let candidate = identify::identify(root.path(), "run.sh", &BUILTIN_LOADERS, None)
         .unwrap()
         .remove(0);
     let conf = decode_conf(&candidate.configuration.template().unwrap()).unwrap();
@@ -87,7 +87,7 @@ fn authentication_overrides_probe_optional_table_without_enabling_defaults() {
 
 fn candidate(root: &Path, options: &str) -> identify::ServerCandidate {
     fs::write(root.join("run.sh"), format!("java {options} cpw.mods.bootstraplauncher.BootstrapLauncher --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1 --launchTarget forge_server nogui\n")).unwrap();
-    identify::identify(root, "run.sh", &BUILTIN_LOADERS)
+    identify::identify(root, "run.sh", &BUILTIN_LOADERS, None)
         .unwrap()
         .remove(0)
 }
@@ -404,7 +404,7 @@ fn independent_exports_keep_per_command_environment_snapshots() {
     let root = tempfile::tempdir().unwrap();
     fs::write(root.path().join("child.sh"), "java cpw.mods.bootstraplauncher.BootstrapLauncher --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1\n").unwrap();
     fs::write(root.path().join("run.sh"), "EXPORTED='first value'\nLOCAL_ONLY=private\nexport EXPORTED LATER\nLATER=later\nsh ./child.sh\nEXPORTED='second value'\njava cpw.mods.bootstraplauncher.BootstrapLauncher --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1\n").unwrap();
-    let candidates = identify::identify(root.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
+    let candidates = identify::identify(root.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap();
     assert_eq!(candidates.len(), 2);
     for (candidate, value) in candidates.iter().zip(["first value", "second value"]) {
         let environment = &candidate.configuration.launch.process.environment;

@@ -58,6 +58,7 @@ tempfile = { workspace = true }
 textwrap = { workspace = true, features = ["terminal_size"] }
 
 [target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
 signal-hook = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]

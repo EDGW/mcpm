@@ -4,10 +4,10 @@ use super::{super::info::ServerInfo, git};
 use mcpm_lib::local::mc::server::{
     MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader,
     config::{ConfigurationDraft, ImportedSetting, Published},
-    identify::ServerCandidate,
+    identify::{ServerCandidate, StartLine},
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -66,6 +66,7 @@ pub struct Recognize {
     #[serde(default = "default_path")]
     pub path: PathBuf,
     pub start_script: Option<PathBuf>,
+    pub start_line: Option<StartLine>,
     pub minecraft_version: Option<String>,
     pub loader: Option<String>,
     pub loader_version: Option<String>,
@@ -102,20 +103,34 @@ impl Recognize {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Candidate {
     pub metadata: MinecraftServerMetadata,
+    /// Root script used for discovery; `script` may instead name a nested script.
+    pub start_script: PathBuf,
     pub script: PathBuf,
     pub line: usize,
     pub main_class: String,
     pub configuration: Option<ConfigurationDraft>,
 }
-impl From<ServerCandidate> for Candidate {
-    fn from(candidate: ServerCandidate) -> Self {
-        Self {
+impl Candidate {
+    pub(super) fn from_server(
+        candidate: ServerCandidate,
+        root: &Path,
+        start_script: &Path,
+    ) -> anyhow::Result<Self> {
+        use anyhow::Context;
+        let script = std::fs::canonicalize(&candidate.launch.script)
+            .context("failed to resolve candidate script")?;
+        let script = script
+            .strip_prefix(root)
+            .context("candidate script escapes server root")?
+            .to_owned();
+        Ok(Self {
             metadata: candidate.metadata,
+            start_script: start_script.to_owned(),
             line: candidate.launch.line,
             main_class: candidate.launch.main_class().to_owned(),
-            script: candidate.launch.script.clone(),
+            script,
             configuration: Some(candidate.configuration),
-        }
+        })
     }
 }
 

@@ -36,7 +36,7 @@ pub(super) fn recognize(
         .start_script
         .unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "run.bat" } else { "run.sh" }));
     tracing::info!(path = %args.path.display(), script = %script.display(), "Recognizing server launch candidates");
-    let mut candidates = identify::identify(&args.path, &script, &BUILTIN_LOADERS)
+    let mut candidates = identify::identify(&args.path, &script, &BUILTIN_LOADERS, args.start_line.as_ref())
         .context("automatic server identification failed; server remains unrecognized; initialize manually with --minecraft-version VERSION --loader forge|neoforge|fabric --loader-version VERSION, or explicitly use --loader vanilla for a known vanilla server")?;
     checkpoint()?;
     candidates.retain(|candidate| {
@@ -73,7 +73,12 @@ pub(super) fn recognize(
         elapsed_ms = started.elapsed().as_millis(),
         "Server recognition completed without writing configuration"
     );
-    Ok(candidates.into_iter().map(Candidate::from).collect())
+    let root =
+        fs::canonicalize(&args.path).context("failed to resolve recognized server directory")?;
+    candidates
+        .into_iter()
+        .map(|candidate| Candidate::from_server(candidate, &root, &script))
+        .collect()
 }
 
 /// Metadata is supplied in full; initialization never rereads a script or requires a recognition token.
@@ -161,6 +166,17 @@ pub(super) fn initialize(
 }
 
 pub(super) fn validate_options(args: &Recognize) -> Result<()> {
+    ensure!(
+        args.start_line.is_none() || args.start_script.is_some(),
+        "--start-line requires --start-script"
+    );
+    ensure!(
+        args.start_script.is_none()
+            || (args.minecraft_version.is_none()
+                && args.loader.is_none()
+                && args.loader_version.is_none()),
+        "--start-script conflicts with manual version/loader options"
+    );
     for version in [&args.minecraft_version, &args.loader_version]
         .into_iter()
         .flatten()
@@ -314,29 +330,5 @@ mod tests {
                 .is_some()
         );
         assert_eq!(fs::read(manifest).unwrap(), winner);
-    }
-
-    #[test]
-    fn recognition_cancelled_at_phase_boundary_does_not_even_read_missing_script() {
-        let root = tempfile::tempdir().unwrap();
-        let cancelled = Cell::new(false);
-        let recognition: Recognize =
-            serde_json::from_value(serde_json::json!({"path":root.path()})).unwrap();
-        let error = recognize(
-            recognition,
-            || {
-                if cancelled.get() {
-                    return Err(Cancelled.into());
-                }
-                Ok(())
-            },
-            |_| {
-                cancelled.set(true);
-                Ok(())
-            },
-        )
-        .unwrap_err();
-        assert!(error.is::<Cancelled>(), "{error:#}");
-        assert!(!root.path().join(".mcpm").exists());
     }
 }

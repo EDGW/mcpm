@@ -16,6 +16,7 @@ use mcpm_backend::operations::server::init::{
 };
 
 mod output;
+mod presentation;
 mod reference;
 mod selector;
 
@@ -28,11 +29,14 @@ pub(super) struct InitArgs {
     #[arg(value_name = "PATH", default_value = ".")]
     path: PathBuf,
     /// Register PATH locally as a Remote workspace pointing to this existing remote Local Server.
-    #[arg(long, value_name = "REMOTE_PATH", conflicts_with_all = ["start_script", "minecraft_version", "loader", "loader_version"])]
+    #[arg(long, value_name = "REMOTE_PATH", conflicts_with_all = ["start_script", "start_line", "minecraft_version", "loader", "loader_version"])]
     remote: Option<String>,
     /// Statically inspect a script inside the server directory, using a relative path; conflicts with manual version/loader options.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["minecraft_version", "loader", "loader_version"])]
     start_script: Option<PathBuf>,
+    /// Select a one-based Java command line; SCRIPT is required only for a nested script.
+    #[arg(long, value_name = "[SCRIPT:]LINE", requires = "start_script", conflicts_with_all = ["remote", "minecraft_version", "loader", "loader_version"])]
+    start_line: Option<mcpm_lib::local::mc::server::identify::StartLine>,
     /// Minecraft version. Omitted fields are inferred from the data-source host's default start script.
     #[arg(long, alias = "mc-version", value_name = "VERSION")]
     minecraft_version: Option<String>,
@@ -54,7 +58,7 @@ pub(super) struct InitArgs {
     /// Require a repository in the actual server directory, including the remote Host with --remote; never in the local stub.
     #[arg(long, conflicts_with = "no_git")]
     git: bool,
-    /// Disable the local TUI; multiple candidates require more specific manual filters.
+    /// Disable the TUI; choose multiple candidates by number in the terminal.
     #[arg(long)]
     no_ui: bool,
     /// Show the complete startup command generated from launch.toml and conf.toml.
@@ -81,11 +85,14 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
         .await?;
         return write_info(&info, args.full_command);
     }
+    let retry_base = presentation::retry_base(&args, &ssh);
+    let retry_path = args.path.clone();
     let (executor, path, _) = ssh.create_executor(Some(args.path)).await?;
     let path = path.context("server initialization requires a path")?;
     let recognition = Recognize {
         path,
         start_script: args.start_script,
+        start_line: args.start_line,
         minecraft_version: args.minecraft_version,
         loader: args.loader,
         loader_version: args.loader_version,
@@ -117,6 +124,13 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
             let index = if candidates.len() == 1 {
                 0
             } else {
+                if !crate::terminal::stdout_is_tty() {
+                    return Err(presentation::ambiguous(
+                        &candidates,
+                        &retry_base?,
+                        &retry_path,
+                    )?);
+                }
                 let Some(index) = selector::select(&candidates, args.no_ui)? else {
                     return Ok(());
                 };

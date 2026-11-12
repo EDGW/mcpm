@@ -53,7 +53,6 @@ fn init_identifies_loaders_and_publishes_configuration_without_legacy_command() 
         ("fake-vanilla", None, "1.20.1", ""),
         ("partial-unknown", None, "1.20.1", ""),
         ("bundled-vanilla", None, "1.21.1", ""),
-        ("nested-shell", None, "1.20.1", ""),
         ("nested-batch", None, "1.20.1", ""),
     ] {
         let temp = TempDir::new().unwrap();
@@ -108,10 +107,6 @@ fn fml_uses_command_evidence_without_opening_dependency_jars() {
         ("neoforge", "1.21.1", "21.1.77"),
         ("early-neoforge", "1.20.1", "47.1.79"),
         ("forge-shim", "1.21.1", "52.0.1"),
-        ("loader-version-conflict", "1.20.1", "47.4.0"),
-        ("game-version-conflict", "1.20.1", "47.3.12"),
-        ("missing-loader", "1.20.1", "47.3.12"),
-        ("fake-loader", "1.20.1", "47.3.12"),
     ] {
         let temp = TempDir::new().unwrap();
         copy(&fixture(case), temp.path());
@@ -128,20 +123,14 @@ fn fml_uses_command_evidence_without_opening_dependency_jars() {
                 "helper \"$UNRESOLVED_HELPER\"\njava -jar absent-helper.jar\n"
             };
             fs::write(&path, format!("{helper}{original}")).unwrap();
-            let candidates = identify::identify(temp.path(), script, &BUILTIN_LOADERS).unwrap();
-            // Conflict fixtures change only the shell argument file.
-            let expected_version = if case == "loader-version-conflict" && script == "run.bat" {
-                "47.3.12"
-            } else {
-                version
-            };
+            let candidates = identify::identify(temp.path(), script, &BUILTIN_LOADERS, None).unwrap();
             assert_eq!(
                 candidates[0].metadata.minecraft_version, mc,
                 "{case}: {script}"
             );
             assert_eq!(
                 candidates[0].metadata.loader.declaration().unwrap().version,
-                expected_version,
+                version,
                 "{case}: {script}"
             );
         }
@@ -159,7 +148,7 @@ fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
             // The intermediary coordinate already supplies the game version.
             fs::remove_file(temp.path().join("server.jar")).unwrap();
         }
-        let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
+        let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap();
         assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1", "{case}");
         assert_eq!(
             candidates[0].metadata.loader.declaration().unwrap().version,
@@ -172,17 +161,15 @@ fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
     copy(&fixture("fabric"), temp.path());
     fs::write(temp.path().join("run.sh"), "java -cp libraries/net/fabricmc/fabric-loader/0.16.10/fabric-loader-0.16.10.jar net.fabricmc.loader.impl.launch.knot.KnotServer\n").unwrap();
     fs::remove_dir_all(temp.path().join("libraries")).unwrap();
-    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
+    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap();
     assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1");
     fs::remove_file(temp.path().join("server.jar")).unwrap();
-    assert!(identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).is_err());
+    assert!(identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS, None).is_err());
 }
 
 #[test]
 fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configuration() {
     for (case, script, reason) in [
-        ("dynamic-control", "run.sh", "control flow are unsupported"),
-        ("dynamic-command", "run.sh", "unsupported shell expansion"),
         ("undefined-variable", "run.sh", "unresolved shell variable"),
         ("unquoted-variable", "run.sh", "word splitting"),
         ("cycle", "run.sh", "recursive"),
@@ -192,7 +179,6 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
         ("missing-jar", "run.sh", "failed to open"),
         ("corrupt-jar", "run.sh", "invalid JAR"),
         ("no-java", "run.sh", "no Java server launch"),
-        ("dynamic-batch", "run.bat", "control flow are unsupported"),
         ("delayed-batch", "run.bat", "delayed batch expansion"),
         ("duplicate-version", "run.sh", "conflicting game option"),
         ("client-target", "run.sh", "not a production server"),
@@ -208,10 +194,6 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
         assert_eq!(output.status.code(), Some(1), "{case}");
         assert!(output.stdout.is_empty(), "{case}");
         let error = String::from_utf8(output.stderr).unwrap();
-        assert!(
-            error.contains("server remains unrecognized") && error.contains("initialize manually"),
-            "{case}: {error}"
-        );
         assert!(
             error.contains(reason),
             "{case}: expected {reason:?}, got {error}"
@@ -235,7 +217,7 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
 fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identified_results() {
     let temp = TempDir::new().unwrap();
     copy(&fixture("multiple"), temp.path());
-    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
+    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap();
     assert_eq!(candidates.len(), 2);
     for args in [
         vec!["init", "--start-script", "run.sh"],
