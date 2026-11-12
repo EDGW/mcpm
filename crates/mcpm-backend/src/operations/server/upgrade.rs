@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use mcpm_exec::operation::Operation;
-use mcpm_lib::local::mc::server::{config, upgrade};
+use mcpm_lib::local::mc::server::upgrade;
 use serde::{Deserialize, Serialize};
 
 use super::info::ServerInfo;
@@ -43,7 +43,7 @@ impl Operation for ApplyUpgrade {
             crate::workspace::require_local(&input.path)?;
             let server = upgrade::apply(&input.path, &input.expected_revision, input.decision)?;
             let mut info = ServerInfo::from_server(&server);
-            info.configuration = Some(config::configuration_files(server.path())?);
+            info.read_details(server.path())?;
             Ok(info)
         })
         .await?

@@ -16,7 +16,7 @@ use std::io::{self, Write};
 pub(super) fn write(info: &Installed, full_command: bool, accepted: bool) -> Result<()> {
     let mut stdout = io::stdout().lock();
     super::super::git_output::write_git(&mut stdout, info.git.as_ref())?;
-    crate::display::server::write_snapshot(&mut stdout, &info.server, full_command, None)?;
+    crate::display::server::write_snapshot(&mut stdout, &info.server, full_command, None, false)?;
     if terminal::stdout_is_tty() {
         let mut output = ConsoleWriter::new(&mut stdout);
         writeln!(output)?;

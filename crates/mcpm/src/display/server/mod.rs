@@ -3,23 +3,28 @@
 pub(crate) mod attach;
 pub(crate) mod launch;
 
+use mcpm_rich::rich;
 use std::io::{self, Write};
 
 use crate::{
     display::{
         console::ConsoleWriter,
+        rich::line,
         style::{OutputStyle, text},
     },
     server::RemoteInfo,
     terminal,
 };
-use mcpm_backend::operations::server::info::{ServerInfo, ServerLoaderInfo, StartCommand};
+use mcpm_backend::operations::server::info::{
+    RconInfo, ServerInfo, ServerLoaderInfo, StartCommand,
+};
 
 pub(crate) fn write_snapshot(
     output: &mut impl Write,
     server: &ServerInfo,
     show_full_command: bool,
     remote: Option<&RemoteInfo>,
+    show_rcon: bool,
 ) -> io::Result<()> {
     let loader = &server.loader;
     let style = OutputStyle::new();
@@ -69,43 +74,74 @@ pub(crate) fn write_snapshot(
         let separator = "─".repeat(32.min(textwrap::termwidth().saturating_sub(1)));
         writeln!(output, "\n{}\n", style.muted(separator))?;
     }
-    writeln!(output, "{} {}", style.muted("Server:"), style.primary(name))?;
-    writeln!(output, "{}{}", style.muted("Path: "), style.muted(path))?;
     writeln!(
         output,
-        "{}{}",
-        style.muted("Minecraft: "),
-        style.secondary(version)
+        "{} {} {}",
+        style.primary(name),
+        style.normal("at"),
+        style.muted(path)
     )?;
     let loader_name = match loader {
         ServerLoaderInfo::Modded(info) => style.loader(&info.id, &loader_name),
         ServerLoaderInfo::Vanilla => style.loader("vanilla", &loader_name),
         ServerLoaderInfo::Unrecognized => style.muted(loader_name),
     };
-    write!(output, "{}{}", style.muted("Loader: "), loader_name)?;
+    write!(output, "{} {}", style.secondary(version), loader_name)?;
     if matches!(loader, ServerLoaderInfo::Modded(_)) {
         write!(output, " {}", style.secondary(loader_version))?;
     }
     writeln!(output)?;
-    writeln!(
+    if show_rcon {
+        match server.rcon.as_ref().unwrap_or(&RconInfo::Disabled) {
+            RconInfo::Disabled => writeln!(
+                output,
+                "{}",
+                line(&rich!("RCON: [disabled](muted)"), &style)
+            )?,
+            RconInfo::Enabled {
+                port,
+                masked_password,
+            } => {
+                writeln!(output, "{}", line(&rich!("RCON: `{port}`"), &style))?;
+                writeln!(
+                    output,
+                    "{}",
+                    line(&rich!("RCON password: [{masked_password}](muted)"), &style)
+                )?;
+            }
+            RconInfo::ParseFailed => writeln!(
+                output,
+                "{}",
+                line(&rich!("RCON: [parse failed](warning)"), &style)
+            )?,
+            RconInfo::PropertiesParseFailed => writeln!(
+                output,
+                "{}",
+                line(&rich!("[parse failed](warning)"), &style)
+            )?,
+        }
+    }
+    writeln!(output)?;
+    write!(
         output,
-        "{}{}",
-        style.muted("Metadata version: "),
-        style.muted(server.metadata_version)
+        "{}",
+        style.muted(format_args!("metadata version {}", server.metadata_version))
     )?;
     if let Some(configuration) = &server.configuration {
         for (label, present) in [
             ("launch.toml", configuration.launch),
             ("conf.toml", configuration.conf),
         ] {
-            writeln!(
-                output,
-                "{} {}",
-                style.muted(label),
-                style.muted(if present { "configured" } else { "missing" })
-            )?;
+            let status = format!("{label} {}", if present { "configured" } else { "missing" });
+            let content = if present {
+                rich!("[{status}](muted)")
+            } else {
+                rich!("[{status}](warning)")
+            };
+            write!(output, " {} {}", style.muted("·"), line(&content, &style))?;
         }
     }
+    writeln!(output)?;
     if server.start.is_some() || show_full_command {
         let command = if show_full_command {
             command

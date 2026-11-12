@@ -16,12 +16,22 @@ pub const DEFAULT_RCON_PORT: u16 = 25575;
 pub struct Properties {
     values: HashMap<String, Value>,
 }
-struct Value {
-    bytes: Vec<u8>,
-    line: usize,
+enum Value {
+    Raw { bytes: Vec<u8>, line: usize },
+    Decoded(String),
 }
 impl Properties {
     pub fn read_selected(path: &Path, keys: &[&str]) -> Result<Option<Self>> {
+        Self::read_file(path, Some(keys))
+    }
+
+    /// Parses every key and value, allowing callers to distinguish a malformed document
+    /// from invalid typed settings. Selected reads retain their existing lazy semantics.
+    pub fn read(path: &Path) -> Result<Option<Self>> {
+        Self::read_file(path, None)
+    }
+
+    fn read_file(path: &Path, keys: Option<&[&str]>) -> Result<Option<Self>> {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -61,20 +71,20 @@ impl Properties {
                 logical.pop();
                 continue;
             }
-            select(&logical, start, keys, &mut values);
+            select(&logical, start, keys, &mut values)?;
         }
         if continuing {
-            select(&logical, start, keys, &mut values);
+            select(&logical, start, keys, &mut values)?;
         }
         Ok(Some(Self { values }))
     }
     pub fn get(&self, key: &str) -> Result<Option<String>> {
         self.values
             .get(key)
-            .map(|value| {
-                decode(&value.bytes).with_context(|| {
-                    format!("invalid properties value for {key} at line {}", value.line)
-                })
+            .map(|value| match value {
+                Value::Decoded(value) => Ok(value.clone()),
+                Value::Raw { bytes, line } => decode(bytes)
+                    .with_context(|| format!("invalid properties value for {key} at line {line}")),
             })
             .transpose()
     }
@@ -139,7 +149,12 @@ fn physical_line(reader: &mut impl BufRead, line: &mut Vec<u8>) -> Result<bool> 
         reader.consume(length);
     }
 }
-fn select(line: &[u8], number: usize, keys: &[&str], values: &mut HashMap<String, Value>) {
+fn select(
+    line: &[u8],
+    number: usize,
+    keys: Option<&[&str]>,
+    values: &mut HashMap<String, Value>,
+) -> Result<()> {
     let mut boundary = line.len();
     let mut escaped = false;
     for (index, byte) in line.iter().copied().enumerate() {
@@ -153,13 +168,18 @@ fn select(line: &[u8], number: usize, keys: &[&str], values: &mut HashMap<String
     let key = if raw_key.is_ascii() && !raw_key.contains(&b'\\') {
         Cow::Borrowed(std::str::from_utf8(raw_key).expect("ASCII key"))
     } else {
-        let Ok(key) = decode(raw_key) else {
-            return;
+        let key = match decode(raw_key) {
+            Ok(key) => key,
+            Err(_) if keys.is_some() => return Ok(()),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("invalid properties key at line {number}"));
+            }
         };
         Cow::Owned(key)
     };
-    if !keys.contains(&key.as_ref()) {
-        return;
+    if keys.is_some_and(|keys| !keys.contains(&key.as_ref())) {
+        return Ok(());
     }
     let mut value = boundary;
     while line.get(value).is_some_and(|byte| space(*byte)) {
@@ -174,13 +194,19 @@ fn select(line: &[u8], number: usize, keys: &[&str], values: &mut HashMap<String
     while line.get(value).is_some_and(|byte| space(*byte)) {
         value += 1;
     }
-    values.insert(
-        key.into_owned(),
-        Value {
+    let value = if keys.is_none() {
+        Value::Decoded(
+            decode(&line[value..])
+                .with_context(|| format!("invalid properties value at line {number}"))?,
+        )
+    } else {
+        Value::Raw {
             bytes: line[value..].to_vec(),
             line: number,
-        },
-    );
+        }
+    };
+    values.insert(key.into_owned(), value);
+    Ok(())
 }
 fn unit(bytes: &[u8], position: &mut usize) -> Result<u16> {
     let digits = bytes

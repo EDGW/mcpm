@@ -55,6 +55,13 @@ impl Settings {
         else {
             return Ok(None);
         };
+        Self::from_properties(&properties)
+    }
+
+    /// Interprets only RCON settings from the shared Java-properties codec.
+    pub fn from_properties(
+        properties: &super::super::properties::Properties,
+    ) -> Result<Option<Self>> {
         if properties
             .get("enable-rcon")?
             .is_none_or(|value| !value.eq_ignore_ascii_case("true"))
@@ -81,6 +88,15 @@ impl Settings {
             port,
             password,
         }))
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Host-side consumers must mask this value before including it in info output.
+    pub fn password(&self) -> &str {
+        &self.password
     }
 }
 

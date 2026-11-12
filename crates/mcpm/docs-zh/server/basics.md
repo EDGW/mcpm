@@ -22,7 +22,7 @@ mcpm info [OPTIONS] [PATH]
 
 ### 输出
 
-Console 显示名称、路径、Minecraft 版本、Loader 和版本，以及服务端所属主机上 `launch.toml`、`conf.toml` 是否存在。Remote workspace 额外显示远端路径、脱敏 SSH 和 mcpmd 路径。
+返回名称、路径、Minecraft 版本、Loader 及版本、RCON 状态，以及 `launch.toml`、`conf.toml` 是否存在。RCON 从服务端目录的 `server.properties` 读取，密码仅保留首字符；单字符密码全部隐藏。文件或配置缺失时为 disabled；RCON 字段值和 properties 文件解析失败分别报告。Remote workspace 额外返回远端路径、脱敏 SSH 和 mcpmd 路径。
 
 版本 1–3 不能用于 launch 等服务端操作。Console `info` 先报告升级错误并提示执行 `mcpm info --upgrade`，再显示旧登记，最后以非零状态退出。Raw `info`（包括 stdout 重定向）直接报错，不输出 metadata。旧版本的 `--full-command` 不准备或生成启动命令。读取保留原文件。
 
