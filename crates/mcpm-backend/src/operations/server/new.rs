@@ -181,13 +181,27 @@ pub struct Installed {
     pub rcon: RconStatus,
 }
 
-/// Safe display information only: passwords never enter operation output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Creation result for the requesting frontend; Debug deliberately hides the password.
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RconStatus {
-    Created { port: u16 },
+    Created { port: u16, password: String },
     Disabled,
     UnsupportedVersion,
+}
+
+impl std::fmt::Debug for RconStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Created { port, .. } => f
+                .debug_struct("Created")
+                .field("port", port)
+                .field("password", &"[redacted]")
+                .finish(),
+            Self::Disabled => f.write_str("Disabled"),
+            Self::UnsupportedVersion => f.write_str("UnsupportedVersion"),
+        }
+    }
 }
 
 async fn prepare(
@@ -261,7 +275,7 @@ async fn install(
         properties::create_rcon(&path.join("server.properties"), port, &password).context(
             "server.jar and eula.txt were written, but creating RCON server.properties failed",
         )?;
-        RconStatus::Created { port }
+        RconStatus::Created { port, password }
     } else {
         RconStatus::Disabled
     };
@@ -363,4 +377,3 @@ fn download_update(event: download::Event<'_>) -> Update {
         download::Event::Completed { .. } => ("Download complete".into(), None),
     }
 }
-

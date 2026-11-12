@@ -36,7 +36,7 @@ pub(super) struct NewArgs {
     /// RCON port for versions released since 1.9-pre4 (default: 25575).
     #[arg(long, value_name = "PORT")]
     rcon_port: Option<u16>,
-    /// RCON password; omitted passwords are fresh random GUIDs. Written only, never displayed.
+    /// RCON password; omitted passwords are fresh random GUIDs. Shown in the creation result.
     #[arg(long, value_name = "PASSWORD")]
     rcon_password: Option<String>,
     /// Skip Git discovery and initialization on the actual server Host.

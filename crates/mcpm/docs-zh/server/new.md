@@ -16,7 +16,7 @@ mcpm new [OPTIONS] [DIR_PATH]
 | `--source-timeout <CONNECT[:READ]>` | 正整数秒。只给 CONNECT 时 READ 为其 3 倍；省略时连接 10 秒、读取 30 秒。读取超时针对单次响应读取，不是整个下载时长。可独立于 `--source` 使用。 |
 | `--eula` | 获取并确认当前 Minecraft EULA。默认拒绝。 |
 | `--rcon-port <PORT>` | 自动生成的 RCON 端口，默认 `25575`。 |
-| `--rcon-password <PASSWORD>` | RCON 密码。省略时在服务端主机生成随机 UUID/GUID，命令输出中的密码脱敏。 |
+| `--rcon-password <PASSWORD>` | RCON 密码。省略时在服务端主机生成随机 UUID/GUID，创建完成后显示实际密码。 |
 | `--no-rcon` | 不自动生成 `server.properties`。与 `--rcon-port`、`--rcon-password` 互斥。 |
 | `--no-git` | 跳过服务端所属主机上的 Git 检查与创建。 |
 | `--git` | 确保服务端目录自身具有 Git 仓库。与 `--no-git` 互斥。 |
@@ -59,6 +59,7 @@ rcon.password=<本次生成的随机 UUID>
 
 - 旧于 `1.9-pre4` 的版本，显式指定 `--rcon-port` 或 `--rcon-password` 时在版本预检阶段报错；`--no-rcon` 可正常使用。
 - 生成的密码保存在 `server.properties` 中，Unix 下文件仅允许当前用户读写。
+- 创建结果显示完整 RCON 密码，请妥善保管终端录屏或重定向输出。
 - RCON 在服务端启动时启用，请保护密码并按需限制端口访问。
 
 ## EULA 确认

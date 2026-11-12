@@ -22,4 +22,4 @@
 
 - Parsed `releaseTime` determines eligibility: versions released at or after `1.9-pre4` receive RCON configuration by default. Missing passwords generate UUID v4.
 - Explicit port or password options on an older release fail. `rcon_requested` represents these overrides; `--no-rcon` corresponds to `rcon: None`.
-- The returned RCON status is `Created { port }`, `Disabled`, or `UnsupportedVersion`, without a password.
+- The returned RCON status is `Created { port, password }`, `Disabled`, or `UnsupportedVersion`. Creation returns the actual password for display; its Debug representation redacts the password to keep it out of logs.

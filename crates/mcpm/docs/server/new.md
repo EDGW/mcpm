@@ -16,7 +16,7 @@ mcpm new [OPTIONS] [DIR_PATH]
 | `--source-timeout <CONNECT[:READ]>` | Positive integer seconds. CONNECT alone sets READ to three times CONNECT. Defaults to 10 seconds for connecting and 30 seconds for reading. The read timeout applies to each response read, not the entire download. Can be used independently of `--source`. |
 | `--eula` | Fetch and confirm the current Minecraft EULA. Defaults to no. |
 | `--rcon-port <PORT>` | Generated RCON port; defaults to `25575`. |
-| `--rcon-password <PASSWORD>` | RCON password. When omitted, a random UUID/GUID is generated on the server Host. Passwords are masked in command output. |
+| `--rcon-password <PASSWORD>` | RCON password. When omitted, a random UUID/GUID is generated on the server Host. The actual password is displayed after creation. |
 | `--no-rcon` | Skip automatic `server.properties` creation. Conflicts with `--rcon-port` and `--rcon-password`. |
 | `--no-git` | Skip Git discovery and creation on the Host that owns the server. |
 | `--git` | Ensure the server directory itself has a Git repository. Conflicts with `--no-git`. |
@@ -59,6 +59,7 @@ rcon.password=<a random UUID generated for this installation>
 
 - Explicit `--rcon-port` or `--rcon-password` options on an earlier release fail during version validation; `--no-rcon` remains accepted.
 - The generated password is stored in `server.properties`. On Unix, the file is readable and writable only by its owner.
+- Creation results display the full RCON password. Protect terminal recordings and redirected output.
 - RCON becomes active when the server starts. Protect the password and restrict port access as needed.
 
 ## EULA confirmation

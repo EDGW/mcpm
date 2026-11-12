@@ -31,8 +31,8 @@ pub(super) fn write(info: &Installed, full_command: bool, accepted: bool) -> Res
         let mut stderr = io::stderr().lock();
         let mut output = ConsoleWriter::new(&mut stderr);
         let style = OutputStyle::stderr();
-        match info.rcon {
-            RconStatus::Created { port } => {
+        match &info.rcon {
+            RconStatus::Created { port, password } => {
                 block(
                     &mut output,
                     &rich!("[Successfully configured RCON.](success)"),
@@ -46,7 +46,7 @@ pub(super) fn write(info: &Installed, full_command: bool, accepted: bool) -> Res
                 writeln!(
                     output,
                     "{}",
-                    line(&rich!("RCON password: [********](muted)"), &style)
+                    line(&rich!("RCON password: [{password}](secondary)"), &style)
                 )?;
             }
             RconStatus::UnsupportedVersion => {
