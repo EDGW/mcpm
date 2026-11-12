@@ -120,6 +120,7 @@ pub(super) async fn flow(
         snapshot.state,
         snapshot.actual_channel,
         snapshot.server_status,
+        executor.traffic_stats(),
     )?;
     display.builtin_hints(
         builtin::DEFINITIONS

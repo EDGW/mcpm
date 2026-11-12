@@ -24,14 +24,21 @@ pub(super) struct Screen {
     speed_rows: u16,
     raw: bool,
     output: VecDeque<Vec<ratatui::buffer::Cell>>,
+    // Rows before this boundary belong to output printed before this attachment.
+    history_end: u16,
 }
 impl Screen {
-    pub fn new(height: u16) -> io::Result<Self> {
+    pub fn new(height: u16, speed: Vec<Line<'static>>) -> io::Result<Self> {
         let mut backend = CrosstermBackend::new(io::stdout());
         let size = backend.size()?;
         let position = backend.get_cursor_position()?;
         let height = height.min(size.height).max(1);
-        let top = size.height.saturating_sub(height);
+        let speed_rows = Paragraph::new(speed)
+            .wrap(Wrap { trim: false })
+            .line_count(size.width)
+            .min(size.height.saturating_sub(height) as usize) as u16;
+        let viewport_height = height.saturating_add(speed_rows);
+        let top = size.height.saturating_sub(viewport_height);
         if position.y < top {
             backend.append_lines(top - position.y)?;
         }
@@ -39,14 +46,15 @@ impl Screen {
             terminal: Terminal::with_options(
                 backend,
                 TerminalOptions {
-                    viewport: Viewport::Inline(height),
+                    viewport: Viewport::Inline(viewport_height),
                 },
             )?,
             height,
             suggestion_rows: 0,
-            speed_rows: 0,
+            speed_rows,
             raw: false,
             output: VecDeque::new(),
+            history_end: top,
         };
         screen.terminal.clear()?;
         crossterm::terminal::enable_raw_mode()?;
@@ -79,13 +87,19 @@ impl Screen {
         let previous = self.terminal.get_frame().area();
         self.terminal.clear()?;
         let top = size.height.saturating_sub(target);
-        // Do not append/scroll to allocate a larger viewport: that irreversibly moves output
-        // into terminal scrollback. Repaint the bounded visible tail when either edge moves.
         let visible = self.output.len().min(top as usize) as u16;
         let start = top - visible;
-        let old_start = previous
-            .y
-            .saturating_sub(self.output.len().min(previous.y as usize) as u16);
+        self.history_end = self.history_end.min(previous.y);
+        // The cache owns only our output. Preserve unknown terminal rows by scrolling
+        // them upward before a larger viewport or replay would occupy their cells.
+        let preserve = self.history_end.saturating_sub(start);
+        if preserve > 0 {
+            self.terminal
+                .backend_mut()
+                .set_cursor_position((0, size.height.saturating_sub(1)))?;
+            self.terminal.backend_mut().append_lines(preserve)?;
+            self.history_end -= preserve;
+        }
         let mut restored = Buffer::empty(Rect::new(0, start, size.width, visible));
         for (offset, row) in self.output.iter().rev().take(top as usize).enumerate() {
             let y = top as usize - offset - 1;
@@ -93,7 +107,7 @@ impl Screen {
                 restored[(x as u16, y as u16)] = cell.clone();
             }
         }
-        for y in old_start.min(start)..top {
+        for y in self.history_end..top {
             self.terminal.backend_mut().set_cursor_position((0, y))?;
             self.terminal
                 .backend_mut()
@@ -121,14 +135,18 @@ impl Screen {
         let height = paragraph.line_count(width).max(1).min(u16::MAX as usize) as u16;
         let limit = self.terminal.size()?.height as usize;
         let output = &mut self.output;
+        let previous_top = self.terminal.get_frame().area().y;
         self.terminal.insert_before(height, |buffer| {
             paragraph.render(buffer.area, buffer);
             remember(output, buffer, limit);
-        })
+        })?;
+        self.scrolled_output(height, previous_top);
+        Ok(())
     }
     pub fn divider(&mut self) -> io::Result<()> {
         let limit = self.terminal.size()?.height as usize;
         let output = &mut self.output;
+        let previous_top = self.terminal.get_frame().area().y;
         self.terminal.insert_before(1, |buffer| {
             Block::new()
                 .borders(Borders::TOP)
@@ -136,7 +154,9 @@ impl Screen {
                 .title(" History ")
                 .render(buffer.area, buffer);
             remember(output, buffer, limit);
-        })
+        })?;
+        self.scrolled_output(1, previous_top);
+        Ok(())
     }
     pub fn rcon(
         &mut self,
@@ -152,10 +172,25 @@ impl Screen {
         let (widget, height) = response(label, name, origin, text, width, first, last);
         let limit = self.terminal.size()?.height as usize;
         let output = &mut self.output;
+        let previous_top = self.terminal.get_frame().area().y;
         self.terminal.insert_before(height, |buffer| {
             widget.render(buffer.area, buffer);
             remember(output, buffer, limit);
-        })
+        })?;
+        self.scrolled_output(height, previous_top);
+        Ok(())
+    }
+
+    fn scrolled_output(&mut self, lines: u16, previous_top: u16) {
+        let advanced = self
+            .terminal
+            .get_frame()
+            .area()
+            .y
+            .saturating_sub(previous_top);
+        self.history_end = self
+            .history_end
+            .saturating_sub(lines.saturating_sub(advanced));
     }
     pub fn draw(
         &mut self,
