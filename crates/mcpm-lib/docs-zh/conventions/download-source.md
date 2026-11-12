@@ -14,6 +14,9 @@
 - `DownloadConfig` 通过现有 `Codec` 统一读写 TOML；`sources::downloader` 装配内置 `bmclapi`、`official`。默认顺序为 BMCLAPI、官方，显式列表完整替换默认值；空列表禁用网络下载，不暗中追加来源。
 - `Downloader` 按顺序请求并去重地址；网络、元数据解析或校验失败可切源，本地文件错误立即返回。目标父目录须存在，校验通过后发布文件，不覆盖已有目标；取消可通过丢弃 future 实现。
 - `download::authlib_injector::{latest, build}` 返回固定的 `Release`；调用 `Release::download_to` 下载，切源不重新选择版本。原始响应和协议类型均不公开。
+- `download::mojang::resolve_server` 按精确 ID、`latest` 或 `latest-snapshot` 解析确定的原版服务端下载对象；目录、版本 JSON 和 JAR 均遵循调用方的源顺序，JAR 按上游 SHA1 和大小校验。`download::eula::fetch` 实时获取官方网页，返回前 20 个非空正文行、标题结构和剩余行数，不缓存或内嵌 EULA。
+- Mojang `ServerRelease` 保留 catalog 的 `releaseTime`，不使用元数据修改时间 `time`。它的唯一 Codec 支持在 EULA 确认前后传递同一个固定 artifact，不重新解析 latest，也不在调用方解释上游原始 JSON。
+- CLI 的共享 `SourceArgs` 把 `--source` 和 `--source-timeout CONNECT[:READ]` 导出为 `DownloadConfig`。显式源完整替换默认源；只给 CONNECT 时 READ 为其 3 倍。`new` 向 Host 传输同一 codec 编码的配置，Host 不改用另一份默认配置。
 - `Downloader::download_to_with_progress`、`authlib_injector::latest_with_progress` 和 `Release::download_to_with_progress` 通过同步回调报告类型化事件；不输出文字、不依赖 UI。请求事件区分元数据与文件，报告实际来源；每次尝试重置字节计数。总大小优先使用协议期望，其次 HTTP 大小提示；大小提示不替代摘要验证。
 - 回调必须快速返回；回调失败终止操作，不作为远端错误回退。失败通知本身出错时同时保留原请求错误；完成通知只在元数据解析或文件验证发布成功后发送，通知失败不会回滚已发布文件。取消仍由丢弃 future 实现。
 - 服务端启动通过 `local::mc::server::authlib_injector` 复用此 API；该模块拥有本地 meta、验证及替换，通用下载层不依赖服务端。启动按需创建默认源下载器，尚未接入全局下载配置自动加载或 cache。调用方运行 Tokio 时须启用 I/O 和时间驱动。

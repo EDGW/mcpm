@@ -5,6 +5,8 @@
 //! must be enabled by the caller.
 
 pub mod authlib_injector;
+pub mod eula;
+pub mod mojang;
 pub mod sources;
 
 mod client;

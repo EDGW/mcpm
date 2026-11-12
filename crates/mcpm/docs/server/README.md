@@ -8,32 +8,26 @@ Entry points:
 | `mcpm-server` | `mcpm-server <command>` |
 | `mcpm-tools` | `mcpm-tools server <command>` |
 
-Examples use `mcpm`. General terms, global options, and output modes are defined in [README](../README.md).
+Examples use `mcpm`. See [README](../README.md) for general terminology, global options, and output modes.
 
 | Page | Content |
 | --- | --- |
-| [Basics](basics.md) | `info`, `info --upgrade`, and `init`; explicit server identity and registration formats |
-| [Launch and attach](launch.md) | `launch`, `attach`; TUI by default, Console/Raw available |
-| [Stash](stash.md) | `create`, `switch`, `status`, `list`, `info`, `rename`, `delete`, and `verify` |
+| [Create a server](new.md) | `new`; server creation and downloads. |
+| [Basics](basics.md) | `info`, `info --upgrade`, `init`; explicit server identity and registration formats |
+| [Launch and attach](launch.md) | `launch`, `attach`; server startup and monitoring. |
+| [Stash](stash.md) | `create`, `switch`, `status`, `list`, `info`, `rename`, `delete`, `verify` |
 
 ## Target selection
 
-| Command | Target argument | Default |
-| --- | --- | --- |
-| `info` | Positional PATH | `.` |
-| `init` | Positional PATH; `--remote` makes PATH the local workspace | `.` |
-| `launch`, `attach` | `--server PATH` | `.` |
-| `stash` | `--server PATH`, accepted before or after the subcommand | `.` |
+| How to specify the target | Commands |
+| --- | --- |
+| Supply the path directly as the positional argument | `new`, `info`, `init` |
+| Specify `--server PATH` | `launch`, `attach`, `stash` |
 
-- Explicit `--ssh` selects the remote host and interprets PATH there.
-- Without `--ssh`, `.mcpm/mcpm.json` decides the target: a Remote workspace redirects execution to its saved remote server path, anything else is a Local Server.
-- `init --remote` always requires explicit `--ssh`; its PATH is the local workspace, not the server.
-- Execution happens on the Host that owns the server: local execution calls the operation directly, remote execution goes through a reusable `mcpmd` link.
-- Connection, registration, or target errors never fall back to local execution.
-- Remote execution requires `mcpmd` on the remote machine with the same build identity as the local executables.
+When the target path is omitted, the current directory `.` is used.
 
-The commands listed here accept Remote workspaces and explicit `--ssh`. `mods` and other command references not yet organized here remain under [legacy](../legacy/README.md).
+See [legacy documentation](../legacy/README.md) for `mods` and other commands not yet included in this directory.
 
 ## Output
 
-Console and Raw are available everywhere; each command page defines its fields and Raw column order. Diagnostics and progress use stderr; the large-listing confirmation reads and writes the terminal directly. Redirecting stdout selects Raw.
+All commands support Console and Raw. Each command page defines its fields and Raw column order. Diagnostics and progress use stderr; confirmation before displaying large inventories reads and writes the terminal directly. Redirecting stdout selects Raw.

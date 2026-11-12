@@ -1,8 +1,7 @@
-//! Console layouts for `Rich` text: labelled Tips, wrapped blocks and single-line prompts.
+//! Console layouts for Rich text: tips, wrapped blocks, static widget panels and prompts.
 //!
-//! Every layout renders spans through [`spans`], so role styling, the plain fallback and control
-//! character escaping exist once. Without color, `Code` keeps its backticks and other roles
-//! print their text only.
+//! Plain layouts share span escaping and Console styling. Panels adapt the same semantic
+//! spans to library widgets and print their rendered buffer into ordinary scrollback.
 
 use std::io::{self, Write};
 
@@ -70,6 +69,118 @@ pub(crate) fn prompt(question: &Rich, choices: &[Choice<'_>], style: &OutputStyl
 pub(crate) struct Choice<'a> {
     pub(crate) label: &'a str,
     pub(crate) default: bool,
+}
+
+/// Renders standard Block/Paragraph widgets once into ordinary terminal scrollback.
+/// No terminal ownership, cursor movement, raw mode, or alternate screen is involved.
+pub(crate) fn panel(
+    output: &mut impl Write,
+    title: &str,
+    value: &Rich,
+    width: u16,
+    style: &OutputStyle,
+) -> io::Result<()> {
+    use ratatui::{
+        buffer::Buffer,
+        layout::Rect,
+        text::{Line, Span as WidgetSpan},
+        widgets::{Block as WidgetBlock, Padding, Paragraph, Widget, Wrap},
+    };
+    use unicode_width::UnicodeWidthStr;
+
+    let roles = [
+        Role::Normal,
+        Role::Primary,
+        Role::Code,
+        Role::Secondary,
+        Role::Important,
+        Role::Muted,
+        Role::Success,
+        Role::Warning,
+        Role::Danger,
+    ];
+    let palette = roles.map(|role| (crate::theme::widgets::style(role), role));
+    let convert = |spans: &[Span]| {
+        Line::from(
+            spans
+                .iter()
+                .map(|span| {
+                    WidgetSpan::styled(text(&span.text), crate::theme::widgets::style(span.role))
+                })
+                .collect::<Vec<_>>(),
+        )
+    };
+    let mut lines = Vec::new();
+    for block in value.blocks() {
+        match block {
+            Block::Paragraph(spans) => lines.push(convert(spans)),
+            Block::List(items) => {
+                for item in items {
+                    let mut row = convert(item);
+                    row.spans.insert(0, WidgetSpan::raw("- "));
+                    lines.push(row);
+                }
+            }
+        }
+    }
+    let width = width.max(5);
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    // Measure content at the actual width after both borders and horizontal padding.
+    let height = paragraph
+        .line_count(width.saturating_sub(4))
+        .saturating_add(2)
+        .max(3)
+        .min(u16::MAX as usize) as u16;
+    let paragraph = paragraph.block(
+        WidgetBlock::bordered()
+            .title(title)
+            .border_style(crate::theme::widgets::style(Role::Primary))
+            .title_style(crate::theme::widgets::style(Role::Primary))
+            .padding(Padding::horizontal(1)),
+    );
+    let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
+    paragraph.render(buffer.area, &mut buffer);
+    let paint_run = |output: &mut dyn Write,
+                     key: (ratatui::style::Color, ratatui::style::Modifier),
+                     run: &str|
+     -> io::Result<()> {
+        if style.colored()
+            && let Some((_, role)) = palette.iter().find(|(candidate, _)| {
+                candidate.fg == Some(key.0) && candidate.add_modifier == key.1
+            })
+        {
+            write!(output, "{}", style.role(*role, run))
+        } else {
+            output.write_all(run.as_bytes())
+        }
+    };
+    let mut run = String::with_capacity(usize::from(width));
+    for row in buffer.content.chunks(usize::from(width)) {
+        let mut skip = 0;
+        let mut active = None;
+        for cell in row {
+            if skip > 0 {
+                skip -= 1;
+                continue;
+            }
+            let key = (cell.fg, cell.modifier);
+            if let Some(previous) = active
+                && previous != key
+            {
+                paint_run(output, previous, &run)?;
+                run.clear();
+            }
+            active = Some(key);
+            run.push_str(cell.symbol());
+            skip = UnicodeWidthStr::width(cell.symbol()).saturating_sub(1);
+        }
+        if let Some(key) = active {
+            paint_run(output, key, &run)?;
+        }
+        run.clear();
+        writeln!(output)?;
+    }
+    output.flush()
 }
 
 fn layout(

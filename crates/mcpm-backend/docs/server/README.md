@@ -7,6 +7,7 @@ result; an operation neither formats output nor reads terminal state.
 | Page | Content |
 | --- | --- |
 | [Basics](basics.md) | Identity, recognition, initialization, and Remote preparation |
+| [Create a server](new.md) | `server.new`; read-only version preparation, vanilla download, and initialization |
 | [Stash](stash.md) | Mod snapshot creation, switching, comparison, inventory, and verification |
 
 ## Execution

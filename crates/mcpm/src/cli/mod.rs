@@ -7,6 +7,7 @@ use clap::{Args, ColorChoice, CommandFactory, FromArgMatches, Parser};
 use crate::{commands::Command, program::Program, ssh::SshArgs};
 
 mod roots;
+pub(crate) mod source;
 
 /// Parses the actual root directly; no synthetic command components enter argv.
 pub(crate) fn parse(program: Program, args: Vec<OsString>, color: ColorChoice) -> Invocation {

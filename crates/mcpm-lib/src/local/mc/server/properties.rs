@@ -1,13 +1,16 @@
-//! The single Java-properties codec: select keys without interpreting unrelated values or comments.
+//! Server Java-properties codec: selective decoding and no-clobber RCON configuration creation.
 
 use anyhow::{Context, Result, bail};
 use std::{
     borrow::Cow,
     collections::HashMap,
-    fs::File,
-    io::{BufRead, BufReader},
+    fs::{File, OpenOptions},
+    io::{BufRead, BufReader, Write},
     path::Path,
 };
+
+/// Minecraft's conventional RCON port.
+pub const DEFAULT_RCON_PORT: u16 = 25575;
 
 /// Selected raw values are decoded lazily, so disabled features do not validate unused settings.
 pub struct Properties {
@@ -75,6 +78,42 @@ impl Properties {
             })
             .transpose()
     }
+}
+
+/// Creates only the three RCON properties without replacing an existing configuration.
+/// Passwords are encoded with Java Properties escaping, including Unicode and line breaks.
+pub fn create_rcon(path: &Path, port: u16, password: &str) -> Result<()> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .with_context(|| format!("failed to create RCON properties {path:?}"))?;
+    let mut write = || -> std::io::Result<()> {
+        writeln!(file, "enable-rcon=true\nrcon.port={port}")?;
+        file.write_all(b"rcon.password=")?;
+        for ch in password.chars() {
+            match ch {
+                '\\' => file.write_all(b"\\\\")?,
+                '\n' => file.write_all(b"\\n")?,
+                '\r' => file.write_all(b"\\r")?,
+                '\t' => file.write_all(b"\\t")?,
+                ' ' => file.write_all(b"\\ ")?,
+                ch if ch.is_ascii() && !ch.is_control() => file.write_all(&[ch as u8])?,
+                ch => {
+                    for unit in ch.encode_utf16(&mut [0; 2]) {
+                        write!(file, "\\u{unit:04X}")?;
+                    }
+                }
+            }
+        }
+        file.write_all(b"\n")
+    };
+    write().with_context(|| format!("failed to write RCON properties {path:?}"))
 }
 fn space(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t' | 0x0c)
@@ -236,6 +275,27 @@ mod tests {
         assert_eq!(properties.get("enable-rcon")?.as_deref(), Some("false"));
         assert!(properties.get("rcon.port").is_err());
         assert!(properties.get("rcon.password").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn rcon_creation_roundtrips_passwords_without_property_injection_or_overwrite() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("server.properties");
+        let password = "  pass\\word=:#\nother=value\r\t世界😀";
+        create_rcon(&path, 25590, password)?;
+        let properties = Properties::read_selected(
+            &path,
+            &["enable-rcon", "rcon.port", "rcon.password", "other"],
+        )?
+        .unwrap();
+        assert_eq!(properties.get("enable-rcon")?.as_deref(), Some("true"));
+        assert_eq!(properties.get("rcon.port")?.as_deref(), Some("25590"));
+        assert_eq!(properties.get("rcon.password")?.as_deref(), Some(password));
+        assert_eq!(properties.get("other")?, None);
+        let original = std::fs::read(&path)?;
+        assert!(create_rcon(&path, 1, "replacement").is_err());
+        assert_eq!(std::fs::read(path)?, original);
         Ok(())
     }
 }

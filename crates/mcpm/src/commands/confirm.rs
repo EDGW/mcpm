@@ -107,22 +107,31 @@ pub(in crate::commands) fn cache_removal(
 }
 
 #[cfg(not(windows))]
-fn read_answer(term: &console::Term, eof_declines: bool) -> std::io::Result<String> {
+pub(in crate::commands) fn read_answer(
+    term: &console::Term,
+    eof_declines: bool,
+) -> std::io::Result<String> {
     if !eof_declines {
         return term.read_line();
     }
     let mut answer = String::new();
     loop {
-        match term.read_key()? {
+        let key = match term.read_key() {
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Ok(String::new());
+            }
+            result => result?,
+        };
+        match key {
             console::Key::Enter => {
                 term.write_line("")?;
                 return Ok(answer);
             }
-            console::Key::Char('\u{4}') => {
+            console::Key::Char('\u{3}' | '\u{4}') | console::Key::Escape => {
                 term.write_line("")?;
                 return Ok(String::new());
             }
-            console::Key::Char(ch) if ch.is_ascii_alphabetic() => {
+            console::Key::Char(ch) if !ch.is_control() => {
                 answer.push(ch);
                 term.write_str(&ch.to_string())?;
             }
@@ -137,7 +146,10 @@ fn read_answer(term: &console::Term, eof_declines: bool) -> std::io::Result<Stri
 
 /// Crossterm reads CONIN$ on Windows even when the process stdin is a pipe.
 #[cfg(windows)]
-fn read_answer(term: &console::Term, eof_declines: bool) -> std::io::Result<String> {
+pub(in crate::commands) fn read_answer(
+    term: &console::Term,
+    eof_declines: bool,
+) -> std::io::Result<String> {
     use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, read};
 
     let mut answer = String::new();
@@ -151,13 +163,14 @@ fn read_answer(term: &console::Term, eof_declines: bool) -> std::io::Result<Stri
                 term.write_line("")?;
                 return Ok(answer);
             }
-            KeyCode::Char('d' | 'z')
+            KeyCode::Esc => return Ok(String::new()),
+            KeyCode::Char('c' | 'd' | 'z')
                 if eof_declines && key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
                 term.write_line("")?;
                 return Ok(String::new());
             }
-            KeyCode::Char(ch) if ch.is_ascii_alphabetic() => {
+            KeyCode::Char(ch) if !ch.is_control() => {
                 answer.push(ch);
                 term.write_str(&ch.to_string())?;
             }

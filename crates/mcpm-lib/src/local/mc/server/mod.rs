@@ -31,6 +31,9 @@ pub use metadata::{
     MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader,
 };
 
+/// Fixed artifact name shared by vanilla installation and generated launch configuration.
+pub const VANILLA_SERVER_JAR: &str = "server.jar";
+
 /// A successfully loaded snapshot of a Minecraft server's declared metadata.
 /// Loading does not inspect JARs or guarantee that the server can launch.
 #[derive(Debug, Clone)]
