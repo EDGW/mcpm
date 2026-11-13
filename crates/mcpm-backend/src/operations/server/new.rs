@@ -293,8 +293,7 @@ async fn install(
         |path| if no_git { Ok(None) } else { git::ensure_repository(path, git).map(Some) },
     )).await?
         .with_context(|| format!("server.jar and eula.txt were written to {final_path:?}, but workspace initialization failed; inspect completed files before retrying"))?;
-    let mut server = ServerInfo::from_server(&initialized.server);
-    server.configuration = Some(config::configuration_files(initialized.server.path())?);
+    let server = ServerInfo::from_server(&initialized.server)?;
     Ok(Installed {
         server,
         git: initialized.git,

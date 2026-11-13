@@ -19,6 +19,8 @@ Returns server name, path, Minecraft version, Loader and version, startup comman
 
 RCON uses `server.properties` in the server directory. Results distinguish Disabled, Enabled, invalid RCON fields, and an invalid properties document. Enabled contains only the port and a masked password: the first character plus `****` for passwords of at least two characters, otherwise `****`.
 
+`server.info`, `server.init`, `server.new`, Remote initialization preparation, and upgrade results share one complete server-information constructor. It reads configuration-file status and masked RCON information consistently. Pre-upgrade inspection of legacy registrations remains identity-only.
+
 ## `server.init.recognize`
 
 Reads the startup script and identity evidence statically, without executing scripts, Java, or

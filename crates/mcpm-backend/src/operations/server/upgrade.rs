@@ -42,9 +42,7 @@ impl Operation for ApplyUpgrade {
         tokio::task::spawn_blocking(move || {
             crate::workspace::require_local(&input.path)?;
             let server = upgrade::apply(&input.path, &input.expected_revision, input.decision)?;
-            let mut info = ServerInfo::from_server(&server);
-            info.read_details(server.path())?;
-            Ok(info)
+            ServerInfo::from_server(&server)
         })
         .await?
     }
