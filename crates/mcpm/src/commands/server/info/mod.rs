@@ -102,14 +102,8 @@ pub(super) fn run(args: InfoArgs, ssh: SshArgs) -> Result<crate::commands::Comma
         crate::diagnostics::error(&report.into_error());
     }
     let mut stdout = io::stdout().lock();
-    crate::display::server::write_snapshot(
-        &mut stdout,
-        &info,
-        args.full_command,
-        remote.as_ref(),
-        true,
-    )
-    .context("failed to write server information")?;
+    crate::display::server::write_snapshot(&mut stdout, &info, args.full_command, remote.as_ref())
+        .context("failed to write server information")?;
     stdout
         .flush()
         .context("failed to flush server information")?;

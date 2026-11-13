@@ -183,7 +183,7 @@ fn write_info(info: &Initialized, full_command: bool) -> Result<()> {
     let mut stdout = io::stdout().lock();
     super::git_output::write_git(&mut stdout, info.git.as_ref())
         .context("failed to write Git initialization result")?;
-    crate::display::server::write_snapshot(&mut stdout, &info.server, full_command, None, false)
+    crate::display::server::write_snapshot(&mut stdout, &info.server, full_command, None)
         .context("failed to write initialized server information")?;
     output::write_success(&mut stdout).context("failed to write initialization success message")?;
     stdout
