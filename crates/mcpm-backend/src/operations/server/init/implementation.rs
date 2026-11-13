@@ -3,10 +3,7 @@
 use std::{path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result, bail, ensure};
-use mcpm_lib::local::{
-    mc::server::{config, identify},
-    modloader::BUILTIN_LOADERS,
-};
+use mcpm_lib::local::{mc::server::identify, modloader::BUILTIN_LOADERS};
 use thiserror::Error;
 
 use super::super::info::ServerInfo;
@@ -118,10 +115,7 @@ pub(super) fn initialize(
         elapsed_ms = started.elapsed().as_millis(),
         "Server initialization completed"
     );
-    let mut info = ServerInfo::from_server(&server);
-    if publication.is_some() {
-        info.configuration = Some(config::configuration_files(server.path())?);
-    }
+    let info = ServerInfo::from_server(&server)?;
     Ok(Initialized {
         server: info,
         git,

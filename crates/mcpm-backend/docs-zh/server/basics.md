@@ -23,6 +23,8 @@
 
 RCON 使用服务端目录的 `server.properties`。结果区分 Disabled、Enabled、RCON 字段解析失败和 properties 文件解析失败；Enabled 仅携带端口及脱敏密码。密码至少有两个字符时返回首字符加 `****`，否则返回 `****`。
 
+`server.info`、`server.init`、`server.new`、Remote 初始化准备和升级结果共用完整的服务端信息构造入口，统一读取配置文件状态和脱敏 RCON 信息。旧登记的升级前检查仍只读取身份。
+
 ## `server.init.recognize`
 
 读取启动脚本，推断它启动的是什么服务端。它只读取脚本文本和相关文件，不会运行脚本、Java 或安装器。

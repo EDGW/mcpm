@@ -18,7 +18,7 @@ impl Operation for Info {
         tokio::task::spawn_blocking(move || {
             crate::workspace::require_local(&input.path)?;
             let registration = inspect_metadata(input.path)?;
-            let mut info = ServerInfo::from_registration(&registration);
+            let mut info = ServerInfo::from_registration(&registration)?;
             if registration.metadata_version != SERVER_METADATA_VERSION {
                 let error = MinecraftServerError::UpgradeRequired {
                     path: registration.path.join(".mcpm/server.json"),
@@ -31,7 +31,6 @@ impl Operation for Info {
                 info.upgrade_required = Some(ErrorReport::capture(&error));
                 return Ok(info);
             }
-            info.read_details(&registration.path)?;
             if input.full_command {
                 info.start = launch::describe(&registration.path)?.map(|command| StartCommand {
                     directory: command.directory.display().to_string(),
@@ -73,28 +72,36 @@ pub struct ServerInfo {
     pub upgrade_required: Option<ErrorReport>,
 }
 impl ServerInfo {
-    pub fn from_server(server: &MinecraftServer) -> Self {
-        Self::from_parts(
+    /// Builds a complete current-server snapshot, including configuration and masked RCON.
+    pub fn from_server(server: &MinecraftServer) -> Result<Self> {
+        let mut info = Self::from_parts(
             server.path().display().to_string(),
             server.name().to_owned(),
             server.metadata_version(),
             server.metadata(),
-        )
+        );
+        info.read_details(server.path())?;
+        Ok(info)
     }
 
-    pub(crate) fn read_details(&mut self, root: &Path) -> Result<()> {
+    fn read_details(&mut self, root: &Path) -> Result<()> {
         self.configuration = Some(config::configuration_files(root)?);
         self.rcon = Some(RconInfo::read(root));
         Ok(())
     }
 
-    fn from_registration(registration: &ServerMetadataSnapshot) -> Self {
-        Self::from_parts(
+    fn from_registration(registration: &ServerMetadataSnapshot) -> Result<Self> {
+        let mut info = Self::from_parts(
             registration.path.display().to_string(),
             registration.name.clone(),
             registration.metadata_version,
             &registration.metadata,
-        )
+        );
+        // Legacy inspection remains metadata-only until the explicit upgrade succeeds.
+        if registration.metadata_version == SERVER_METADATA_VERSION {
+            info.read_details(&registration.path)?;
+        }
+        Ok(info)
     }
 
     fn from_parts(
