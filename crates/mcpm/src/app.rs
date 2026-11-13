@@ -38,7 +38,7 @@ pub fn run(program: Program) -> ExitCode {
                 &mut display::console::ConsoleWriter::new(&mut stderr),
             );
         }
-        commands::run(cli.command, cli.ssh)
+        commands::run(cli.command, cli.ssh, program)
     })();
     match result {
         Ok(commands::CommandOutcome::Completed) => ExitCode::SUCCESS,

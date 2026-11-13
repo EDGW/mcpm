@@ -35,14 +35,24 @@ enum ServerCommand {
     Mods(mods::ModsArgs),
     /// Save, inspect and switch complete Mod snapshots (Console, Raw).
     Stash(stash::StashArgs),
+    /// Inspect command help and terminal presentation.
+    Debug(crate::commands::debug::DebugArgs),
 }
 
 pub(crate) fn run(
     args: ServerArgs,
     ssh: crate::ssh::SshArgs,
+    program: crate::program::Program,
 ) -> Result<crate::commands::CommandOutcome> {
     ssh.validate()?;
     let result = match args.command {
+        ServerCommand::Debug(args) => {
+            anyhow::ensure!(
+                !ssh.is_requested(),
+                "debug commands run locally and do not accept --ssh"
+            );
+            crate::commands::debug::run(args, program)
+        }
         ServerCommand::Launch(args) => return launch::run(args, ssh),
         ServerCommand::Attach(args) => return attach::run(args, ssh),
         ServerCommand::New(args) => new::run(args, ssh),

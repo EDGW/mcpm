@@ -101,6 +101,7 @@ Console confirmations style evidence, choices, default answers, retry messages, 
 - [Server: basics (info, init)](server/basics.md)
 - [Server: launch and attach](server/launch.md)
 - [Server: stash](server/stash.md)
+- [Recursive command help: debug all-help](debug/all-help.md)
 - [mcpmd: serve and link](../../mcpmd/docs/README.md)
 - [Legacy: not yet migrated (client, mods, cache, and others)](legacy/README.md)
 - [Backend modules](../../mcpm-backend/docs/README.md)

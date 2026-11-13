@@ -2,7 +2,7 @@
 
 use std::ffi::OsString;
 
-use clap::{Args, ColorChoice, CommandFactory, FromArgMatches, Parser};
+use clap::{ArgMatches, Args, ColorChoice, CommandFactory, FromArgMatches, Parser};
 
 use crate::{commands::Command, program::Program, ssh::SshArgs};
 
@@ -11,27 +11,35 @@ pub(crate) mod source;
 
 /// Parses the actual root directly; no synthetic command components enter argv.
 pub(crate) fn parse(program: Program, args: Vec<OsString>, color: ColorChoice) -> Invocation {
-    match program {
-        Program::Mcpm | Program::McpmServer => {
-            parse_root::<roots::ServerRootArgs>(program, args, color)
-        }
-        Program::Mcpmc | Program::McpmClient => {
-            parse_root::<roots::ClientRootArgs>(program, args, color)
-        }
-        Program::McpmTools => parse_root::<roots::ToolsRootArgs>(program, args, color),
-    }
-}
-
-fn parse_root<R: Root>(program: Program, args: Vec<OsString>, color: ColorChoice) -> Invocation {
-    let mut command = Cli::<R>::command()
-        .name(program.name())
-        .bin_name(program.name())
-        .about(R::ABOUT)
-        .color(color);
+    let mut command = command(program, color);
     let matches = command
         .try_get_matches_from_mut(args)
         .unwrap_or_else(|error| error.exit());
-    let cli = Cli::<R>::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    match program {
+        Program::Mcpm | Program::McpmServer => parse_root::<roots::ServerRootArgs>(&matches),
+        Program::Mcpmc | Program::McpmClient => parse_root::<roots::ClientRootArgs>(&matches),
+        Program::McpmTools => parse_root::<roots::ToolsRootArgs>(&matches),
+    }
+}
+
+/// The same native command schema used for parsing and recursive help output.
+pub(crate) fn command(program: Program, color: ColorChoice) -> clap::Command {
+    let root = match program {
+        Program::Mcpm | Program::McpmServer => root_command::<roots::ServerRootArgs>(),
+        Program::Mcpmc | Program::McpmClient => root_command::<roots::ClientRootArgs>(),
+        Program::McpmTools => root_command::<roots::ToolsRootArgs>(),
+    };
+    root.name(program.name())
+        .bin_name(program.name())
+        .color(color)
+}
+
+fn root_command<R: Root>() -> clap::Command {
+    Cli::<R>::command().about(R::ABOUT)
+}
+
+fn parse_root<R: Root>(matches: &ArgMatches) -> Invocation {
+    let cli = Cli::<R>::from_arg_matches(matches).unwrap_or_else(|error| error.exit());
     cli.root.into_invocation(cli.common)
 }
 

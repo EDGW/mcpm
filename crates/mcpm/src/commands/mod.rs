@@ -41,7 +41,11 @@ pub(crate) enum CommandOutcome {
     Exited(u32),
 }
 
-pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandOutcome> {
+pub(crate) fn run(
+    command: Command,
+    ssh: crate::ssh::SshArgs,
+    program: crate::program::Program,
+) -> Result<CommandOutcome> {
     ssh.validate()?;
     if ssh.is_requested()
         && !matches!(
@@ -57,11 +61,11 @@ pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandO
     }
     let result = match command {
         Command::Customize(args) => customize::run(args),
-        Command::Debug(args) => debug::run(args),
+        Command::Debug(args) => debug::run(args, program),
         Command::Mods(args) => mods::run(args, ssh),
         Command::Client(args) => client::run(args),
         Command::Cache(args) => cache::run(args, ssh),
-        Command::Server(args) => return server::run(args, ssh),
+        Command::Server(args) => return server::run(args, ssh, program),
     };
     result.map(|()| CommandOutcome::Completed)
 }

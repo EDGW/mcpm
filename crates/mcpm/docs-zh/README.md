@@ -101,6 +101,7 @@ Console 确认使用当前主题区分证据、选项、默认选择、重试提
 - [Server 基础：info、init](server/basics.md)
 - [Server 启动与连接：launch、attach](server/launch.md)
 - [Server stash](server/stash.md)
+- [递归命令帮助：debug all-help](debug/all-help.md)
 - [mcpmd：serve、link](../../mcpmd/docs-zh/README.md)
 - [Legacy：尚未迁移（client、mods、cache 等）](legacy/README.md)
 - [Backend 模块](../../mcpm-backend/docs-zh/README.md)
