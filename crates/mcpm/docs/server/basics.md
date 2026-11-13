@@ -22,7 +22,7 @@ mcpm info [OPTIONS] [PATH]
 
 ### Output
 
-Console shows the name, path, Minecraft version, loader and version, and whether `launch.toml` and `conf.toml` exist on the Host that owns the server. A Remote workspace also shows the remote path, masked SSH, and mcpmd path.
+Returns the name, path, Minecraft version, Loader and version, RCON status, and whether `launch.toml` and `conf.toml` exist. RCON is read from `server.properties` in the server directory. Passwords retain only their first character; single-character passwords are fully hidden. Missing files or settings are disabled; invalid RCON field values and properties parsing failures are reported separately. A Remote workspace also includes the remote path, masked SSH, and mcpmd path.
 
 Legacy versions 1–3 cannot be used by launch or other server operations. Console `info` first reports an upgrade error with `mcpm info --upgrade` guidance, then displays the legacy registration and returns a nonzero exit status. Raw `info`, including redirected stdout, fails without printing metadata. Legacy `--full-command` does not prepare or generate a launch command. Reading preserves the original file.
 

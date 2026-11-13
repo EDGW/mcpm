@@ -1,14 +1,10 @@
 //! Read-only server recognition and independent complete-data initialization on the file-owning host.
 
-use std::{fs, io, path::PathBuf, time::Instant};
+use std::{path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use mcpm_lib::local::{
-    mc::server::{
-        MinecraftServer, MinecraftServerError, MinecraftServerMetadata,
-        config::{self, OverwritePolicy},
-        identify,
-    },
+    mc::server::{config, identify},
     modloader::BUILTIN_LOADERS,
 };
 use thiserror::Error;
@@ -16,7 +12,10 @@ use thiserror::Error;
 use super::super::info::ServerInfo;
 use super::git;
 use super::model::{Candidate, Initialize, Initialized, Phase, Recognize};
-use crate::workspace::{self, Writer};
+use crate::workspace::{
+    self,
+    initialize::{self as local, LocalConfiguration, LocalInitialization},
+};
 
 /// Recognition never writes registration and refuses registered legacy formats.
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
@@ -89,67 +88,37 @@ pub(super) fn initialize(
     phase: impl Fn(Phase) -> Result<()>,
 ) -> Result<Initialized> {
     let started = Instant::now();
-    checkpoint()?;
-    phase(Phase::Validating)?;
     git::validate_options(args.git, args.no_git)?;
-    tracing::info!(path = %args.path.display(), force = args.force, "Validating complete server initialization data");
-    workspace::require_local(&args.path)?;
-    workspace::require_current_if_registered(&args.path)?;
-    validate_metadata(&args.metadata)?;
-    let manifest = args.path.join(".mcpm/server.json");
-    match fs::symlink_metadata(&manifest) {
-        Ok(metadata) => {
-            ensure!(
-                args.force,
-                InitializationError::AlreadyExists { path: manifest }
-            );
-            ensure!(
-                !metadata.is_dir(),
-                InitializationError::ManifestDirectory { path: manifest }
-            );
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).context("failed to inspect existing server configuration"),
-    }
-    // This is the final cancellation boundary before the atomic write. A later
-    // cancellation or disconnected client cannot roll back a completed registration.
-    checkpoint()?;
-    phase(Phase::Writing)?;
-    checkpoint()?;
-    workspace::require_current_if_registered(&args.path)?;
-    tracing::info!(path = %args.path.display(), force = args.force, "Writing server registration metadata");
-    let writer = Writer::acquire(&args.path)?;
-    workspace::require_local(&args.path)?;
-    let git = if args.no_git {
-        None
-    } else {
-        Some(git::ensure_repository(&args.path, args.git)?)
-    };
-    let publication = if let Some(local) = args.local {
-        let result = config::publish(
-            &args.path,
-            &args.metadata,
-            local.configuration.as_ref(),
-            OverwritePolicy {
-                replace_registration: args.force,
+    let result = local::initialize_local(
+        LocalInitialization {
+            path: args.path,
+            metadata: args.metadata,
+            force: args.force,
+            local: args.local.map(|local| LocalConfiguration {
+                configuration: local.configuration,
                 replace_conf: local.replace_conf,
-            },
-        );
-        Some(result?)
-    } else {
-        None
-    };
-    let server = if let Some(publication) = &publication {
-        publication.server.clone()
-    } else if args.force {
-        MinecraftServer::replace(args.path, args.metadata)
-            .map_err(MinecraftServerError::into_diagnostic)?
-    } else {
-        MinecraftServer::create(args.path, args.metadata)
-            .map_err(MinecraftServerError::into_diagnostic)?
-    };
-    writer.mark_local().context("Local server registration/configuration was written, but publishing mcpm.json failed; inspect the completed files before retrying")?;
-    tracing::info!(path = %server.path().display(), "Server registration written");
+            }),
+        },
+        checkpoint,
+        |stage| {
+            phase(match stage {
+                local::Phase::Validating => Phase::Validating,
+                local::Phase::Writing => Phase::Writing,
+            })
+        },
+        |path| {
+            if args.no_git {
+                Ok(None)
+            } else {
+                git::ensure_repository(path, args.git).map(Some)
+            }
+        },
+    )?;
+    let local::LocalInitialized {
+        server,
+        git,
+        publication,
+    } = result;
     tracing::debug!(
         elapsed_ms = started.elapsed().as_millis(),
         "Server initialization completed"
@@ -201,26 +170,8 @@ pub(super) fn validate_options(args: &Recognize) -> Result<()> {
     Ok(())
 }
 
-fn validate_metadata(metadata: &MinecraftServerMetadata) -> Result<()> {
-    if let Some(loader) = metadata.loader.declaration() {
-        ensure!(
-            BUILTIN_LOADERS.contains_key(loader.loader_type.as_str()),
-            InitializationError::UnsupportedLoader {
-                loader: loader.loader_type.clone()
-            }
-        );
-    }
-    // Metadata format and nonempty versions are validated by MinecraftServer's
-    // persistence API for both public caller-constructed and deserialized inputs.
-    Ok(())
-}
-
 #[derive(Debug, Error)]
 enum InitializationError {
-    #[error("server configuration already exists at {path:?}; use --force to replace it")]
-    AlreadyExists { path: PathBuf },
-    #[error("server configuration path is a directory: {path:?}")]
-    ManifestDirectory { path: PathBuf },
     #[error("version options must not be empty")]
     EmptyVersion,
     #[error("unsupported server loader {loader:?}")]
@@ -232,6 +183,7 @@ enum InitializationError {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+    use std::fs;
 
     use super::*;
 

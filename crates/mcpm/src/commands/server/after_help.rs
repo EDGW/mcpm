@@ -1,10 +1,44 @@
-//! Styled after-help text for server launch and attach.
+//! Styled after-help text for server creation, launch, and attach.
 //!
 //! The text is user-facing: internal frame, session, and shim terminology stays out.
 
 use clap::builder::StyledStr;
 use owo_colors::OwoColorize;
 
+/// Builds creation behavior and restrictions in reading order.
+pub(super) fn new() -> StyledStr {
+    let mut help = Help::new();
+    help.heading("Creation");
+    help.blank();
+    help.line("  The parent directory must exist; the target must be missing or empty.");
+    help.line("  The selected version is validated before EULA confirmation.");
+    help.line("  Failed creation preserves completed files; inspect them before retrying.");
+    help.blank();
+    help.heading("RCON");
+    help.blank();
+    help.line("  Releases at or after 1.9-pre4 get RCON settings in server.properties.");
+    help.line(&format!(
+        "  Earlier releases reject explicit {} and {}.",
+        bold("--rcon-port"),
+        bold("--rcon-password")
+    ));
+    help.blank();
+    help.heading("EULA");
+    help.blank();
+    help.line(&format!(
+        "  {} requires an interactive terminal and defaults to no.",
+        bold("--eula")
+    ));
+    help.line("  Without consent, eula.txt contains eula=false; review it before launching.");
+    help.blank();
+    help.heading("Modes");
+    help.blank();
+    help.line(&format!(
+        "  Console; Raw with {} or redirected stdout.",
+        bold("--raw")
+    ));
+    help.finish()
+}
 /// Builds the `launch` after-help text.
 pub(super) fn launch() -> StyledStr {
     let mut help = Help::new();

@@ -55,6 +55,13 @@ impl Settings {
         else {
             return Ok(None);
         };
+        Self::from_properties(&properties)
+    }
+
+    /// Interprets only RCON settings from the shared Java-properties codec.
+    pub fn from_properties(
+        properties: &super::super::properties::Properties,
+    ) -> Result<Option<Self>> {
         if properties
             .get("enable-rcon")?
             .is_none_or(|value| !value.eq_ignore_ascii_case("true"))
@@ -67,7 +74,9 @@ impl Settings {
             .context("RCON enabled but rcon.password is empty")?;
         let port = properties
             .get("rcon.port")?
-            .map_or(Ok(25575), |value| value.parse::<u16>())
+            .map_or(Ok(super::super::properties::DEFAULT_RCON_PORT), |value| {
+                value.parse::<u16>()
+            })
             .context("invalid rcon.port")?;
         let host = match properties.get("server-ip")?.as_deref() {
             None | Some("") | Some("0.0.0.0") => "localhost".to_owned(),
@@ -79,6 +88,15 @@ impl Settings {
             port,
             password,
         }))
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Host-side consumers must mask this value before including it in info output.
+    pub fn password(&self) -> &str {
+        &self.password
     }
 }
 

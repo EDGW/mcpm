@@ -1,14 +1,16 @@
-//! Commands for registering and inspecting Minecraft servers.
+//! Commands for creating, registering, and managing Minecraft servers.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
 mod after_help;
 mod attach;
+mod git_output;
 mod info;
 mod init;
 mod launch;
 mod mods;
+mod new;
 mod stash;
 
 #[derive(Args, Debug)]
@@ -19,6 +21,8 @@ pub(crate) struct ServerArgs {
 
 #[derive(Subcommand, Debug)]
 enum ServerCommand {
+    /// Create a vanilla server in a new or empty directory (Console, Raw).
+    New(new::NewArgs),
     /// Register a Local Server or a Remote workspace.
     Init(init::InitArgs),
     /// Launch Java in an independent shim; attach by default (TUI, Console, Raw).
@@ -41,6 +45,7 @@ pub(crate) fn run(
     let result = match args.command {
         ServerCommand::Launch(args) => return launch::run(args, ssh),
         ServerCommand::Attach(args) => return attach::run(args, ssh),
+        ServerCommand::New(args) => new::run(args, ssh),
         ServerCommand::Init(args) => init::run(args, ssh),
         ServerCommand::Info(args) => return info::run(args, ssh),
         ServerCommand::Mods(args) => mods::run(args, ssh),

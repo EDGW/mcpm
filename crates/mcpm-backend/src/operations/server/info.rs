@@ -4,10 +4,10 @@ use anyhow::Result;
 use mcpm_exec::{error::ErrorReport, operation::Operation};
 use mcpm_lib::local::mc::server::{
     MinecraftServer, MinecraftServerError, MinecraftServerMetadata, SERVER_METADATA_VERSION,
-    ServerLoader, ServerMetadataSnapshot, config, inspect_metadata, launch,
+    ServerLoader, ServerMetadataSnapshot, config, inspect_metadata, launch, properties,
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct Info;
 impl Operation for Info {
@@ -31,7 +31,7 @@ impl Operation for Info {
                 info.upgrade_required = Some(ErrorReport::capture(&error));
                 return Ok(info);
             }
-            info.configuration = Some(config::configuration_files(&registration.path)?);
+            info.read_details(&registration.path)?;
             if input.full_command {
                 info.start = launch::describe(&registration.path)?.map(|command| StartCommand {
                     directory: command.directory.display().to_string(),
@@ -68,6 +68,8 @@ pub struct ServerInfo {
     pub configuration: Option<config::ConfigurationFiles>,
     pub start: Option<StartCommand>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rcon: Option<RconInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upgrade_required: Option<ErrorReport>,
 }
 impl ServerInfo {
@@ -78,6 +80,12 @@ impl ServerInfo {
             server.metadata_version(),
             server.metadata(),
         )
+    }
+
+    pub(crate) fn read_details(&mut self, root: &Path) -> Result<()> {
+        self.configuration = Some(config::configuration_files(root)?);
+        self.rcon = Some(RconInfo::read(root));
+        Ok(())
     }
 
     fn from_registration(registration: &ServerMetadataSnapshot) -> Self {
@@ -119,8 +127,45 @@ impl ServerInfo {
             },
             configuration: None,
             start: None,
+            rcon: None,
             upgrade_required: None,
         }
+    }
+}
+
+/// Info snapshots carry only a password preview, never the underlying credentials.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum RconInfo {
+    Disabled,
+    Enabled { port: u16, masked_password: String },
+    ParseFailed,
+    PropertiesParseFailed,
+}
+
+impl RconInfo {
+    fn read(root: &Path) -> Self {
+        let properties = match properties::Properties::read(&root.join("server.properties")) {
+            Ok(Some(properties)) => properties,
+            Ok(None) => return Self::Disabled,
+            Err(_) => return Self::PropertiesParseFailed,
+        };
+        match launch::rcon::Settings::from_properties(&properties) {
+            Ok(Some(settings)) => Self::Enabled {
+                port: settings.port(),
+                masked_password: mask_password(settings.password()),
+            },
+            Ok(None) => Self::Disabled,
+            Err(_) => Self::ParseFailed,
+        }
+    }
+}
+
+fn mask_password(password: &str) -> String {
+    let mut chars = password.chars();
+    match (chars.next(), chars.next()) {
+        (Some(first), Some(_)) => format!("{first}****"),
+        _ => "****".into(),
     }
 }
 

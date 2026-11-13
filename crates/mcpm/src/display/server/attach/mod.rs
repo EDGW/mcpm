@@ -43,6 +43,7 @@ impl Display {
         state: State,
         channel: Channel,
         server_status: ServerStatus,
+        traffic: Option<SessionTrafficStats>,
     ) -> Result<Self> {
         let tui =
             !no_ui && terminal::stdout_is_tty() && terminal::stderr_is_tty() && !console::is_dumb();
@@ -55,7 +56,7 @@ impl Display {
         };
         Ok(Self {
             screen: if tui {
-                Some(inline::Screen::new(height)?)
+                Some(inline::Screen::new(height, speed::lines(traffic, false))?)
             } else {
                 None
             },

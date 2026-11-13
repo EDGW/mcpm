@@ -1,24 +1,37 @@
-//! The single Java-properties codec: select keys without interpreting unrelated values or comments.
+//! Server Java-properties codec: selective decoding and no-clobber RCON configuration creation.
 
 use anyhow::{Context, Result, bail};
 use std::{
     borrow::Cow,
     collections::HashMap,
-    fs::File,
-    io::{BufRead, BufReader},
+    fs::{File, OpenOptions},
+    io::{BufRead, BufReader, Write},
     path::Path,
 };
+
+/// Minecraft's conventional RCON port.
+pub const DEFAULT_RCON_PORT: u16 = 25575;
 
 /// Selected raw values are decoded lazily, so disabled features do not validate unused settings.
 pub struct Properties {
     values: HashMap<String, Value>,
 }
-struct Value {
-    bytes: Vec<u8>,
-    line: usize,
+enum Value {
+    Raw { bytes: Vec<u8>, line: usize },
+    Decoded(String),
 }
 impl Properties {
     pub fn read_selected(path: &Path, keys: &[&str]) -> Result<Option<Self>> {
+        Self::read_file(path, Some(keys))
+    }
+
+    /// Parses every key and value, allowing callers to distinguish a malformed document
+    /// from invalid typed settings. Selected reads retain their existing lazy semantics.
+    pub fn read(path: &Path) -> Result<Option<Self>> {
+        Self::read_file(path, None)
+    }
+
+    fn read_file(path: &Path, keys: Option<&[&str]>) -> Result<Option<Self>> {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -58,23 +71,59 @@ impl Properties {
                 logical.pop();
                 continue;
             }
-            select(&logical, start, keys, &mut values);
+            select(&logical, start, keys, &mut values)?;
         }
         if continuing {
-            select(&logical, start, keys, &mut values);
+            select(&logical, start, keys, &mut values)?;
         }
         Ok(Some(Self { values }))
     }
     pub fn get(&self, key: &str) -> Result<Option<String>> {
         self.values
             .get(key)
-            .map(|value| {
-                decode(&value.bytes).with_context(|| {
-                    format!("invalid properties value for {key} at line {}", value.line)
-                })
+            .map(|value| match value {
+                Value::Decoded(value) => Ok(value.clone()),
+                Value::Raw { bytes, line } => decode(bytes)
+                    .with_context(|| format!("invalid properties value for {key} at line {line}")),
             })
             .transpose()
     }
+}
+
+/// Creates only the three RCON properties without replacing an existing configuration.
+/// Passwords are encoded with Java Properties escaping, including Unicode and line breaks.
+pub fn create_rcon(path: &Path, port: u16, password: &str) -> Result<()> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .with_context(|| format!("failed to create RCON properties {path:?}"))?;
+    let mut write = || -> std::io::Result<()> {
+        writeln!(file, "enable-rcon=true\nrcon.port={port}")?;
+        file.write_all(b"rcon.password=")?;
+        for ch in password.chars() {
+            match ch {
+                '\\' => file.write_all(b"\\\\")?,
+                '\n' => file.write_all(b"\\n")?,
+                '\r' => file.write_all(b"\\r")?,
+                '\t' => file.write_all(b"\\t")?,
+                ' ' => file.write_all(b"\\ ")?,
+                ch if ch.is_ascii() && !ch.is_control() => file.write_all(&[ch as u8])?,
+                ch => {
+                    for unit in ch.encode_utf16(&mut [0; 2]) {
+                        write!(file, "\\u{unit:04X}")?;
+                    }
+                }
+            }
+        }
+        file.write_all(b"\n")
+    };
+    write().with_context(|| format!("failed to write RCON properties {path:?}"))
 }
 fn space(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t' | 0x0c)
@@ -100,7 +149,12 @@ fn physical_line(reader: &mut impl BufRead, line: &mut Vec<u8>) -> Result<bool> 
         reader.consume(length);
     }
 }
-fn select(line: &[u8], number: usize, keys: &[&str], values: &mut HashMap<String, Value>) {
+fn select(
+    line: &[u8],
+    number: usize,
+    keys: Option<&[&str]>,
+    values: &mut HashMap<String, Value>,
+) -> Result<()> {
     let mut boundary = line.len();
     let mut escaped = false;
     for (index, byte) in line.iter().copied().enumerate() {
@@ -114,13 +168,18 @@ fn select(line: &[u8], number: usize, keys: &[&str], values: &mut HashMap<String
     let key = if raw_key.is_ascii() && !raw_key.contains(&b'\\') {
         Cow::Borrowed(std::str::from_utf8(raw_key).expect("ASCII key"))
     } else {
-        let Ok(key) = decode(raw_key) else {
-            return;
+        let key = match decode(raw_key) {
+            Ok(key) => key,
+            Err(_) if keys.is_some() => return Ok(()),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("invalid properties key at line {number}"));
+            }
         };
         Cow::Owned(key)
     };
-    if !keys.contains(&key.as_ref()) {
-        return;
+    if keys.is_some_and(|keys| !keys.contains(&key.as_ref())) {
+        return Ok(());
     }
     let mut value = boundary;
     while line.get(value).is_some_and(|byte| space(*byte)) {
@@ -135,13 +194,19 @@ fn select(line: &[u8], number: usize, keys: &[&str], values: &mut HashMap<String
     while line.get(value).is_some_and(|byte| space(*byte)) {
         value += 1;
     }
-    values.insert(
-        key.into_owned(),
-        Value {
+    let value = if keys.is_none() {
+        Value::Decoded(
+            decode(&line[value..])
+                .with_context(|| format!("invalid properties value at line {number}"))?,
+        )
+    } else {
+        Value::Raw {
             bytes: line[value..].to_vec(),
             line: number,
-        },
-    );
+        }
+    };
+    values.insert(key.into_owned(), value);
+    Ok(())
 }
 fn unit(bytes: &[u8], position: &mut usize) -> Result<u16> {
     let digits = bytes
@@ -236,6 +301,27 @@ mod tests {
         assert_eq!(properties.get("enable-rcon")?.as_deref(), Some("false"));
         assert!(properties.get("rcon.port").is_err());
         assert!(properties.get("rcon.password").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn rcon_creation_roundtrips_passwords_without_property_injection_or_overwrite() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("server.properties");
+        let password = "  pass\\word=:#\nother=value\r\t世界😀";
+        create_rcon(&path, 25590, password)?;
+        let properties = Properties::read_selected(
+            &path,
+            &["enable-rcon", "rcon.port", "rcon.password", "other"],
+        )?
+        .unwrap();
+        assert_eq!(properties.get("enable-rcon")?.as_deref(), Some("true"));
+        assert_eq!(properties.get("rcon.port")?.as_deref(), Some("25590"));
+        assert_eq!(properties.get("rcon.password")?.as_deref(), Some(password));
+        assert_eq!(properties.get("other")?, None);
+        let original = std::fs::read(&path)?;
+        assert!(create_rcon(&path, 1, "replacement").is_err());
+        assert_eq!(std::fs::read(path)?, original);
         Ok(())
     }
 }

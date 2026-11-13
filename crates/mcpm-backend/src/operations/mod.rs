@@ -27,6 +27,7 @@ pub fn registry() -> Result<Registry> {
     registry.register::<server::shim::Kill>()?;
     registry.register::<server::init::RecognizeServer>()?;
     registry.register::<server::init::Init>()?;
+    registry.register::<server::new::New>()?;
     registry.register::<server::init::prepare_remote::PrepareRemote>()?;
     registry.register::<server::stash::Create>()?;
     registry.register::<server::stash::Switch>()?;

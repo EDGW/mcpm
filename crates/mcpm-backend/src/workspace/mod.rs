@@ -15,6 +15,7 @@ use mcpm_exec::operation::Connection;
 
 mod resolve;
 pub use resolve::*;
+pub(crate) mod initialize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

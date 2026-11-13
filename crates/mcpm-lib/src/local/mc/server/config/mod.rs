@@ -13,6 +13,8 @@ pub(crate) mod tuning;
 pub(crate) use tuning::{managed, validate_arguments};
 mod import;
 pub use import::{ConfigurationDraft, ImportedSetting, ImportedValue, draft};
+mod generate;
+pub use generate::vanilla_server;
 mod overrides;
 pub use overrides::ConfigurationOverrides;
 mod publication;
