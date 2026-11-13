@@ -1,6 +1,6 @@
 //! Read-only server recognition and independent complete-data initialization on the file-owning host.
 
-use std::{path::PathBuf, time::Instant};
+use std::{fs, path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use mcpm_lib::local::{
