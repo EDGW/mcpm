@@ -31,3 +31,5 @@ See [legacy documentation](../legacy/README.md) for `mods` and other commands no
 ## Output
 
 All commands support Console and Raw. Each command page defines its fields and Raw column order. Diagnostics and progress use stderr; confirmation before displaying large inventories reads and writes the terminal directly. Redirecting stdout selects Raw.
+
+`info`, `init`, and `new` share the same server summary, including identity, RCON status, and launch-configuration file status. RCON passwords are masked in the summary; `new` separately displays the full password after creating RCON settings.

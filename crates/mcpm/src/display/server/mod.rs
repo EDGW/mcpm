@@ -24,7 +24,6 @@ pub(crate) fn write_snapshot(
     server: &ServerInfo,
     show_full_command: bool,
     remote: Option<&RemoteInfo>,
-    show_rcon: bool,
 ) -> io::Result<()> {
     let loader = &server.loader;
     let style = OutputStyle::new();
@@ -91,35 +90,33 @@ pub(crate) fn write_snapshot(
         write!(output, " {}", style.secondary(loader_version))?;
     }
     writeln!(output)?;
-    if show_rcon {
-        match server.rcon.as_ref().unwrap_or(&RconInfo::Disabled) {
-            RconInfo::Disabled => writeln!(
+    match server.rcon.as_ref().unwrap_or(&RconInfo::Disabled) {
+        RconInfo::Disabled => writeln!(
+            output,
+            "{}",
+            line(&rich!("RCON: [disabled](muted)"), &style)
+        )?,
+        RconInfo::Enabled {
+            port,
+            masked_password,
+        } => {
+            writeln!(output, "{}", line(&rich!("RCON: `{port}`"), &style))?;
+            writeln!(
                 output,
                 "{}",
-                line(&rich!("RCON: [disabled](muted)"), &style)
-            )?,
-            RconInfo::Enabled {
-                port,
-                masked_password,
-            } => {
-                writeln!(output, "{}", line(&rich!("RCON: `{port}`"), &style))?;
-                writeln!(
-                    output,
-                    "{}",
-                    line(&rich!("RCON password: [{masked_password}](muted)"), &style)
-                )?;
-            }
-            RconInfo::ParseFailed => writeln!(
-                output,
-                "{}",
-                line(&rich!("RCON: [parse failed](warning)"), &style)
-            )?,
-            RconInfo::PropertiesParseFailed => writeln!(
-                output,
-                "{}",
-                line(&rich!("[parse failed](warning)"), &style)
-            )?,
+                line(&rich!("RCON password: [{masked_password}](muted)"), &style)
+            )?;
         }
+        RconInfo::ParseFailed => writeln!(
+            output,
+            "{}",
+            line(&rich!("RCON: [parse failed](warning)"), &style)
+        )?,
+        RconInfo::PropertiesParseFailed => writeln!(
+            output,
+            "{}",
+            line(&rich!("[parse failed](warning)"), &style)
+        )?,
     }
     writeln!(output)?;
     write!(
