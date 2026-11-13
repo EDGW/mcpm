@@ -100,6 +100,7 @@ mcpm init [OPTIONS] [PATH]
 | --- | --- |
 | `--remote <REMOTE_PATH>` | 将 PATH 登记为 Remote 工作区，指向已有远端 Local Server。要求 `--ssh`。与 `--start-script`、手动身份选项、`--foverride-conf` 互斥。 |
 | `--start-script <FILE>` | 静态识别服务端目录内的启动脚本，使用相对路径。与手动身份选项互斥。 |
+| `--start-line <[SCRIPT:]LINE>` | 按从 1 开始的源码行号选定已识别命令。要求 `--start-script`，与手动身份和 `--remote` 互斥。SCRIPT 相对服务端根目录，仅嵌套脚本需要指定。 |
 | `--minecraft-version <VERSION>` | Minecraft 版本。别名 `--mc-version`。 |
 | `--loader <LOADER>` | Loader：`fabric`、`forge`、`neoforge` 或 `vanilla`。 |
 | `--loader-version <VERSION>` | Loader 版本，不是 Minecraft 或 FML 版本。 |
@@ -128,11 +129,13 @@ mcpm init [OPTIONS] [PATH]
 ```sh
 mcpm init ./server
 mcpm init ./server --start-script scripts/start.sh --no-ui
+mcpm init ./server --start-script run.bat --start-line 12
+mcpm init ./server --start-script run.sh --start-line scripts/start.sh:3
 ```
 
 未指定 `--start-script` 时，使用服务端所属主机上的默认脚本：Windows 为 `run.bat`，其他平台为 `run.sh`。脚本路径必须位于服务端目录内。
 
-识别静态读取脚本和身份依据，不执行脚本。动态脚本或证据不足时可能失败，此时应提供完整手动身份。
+识别静态读取脚本和身份依据，不执行脚本。含不支持运算符或命令替换的行会被跳过；不支持的控制流块整体跳过。跳过内容可能修改的目录和变量状态会被标为未知；后续依赖未知状态的命令无法导入。证据不足时仍需提供完整手动身份。
 
 候选包含初始化所需的配置草稿。选定候选后才进行 Git 准备和配置写入；仅识别或取消选择不会写入。
 
@@ -157,17 +160,20 @@ mcpm init ./server --loader forge --no-ui
 mcpm init ./server --minecraft-version 1.20.1 --no-ui
 ```
 
-不完整身份仍执行识别；已给字段只筛选识别出的候选。无匹配候选时失败；Console 或 Raw 下多候选也失败。
+不完整身份仍执行识别；已给字段只筛选识别出的候选。无匹配候选时失败；多个匹配候选按下表选择。
 
 #### 候选选择
 
 | 候选数 | 行为 |
 | --- | --- |
 | 1 | 直接使用，不打开 TUI |
-| 多个，默认模式 | 本机 TUI：上下键移动，Enter 确认，Esc 或 Ctrl-C 取消 |
-| 多个，`--no-ui` 或 `--raw` | 报错，要求更具体的识别参数或完整手动身份 |
+| 多个，stdout/stderr 均为终端且未指定 `--no-ui` | 本机 TUI 卡片：上下键移动，Enter 确认，Esc 或 Ctrl-C 取消 |
+| 多个，stdout 为终端，指定 `--no-ui` 或重定向 stderr | Console 编号列表；输入编号确认。空 Enter、Esc、Ctrl-C 或 EOF 取消 |
+| 多个，`--raw` 或 stdout 重定向 | 报错；结构化 Tip 列出每个候选和可复制的初始化命令 |
 
-TUI 要求本机 stdout/stderr 为终端。远端初始化时，选择界面仍在本机。
+远端初始化时，选择仍在本机进行。Console 读取控制终端，不读取重定向的 stdin；stdin 不参与模式判定。卡片和列表从已有配置草稿展示来源、主类、入口和应用参数摘要。
+
+使用 `--start-script` 加 `--start-line` 可以免交互选定已识别命令，同时保留启动配置。仅写行号只匹配根脚本，不匹配嵌套脚本；不支持或已跳过的命令不能被选中。Tip 命令保留原始 PATH、SSH 目标及写入选项，以精确来源选择代替部分身份筛选；Unix 使用 POSIX shell 转义，Windows 使用 PowerShell 转义。
 
 ### 写入的文件
 

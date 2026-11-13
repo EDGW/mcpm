@@ -100,6 +100,7 @@ mcpm init [OPTIONS] [PATH]
 | --- | --- |
 | `--remote <REMOTE_PATH>` | Register PATH as a Remote workspace pointing to an existing remote Local Server. Requires `--ssh`. Conflicts with `--start-script`, manual identity options, and `--foverride-conf`. |
 | `--start-script <FILE>` | Statically recognize a startup script inside the server directory, using a relative path. Conflicts with manual identity options. |
+| `--start-line <[SCRIPT:]LINE>` | Select a recognized command by its one-based source line. Requires `--start-script`; conflicts with manual identity and `--remote`. SCRIPT is server-root-relative and needed only for nested scripts. |
 | `--minecraft-version <VERSION>` | Minecraft version. Alias: `--mc-version`. |
 | `--loader <LOADER>` | Loader: `fabric`, `forge`, `neoforge`, or `vanilla`. |
 | `--loader-version <VERSION>` | Loader version, distinct from Minecraft and FML versions. |
@@ -128,11 +129,13 @@ The actual target must be a Local Server; a Remote workspace cannot point to ano
 ```sh
 mcpm init ./server
 mcpm init ./server --start-script scripts/start.sh --no-ui
+mcpm init ./server --start-script run.bat --start-line 12
+mcpm init ./server --start-script run.sh --start-line scripts/start.sh:3
 ```
 
 Without `--start-script`, the Host's default script is `run.bat` on Windows and `run.sh` elsewhere. The script path must stay inside the server directory.
 
-Recognition statically reads the script and identity evidence without executing it. Dynamic scripts or insufficient evidence may fail; provide complete manual identity in that case.
+Recognition statically reads scripts and identity evidence without executing them. Lines with unsupported operators or command substitutions are skipped, as are complete unsupported control-flow blocks. Potential directory/variable changes in skipped text invalidate only the affected state; later commands that depend on unknown state cannot be imported. Insufficient evidence may still require complete manual identity.
 
 Candidates include the configuration draft needed for initialization. Git preparation and configuration writes occur only after a candidate is selected; recognition alone or cancelling selection does not write.
 
@@ -157,17 +160,20 @@ mcpm init ./server --loader forge --no-ui
 mcpm init ./server --minecraft-version 1.20.1 --no-ui
 ```
 
-Incomplete identity still runs recognition; supplied fields only filter recognized candidates. No matching candidate fails; multiple candidates also fail in Console or Raw.
+Incomplete identity still runs recognition; supplied fields only filter recognized candidates. No matching candidate fails; multiple matching candidates follow the selection mode below.
 
 #### Candidate selection
 
 | Candidate count | Behavior |
 | --- | --- |
 | 1 | Used directly without opening the TUI |
-| Multiple, default mode | Local TUI: Up/Down moves, Enter confirms, Esc or Ctrl-C cancels |
-| Multiple, `--no-ui` or `--raw` | Error; require more specific recognition options or complete manual identity |
+| Multiple, terminal stdout/stderr without `--no-ui` | Local TUI cards: Up/Down moves, Enter confirms, Esc or Ctrl-C cancels |
+| Multiple, terminal stdout with `--no-ui` or redirected stderr | Console numbered list; enter a number to confirm. Enter without a number, Esc, Ctrl-C, or EOF cancels |
+| Multiple, `--raw` or redirected stdout | Error with a structured Tip containing each candidate and a copyable initialization command |
 
-The TUI requires local terminal stdout/stderr. Candidate selection remains local for remote initialization.
+Selection stays local for remote initialization. Console reads the controlling terminal, never redirected stdin; stdin does not select the output mode. Cards and lists show the source, main class, entry, and application-argument summary from the existing configuration draft.
+
+Use `--start-script` plus `--start-line` to select a recognized command without a prompt while retaining its launch configuration. A bare line selects within the root script, not a nested script; unsupported/skipped commands cannot be selected. Retry commands preserve the original PATH, SSH target, and write options, and replace partial identity filters with exact source selection. Commands use POSIX shell quoting on Unix and PowerShell quoting on Windows.
 
 ### Files written
 
