@@ -2,9 +2,9 @@
 
 use super::{super::info::ServerInfo, git};
 use mcpm_lib::local::mc::server::{
-    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader,
+    MinecraftServerMetadata,
     config::{ConfigurationDraft, ImportedSetting, Published},
-    identify::{ServerCandidate, StartLine},
+    identify::ServerCandidate,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -66,56 +66,18 @@ pub struct Recognize {
     #[serde(default = "default_path")]
     pub path: PathBuf,
     pub start_script: Option<PathBuf>,
-    pub start_line: Option<StartLine>,
-    pub minecraft_version: Option<String>,
-    pub loader: Option<String>,
-    pub loader_version: Option<String>,
-}
-impl Recognize {
-    pub fn manual_metadata(&self) -> anyhow::Result<Option<MinecraftServerMetadata>> {
-        super::implementation::validate_options(self)?;
-        let Some(minecraft_version) = self.minecraft_version.as_ref() else {
-            return Ok(None);
-        };
-        let Some(loader_type) = self.loader.as_deref() else {
-            return Ok(None);
-        };
-        let loader = match loader_type {
-            "vanilla" => ServerLoader::Vanilla,
-            loader_type => {
-                let Some(version) = self.loader_version.as_ref() else {
-                    return Ok(None);
-                };
-                ServerLoader::Modded(ServerModLoader {
-                    loader_type: loader_type.to_owned(),
-                    version: version.clone(),
-                })
-            }
-        };
-        Ok(Some(MinecraftServerMetadata {
-            version: SERVER_METADATA_VERSION,
-            minecraft_version: minecraft_version.clone(),
-            loader,
-        }))
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Candidate {
     pub metadata: MinecraftServerMetadata,
-    /// Root script used for discovery; `script` may instead name a nested script.
-    pub start_script: PathBuf,
     pub script: PathBuf,
     pub line: usize,
     pub main_class: String,
     pub configuration: Option<ConfigurationDraft>,
 }
 impl Candidate {
-    pub(super) fn from_server(
-        candidate: ServerCandidate,
-        root: &Path,
-        start_script: &Path,
-    ) -> anyhow::Result<Self> {
+    pub(super) fn from_server(candidate: ServerCandidate, root: &Path) -> anyhow::Result<Self> {
         use anyhow::Context;
         let script = std::fs::canonicalize(&candidate.launch.script)
             .context("failed to resolve candidate script")?;
@@ -125,7 +87,6 @@ impl Candidate {
             .to_owned();
         Ok(Self {
             metadata: candidate.metadata,
-            start_script: start_script.to_owned(),
             line: candidate.launch.line,
             main_class: candidate.launch.main_class().to_owned(),
             script,

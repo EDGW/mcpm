@@ -1,10 +1,12 @@
 //! Read-only server recognition and independent complete-data initialization on the file-owning host.
 
-use std::{fs, path::PathBuf, time::Instant};
+use std::{fs, path::Path, time::Instant};
 
-use anyhow::{Context, Result, bail, ensure};
-use mcpm_lib::local::{mc::server::identify, modloader::BUILTIN_LOADERS};
-use thiserror::Error;
+use anyhow::{Context, Result};
+use mcpm_lib::local::{
+    mc::server::identify::{self, ServerCandidate},
+    modloader::BUILTIN_LOADERS,
+};
 
 use super::super::info::ServerInfo;
 use super::git;
@@ -24,46 +26,29 @@ pub(super) fn recognize(
     checkpoint()?;
     workspace::require_local(&args.path)?;
     workspace::require_current_if_registered(&args.path)?;
-    validate_options(&args)?;
     phase(Phase::Recognizing)?;
     checkpoint()?;
     let started = Instant::now();
-    let script = args
-        .start_script
-        .unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "run.bat" } else { "run.sh" }));
-    tracing::info!(path = %args.path.display(), script = %script.display(), "Recognizing server launch candidates");
-    let mut candidates = identify::identify(&args.path, &script, &BUILTIN_LOADERS, args.start_line.as_ref())
-        .context("automatic server identification failed; server remains unrecognized; initialize manually with --minecraft-version VERSION --loader forge|neoforge|fabric --loader-version VERSION, or explicitly use --loader vanilla for a known vanilla server")?;
-    checkpoint()?;
-    candidates.retain(|candidate| {
-        let metadata = &candidate.metadata;
-        args.minecraft_version
-            .as_ref()
-            .is_none_or(|value| *value == metadata.minecraft_version)
-            && args
-                .loader
-                .as_ref()
-                .is_none_or(|loader| match &metadata.loader {
-                    mcpm_lib::local::mc::server::ServerLoader::Modded(info) => {
-                        info.loader_type == *loader
-                    }
-                    mcpm_lib::local::mc::server::ServerLoader::Vanilla => loader == "vanilla",
-                    mcpm_lib::local::mc::server::ServerLoader::Unrecognized => {
-                        loader == "unrecognized"
-                    }
-                })
-            && args.loader_version.as_ref().is_none_or(|version| {
-                metadata
-                    .loader
-                    .declaration()
-                    .is_some_and(|info| info.version == *version)
-            })
-    });
-    if candidates.is_empty() {
-        bail!(
-            "no identified server launch matches the supplied version/loader options; server remains unrecognized; initialize manually with complete --minecraft-version, --loader and --loader-version options (omit --loader-version only for explicitly selected vanilla)"
-        );
+    let candidates = if let Some(script) = args.start_script.as_deref() {
+        recognize_script(&args.path, script)
+    } else {
+        let [run, start] = if cfg!(windows) {
+            ["run.bat", "start.bat"]
+        } else {
+            ["run.sh", "start.sh"]
+        }
+        .map(Path::new);
+        match recognize_script(&args.path, run) {
+            Ok(candidates) => Ok(candidates),
+            Err(first) => {
+                checkpoint()?;
+                recognize_script(&args.path, start)
+                    .with_context(|| format!("{run:?} failed: {first:#}; {start:?} also failed"))
+            }
+        }
     }
+    .context("automatic server identification failed; server remains unrecognized; initialize manually with --minecraft-version VERSION --loader forge|neoforge|fabric --loader-version VERSION, or explicitly use --loader vanilla for a known vanilla server")?;
+    checkpoint()?;
     tracing::debug!(
         candidates = candidates.len(),
         elapsed_ms = started.elapsed().as_millis(),
@@ -73,8 +58,13 @@ pub(super) fn recognize(
         fs::canonicalize(&args.path).context("failed to resolve recognized server directory")?;
     candidates
         .into_iter()
-        .map(|candidate| Candidate::from_server(candidate, &root, &script))
+        .map(|candidate| Candidate::from_server(candidate, &root))
         .collect()
+}
+
+fn recognize_script(path: &Path, script: &Path) -> Result<Vec<ServerCandidate>> {
+    tracing::info!(path = %path.display(), script = %script.display(), "Recognizing server launch candidates");
+    identify::identify(path, script, &BUILTIN_LOADERS)
 }
 
 /// Metadata is supplied in full; initialization never rereads a script or requires a recognition token.
@@ -128,56 +118,12 @@ pub(super) fn initialize(
     })
 }
 
-pub(super) fn validate_options(args: &Recognize) -> Result<()> {
-    ensure!(
-        args.start_line.is_none() || args.start_script.is_some(),
-        "--start-line requires --start-script"
-    );
-    ensure!(
-        args.start_script.is_none()
-            || (args.minecraft_version.is_none()
-                && args.loader.is_none()
-                && args.loader_version.is_none()),
-        "--start-script conflicts with manual version/loader options"
-    );
-    for version in [&args.minecraft_version, &args.loader_version]
-        .into_iter()
-        .flatten()
-    {
-        ensure!(
-            !version.trim().is_empty(),
-            InitializationError::EmptyVersion
-        );
-    }
-    if let Some(loader) = &args.loader {
-        ensure!(
-            loader == "vanilla" || BUILTIN_LOADERS.contains_key(loader.as_str()),
-            InitializationError::UnsupportedLoader {
-                loader: loader.clone()
-            }
-        );
-    }
-    ensure!(
-        !(args.loader.as_deref() == Some("vanilla") && args.loader_version.is_some()),
-        InitializationError::VanillaLoaderVersion
-    );
-    Ok(())
-}
-
-#[derive(Debug, Error)]
-enum InitializationError {
-    #[error("version options must not be empty")]
-    EmptyVersion,
-    #[error("unsupported server loader {loader:?}")]
-    UnsupportedLoader { loader: String },
-    #[error("vanilla does not have a loader version")]
-    VanillaLoaderVersion,
-}
-
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
     use std::fs;
+
+    use thiserror::Error;
 
     use super::*;
 

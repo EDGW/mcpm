@@ -1,15 +1,11 @@
-//! Candidate summaries and shell-safe retry commands; no launch parsing or host path resolution.
+//! Shared candidate summaries for interactive selection and noninteractive diagnostics.
 
-use std::path::Path;
-
-use anyhow::{Context, Result};
 use mcpm_backend::operations::server::init::Candidate;
 use mcpm_exec::error::TippedError;
 use mcpm_lib::local::mc::server::config::ImportedValue;
 use mcpm_rich::{Role, rich};
 
-use super::InitArgs;
-use crate::{display::style::text, program, ssh::SshArgs, terminal};
+use crate::display::style::text;
 
 /// Identity, source, main class, entry, and application summary from the existing draft.
 pub(super) fn summary(candidate: &Candidate) -> Summary {
@@ -103,48 +99,10 @@ impl Summary {
     }
 }
 
-/// Keep the invocation's target and write intent, before workspace routing consumes PATH.
-pub(super) fn retry_base(args: &InitArgs, ssh: &SshArgs) -> Result<String> {
-    let mut command = program::roots().server.command("init");
-    let mut append = |option: &str, value: Option<&str>| -> Result<()> {
-        command.push(' ');
-        command.push_str(option);
-        if let Some(value) = value {
-            command.push('=');
-            command.push_str(&quote(value)?);
-        }
-        Ok(())
-    };
-    if let Some(connection) = ssh.explicit_connection()? {
-        append("--ssh", Some(&connection.ssh))?;
-        if let Some(path) = connection.mcpmd {
-            append("--ssh-mcpmd", Some(&path))?;
-        }
-    }
-    for (enabled, option) in [
-        (args.force, "--force"),
-        (args.foverride_conf, "--foverride-conf"),
-        (args.no_git, "--no-git"),
-        (args.git, "--git"),
-        (args.no_ui, "--no-ui"),
-        (args.full_command, "--full-command"),
-        (terminal::is_raw(), "--raw"),
-    ] {
-        if enabled {
-            append(option, None)?;
-        }
-    }
-    // Explicit launch selection replaces partial identity filters, which conflict with --start-script.
-    Ok(command)
-}
-
-pub(super) fn ambiguous(
-    candidates: &[Candidate],
-    base: &str,
-    path: &Path,
-) -> Result<anyhow::Error> {
-    let mut tip =
-        rich!("Select one launch using its exact source line. Copy one of these commands:");
+pub(super) fn ambiguous(candidates: &[Candidate]) -> anyhow::Error {
+    let mut tip = rich!(
+        "Run init in an interactive terminal without --raw to choose a launch, or supply complete version and loader options to initialize manually without importing a startup script."
+    );
     for candidate in candidates {
         let Summary {
             identity,
@@ -155,42 +113,16 @@ pub(super) fn ambiguous(
             application,
         } = summary(candidate);
         let location = format!("{script}{line}");
-        let selected = if candidate.script == candidate.start_script {
-            candidate.line.to_string()
-        } else {
-            format!("{}:{}", candidate.script.display(), candidate.line)
-        };
-        let command = format!(
-            "{base} --start-script={} --start-line={} -- {}",
-            quote_path(&candidate.start_script)?,
-            quote(&selected)?,
-            quote_path(path)?
-        );
         tip.extend(rich!(
-            "{identity}: `{location}`\n\nMain: {main}\n\nEntry: {entry}\n\nArguments: {application}\n\n`{command}`"
+            "{identity}: `{location}`\n\nMain: {main}\n\nEntry: {entry}\n\nArguments: {application}"
         ));
     }
-    Ok(TippedError::new(anyhow::anyhow!("multiple identified server launches found; select a command with --start-script and --start-line"), Some(tip), None).into())
-}
-
-fn quote_path(path: &Path) -> Result<String> {
-    quote(
-        path.to_str()
-            .context("candidate script path is not UTF-8")?,
+    TippedError::new(
+        anyhow::anyhow!(
+            "multiple identified server launches found; selection requires an interactive terminal"
+        ),
+        Some(tip),
+        None,
     )
-}
-
-/// POSIX shell on Unix; PowerShell on Windows (including embedded single quotes).
-fn quote(value: &str) -> Result<String> {
-    #[cfg(windows)]
-    {
-        anyhow::ensure!(!value.contains('\0'), "NUL in retry command argument");
-        Ok(format!("'{}'", value.replace('\'', "''")))
-    }
-    #[cfg(not(windows))]
-    {
-        shlex::try_quote(value)
-            .map(|value| value.into_owned())
-            .context("cannot quote retry command argument")
-    }
+    .into()
 }

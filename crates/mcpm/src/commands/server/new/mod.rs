@@ -16,8 +16,45 @@ use crate::{
 mod eula;
 mod output;
 
+/// Builds creation behavior and restrictions in reading order.
+fn after_help() -> clap::builder::StyledStr {
+    use super::after_help::{Help, bold};
+
+    let mut help = Help::new();
+    help.heading("Creation");
+    help.blank();
+    help.line("  The parent directory must exist; the target must be missing or empty.");
+    help.line("  The selected version is validated before EULA confirmation.");
+    help.line("  Failed creation preserves completed files; inspect them before retrying.");
+    help.blank();
+    help.heading("RCON");
+    help.blank();
+    help.line("  Releases at or after 1.9-pre4 get RCON settings in server.properties.");
+    help.line(&format!(
+        "  Earlier releases reject explicit {} and {}.",
+        bold("--rcon-port"),
+        bold("--rcon-password")
+    ));
+    help.blank();
+    help.heading("EULA");
+    help.blank();
+    help.line(&format!(
+        "  {} requires an interactive terminal and defaults to no.",
+        bold("--eula")
+    ));
+    help.line("  Without consent, eula.txt contains eula=false; review it before launching.");
+    help.blank();
+    help.heading("Modes");
+    help.blank();
+    help.line(&format!(
+        "  Console; Raw with {} or redirected stdout.",
+        bold("--raw")
+    ));
+    help.finish()
+}
+
 #[derive(Args, Debug)]
-#[command(after_help = super::after_help::new())]
+#[command(after_help = after_help())]
 pub(super) struct NewArgs {
     /// New or empty server directory; defaults to the current directory.
     #[arg(value_name = "DIR_PATH", default_value = ".")]

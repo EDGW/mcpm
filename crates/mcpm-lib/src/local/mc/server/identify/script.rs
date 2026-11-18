@@ -755,26 +755,6 @@ pub(super) fn resolve(cwd: &Path, value: &str, syntax: Syntax) -> PathBuf {
     })
 }
 
-/// Keep a selected command's own extraction failure, not an unrelated earlier line.
-pub(super) fn diagnostic_at(error: &anyhow::Error, script: &Path, line: usize) -> bool {
-    error
-        .chain()
-        .any(|cause| match cause.downcast_ref::<ScriptError>() {
-            Some(error) => {
-                let (path, source_line) = match error {
-                    ScriptError::Statement { path, line, .. }
-                    | ScriptError::Continuation { path, line } => (path, Some(*line)),
-                    ScriptError::Read { path, .. }
-                    | ScriptError::Extension { path }
-                    | ScriptError::Cycle { path } => (path, None),
-                };
-                source_line.is_none_or(|source_line| source_line == line)
-                    && fs::canonicalize(path).is_ok_and(|path| path == script)
-            }
-            None => false,
-        })
-}
-
 #[derive(Debug, Error)]
 enum ScriptError {
     #[error("unsupported script extension: {path:?}; expected .sh, .bat, or .cmd")]

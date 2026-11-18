@@ -18,25 +18,42 @@ mcpm info [OPTIONS] [PATH]
 
 | Option | Description |
 | --- | --- |
-| `--full-command` | Show the complete startup command generated from `launch.toml` and `conf.toml`. It does not unmask SSH. |
+| `--full-command` | Generate the complete startup command from `launch.toml` and `conf.toml`. Invalid configuration returns an error. The executable and JAR are not checked for existence. |
 
 ### Output
 
-Returns the name, path, Minecraft version, Loader and version, RCON status, and whether `launch.toml` and `conf.toml` exist. RCON is read from `server.properties` in the server directory. Passwords retain only their first character; single-character passwords are fully hidden. Missing files or settings are disabled; invalid RCON field values and properties parsing failures are reported separately. A Remote workspace also includes the remote path, masked SSH, and mcpmd path.
+#### Console output
 
-Legacy versions 1–3 cannot be used by launch or other server operations. Console `info` first reports an upgrade error with `mcpm info --upgrade` guidance, then displays the legacy registration and returns a nonzero exit status. Raw `info`, including redirected stdout, fails without printing metadata. Legacy `--full-command` does not prepare or generate a launch command. Reading preserves the original file.
+- **Server**: Name, path, Minecraft version, loader type, and loader version.
+- **Configuration**: Whether `launch.toml` and `conf.toml` exist.
+- **Remote connection**: A Remote workspace also shows the remote path, masked SSH command, and mcpmd path.
 
-The error ends at `requires an upgrade`; a separate shared `Tip:` explains that the metadata is deprecated and gives the upgrade command. A completed upgrade uses success styling and is followed by a blank line before server information.
+#### RCON status
 
-Raw is TSV without a header, in this field order:
+RCON status comes from the server's `server.properties`:
+
+- **Not configured**: Missing files or settings show as `disabled`.
+- **Invalid configuration**: Invalid RCON field values and failures to parse `server.properties` are reported separately.
+- **Password masking**: Only the first character is shown. A single-character password is fully masked.
+
+#### Raw output
+
+Raw output is TSV without a header, in this field order:
 
 ```text
 name path minecraft-version loader loader-version start-command
 ```
 
-A Remote workspace prepends remote path, masked SSH, and mcpmd path. A command not requested or missing configuration is `unavailable`. Missing or invalid registration returns an error.
+A Remote workspace prepends the remote path, masked SSH command, and mcpmd path. The command field is `unavailable` if `--full-command` was omitted or the launch configuration is missing.
 
-`--full-command` shares launch argument generation, without starting Java, downloading, or checking executable/JAR existence. V1/V2 historical `start` is ignored. Existing invalid configuration returns an error.
+#### Registration errors
+
+Missing or invalid registration returns an error. For legacy registration:
+
+- **Console**: Prompts you to run `mcpm info --upgrade`, displays the legacy registration, then exits with a nonzero status.
+- **Raw**: Returns an error without printing the registration.
+
+`--full-command` cannot generate a startup command from a legacy registration.
 
 ### Examples
 
@@ -58,13 +75,24 @@ mcpm --ssh 'ssh user@host' info /srv/minecraft --upgrade
 
 ### Registration formats
 
-- Version 4 requires a non-null `loader`: `{"type":"vanilla"}`, `{"type":"unrecognized"}`, or a concrete loader such as `{"type":"forge","version":"47.4.0"}`.
-- Versions 1–3 can be decoded using the old V3 structure only for legacy inspection and explicit upgrade; ordinary server operations require V4. Legacy `loader: null` means Unrecognized until explicitly confirmed. Legacy `start`, including any V1/V2 value, is ignored.
-- Other versions fail without rewriting. Remote workspace connection registrations use a separate format and remain unchanged.
+- **Version 4**: Requires a non-null `loader`, such as `{"type":"vanilla"}`, `{"type":"unrecognized"}`, or `{"type":"forge","version":"47.4.0"}`. A version 4 registration does not need an upgrade.
+- **Versions 1–3**: Read using the legacy V3 format for inspection and explicit upgrade. `loader: null` means Unrecognized, and the legacy `start` field is ignored. Other server operations require version 4.
+- **Other versions**: Return an error without rewriting the registration.
+
+Remote workspace connections use a separate format and are unaffected.
 
 ### Vanilla confirmation
 
-For a legacy Unrecognized registration, inspect only `launch.toml`. JAR entries read their manifest relative to `process.workingDirectory`; class/module entries use an explicit `mainClass`. No Java execution, downloads, `conf.toml`, or historical `start` are involved.
+An existing concrete loader keeps its ID and version. For an Unrecognized registration, `launch.toml` provides the main class:
+
+| Entry type | Main class source |
+| --- | --- |
+| JAR | Resolve the JAR relative to `process.workingDirectory` and read its manifest. |
+| Class / Module | Use the explicit `mainClass`. |
+
+The loader stays Unrecognized if `launch.toml` is missing, a module has no explicit main class, or the main class does not match. Invalid configuration or an unreadable JAR returns an error.
+
+When a vanilla entry is detected, the command asks for confirmation. Answers are case-insensitive:
 
 ```text
 Set loader to Vanilla? [y(es)/n(o)/C(ancel)]
@@ -76,179 +104,167 @@ Set loader to Vanilla? [y(es)/n(o)/C(ancel)]
 | `n`, `no` | Write V4 Unrecognized |
 | `c`, `cancel`, Enter, Esc, Ctrl-C, EOF | Cancel without changing registration |
 
-Answers are case-insensitive. A missing launch file, an implicit module main class, or another main class keeps Unrecognized. Invalid configuration or unreadable JAR evidence fails without committing. Existing concrete loader IDs and versions are preserved. Version 4 is a no-op.
+### Execution requirements
 
-Raw and redirected output reject legacy metadata without writing, including `info --upgrade`. Run the explicit upgrade in Console mode. For SSH and Remote workspaces, files are inspected and written on the server host; confirmation stays local. Changed registration or launch evidence invalidates the pending decision.
+- **Output mode**: Run an explicit upgrade in Console mode. Raw mode rejects the upgrade without writing.
+- **Remote targets**: The server host inspects and writes the files; confirmation stays local.
+- **Confirmation validity**: A change to the registration or launch evidence invalidates a pending choice.
 
-Only `.mcpm/server.json` changes. Minecraft version, configuration, worlds, mods, Git, and connection registration are preserved. Vanilla and Unrecognized are displayed separately; their loader-version field is blank. `--full-command` remains available and uses current configuration after the upgrade.
+### Upgrade result
+
+Only `.mcpm/server.json` changes. Vanilla and Unrecognized are displayed separately, both with a blank loader-version field. After the upgrade, `--full-command` uses the current configuration.
 
 ## `mcpm init`
 
-```text
-mcpm init [OPTIONS] [PATH]
-```
+Register an existing server or create a Remote workspace that points to one.
 
-### Arguments
+In script recognition and manual initialization, `[PATH]` defaults to `.` and selects the server as follows:
 
-| Argument | Description |
+| Invocation | Server location |
 | --- | --- |
-| `[PATH]` | Existing directory. Defaults to `.`. Usually the server directory; with `--remote` it is the local Remote workspace; with explicit `--ssh` and no `--remote` it is the remote server directory. |
+| Explicit `--ssh` | `[PATH]` on the SSH host. |
+| No `--ssh`, and `[PATH]` is a Remote workspace | The remote server in the saved registration. |
+| No `--ssh`, and `[PATH]` is Local or unregistered | `[PATH]` on this machine. |
 
-### Options
+Recognition, Git preparation, and writes run on the server host. Candidate selection stays local.
 
-| Option | Description |
-| --- | --- |
-| `--remote <REMOTE_PATH>` | Register PATH as a Remote workspace pointing to an existing remote Local Server. Requires `--ssh`. Conflicts with `--start-script`, manual identity options, and `--foverride-conf`. |
-| `--start-script <FILE>` | Statically recognize a startup script inside the server directory, using a relative path. Conflicts with manual identity options. |
-| `--start-line <[SCRIPT:]LINE>` | Select a recognized command by its one-based source line. Requires `--start-script`; conflicts with manual identity and `--remote`. SCRIPT is server-root-relative and needed only for nested scripts. |
-| `--minecraft-version <VERSION>` | Minecraft version. Alias: `--mc-version`. |
-| `--loader <LOADER>` | Loader: `fabric`, `forge`, `neoforge`, or `vanilla`. |
-| `--loader-version <VERSION>` | Loader version, distinct from Minecraft and FML versions. |
-| `--force` | Replace existing registration and `launch.toml` during server initialization; replace the existing connection registration with `--remote`. Existing `conf.toml` is preserved by default. |
-| `--foverride-conf` | Regenerate `conf.toml`, replacing settings and comments. Requires `--force`; conflicts with `--remote`. |
-| `--no-git` | Skip Git discovery and creation on the Host that owns the server. Conflicts with `--git`. |
-| `--git` | Require a Git repository in the actual server directory itself. Conflicts with `--no-git`. |
-| `--no-ui` | Disable the candidate-selection TUI and use Console. |
-| `--full-command` | Show the complete startup command generated from `launch.toml` and `conf.toml`. |
-
-### Paths and execution target
-
-| Situation | PATH | Actual write target |
-| --- | --- | --- |
-| No `--ssh`; Local or unregistered directory | Local server directory | Local server |
-| No `--ssh`; registered Remote workspace | Local workspace directory | Remote server in registration |
-| `--ssh` without `--remote` | Remote server directory | Specified remote server |
-| `--ssh` with `--remote REMOTE_PATH` | Local workspace directory | Local connection registration; REMOTE_PATH is an existing remote Local Server |
-
-The actual target must be a Local Server; a Remote workspace cannot point to another Remote workspace.
-
-### Initialization modes
-
-#### Recognize a startup script
+### 1. Recognize a startup script
 
 ```sh
 mcpm init ./server
 mcpm init ./server --start-script scripts/start.sh --no-ui
-mcpm init ./server --start-script run.bat --start-line 12
-mcpm init ./server --start-script run.sh --start-line scripts/start.sh:3
 ```
 
-Without `--start-script`, the Host's default script is `run.bat` on Windows and `run.sh` elsewhere. The script path must stay inside the server directory.
+| Argument or option | Behavior |
+| --- | --- |
+| `[PATH]` | Existing server or workspace directory. |
+| `--start-script <FILE>` | Scan the given server-relative script, including supported references to other scripts. If omitted, try `run.bat` then `start.bat` on Windows, or `run.sh` then `start.sh` elsewhere. Stop at the first script that yields a candidate. |
+| `--no-ui` | Use the numbered Console list instead of TUI cards. |
+| `--raw` | Disable interaction. |
+| `--force` | Required if the server is already registered or `launch.toml` exists. Replaces the registration and `launch.toml` while preserving existing `conf.toml` by default. |
+| `--foverride-conf` | Regenerate `conf.toml`, replacing user settings and comments. Requires `--force`. |
+| `--git` / `--no-git` | Require a repository in the server directory itself, or skip Git entirely. Mutually exclusive. |
+| `--full-command` | Show the complete startup command derived from the resulting configuration. |
+| `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | Select the server host explicitly; `[PATH]` is then on that host. The mcpmd path is optional and requires `--ssh`. |
 
-Recognition statically reads scripts and identity evidence without executing them. Lines with unsupported operators or command substitutions are skipped, as are complete unsupported control-flow blocks. Potential directory/variable changes in skipped text invalidate only the affected state; later commands that depend on unknown state cannot be imported. Insufficient evidence may still require complete manual identity.
+#### Startup command scanning
 
-For a vanilla launch, JAR version metadata takes precedence. If both `version.json` and `META-INF/versions.list` are absent, `mcpm` hashes the entire JAR and looks up its SHA-1 in a built-in table of official server downloads before `18w47b`. This works offline and does not match modified JARs. `--log-level info` shows which source identified the version.
+- **Script references**: Start at the entry script and follow calls that can be resolved statically, such as `sh scripts/launch.sh` or `call scripts\launch.bat`. Each candidate identifies the script and line containing the Java command.
+- **Unsupported syntax**: Skip lines with unsupported operators or command substitutions, as well as unsupported control-flow blocks. Later commands that depend on an unresolved working directory or variable cannot be imported.
+- **Candidate eligibility**: A Java command must establish a server identity and yield a launch configuration draft. Failure to identify or import one command does not discard other candidates.
 
-Candidates include the configuration draft needed for initialization. Git preparation and configuration writes occur only after a candidate is selected; recognition alone or cancelling selection does not write.
+#### Server identity and version
 
-#### Complete manual identity
+- **One matching loader**: Create one candidate with the Minecraft version, loader type, and loader version.
+- **Multiple matching loaders**: Create a separate candidate for each match. Choose which server identity to register.
+- **No matching loader**: Try vanilla version recognition only for a `java -jar` command whose JAR declares a supported vanilla server main class.
+
+Vanilla Minecraft version sources, in order:
+
+1. **`version.json`**: Read the version ID from the launch JAR.
+2. **`META-INF/versions.list`**: Locate the bundled server JAR from the list and verify its `version.json`.
+3. **Offline SHA-1 table**: If both metadata files are absent, hash the entire JAR and match it against unmodified official server downloads before `18w47b`.
+
+Invalid or inconsistent metadata rejects the command rather than falling back to SHA-1. Use `--log-level info` to see which source identified the vanilla version.
+
+#### Candidate selection
+
+A single candidate is used directly. With multiple candidates, behavior depends on the [output mode](../README.md#output-modes):
+
+| Mode | Selection |
+| --- | --- |
+| TUI | Move with Up or Down and confirm with Enter. Esc or Ctrl-C cancels. |
+| Console | Enter a candidate number. An empty answer, Esc, Ctrl-C, or EOF cancels. |
+| Raw | List the candidates and return an error. Use TUI or Console to choose, or supply complete manual identity. |
+
+Console reads from the controlling terminal, not redirected stdin. Candidates show the script location, main class, entry, and application arguments.
+
+#### Configuration import
+
+Git preparation and writes start after a candidate is selected. The import writes:
+
+| File | Contents |
+| --- | --- |
+| `.mcpm/server.json` | Version 4 server identity. |
+| `.mcpm/mcpm.json` | Local workspace type. |
+| `.mcpm/.gitignore` | Metadata ignore rules. |
+| `launch.toml` | Entry, fixed arguments, working directory, and explicit environment overrides. |
+| `conf.toml` | Recognized Java, memory, GC, and server options. |
+
+Java argument files are expanded during import. Changes to the scripts require reimport.
+
+#### Java agent recognition and import
+
+Resolve each `-javaagent` path relative to the original Java working directory. A missing or unreadable file, or a path to a directory, prevents importing that command.
+
+For `-javaagent:<JAR>=<API_URL>`, the manifest identifies authlib-injector when `Premain-Class` is `moe.yushi.authlibinjector.Premain`. The filename does not matter. Other agents retain their original `-javaagent` argument and options.
+
+When exactly one authlib-injector is recognized:
+
+- **JAR and API address**: Store them as `jar` and `apiUrl` in `[authlib-injector]` in `conf.toml`. The path still points to the existing JAR.
+- **Supported JVM properties**: Import each `-Dauthlibinjector.*` property that occurs exactly once and can be represented as a configuration field into `[authlib-injector]`.
+- **Other JVM properties**: Keep repeated, unknown, or unrepresentable properties as their original JVM arguments.
+
+A command with more than one recognized authlib-injector is excluded from the candidate list.
+
+#### Configuration publication and recovery
+
+A conflict with the preserved `conf.toml` prevents publication. If publication is interrupted, rerun `init` to recover before [launching the server](launch.md).
+
+### 2. Initialize with complete manual identity
 
 ```sh
 mcpm init ./server --minecraft-version 1.21.1 --loader vanilla
 mcpm init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
+mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla --no-git
 ```
 
-| Combination | Requirement |
+| Argument or option | Behavior |
 | --- | --- |
-| Any non-vanilla Loader | Provide both `--minecraft-version` and `--loader-version` |
-| vanilla | Provide explicit `--loader vanilla`; `--loader-version` is prohibited |
+| `[PATH]` | Existing server or workspace directory. |
+| `--minecraft-version <VERSION>` | Required. Alias: `--mc-version`. |
+| `--loader <LOADER>` | Required: `vanilla`, `fabric`, `forge`, or `neoforge`. |
+| `--loader-version <VERSION>` | Required for a modded server; not allowed with `--loader vanilla`. This is the loader version, not the Minecraft or FML version. |
+| `--force` | Replace the server registration and remove any existing `launch.toml`. Existing `conf.toml` is preserved by default. |
+| `--foverride-conf` | Regenerate `conf.toml`, replacing user settings and comments. Requires `--force`. |
+| `--git` / `--no-git` | Require a repository in the server directory itself, or skip Git entirely. Mutually exclusive. |
+| `--full-command` | Show the complete startup command if available. |
+| `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | Select the server host explicitly; `[PATH]` is then on that host. The mcpmd path is optional and requires `--ssh`. |
 
-Complete manual identity does not read a startup script and does not generate `launch.toml`. Use recognizable startup-script initialization when launch configuration is needed.
+Partial identity returns an error.
 
-#### Partial identity: filter candidates
+Manual initialization writes the Local registration and settings without generating `launch.toml`. Use script recognition to import launch configuration.
+
+### 3. Register a Remote workspace
 
 ```sh
-mcpm init ./server --loader forge --no-ui
-mcpm init ./server --minecraft-version 1.20.1 --no-ui
-```
-
-Incomplete identity still runs recognition; supplied fields only filter recognized candidates. No matching candidate fails; multiple matching candidates follow the selection mode below.
-
-#### Candidate selection
-
-| Candidate count | Behavior |
-| --- | --- |
-| 1 | Used directly without opening the TUI |
-| Multiple, terminal stdout/stderr without `--no-ui` | Local TUI cards: Up/Down moves, Enter confirms, Esc or Ctrl-C cancels |
-| Multiple, terminal stdout with `--no-ui` or redirected stderr | Console numbered list; enter a number to confirm. Enter without a number, Esc, Ctrl-C, or EOF cancels |
-| Multiple, `--raw` or redirected stdout | Error with a structured Tip containing each candidate and a copyable initialization command |
-
-Selection stays local for remote initialization. Console reads the controlling terminal, never redirected stdin; stdin does not select the output mode. Cards and lists show the source, main class, entry, and application-argument summary from the existing configuration draft.
-
-Use `--start-script` plus `--start-line` to select a recognized command without a prompt while retaining its launch configuration. A bare line selects within the root script, not a nested script; unsupported/skipped commands cannot be selected. Retry commands preserve the original PATH, SSH target, and write options, and replace partial identity filters with exact source selection. Commands use POSIX shell quoting on Unix and PowerShell quoting on Windows.
-
-### Files written
-
-| File | Content |
-| --- | --- |
-| `.mcpm/server.json` | Version-4 server identity registration |
-| `.mcpm/mcpm.json` | Local workspace type |
-| `.mcpm/.gitignore` | Metadata ignore rules |
-| `launch.toml` | Launch configuration imported from the candidate draft; not generated for manual identity |
-| `conf.toml` | User settings |
-
-Existing `conf.toml` is preserved by default. Publication fails when a new launch configuration conflicts with the preserved `conf.toml`.
-
-### Reinitialization and replacement
-
-```sh
-# Replace registration and launch configuration; preserve existing conf.toml
-mcpm init ./server --start-script run.sh --force
-
-# Also regenerate conf.toml
-mcpm init ./server --start-script run.sh --force --foverride-conf
-```
-
-| Situation | Behavior |
-| --- | --- |
-| Existing registration or `launch.toml`, no `--force` | Failure |
-| `--force` with startup-script initialization | Replace registration and `launch.toml`; preserve `conf.toml` |
-| `--force` with manual identity | Replace registration; do not generate `launch.toml`, and remove an existing `launch.toml` |
-| `--force --foverride-conf` | Also replace `conf.toml` |
-| Existing Local/Remote type | `--force` cannot convert the type |
-| `.mcpm/server.json` is a directory | Replacement is rejected |
-
-Publication, type-marker, or connection failure can occur after some files are written. Inspect the actual files before retrying.
-
-### Git
-
-| Option | Behavior |
-| --- | --- |
-| Default | Reuse the target repository, a parent repository, or a worktree; create a repository in the server directory only when none exists |
-| `--git` | Require a repository in the server directory itself; reuse an existing repository |
-| `--no-git` | Skip discovery and creation |
-
-Files are not staged or committed automatically. Unless `--no-git` is used, Git must be installed on the Host that owns the server; a damaged repository or failed Git command returns an error. `--force` does not skip Git.
-
-### Remote initialization
-
-```sh
-mcpm --ssh 'ssh user@host' init /srv/minecraft \
-  --minecraft-version 1.21.1 --loader vanilla --no-git
-```
-
-PATH is the remote server directory. Recognition, Git, server registration, and configuration publication all run remotely.
-
-### Remote workspace
-
-```sh
-# Create a local entry for an existing remote server
 mcpm --ssh 'ssh user@host' init ./workspace --remote /srv/minecraft --git
-
-# Replace the saved local connection and path
 mcpm --ssh 'ssh user@new-host' init ./workspace --remote /srv/new-server --force --no-git
-
-# Follow the local entry and reinitialize the remote server
-mcpm init ./workspace --force --minecraft-version 1.21.1 --loader vanilla --no-git
 ```
 
-| Invocation | Effect |
+| Argument or option | Behavior |
 | --- | --- |
-| `init ./workspace --remote REMOTE_PATH` | Validate the remote Local Server, perform Git preparation, then write the local connection registration |
-| No `--remote`; PATH is a Remote workspace | Initialize the remote server in the registration |
-| Existing Remote registration without `--force` | Connection replacement is rejected |
-| Local directory is already a Local workspace | Conversion to Remote is not allowed |
+| `[PATH]` | Existing local workspace directory. Defaults to `.`. |
+| `--remote <REMOTE_PATH>` | Required. Existing, already registered Local Server on the SSH host. |
+| `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | Explicit `--ssh` is required. The remote mcpmd path is optional. |
+| `--force` | Replace the saved connection and server path in an existing Remote workspace; cannot convert a Local workspace to Remote. |
+| `--git` / `--no-git` | Require a repository in the remote server directory itself, or skip Git entirely. Mutually exclusive. |
+| `--full-command` | Show the remote server's complete startup command if available. |
 
-Creating a Remote workspace runs Git against the remote server directory; the local workspace does not create a Git repository.
+Registration order:
 
-The local workspace stores only the SSH command, optional mcpmd path, and remote directory. The remote server must already be registered as a Local Server; initialize it first otherwise.
+1. On the SSH host, verify that the target is a registered Local Server and prepare Git.
+2. Write the connection registration on this machine: the SSH command, optional mcpmd path, and remote directory.
+
+To initialize the server through a saved connection, use script recognition or manual initialization without `--remote`.
+
+### Default Git behavior
+
+Git reuses a repository in the server directory, a parent repository, or a worktree. If none exists, it creates a repository in the server directory. `--force` does not skip Git. Files are not staged or committed automatically.
+
+### Write limits
+
+- **Replacement**: `--force` cannot change the workspace type or replace a directory at `.mcpm/server.json`.
+- **Partial completion**: An interrupted publication or connection can leave files already written. Inspect the target before retrying.
+
+See [common options](../README.md#common-options) for global output and logging flags.

@@ -24,7 +24,7 @@ fn fabric_installer_metadata_uses_java_duplicate_and_escape_semantics() {
         ("install.properties", b"game-version=old\r\ngame\\u002dversion : 1.21.\\\r\n  1\r\nfabric-loader-version=old\nfabric\\-loader-version=0.16.\\\r 10\r\nunused=caf\xe9\nempty\n=value\n"),
     ]);
     fs::write(root.path().join("run.sh"), "java -jar server.jar\n").unwrap();
-    let candidates = identify(root.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap();
+    let candidates = identify(root.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].metadata.minecraft_version, "1.21.1");
     let loader = candidates[0].metadata.loader.declaration().unwrap();
@@ -45,7 +45,7 @@ fn fabric_game_selection_uses_the_last_decoded_properties_path() {
     )
     .unwrap();
     fs::write(root.path().join("run.sh"), "java -cp libraries/net/fabricmc/fabric-loader/0.16.10/fabric-loader-0.16.10.jar net.fabricmc.loader.impl.launch.server.FabricServerLauncher\n").unwrap();
-    let candidates = identify(root.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap();
+    let candidates = identify(root.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
     assert_eq!(candidates[0].metadata.minecraft_version, "1.21.1");
     assert_eq!(
         candidates[0].metadata.loader.declaration().unwrap().version,

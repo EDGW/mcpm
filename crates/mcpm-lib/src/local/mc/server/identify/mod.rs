@@ -11,18 +11,16 @@ pub(crate) use vanilla::is_vanilla_main_class;
 use super::{MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader};
 use crate::local::modloader::{LoaderId, ModLoaderMeta};
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-use std::{num::NonZeroUsize, str::FromStr};
 use thiserror::Error;
 
 // Preserve the existing public import path.
 pub use super::ServerLaunch;
 
-/// An identified launch. Source location and Java entry point explain its provenance.
+/// A launch and one of its recognized identities. Source location and Java entry explain its provenance.
 /// Identification does not guarantee that dependencies are installed or launchable.
 #[derive(Debug, Clone)]
 pub struct ServerCandidate {
@@ -31,51 +29,18 @@ pub struct ServerCandidate {
     pub configuration: super::config::ConfigurationDraft,
 }
 
-/// A one-based command line, optionally in a nested server-root-relative script.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StartLine {
-    pub script: Option<PathBuf>,
-    pub line: NonZeroUsize,
-}
-impl FromStr for StartLine {
-    type Err = anyhow::Error;
-
-    fn from_str(value: &str) -> Result<Self> {
-        let (script, line) = match value.rsplit_once(':') {
-            Some((script, line)) => {
-                anyhow::ensure!(
-                    !script.is_empty(),
-                    "expected [SCRIPT:]LINE with a nonempty script path"
-                );
-                (Some(PathBuf::from(script)), line)
-            }
-            None => (None, value),
-        };
-        anyhow::ensure!(
-            line.bytes().all(|ch| ch.is_ascii_digit()),
-            "LINE must be a positive decimal line number"
-        );
-        let line = line
-            .parse::<NonZeroUsize>()
-            .context("LINE must be a positive decimal line number")?;
-        Ok(Self { script, line })
-    }
-}
-
 /// `script` must be relative to and contained within `root`. All script/file paths are resolved
 /// without executing anything. This extracts identity evidence, not command validity.
-/// Unavailable commands are diagnosed independently; recognized candidates survive
-/// failures elsewhere. When no candidate is found, an extraction diagnostic is returned.
+/// A launch yields one candidate per matching loader. Unavailable commands are diagnosed
+/// independently; if no candidate is found, an extraction diagnostic is returned.
 /// The caller selects loader implementations from the complete BUILTIN_LOADERS registry.
 pub fn identify(
     root: impl AsRef<Path>,
     script: impl AsRef<Path>,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
-    start_line: Option<&StartLine>,
 ) -> Result<Vec<ServerCandidate>> {
     tracing::info!(root = ?root.as_ref(), script = ?script.as_ref(), "identifying Minecraft server");
-    let result = identify_inner(root.as_ref(), script.as_ref(), loaders, start_line);
+    let result = identify_inner(root.as_ref(), script.as_ref(), loaders);
     match &result {
         Ok(candidates) => {
             tracing::debug!(count = candidates.len(), "server identification completed")
@@ -91,7 +56,6 @@ fn identify_inner(
     root: &Path,
     script: &Path,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
-    start_line: Option<&StartLine>,
 ) -> Result<Vec<ServerCandidate>> {
     let root = std::fs::canonicalize(root)
         .with_context(|| format!("failed to resolve server directory {root:?}"))?;
@@ -99,58 +63,19 @@ fn identify_inner(
     super::script_path::validate(&root, script)?;
     let path = root.join(script);
     let evidence = script::read(&root, &path);
-    let selected_script = start_line
-        .map(|selection| {
-            let script = selection.script.as_deref().unwrap_or(script);
-            super::script_path::validate(&root, script)?;
-            std::fs::canonicalize(root.join(script))
-                .context("failed to resolve selected command script")
-        })
-        .transpose()?;
     let mut diagnostics = evidence.diagnostics;
-    if let Some(selection) = start_line {
-        diagnostics.retain(|error| {
-            script::diagnostic_at(
-                error,
-                selected_script.as_ref().unwrap(),
-                selection.line.get(),
-            )
-        });
-    }
     let mut ordered: Vec<_> = loaders.values().collect();
     ordered.sort_by(|a, b| a.id().cmp(b.id()));
     let mut candidates: Vec<ServerCandidate> = Vec::new();
+    let mut identities = Vec::new();
     for launch in evidence.launches {
-        if let Some(selection) = start_line {
-            if launch.line != selection.line.get() {
-                continue;
-            }
-            if std::fs::canonicalize(&launch.script)
-                .context("failed to resolve candidate command script")?
-                != *selected_script.as_ref().unwrap()
-            {
-                continue;
-            }
-        }
         tracing::debug!(script = ?launch.script, line = launch.line, main_class = %launch.main_class(), "inspecting Java server entry");
-        let metadata = match identify_launch(&launch, &ordered) {
-            Ok(Some(metadata)) => metadata,
-            Ok(None) => {
-                diagnostics.push(
-                    ServerIdentificationError::Unrecognized {
-                        path: launch.script,
-                        line: launch.line,
-                    }
-                    .into(),
-                );
-                continue;
-            }
-            Err(error) => {
-                tracing::debug!(error = %format_args!("{error:#}"), "skipping unavailable launch identity");
-                diagnostics.push(error);
-                continue;
-            }
-        };
+        identities.clear();
+        if let Err(error) = identify_launch(&launch, &ordered, &mut identities) {
+            tracing::debug!(error = %format_args!("{error:#}"), "skipping unavailable launch identity");
+            diagnostics.push(error);
+            continue;
+        }
         let script = launch.script.strip_prefix(&root).with_context(|| {
             format!(
                 "identified start script {:?} escapes Server directory {root:?}",
@@ -158,43 +83,40 @@ fn identify_inner(
             )
         })?;
         super::script_path::validate(&root, script)?;
-        if !candidates.iter().any(|existing| {
-            existing.metadata == metadata
-                && existing.launch.script == launch.script
-                && existing.launch.directory == launch.directory
-                && existing.launch.command == launch.command
-                && existing.launch.environment == launch.environment
-        }) {
-            let configuration = match super::config::draft(&root, &launch) {
-                Ok(draft) => draft,
-                Err(error) => {
-                    diagnostics.push(error.context(format!(
-                        "cannot convert {:?}:{} to launch configuration",
-                        launch.script, launch.line
-                    )));
-                    continue;
-                }
-            };
-            candidates.push(ServerCandidate {
-                metadata,
-                launch,
-                configuration,
-            });
-        }
+        identities.retain(|metadata| {
+            !candidates.iter().any(|existing| {
+                existing.metadata == *metadata
+                    && existing.launch.script == launch.script
+                    && existing.launch.directory == launch.directory
+                    && existing.launch.command == launch.command
+                    && existing.launch.environment == launch.environment
+            })
+        });
+        let Some(last) = identities.pop() else {
+            continue;
+        };
+        let configuration = match super::config::draft(&root, &launch) {
+            Ok(draft) => draft,
+            Err(error) => {
+                diagnostics.push(error.context(format!(
+                    "cannot convert {:?}:{} to launch configuration",
+                    launch.script, launch.line
+                )));
+                continue;
+            }
+        };
+        candidates.extend(identities.drain(..).map(|metadata| ServerCandidate {
+            metadata,
+            launch: launch.clone(),
+            configuration: configuration.clone(),
+        }));
+        candidates.push(ServerCandidate {
+            metadata: last,
+            launch,
+            configuration,
+        });
     }
     if candidates.is_empty() {
-        if let Some(selection) = start_line {
-            let selected_script = selection.script.as_deref().unwrap_or(script);
-            let error = anyhow::anyhow!(
-                "no identified server launch at {}:{}",
-                selected_script.display(),
-                selection.line
-            );
-            return Err(match diagnostics.into_iter().next() {
-                Some(cause) => cause.context(error),
-                None => error,
-            });
-        }
         return Err(diagnostics
             .into_iter()
             .next()
@@ -203,12 +125,12 @@ fn identify_inner(
     Ok(candidates)
 }
 
-/// One command's extraction failure must not discard other candidates.
+/// Collects this command's matching loader identities before considering vanilla.
 fn identify_launch(
     launch: &ServerLaunch,
     ordered: &[&ModLoaderMeta],
-) -> Result<Option<MinecraftServerMetadata>> {
-    let mut recognized = Vec::new();
+    recognized: &mut Vec<MinecraftServerMetadata>,
+) -> Result<()> {
     for loader in ordered {
         tracing::trace!(loader = %loader.name(), "checking server loader evidence");
         if let Some(identity) =
@@ -235,33 +157,26 @@ fn identify_launch(
             });
         }
     }
-    if recognized.len() > 1 {
-        return Err(ServerIdentificationError::ConflictingLoaders {
+    if !recognized.is_empty() {
+        return Ok(());
+    }
+    let version = vanilla::vanilla(launch)
+        .with_context(|| {
+            format!(
+                "failed to identify vanilla server at {:?}:{}",
+                launch.script, launch.line
+            )
+        })?
+        .ok_or_else(|| ServerIdentificationError::Unrecognized {
             path: launch.script.clone(),
             line: launch.line,
-        }
-        .into());
-    }
-    let metadata = match recognized.pop() {
-        Some(metadata) => metadata,
-        None => {
-            let Some(version) = vanilla::vanilla(launch).with_context(|| {
-                format!(
-                    "failed to identify vanilla server at {:?}:{}",
-                    launch.script, launch.line
-                )
-            })?
-            else {
-                return Ok(None);
-            };
-            MinecraftServerMetadata {
-                version: SERVER_METADATA_VERSION,
-                minecraft_version: version,
-                loader: ServerLoader::Vanilla,
-            }
-        }
-    };
-    Ok(Some(metadata))
+        })?;
+    recognized.push(MinecraftServerMetadata {
+        version: SERVER_METADATA_VERSION,
+        minecraft_version: version,
+        loader: ServerLoader::Vanilla,
+    });
+    Ok(())
 }
 
 #[derive(Debug, Error)]
@@ -272,6 +187,4 @@ pub enum ServerIdentificationError {
         "cannot accurately identify server at {path:?}:{line}; no recognized loader or vanilla entry"
     )]
     Unrecognized { path: PathBuf, line: usize },
-    #[error("multiple loader implementations recognized the same Java launch at {path:?}:{line}")]
-    ConflictingLoaders { path: PathBuf, line: usize },
 }

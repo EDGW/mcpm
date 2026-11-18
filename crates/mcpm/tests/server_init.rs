@@ -123,7 +123,7 @@ fn fml_uses_command_evidence_without_opening_dependency_jars() {
                 "helper \"$UNRESOLVED_HELPER\"\njava -jar absent-helper.jar\n"
             };
             fs::write(&path, format!("{helper}{original}")).unwrap();
-            let candidates = identify::identify(temp.path(), script, &BUILTIN_LOADERS, None).unwrap();
+            let candidates = identify::identify(temp.path(), script, &BUILTIN_LOADERS).unwrap();
             assert_eq!(
                 candidates[0].metadata.minecraft_version, mc,
                 "{case}: {script}"
@@ -148,7 +148,7 @@ fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
             // The intermediary coordinate already supplies the game version.
             fs::remove_file(temp.path().join("server.jar")).unwrap();
         }
-        let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap();
+        let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
         assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1", "{case}");
         assert_eq!(
             candidates[0].metadata.loader.declaration().unwrap().version,
@@ -161,10 +161,10 @@ fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
     copy(&fixture("fabric"), temp.path());
     fs::write(temp.path().join("run.sh"), "java -cp libraries/net/fabricmc/fabric-loader/0.16.10/fabric-loader-0.16.10.jar net.fabricmc.loader.impl.launch.knot.KnotServer\n").unwrap();
     fs::remove_dir_all(temp.path().join("libraries")).unwrap();
-    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap();
+    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
     assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1");
     fs::remove_file(temp.path().join("server.jar")).unwrap();
-    assert!(identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS, None).is_err());
+    assert!(identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).is_err());
 }
 
 #[test]
@@ -214,23 +214,41 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
 }
 
 #[test]
-fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identified_results() {
+fn multiple_candidates_require_a_terminal_or_complete_manual_identity() {
     let temp = TempDir::new().unwrap();
     copy(&fixture("multiple"), temp.path());
-    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap();
-    assert_eq!(candidates.len(), 2);
     for args in [
         vec!["init", "--start-script", "run.sh"],
         vec!["--raw", "init", "--start-script", "run.sh"],
     ] {
         let output = run(temp.path(), &args);
         assert!(!output.status.success());
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains("multiple identified server launches")
-        );
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains("selection requires an interactive terminal"));
+        assert!(error.contains("run.sh:1") && error.contains("run.sh:2"));
+        assert!(!error.contains("--start-line"));
         assert!(!temp.path().join(".mcpm").exists());
     }
-    let output = run(temp.path(), &["init", "--minecraft-version", "1.21.1"]);
+    for args in [
+        vec!["init", "--minecraft-version", "1.21.1"],
+        vec!["init", "--minecraft-version", "1.21.1", "--loader", "forge"],
+        vec!["init", "--start-script", "run.sh", "--start-line", "2"],
+    ] {
+        let output = run(temp.path(), &args);
+        assert!(!output.status.success());
+        assert!(!temp.path().join(".mcpm").exists());
+    }
+
+    let output = run(
+        temp.path(),
+        &[
+            "init",
+            "--minecraft-version",
+            "1.21.1",
+            "--loader",
+            "vanilla",
+        ],
+    );
     assert!(
         output.status.success(),
         "{}",
@@ -238,16 +256,7 @@ fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identif
     );
     let server = MinecraftServer::load(temp.path()).unwrap();
     assert_eq!(server.metadata().minecraft_version, "1.21.1");
-    let launch = mcpm_lib::local::mc::server::config::decode_launch(
-        &fs::read_to_string(temp.path().join("launch.toml")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        launch.entry,
-        mcpm_lib::local::mc::server::launch::JavaEntry::Jar {
-            path: "other.jar".into()
-        }
-    );
+    assert!(!temp.path().join("launch.toml").exists());
 }
 
 #[test]

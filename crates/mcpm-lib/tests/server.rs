@@ -44,7 +44,7 @@ fn identification_rejects_scripts_outside_the_server_without_creating_registrati
         r"\\host\share\run.bat",
     ] {
         let root = TempDir::new().unwrap();
-        let error = identify::identify(root.path(), script, &BUILTIN_LOADERS, None).unwrap_err();
+        let error = identify::identify(root.path(), script, &BUILTIN_LOADERS).unwrap_err();
         assert!(
             error.downcast_ref::<ServerScriptError>().is_some(),
             "{script}: {error:#}"
@@ -67,7 +67,7 @@ fn identification_rejects_script_symlinks_escaping_the_server() {
     fs::create_dir(&root).unwrap();
     fs::create_dir(&outside).unwrap();
     symlink(&outside, root.join("external")).unwrap();
-    let error = identify::identify(&root, "external/run.sh", &BUILTIN_LOADERS, None).unwrap_err();
+    let error = identify::identify(&root, "external/run.sh", &BUILTIN_LOADERS).unwrap_err();
     assert!(
         error.downcast_ref::<ServerScriptError>().is_some(),
         "{error:#}"
@@ -124,7 +124,7 @@ fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments(
             ),
         )
         .unwrap();
-        let candidates = identify(root.path(), "run.bat", &BUILTIN_LOADERS, None)
+        let candidates = identify(root.path(), "run.bat", &BUILTIN_LOADERS)
             .unwrap_or_else(|error| panic!("{suffix:?}: {error:#}"));
         assert_eq!(candidates.len(), 1, "{suffix:?}");
         let candidate = &candidates[0];
@@ -170,7 +170,7 @@ fn identification_errors_retain_script_archive_member_and_parser_cause() {
         }
         fs::write(&jar, archive.finish().unwrap().into_inner()).unwrap();
         fs::write(root.path().join("run.sh"), "java -jar server.jar\n").unwrap();
-        let error = identify(root.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap_err();
+        let error = identify(root.path(), "run.sh", &BUILTIN_LOADERS).unwrap_err();
         let message = format!("{error:#}");
         for expected in ["run.sh", ":1", "server.jar", member] {
             assert!(message.contains(expected), "missing {expected}: {message}");
@@ -189,7 +189,7 @@ fn identification_errors_retain_script_archive_member_and_parser_cause() {
     }
     fs::write(root.path().join("run.sh"), "java @broken.args\n").unwrap();
     fs::write(root.path().join("broken.args"), "\"unfinished\\").unwrap();
-    let error = identify(root.path(), "run.sh", &BUILTIN_LOADERS, None).unwrap_err();
+    let error = identify(root.path(), "run.sh", &BUILTIN_LOADERS).unwrap_err();
     let message = format!("{error:#}");
     assert!(message.contains("broken.args"), "{message}");
     assert!(message.contains("run.sh"), "{message}");
@@ -205,7 +205,80 @@ fn script_candidates(
     fs::write(root.path().join("server.args"), "cpw.mods.bootstraplauncher.BootstrapLauncher --launchTarget neoforgeserver --fml.neoForgeVersion 21.1.233 --fml.mcVersion 1.21.1").unwrap();
     let name = format!("run.{extension}");
     fs::write(root.path().join(&name), script).unwrap();
-    identify(root.path(), &name, &BUILTIN_LOADERS, None)
+    identify(root.path(), &name, &BUILTIN_LOADERS)
+}
+
+#[test]
+fn same_java_command_keeps_each_matching_loader_as_a_candidate() {
+    use std::sync::Arc;
+
+    use mcpm_lib::local::{
+        mc::server::{ServerLaunch, identify::identify, launch::JavaEntry},
+        mcmod::{ModEntry, ModMeta},
+        modloader::{BUILTIN_LOADERS, ModLoader, ModLoaderMeta, ServerLoaderIdentity},
+    };
+
+    #[derive(Debug)]
+    struct OverlappingForgeDetector;
+
+    impl ModLoader for OverlappingForgeDetector {
+        fn metadata(&self) -> &ModLoaderMeta {
+            &BUILTIN_LOADERS["forge"]
+        }
+
+        fn try_identify_server(
+            &self,
+            launch: &ServerLaunch,
+        ) -> anyhow::Result<Option<ServerLoaderIdentity>> {
+            if launch.main_class() != "cpw.mods.bootstraplauncher.BootstrapLauncher" {
+                return Ok(None);
+            }
+            Ok(Some(ServerLoaderIdentity {
+                minecraft_version: "1.21.1".into(),
+                version: "52.0.1".into(),
+            }))
+        }
+
+        fn try_identify(&self, entry: &ModEntry) -> anyhow::Result<Option<ModMeta>> {
+            self.metadata().instance().try_identify(entry)
+        }
+    }
+
+    let mut loaders = BUILTIN_LOADERS.clone();
+    let forge = &BUILTIN_LOADERS["forge"];
+    loaders.insert(
+        forge.id().clone(),
+        ModLoaderMeta::new(
+            forge.id().clone(),
+            forge.name().into(),
+            Arc::new(OverlappingForgeDetector),
+        ),
+    );
+    let root = TempDir::new().unwrap();
+    let main_class = "cpw.mods.bootstraplauncher.BootstrapLauncher";
+    let command = format!(
+        "java {main_class} --launchTarget neoforgeserver --fml.neoForgeVersion 21.1.233 --fml.mcVersion 1.21.1\n"
+    );
+    fs::write(root.path().join("run.sh"), format!("{command}{command}")).unwrap();
+
+    let candidates = identify(root.path(), "run.sh", &loaders).unwrap();
+    let identities: Vec<_> = candidates
+        .iter()
+        .map(|candidate| {
+            let loader = candidate.metadata.loader.declaration().unwrap();
+            (loader.loader_type.as_str(), loader.version.as_str())
+        })
+        .collect();
+    assert_eq!(identities, [("forge", "52.0.1"), ("neoforge", "21.1.233")]);
+    for candidate in candidates {
+        assert_eq!(candidate.launch.line, 1);
+        assert_eq!(
+            candidate.configuration.launch.entry,
+            JavaEntry::Class {
+                main_class: main_class.into()
+            }
+        );
+    }
 }
 
 #[test]

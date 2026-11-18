@@ -18,25 +18,42 @@ mcpm info [OPTIONS] [PATH]
 
 | 选项 | 说明 |
 | --- | --- |
-| `--full-command` | 展示根据 `launch.toml` 与 `conf.toml` 生成的完整启动命令，不解除 SSH 脱敏。 |
+| `--full-command` | 根据 `launch.toml` 和 `conf.toml` 生成完整启动命令。配置无效时返回错误；不检查可执行文件或 JAR 是否存在。 |
 
 ### 输出
 
-返回名称、路径、Minecraft 版本、Loader 及版本、RCON 状态，以及 `launch.toml`、`conf.toml` 是否存在。RCON 从服务端目录的 `server.properties` 读取，密码仅保留首字符；单字符密码全部隐藏。文件或配置缺失时为 disabled；RCON 字段值和 properties 文件解析失败分别报告。Remote workspace 额外返回远端路径、脱敏 SSH 和 mcpmd 路径。
+#### Console 输出
 
-版本 1–3 不能用于 launch 等服务端操作。Console `info` 先报告升级错误并提示执行 `mcpm info --upgrade`，再显示旧登记，最后以非零状态退出。Raw `info`（包括 stdout 重定向）直接报错，不输出 metadata。旧版本的 `--full-command` 不准备或生成启动命令。读取保留原文件。
+- **服务端**：名称、路径、Minecraft 版本、Loader 及版本。
+- **配置**：`launch.toml` 和 `conf.toml` 是否存在。
+- **远端连接**：Remote 工作区额外显示远端路径、脱敏后的 SSH 命令和 mcpmd 路径。
 
-错误正文止于 `requires an upgrade`；另用统一格式的 `Tip:` 说明 metadata 已弃用并给出升级命令。升级成功消息使用成功色，随后空一行再显示服务端信息。
+#### RCON 状态
 
-Raw 为 TSV，无表头，字段依次为：
+RCON 状态取自服务端的 `server.properties`：
+
+- **未配置**：文件或设置缺失时显示 `disabled`。
+- **配置无效**：RCON 字段值无效和 properties 文件解析失败分别报告。
+- **密码脱敏**：仅保留首字符；单字符密码全部隐藏。
+
+#### Raw 输出
+
+Raw 使用无表头 TSV，字段依次为：
 
 ```text
 名称 路径 Minecraft版本 Loader Loader版本 启动命令
 ```
 
-Remote workspace 在字段前增加远端路径、脱敏 SSH、mcpmd 路径。未请求生成命令或配置缺失时为 `unavailable`。登记缺失或损坏时返回错误。
+Remote 工作区在这些字段前添加远端路径、脱敏后的 SSH 命令和 mcpmd 路径。未请求生成启动命令或缺少启动配置时，命令字段为 `unavailable`。
 
-`--full-command` 复用 launch 的参数生成逻辑，不启动 Java、不下载，也不检查可执行文件或 JAR 是否存在。V1/V2 的历史 `start` 被忽略。已有配置无效时返回错误。
+#### 登记异常
+
+登记缺失或损坏时报错。旧登记按输出模式处理：
+
+- **Console**：先提示执行 `mcpm info --upgrade`，再显示旧登记，以非零状态退出。
+- **Raw**：报错，不输出登记内容。
+
+旧登记不支持用 `--full-command` 生成启动命令。
 
 ### 示例
 
@@ -49,7 +66,7 @@ mcpm info ./server --full-command
 
 ## `mcpm info --upgrade`
 
-将 Local 登记版本 1–3 升级到版本 4。普通 `info` 不改写登记。
+将 Local 登记从版本 1–3 升级到版本 4。普通 `info` 不改写登记。
 
 ```sh
 mcpm info ./server --upgrade
@@ -58,13 +75,24 @@ mcpm --ssh 'ssh user@host' info /srv/minecraft --upgrade
 
 ### 登记格式
 
-- 版本 4 要求非空 `loader`：`{"type":"vanilla"}`、`{"type":"unrecognized"}` 或 `{"type":"forge","version":"47.4.0"}` 等明确 loader。
-- 版本 1–3 仅用于旧登记检查和显式升级，统一按旧 V3 结构解析；正常服务端操作要求 V4。旧 `loader: null` 在明确确认前视为 Unrecognized。旧 `start` 被忽略，包括 V1/V2 中任意形式的该字段。
-- 其他版本报错且不改写。Remote workspace 的连接登记使用独立格式，保持不变。
+- **版本 4**：要求非空 `loader`，例如 `{"type":"vanilla"}`、`{"type":"unrecognized"}` 或 `{"type":"forge","version":"47.4.0"}`。已是版本 4 时无需升级。
+- **版本 1–3**：仅用于检查和显式升级，统一按旧 V3 结构解析。`loader: null` 视为 Unrecognized；忽略历史 `start` 字段。其他服务端操作要求版本 4。
+- **其他版本**：报错且不改写。
+
+Remote 工作区的连接登记使用独立格式，保持不变。
 
 ### Vanilla 确认
 
-对于旧 Unrecognized 登记，只从 `launch.toml` 取证。JAR 根据 `process.workingDirectory` 定位并读取 manifest；class/module 使用明确的 `mainClass`。不运行 Java、不下载，不读取 `conf.toml` 或历史 `start`。
+旧登记已有具体 Loader 时保留原 ID 和版本。对于 Unrecognized 登记，按 `launch.toml` 的入口类型确定主类：
+
+| 入口类型 | 主类来源 |
+| --- | --- |
+| JAR | 按 `process.workingDirectory` 定位 JAR，再读取 manifest。 |
+| Class / Module | 使用显式 `mainClass`。 |
+
+缺少 `launch.toml`、module 未显式指定主类或主类不匹配时，保持 Unrecognized。配置损坏或 JAR 不可读时报错。
+
+发现原版入口时，提示确认（输入不区分大小写）：
 
 ```text
 Set loader to Vanilla? [y(es)/n(o)/C(ancel)]
@@ -76,179 +104,167 @@ Set loader to Vanilla? [y(es)/n(o)/C(ancel)]
 | `n`、`no` | 写入 V4 Unrecognized |
 | `c`、`cancel`、Enter、Esc、Ctrl-C、EOF | 取消，登记不变 |
 
-输入不区分大小写。配置缺失、module 无明确主类或主类不匹配时保持 Unrecognized。配置损坏或 JAR 证据不可读时失败且不提交。已有具体 loader 的 ID 和版本保留。版本 4 不改写。
+### 执行条件
 
-Raw 或输出重定向时，所有旧格式操作直接报错且不写入，包括 `info --upgrade`；显式升级应在 Console 模式执行。SSH 与 Remote workspace 的文件检查和写入在服务端主机完成，确认留在本机。登记或启动证据变化会使待提交选择失效。
+- **输出模式**：显式升级在 Console 模式下执行。Raw 模式下拒绝升级，不写入。
+- **远端目标**：在服务端主机检查和写入，本机负责确认。
+- **确认有效期**：登记或启动证据发生变化时，本次选择失效。
 
-只修改 `.mcpm/server.json`；保留 Minecraft 版本、配置、世界、Mod、Git 和连接登记。Vanilla 与 Unrecognized 分开显示，版本列为空。`--full-command` 保留，升级后根据当前配置生成完整启动命令。
+### 升级结果
+
+升级只修改 `.mcpm/server.json`。输出分别显示 Vanilla 和 Unrecognized，两者的 Loader 版本列均为空。升级后，`--full-command` 根据当前配置生成启动命令。
 
 ## `mcpm init`
 
-```text
-mcpm init [OPTIONS] [PATH]
-```
+为已有服务端登记，或创建指向已有服务端的 Remote 工作区。
 
-### 参数
+在脚本识别和手动初始化模式中，`[PATH]` 默认为 `.`，按以下规则定位服务端：
 
-| 参数 | 说明 |
+| 调用方式 | 服务端位置 |
 | --- | --- |
-| `[PATH]` | 已存在的目录。默认 `.`。通常为服务端目录；带 `--remote` 时为本机 Remote 工作区目录；显式 `--ssh` 且不带 `--remote` 时为远端服务端目录。 |
+| 显式指定 `--ssh` | SSH 主机上的 `[PATH]`。 |
+| 未指定 `--ssh`，且 `[PATH]` 是 Remote 工作区 | 登记中的远端服务端。 |
+| 未指定 `--ssh`，且 `[PATH]` 是 Local 或未登记目录 | 本机的 `[PATH]`。 |
 
-### 选项
+识别、Git 和写入在服务端主机执行，候选选择在本机进行。
 
-| 选项 | 说明 |
-| --- | --- |
-| `--remote <REMOTE_PATH>` | 将 PATH 登记为 Remote 工作区，指向已有远端 Local Server。要求 `--ssh`。与 `--start-script`、手动身份选项、`--foverride-conf` 互斥。 |
-| `--start-script <FILE>` | 静态识别服务端目录内的启动脚本，使用相对路径。与手动身份选项互斥。 |
-| `--start-line <[SCRIPT:]LINE>` | 按从 1 开始的源码行号选定已识别命令。要求 `--start-script`，与手动身份和 `--remote` 互斥。SCRIPT 相对服务端根目录，仅嵌套脚本需要指定。 |
-| `--minecraft-version <VERSION>` | Minecraft 版本。别名 `--mc-version`。 |
-| `--loader <LOADER>` | Loader：`fabric`、`forge`、`neoforge` 或 `vanilla`。 |
-| `--loader-version <VERSION>` | Loader 版本，不是 Minecraft 或 FML 版本。 |
-| `--force` | 服务端初始化时替换已有登记和 `launch.toml`；`--remote` 时替换已有连接登记。默认保留已有 `conf.toml`。 |
-| `--foverride-conf` | 同时重新生成 `conf.toml`，覆盖已有设置和注释。要求 `--force`，与 `--remote` 互斥。 |
-| `--no-git` | 跳过服务端所属主机上的 Git 检查与创建。与 `--git` 互斥。 |
-| `--git` | 要求实际服务端目录自身具有 Git 仓库。与 `--no-git` 互斥。 |
-| `--no-ui` | 禁用候选选择 TUI，使用 Console。 |
-| `--full-command` | 展示根据 `launch.toml` 和 `conf.toml` 生成的完整启动命令。 |
-
-### 路径与执行位置
-
-| 场景 | PATH | 实际写入目标 |
-| --- | --- | --- |
-| 无 `--ssh`，PATH 为本机 Local 或未登记目录 | 本机服务端目录 | 本机服务端 |
-| 无 `--ssh`，PATH 为已登记 Remote workspace | 本机工作区目录 | 登记中的远端服务端 |
-| 有 `--ssh`，无 `--remote` | 远端服务端目录 | 指定远端服务端 |
-| 有 `--ssh`，有 `--remote REMOTE_PATH` | 本机工作区目录 | 本机连接登记；REMOTE_PATH 为已有远端 Local Server |
-
-实际目标必须是 Local 服务端；Remote workspace 不能再指向另一个 Remote workspace。
-
-### 初始化方式
-
-#### 从启动脚本识别
+### 1. 从启动脚本识别
 
 ```sh
 mcpm init ./server
 mcpm init ./server --start-script scripts/start.sh --no-ui
-mcpm init ./server --start-script run.bat --start-line 12
-mcpm init ./server --start-script run.sh --start-line scripts/start.sh:3
 ```
 
-未指定 `--start-script` 时，使用服务端所属主机上的默认脚本：Windows 为 `run.bat`，其他平台为 `run.sh`。脚本路径必须位于服务端目录内。
+| 参数或选项 | 行为 |
+| --- | --- |
+| `[PATH]` | 已存在的服务端或工作区目录。 |
+| `--start-script <FILE>` | 扫描指定的服务端相对路径，并跟踪支持的脚本引用。省略时，Windows 先试 `run.bat` 再试 `start.bat`，其他平台先试 `run.sh` 再试 `start.sh`；找到候选即停止。 |
+| `--no-ui` | 使用 Console 编号列表，不打开 TUI 卡片。 |
+| `--raw` | 禁用交互。 |
+| `--force` | 已有服务端登记或 `launch.toml` 时必需。替换登记和 `launch.toml`，默认保留已有 `conf.toml`。 |
+| `--foverride-conf` | 重新生成 `conf.toml`，覆盖设置和注释。要求 `--force`。 |
+| `--git` / `--no-git` | 要求服务端目录自身具有 Git 仓库，或完全跳过 Git；两项互斥。 |
+| `--full-command` | 显示按最终配置生成的完整启动命令。 |
+| `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | 显式指定服务端主机；此时 `[PATH]` 是远端路径。mcpmd 路径可省略，指定时要求 `--ssh`。 |
 
-识别静态读取脚本和身份依据，不执行脚本。含不支持运算符或命令替换的行会被跳过；不支持的控制流块整体跳过。跳过内容可能修改的目录和变量状态会被标为未知；后续依赖未知状态的命令无法导入。证据不足时仍需提供完整手动身份。
+#### 启动命令扫描
 
-识别原版启动命令时优先使用 JAR 内的版本元数据。只有同时缺少 `version.json` 和 `META-INF/versions.list` 时，才计算整个 JAR 的 SHA-1，并在内置表中匹配 `18w47b` 之前的官方服务端下载。查询不联网，修改过的 JAR 无法通过此方式匹配。使用 `--log-level info` 可查看识别依据。
+- **脚本引用**：从入口脚本开始，跟踪可静态解析的调用，例如 `sh scripts/launch.sh` 或 `call scripts\launch.bat`。候选记录 Java 命令实际所在的脚本和行号。
+- **不支持的语法**：跳过带有不支持运算符或命令替换的行，以及不支持的控制流块。后续命令如果依赖无法确定的工作目录或变量，则不能导入。
+- **候选资格**：Java 命令必须既能确定服务端身份，又能生成启动配置草稿。某条命令提取身份或生成草稿失败时，其他候选仍可保留。
 
-候选包含初始化所需的配置草稿。选定候选后才进行 Git 准备和配置写入；仅识别或取消选择不会写入。
+#### 服务端身份与版本
 
-#### 完整手动身份
+- **匹配一个 Loader**：生成一个候选，记录 Minecraft 版本、Loader 类型和 Loader 版本。
+- **匹配多个 Loader**：每个 Loader 分别生成一个候选，由用户选择采用哪一种服务端身份。
+- **未匹配 Loader**：仅当命令以 `java -jar` 启动、且 JAR 的主类是受支持的原版服务端入口时，才尝试识别原版版本。
+
+原版 Minecraft 版本按以下顺序查找：
+
+1. **`version.json`**：读取启动 JAR 内的版本 ID。
+2. **`META-INF/versions.list`**：根据清单定位内嵌服务端 JAR，并核对其 `version.json`。
+3. **离线 SHA-1 表**：前两种元数据都缺失时，对整个 JAR 计算 SHA-1，匹配 `18w47b` 之前未修改的官方服务端下载。
+
+元数据损坏或不一致时，该命令报错，不回退到 SHA-1。用 `--log-level info` 可查看原版版本的识别依据。
+
+#### 候选选择
+
+只有一个候选时直接使用。多个候选按[输出模式](../README.md#输出模式)处理：
+
+| 模式 | 选择方式 |
+| --- | --- |
+| TUI | 上下键切换，Enter 确认，Esc 或 Ctrl-C 取消。 |
+| Console | 输入编号确认，空 Enter、Esc、Ctrl-C 或 EOF 取消。 |
+| Raw | 列出候选并报错。改用 TUI 或 Console 选择，或提供完整手动身份。 |
+
+Console 从控制终端读取输入，不读取重定向的 stdin。候选列表展示脚本位置、主类、入口和应用参数。
+
+#### 配置导入
+
+选定候选后才运行 Git 并写入文件。导入内容如下：
+
+| 文件 | 内容 |
+| --- | --- |
+| `.mcpm/server.json` | v4 服务端身份。 |
+| `.mcpm/mcpm.json` | Local 工作区类型。 |
+| `.mcpm/.gitignore` | 元数据忽略规则。 |
+| `launch.toml` | 入口、固定参数、工作目录和显式环境变量覆盖。 |
+| `conf.toml` | 识别出的 Java、内存、GC 和服务端选项。 |
+
+导入时展开 Java 参数文件。修改脚本后需重新导入。
+
+#### Java Agent 识别与导入
+
+每个 `-javaagent` 引用都按原 Java 命令的工作目录解析。目标必须是可打开的文件；缺失、不可读或指向目录时，该命令不能导入。
+
+判断 Agent 类型时，检查 `-javaagent:<JAR>=<API_URL>` 指向的 JAR。manifest 的 `Premain-Class` 为 `moe.yushi.authlibinjector.Premain` 时识别为 authlib-injector，文件名可以不同。其他 Agent 保留原 `-javaagent` 参数及其选项。
+
+识别出一个 authlib-injector 后：
+
+- **JAR 和 API 地址**：写入 `conf.toml` 的 `[authlib-injector]`，分别使用 `jar` 和 `apiUrl`。继续引用已有 JAR。
+- **支持的 JVM 属性**：仅出现一次且能写成配置字段的 `-Dauthlibinjector.*` 属性，一并导入 `[authlib-injector]`。
+- **其余 JVM 属性**：重复、未知或无法写入配置的属性，保留原 JVM 参数。
+
+同一命令中识别出多个 authlib-injector 时，无法将它们合并为一份配置，该命令不进入候选列表。
+
+#### 配置发布与恢复
+
+新启动配置与保留的 `conf.toml` 冲突时，发布失败。配置发布中断后，重新运行 `init` 恢复，再尝试[启动服务端](launch.md)。
+
+### 2. 使用完整身份手动初始化
 
 ```sh
 mcpm init ./server --minecraft-version 1.21.1 --loader vanilla
 mcpm init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
+mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla --no-git
 ```
 
-| 组合 | 要求 |
+| 参数或选项 | 行为 |
 | --- | --- |
-| 任意非 vanilla Loader | 必须同时提供 `--minecraft-version` 和 `--loader-version` |
-| vanilla | 必须显式 `--loader vanilla`，禁止 `--loader-version` |
+| `[PATH]` | 已存在的服务端或工作区目录。 |
+| `--minecraft-version <VERSION>` | 必填，别名 `--mc-version`。 |
+| `--loader <LOADER>` | 必填：`vanilla`、`fabric`、`forge` 或 `neoforge`。 |
+| `--loader-version <VERSION>` | 模组服务端必填，`--loader vanilla` 禁用。这里填加载器版本，不是 Minecraft 或 FML 版本。 |
+| `--force` | 替换服务端登记，并移除已有的 `launch.toml`。默认保留已有 `conf.toml`。 |
+| `--foverride-conf` | 重新生成 `conf.toml`，覆盖设置和注释。要求 `--force`。 |
+| `--git` / `--no-git` | 要求服务端目录自身具有 Git 仓库，或完全跳过 Git；两项互斥。 |
+| `--full-command` | 若有可用启动配置，则显示完整启动命令。 |
+| `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | 显式指定服务端主机；此时 `[PATH]` 是远端路径。mcpmd 路径可省略，指定时要求 `--ssh`。 |
 
-完整手动身份不读取启动脚本，也不生成 `launch.toml`。需要生成启动配置时，应通过可识别的启动脚本初始化。
+身份选项缺项时报错。
 
-#### 部分身份筛选候选
+手动初始化只写入 Local 登记和设置，不生成 `launch.toml`。要导入启动配置，请使用脚本识别模式。
+
+### 3. 登记 Remote 工作区
 
 ```sh
-mcpm init ./server --loader forge --no-ui
-mcpm init ./server --minecraft-version 1.20.1 --no-ui
-```
-
-不完整身份仍执行识别；已给字段只筛选识别出的候选。无匹配候选时失败；多个匹配候选按下表选择。
-
-#### 候选选择
-
-| 候选数 | 行为 |
-| --- | --- |
-| 1 | 直接使用，不打开 TUI |
-| 多个，stdout/stderr 均为终端且未指定 `--no-ui` | 本机 TUI 卡片：上下键移动，Enter 确认，Esc 或 Ctrl-C 取消 |
-| 多个，stdout 为终端，指定 `--no-ui` 或重定向 stderr | Console 编号列表；输入编号确认。空 Enter、Esc、Ctrl-C 或 EOF 取消 |
-| 多个，`--raw` 或 stdout 重定向 | 报错；结构化 Tip 列出每个候选和可复制的初始化命令 |
-
-远端初始化时，选择仍在本机进行。Console 读取控制终端，不读取重定向的 stdin；stdin 不参与模式判定。卡片和列表从已有配置草稿展示来源、主类、入口和应用参数摘要。
-
-使用 `--start-script` 加 `--start-line` 可以免交互选定已识别命令，同时保留启动配置。仅写行号只匹配根脚本，不匹配嵌套脚本；不支持或已跳过的命令不能被选中。Tip 命令保留原始 PATH、SSH 目标及写入选项，以精确来源选择代替部分身份筛选；Unix 使用 POSIX shell 转义，Windows 使用 PowerShell 转义。
-
-### 写入的文件
-
-| 文件 | 内容 |
-| --- | --- |
-| `.mcpm/server.json` | 版本 4 的服务端身份登记 |
-| `.mcpm/mcpm.json` | Local 工作区类型 |
-| `.mcpm/.gitignore` | 元数据忽略规则 |
-| `launch.toml` | 从候选草稿导入的启动配置；手动身份不生成 |
-| `conf.toml` | 用户设置 |
-
-已有 `conf.toml` 默认保留。新启动配置与保留的 `conf.toml` 冲突时，发布失败。
-
-### 重复初始化与覆盖
-
-```sh
-# 替换登记和启动配置，保留已有 conf.toml
-mcpm init ./server --start-script run.sh --force
-
-# 同时重新生成 conf.toml
-mcpm init ./server --start-script run.sh --force --foverride-conf
-```
-
-| 情况 | 行为 |
-| --- | --- |
-| 已有登记或 `launch.toml`，无 `--force` | 失败 |
-| 有 `--force`，通过启动脚本初始化 | 替换登记和 `launch.toml`，保留 `conf.toml` |
-| 有 `--force`，手动身份 | 替换登记；不生成 `launch.toml`，已有 `launch.toml` 被移除 |
-| 有 `--force --foverride-conf` | 同时替换 `conf.toml` |
-| 已有 Local/Remote 类型 | 不允许用 `--force` 转换类型 |
-| `.mcpm/server.json` 是目录 | 拒绝替换 |
-
-发布、类型标记或连接在中途失败时，部分文件可能已经写入。重试前先检查实际文件。
-
-### Git
-
-| 选项 | 行为 |
-| --- | --- |
-| 默认 | 复用目标仓库、父目录仓库或 worktree；均不存在时在服务端目录创建仓库 |
-| `--git` | 要求服务端目录自身具有仓库；已有仓库直接复用 |
-| `--no-git` | 跳过检查和创建 |
-
-不自动暂存或提交。未使用 `--no-git` 时，服务端所属主机必须安装 Git；仓库损坏或 Git 执行失败时返回错误。`--force` 不跳过 Git。
-
-### 远端初始化
-
-```sh
-mcpm --ssh 'ssh user@host' init /srv/minecraft \
-  --minecraft-version 1.21.1 --loader vanilla --no-git
-```
-
-PATH 是远端服务端目录。识别、Git、服务端登记和配置发布均在远端完成。
-
-### Remote 工作区
-
-```sh
-# 为已有远端服务端创建本机入口
 mcpm --ssh 'ssh user@host' init ./workspace --remote /srv/minecraft --git
-
-# 替换本机保存的连接和路径
 mcpm --ssh 'ssh user@new-host' init ./workspace --remote /srv/new-server --force --no-git
-
-# 沿用本机入口，重新初始化远端服务端
-mcpm init ./workspace --force --minecraft-version 1.21.1 --loader vanilla --no-git
 ```
 
-| 调用 | 作用 |
+| 参数或选项 | 行为 |
 | --- | --- |
-| `init ./workspace --remote REMOTE_PATH` | 校验远端 Local Server，完成 Git 准备，再在本机写入连接登记 |
-| 不带 `--remote`，PATH 为 Remote workspace | 对登记中的远端服务端执行初始化 |
-| 已有 Remote 登记，无 `--force` | 拒绝替换连接 |
-| 本机目录已是 Local 工作区 | 不能转换为 Remote |
+| `[PATH]` | 已存在的本地工作区目录，默认 `.`。 |
+| `--remote <REMOTE_PATH>` | 必填：SSH 主机上已登记为 Local Server 的服务端目录。 |
+| `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | 必须显式指定 `--ssh`；可选指定远端 mcpmd 路径。 |
+| `--force` | 替换已有 Remote 工作区保存的连接和服务端路径；不能将 Local 工作区转成 Remote。 |
+| `--git` / `--no-git` | 要求远端服务端目录自身具有 Git 仓库，或完全跳过 Git；两项互斥。 |
+| `--full-command` | 若远端服务端有可用启动配置，则显示完整启动命令。 |
 
-创建 Remote 工作区时，Git 操作针对远端服务端目录，本机工作区不创建 Git 仓库。
+登记顺序：
 
-本机工作区只保存 SSH 命令、可选 mcpmd 路径和远端目录。远端服务端必须已登记为 Local Server；未登记时先执行远端初始化。
+1. 在 SSH 主机上校验目标是已登记的 Local Server，并准备 Git。
+2. 在本机写入连接登记：SSH 命令、可选 mcpmd 路径和远端目录。
+
+要沿用已保存的连接初始化服务端，请不带 `--remote`，使用脚本识别或手动初始化模式。
+
+### Git 默认行为
+
+优先复用服务端目录自身、父目录或 worktree 的 Git 仓库；均不存在才在服务端目录创建。`--force` 不跳过 Git。不会自动暂存或提交文件。
+
+### 写入限制
+
+- **替换范围**：`--force` 不能切换工作区类型，也不能替换占用 `.mcpm/server.json` 路径的目录。
+- **中途失败**：发布或连接中断时，部分文件可能已经写入。重试前请检查目标。
+
+全局输出和日志开关见[通用选项](../README.md#通用选项)。

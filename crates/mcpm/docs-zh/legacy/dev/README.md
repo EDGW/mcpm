@@ -52,7 +52,7 @@
 - 后端 `local/mc/server/config` 拥有 TOML 类型、模板、分类、校验和发布；导入值生效，缺失值保持注释。前端不拼 TOML、不重复解释字段。
 - 初始化输入携带完整配置草稿，本地和远端复用 backend operation；候选通过流返回，本机选择后提交。Host operation 规定 Git 等实际服务端行为，Shallow 仅检查和维护本机 stub。
 - `mcpm-lib::local::mc::server::identify` 静态扫描所有可解析 Java 命令；不支持的运算符/命令替换整行跳过，shell 与 batch 控制流块整体跳过。词法结构只用于定位块边界和保守清除可能改变的目录、变量状态，不执行条件，也不替加载器判断哪条命令应被选中。
-- `--start-line` 的来源筛选在 `mcpm-lib` 中先于身份提取和去重执行；错误保留对应脚本/行的原因链。backend 传输根脚本及服务端相对的实际脚本路径，不由客户端解释远端绝对路径。前端只渲染 `ConfigurationDraft` 摘要并选择候选；TUI 使用卡片，Console 读取控制终端，Raw 使用结构化 Tip 给出保留调用目标和覆盖意图的命令。独立 Code 段落不插入硬换行，避免破坏可复制命令的参数。
+- backend 传输候选及其服务端相对的脚本位置；行号只用于展示。前端使用 `ConfigurationDraft` 渲染摘要并在本机选择候选：TUI 使用卡片，Console 读取控制终端，Raw 列出候选并报错。
 - init 候选详情的 Console/TUI 共用语义样式：脚本名与字段标签为 Normal，行号为 Primary，Main/Entry/Arguments 的值为 Code；TUI 卡片左右各留两列内边距，Console 不加内边距。
 - `config/publication.rs` 持有配置锁和恢复日志，统一协调登记及两份 TOML；`--force` 与 `--foverride-conf` 是独立覆盖意图。backend operation 在文件提交后发布 workspace 类型标记。
 - 后端 `launch/plan.rs` 是唯一启动计划生成与原生值 codec；backend `EncodedPlan` 在客户端保持不透明，只在原 Host 解码，避免跨平台客户端解释路径和环境。准备仍复用原配置和 authlib 入口，通过独立的 `server.launch.prepare` 发送有界合并的进度，再调用 `server.shim.launch`，不是把整个 launch 包成一次 operation。
