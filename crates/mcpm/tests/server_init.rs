@@ -214,6 +214,34 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
 }
 
 #[test]
+fn relaxed_recognition_keeps_known_state_when_skipping_script_statements() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    copy(&fixture("bundled-vanilla"), root);
+    fs::write(
+        root.join("run.sh"),
+        "JAR=server.jar\nJAR=$UNDEFINED\nif true; then\n\
+         cd somewhere-else\njava -jar not-a-candidate.jar\nfi\njava -jar \"$JAR\"\n",
+    )
+    .unwrap();
+
+    let strict = run(root, &["--raw", "init", "-G", "--start-script", "run.sh"]);
+    let error = String::from_utf8_lossy(&strict.stderr);
+    assert_eq!(strict.status.code(), Some(1), "{error}");
+    assert!(error.contains("unresolved shell variable JAR"), "{error}");
+    assert!(error.contains("--ignore-unknown-vars"), "{error}");
+    assert!(!root.join("launch.toml").exists());
+
+    let relaxed = run(root, &["--raw", "init", "-IG", "--start-script", "run.sh"]);
+    let warnings = String::from_utf8_lossy(&relaxed.stderr);
+    assert!(relaxed.status.success(), "{warnings}");
+    assert_eq!(warnings.matches("warning:").count(), 2, "{warnings}");
+    assert!(warnings.contains("run.sh:2") && warnings.contains("run.sh:3"));
+    let server = MinecraftServer::load(root).unwrap();
+    assert_eq!(server.metadata().minecraft_version, "1.21.1");
+}
+
+#[test]
 fn multiple_candidates_require_a_terminal_or_complete_manual_identity() {
     let temp = TempDir::new().unwrap();
     copy(&fixture("multiple"), temp.path());

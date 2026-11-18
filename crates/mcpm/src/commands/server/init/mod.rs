@@ -35,6 +35,7 @@ fn after_help() -> clap::builder::StyledStr {
     help.line("    One candidate is used directly; for multiple candidates, select a card");
     help.line("    in TUI or enter a number in Console. Raw lists the candidates and fails.");
     help.line("    Example: mcpm init ./server --start-script run.sh");
+    help.line("    Example: mcpm init -FIg ./server");
     help.blank();
     help.line("  Set the identity manually");
     help.line("    Supply the complete identity. This registers the server without");
@@ -54,7 +55,10 @@ fn after_help() -> clap::builder::StyledStr {
 }
 
 #[derive(Args, Debug)]
-#[command(after_help = after_help())]
+#[command(
+    after_help = after_help(),
+    group(clap::ArgGroup::new("force_write").args(["force", "force_all"]).multiple(true))
+)]
 pub(super) struct InitArgs {
     /// Existing server or workspace directory.
     #[arg(value_name = "PATH", default_value = ".")]
@@ -65,6 +69,14 @@ pub(super) struct InitArgs {
     /// Scan this server-relative script. Default: run.sh then start.sh (run.bat then start.bat on Windows).
     #[arg(long, value_name = "FILE", help_heading = "Script recognition", conflicts_with_all = ["minecraft_version", "loader", "loader_version"])]
     start_script: Option<PathBuf>,
+    /// Warn and skip unsupported statements without changing the known working directory or variables.
+    #[arg(
+        short = 'I',
+        long,
+        help_heading = "Script recognition",
+        conflicts_with_all = ["remote", "minecraft_version", "loader", "loader_version"]
+    )]
+    ignore_unknown_vars: bool,
     /// Minecraft version for manual initialization.
     #[arg(
         long,
@@ -80,21 +92,29 @@ pub(super) struct InitArgs {
     #[arg(long, value_name = "VERSION", help_heading = "Manual identity")]
     loader_version: Option<String>,
     /// Replace the existing server or Remote workspace registration.
-    #[arg(long, help_heading = "Write options")]
+    #[arg(short = 'f', long, help_heading = "Write options")]
     force: bool,
+    /// Replace registration and regenerate conf.toml (same as --force --foverride-conf).
+    #[arg(short = 'F', conflicts_with = "remote", help_heading = "Write options")]
+    force_all: bool,
     /// Regenerate conf.toml, including active settings and comments; requires --force.
     #[arg(
         long,
-        requires = "force",
+        requires = "force_write",
         conflicts_with = "remote",
         help_heading = "Write options"
     )]
     foverride_conf: bool,
     /// Skip Git discovery and initialization on the actual server host.
-    #[arg(long, help_heading = "Git options")]
+    #[arg(short = 'G', long, help_heading = "Git options")]
     no_git: bool,
     /// Require a Git repository in the server directory itself.
-    #[arg(long, conflicts_with = "no_git", help_heading = "Git options")]
+    #[arg(
+        short = 'g',
+        long,
+        conflicts_with = "no_git",
+        help_heading = "Git options"
+    )]
     git: bool,
     /// Use the numbered Console list for candidate selection.
     #[arg(long, help_heading = "Script recognition")]
@@ -110,12 +130,13 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
 }
 
 async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
+    let force = args.force || args.force_all;
     if let Some(remote_path) = args.remote {
         let info = reference::create(
             args.path,
             remote_path,
             ssh,
-            args.force,
+            force,
             args.no_git,
             args.git,
             args.full_command,
@@ -143,12 +164,17 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
                 .call::<RecognizeServer>(Recognize {
                     path: path.clone(),
                     start_script: args.start_script,
+                    ignore_unknown_vars: args.ignore_unknown_vars,
                 })
                 .await?;
             let mut result = None;
             while let Some(event) = stream.next().await {
                 match event? {
                     RecognizeEvent::Stage(stage) => phase(stage),
+                    RecognizeEvent::Warning(warning) => {
+                        progress.borrow_mut().take();
+                        output::write_skipped_statement(&mut io::stderr().lock(), &warning)?;
+                    }
                     RecognizeEvent::Candidates(candidates) => result = Some(candidates),
                 }
             }
@@ -173,12 +199,12 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
         .call::<Init>(Initialize {
             path: path.clone(),
             metadata,
-            force: args.force,
+            force,
             no_git: args.no_git,
             git: args.git,
             local: Some(LocalImport {
                 configuration,
-                replace_conf: args.foverride_conf,
+                replace_conf: args.foverride_conf || args.force_all,
             }),
         })
         .await?;

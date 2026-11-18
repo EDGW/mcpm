@@ -9,6 +9,13 @@ pub(super) enum Syntax {
     Batch,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("unresolved {shell} variable {name}")]
+pub(super) struct UnresolvedVariable {
+    pub name: String,
+    shell: &'static str,
+}
+
 /// A deliberately restricted lexer. Expansion never becomes executable syntax.
 pub(super) fn split(
     input: &str,
@@ -72,11 +79,11 @@ pub(super) fn split(
                     );
                 }
                 let name: String = chars[name_start..end].iter().collect();
-                let value = vars
-                    .get(&name)
-                    .ok_or_else(|| anyhow::anyhow!("unresolved shell variable {name}"))?
-                    .clone();
-                (value, end + usize::from(braced) - i)
+                let value = vars.get(&name).ok_or_else(|| UnresolvedVariable {
+                    name,
+                    shell: "shell",
+                })?;
+                (value.clone(), end + usize::from(braced) - i)
             };
             ensure!(
                 quote.is_some()
@@ -107,12 +114,11 @@ pub(super) fn split(
                     .iter()
                     .collect::<String>()
                     .to_ascii_uppercase();
-                (
-                    vars.get(&name)
-                        .ok_or_else(|| anyhow::anyhow!("unresolved batch variable {name}"))?
-                        .clone(),
-                    end - i + 1,
-                )
+                let value = vars.get(&name).ok_or_else(|| UnresolvedVariable {
+                    name,
+                    shell: "batch",
+                })?;
+                (value.clone(), end - i + 1)
             };
             ensure!(
                 !value.contains(|c: char| "&|<>^\"%".contains(c))

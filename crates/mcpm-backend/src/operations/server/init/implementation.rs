@@ -3,12 +3,15 @@
 use std::{fs, path::Path, time::Instant};
 
 use anyhow::{Context, Result};
+use mcpm_exec::error::TippedError;
 use mcpm_lib::local::{
-    mc::server::identify::{self, ServerCandidate},
+    mc::server::identify::{self, ScriptPolicy, ServerCandidate, UncertainScriptState},
     modloader::BUILTIN_LOADERS,
 };
+use mcpm_rich::rich;
 
 use super::super::info::ServerInfo;
+use super::RecognizeEvent;
 use super::git;
 use super::model::{Candidate, Initialize, Initialized, Phase, Recognize};
 use crate::workspace::{
@@ -21,16 +24,17 @@ use crate::workspace::{
 pub(super) fn recognize(
     args: Recognize,
     checkpoint: impl Fn() -> Result<()>,
-    phase: impl Fn(Phase) -> Result<()>,
+    emit: impl Fn(RecognizeEvent) -> Result<()>,
 ) -> Result<Vec<Candidate>> {
     checkpoint()?;
     workspace::require_local(&args.path)?;
     workspace::require_current_if_registered(&args.path)?;
-    phase(Phase::Recognizing)?;
+    emit(RecognizeEvent::Stage(Phase::Recognizing))?;
     checkpoint()?;
     let started = Instant::now();
+    let probe = |script| recognize_script(&args, script, &emit);
     let candidates = if let Some(script) = args.start_script.as_deref() {
-        recognize_script(&args.path, script)
+        probe(script)?
     } else {
         let [run, start] = if cfg!(windows) {
             ["run.bat", "start.bat"]
@@ -38,16 +42,28 @@ pub(super) fn recognize(
             ["run.sh", "start.sh"]
         }
         .map(Path::new);
-        match recognize_script(&args.path, run) {
+        match probe(run)? {
             Ok(candidates) => Ok(candidates),
             Err(first) => {
                 checkpoint()?;
-                recognize_script(&args.path, start)
-                    .with_context(|| format!("{run:?} failed: {first:#}; {start:?} also failed"))
+                match probe(start)? {
+                    Err(second) if first.is::<UncertainScriptState>() && !second.is::<UncertainScriptState>() => {
+                        Err(first).with_context(|| format!("{start:?} also failed: {second:#}"))
+                    }
+                    result => result.with_context(|| format!("{run:?} failed: {first:#}; {start:?} also failed")),
+                }
             }
         }
     }
-    .context("automatic server identification failed; server remains unrecognized; initialize manually with --minecraft-version VERSION --loader forge|neoforge|fabric --loader-version VERSION, or explicitly use --loader vanilla for a known vanilla server")?;
+    .context("automatic server identification failed; server remains unrecognized; initialize manually with --minecraft-version VERSION --loader forge|neoforge|fabric --loader-version VERSION, or explicitly use --loader vanilla for a known vanilla server")
+    .map_err(|error| {
+        if error.is::<UncertainScriptState>() {
+            let tip = rich!("Retry with `--ignore-unknown-vars` (`-I`) if the skipped statements can safely be ignored. This keeps the previous working directory and variable values.");
+            TippedError::new(error, Some(tip.clone()), Some(tip)).into()
+        } else {
+            error
+        }
+    })?;
     checkpoint()?;
     tracing::debug!(
         candidates = candidates.len(),
@@ -62,9 +78,23 @@ pub(super) fn recognize(
         .collect()
 }
 
-fn recognize_script(path: &Path, script: &Path) -> Result<Vec<ServerCandidate>> {
-    tracing::info!(path = %path.display(), script = %script.display(), "Recognizing server launch candidates");
-    identify::identify(path, script, &BUILTIN_LOADERS)
+fn recognize_script(
+    args: &Recognize,
+    script: &Path,
+    emit: &impl Fn(RecognizeEvent) -> Result<()>,
+) -> Result<Result<Vec<ServerCandidate>>> {
+    tracing::info!(path = %args.path.display(), script = %script.display(), "Recognizing server launch candidates");
+    let mut warnings = Vec::new();
+    let policy = if args.ignore_unknown_vars {
+        ScriptPolicy::KeepKnownState(&mut warnings)
+    } else {
+        ScriptPolicy::Strict
+    };
+    let result = identify::identify_with_policy(&args.path, script, &BUILTIN_LOADERS, policy);
+    for warning in warnings {
+        emit(RecognizeEvent::Warning(warning))?;
+    }
+    Ok(result)
 }
 
 /// Metadata is supplied in full; initialization never rereads a script or requires a recognition token.

@@ -133,25 +133,35 @@ Recognition, Git preparation, and writes run on the server host. Candidate selec
 ```sh
 mcpm init ./server
 mcpm init ./server --start-script scripts/start.sh --no-ui
+mcpm init -FIg ./server
 ```
 
 | Argument or option | Behavior |
 | --- | --- |
 | `[PATH]` | Existing server or workspace directory. |
 | `--start-script <FILE>` | Scan the given server-relative script, including supported references to other scripts. If omitted, try `run.bat` then `start.bat` on Windows, or `run.sh` then `start.sh` elsewhere. Stop at the first script that yields a candidate. |
+| `-I`, `--ignore-unknown-vars` | Warn about statements that cannot be interpreted and skip them, keeping the known working directory and variables. |
 | `--no-ui` | Use the numbered Console list instead of TUI cards. |
 | `--raw` | Disable interaction. |
-| `--force` | Required if the server is already registered or `launch.toml` exists. Replaces the registration and `launch.toml` while preserving existing `conf.toml` by default. |
-| `--foverride-conf` | Regenerate `conf.toml`, replacing user settings and comments. Requires `--force`. |
-| `--git` / `--no-git` | Require a repository in the server directory itself, or skip Git entirely. Mutually exclusive. |
+| `-f`, `--force` | Required if the server is already registered or `launch.toml` exists. Replaces the registration and `launch.toml` while preserving existing `conf.toml` by default. |
+| `-F` | Equivalent to `--force --foverride-conf`: replace the registration and launch configuration and regenerate `conf.toml`. |
+| `--foverride-conf` | Regenerate `conf.toml`, replacing user settings and comments. Use with `--force`. |
+| `-g`, `--git` / `-G`, `--no-git` | Require a repository in the server directory itself, or skip Git entirely. Mutually exclusive. |
 | `--full-command` | Show the complete startup command derived from the resulting configuration. |
 | `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | Select the server host explicitly; `[PATH]` is then on that host. The mcpmd path is optional and requires `--ssh`. |
 
 #### Startup command scanning
 
 - **Script references**: Start at the entry script and follow calls that can be resolved statically, such as `sh scripts/launch.sh` or `call scripts\launch.bat`. Each candidate identifies the script and line containing the Java command.
-- **Unsupported syntax**: Skip lines with unsupported operators or command substitutions, as well as unsupported control-flow blocks. Later commands that depend on an unresolved working directory or variable cannot be imported.
+- **Unsupported syntax**: Skip lines with unsupported operators or command substitutions, as well as unsupported control-flow blocks.
 - **Candidate eligibility**: A Java command must establish a server identity and yield a launch configuration draft. Failure to identify or import one command does not discard other candidates.
+
+#### Working directory and variables after skipped statements
+
+- **Default**: Mark the working directory or variables that a skipped statement may change as unknown. If this prevents recognition, the error identifies the source and advises when to retry with `-I`.
+- **With `-I`**: Warnings show the skipped statement's script, line, and reason. Previously known state is kept. Control-flow blocks are still skipped as a whole, so Java commands inside them do not become candidates.
+
+Use `-I` only if the skipped statements are irrelevant to the intended launch. For example, after skipping a dynamic `cd`, `server.jar` is resolved against the previously known directory.
 
 #### Server identity and version
 
@@ -225,9 +235,10 @@ mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --load
 | `--minecraft-version <VERSION>` | Required. Alias: `--mc-version`. |
 | `--loader <LOADER>` | Required: `vanilla`, `fabric`, `forge`, or `neoforge`. |
 | `--loader-version <VERSION>` | Required for a modded server; not allowed with `--loader vanilla`. This is the loader version, not the Minecraft or FML version. |
-| `--force` | Replace the server registration and remove any existing `launch.toml`. Existing `conf.toml` is preserved by default. |
-| `--foverride-conf` | Regenerate `conf.toml`, replacing user settings and comments. Requires `--force`. |
-| `--git` / `--no-git` | Require a repository in the server directory itself, or skip Git entirely. Mutually exclusive. |
+| `-f`, `--force` | Replace the server registration and remove any existing `launch.toml`. Existing `conf.toml` is preserved by default. |
+| `-F` | Equivalent to `--force --foverride-conf`: replace the registration, remove an existing `launch.toml`, and regenerate `conf.toml`. |
+| `--foverride-conf` | Regenerate `conf.toml`, replacing user settings and comments. Use with `--force`. |
+| `-g`, `--git` / `-G`, `--no-git` | Require a repository in the server directory itself, or skip Git entirely. Mutually exclusive. |
 | `--full-command` | Show the complete startup command if available. |
 | `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | Select the server host explicitly; `[PATH]` is then on that host. The mcpmd path is optional and requires `--ssh`. |
 
@@ -247,8 +258,8 @@ mcpm --ssh 'ssh user@new-host' init ./workspace --remote /srv/new-server --force
 | `[PATH]` | Existing local workspace directory. Defaults to `.`. |
 | `--remote <REMOTE_PATH>` | Required. Existing, already registered Local Server on the SSH host. |
 | `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | Explicit `--ssh` is required. The remote mcpmd path is optional. |
-| `--force` | Replace the saved connection and server path in an existing Remote workspace; cannot convert a Local workspace to Remote. |
-| `--git` / `--no-git` | Require a repository in the remote server directory itself, or skip Git entirely. Mutually exclusive. |
+| `-f`, `--force` | Replace the saved connection and server path in an existing Remote workspace; cannot convert a Local workspace to Remote. |
+| `-g`, `--git` / `-G`, `--no-git` | Require a repository in the remote server directory itself, or skip Git entirely. Mutually exclusive. |
 | `--full-command` | Show the remote server's complete startup command if available. |
 
 Registration order:

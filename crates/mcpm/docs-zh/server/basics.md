@@ -133,25 +133,35 @@ Set loader to Vanilla? [y(es)/n(o)/C(ancel)]
 ```sh
 mcpm init ./server
 mcpm init ./server --start-script scripts/start.sh --no-ui
+mcpm init -FIg ./server
 ```
 
 | 参数或选项 | 行为 |
 | --- | --- |
 | `[PATH]` | 已存在的服务端或工作区目录。 |
 | `--start-script <FILE>` | 扫描指定的服务端相对路径，并跟踪支持的脚本引用。省略时，Windows 先试 `run.bat` 再试 `start.bat`，其他平台先试 `run.sh` 再试 `start.sh`；找到候选即停止。 |
+| `-I`, `--ignore-unknown-vars` | 跳过无法解释的语句并显示警告，保留已知的工作目录和变量。 |
 | `--no-ui` | 使用 Console 编号列表，不打开 TUI 卡片。 |
 | `--raw` | 禁用交互。 |
-| `--force` | 已有服务端登记或 `launch.toml` 时必需。替换登记和 `launch.toml`，默认保留已有 `conf.toml`。 |
-| `--foverride-conf` | 重新生成 `conf.toml`，覆盖设置和注释。要求 `--force`。 |
-| `--git` / `--no-git` | 要求服务端目录自身具有 Git 仓库，或完全跳过 Git；两项互斥。 |
+| `-f`, `--force` | 已有服务端登记或 `launch.toml` 时必需。替换登记和 `launch.toml`，默认保留已有 `conf.toml`。 |
+| `-F` | 等同于 `--force --foverride-conf`：替换登记和启动配置，同时重新生成 `conf.toml`。 |
+| `--foverride-conf` | 重新生成 `conf.toml`，覆盖设置和注释。与 `--force` 一起使用。 |
+| `-g`, `--git` / `-G`, `--no-git` | 要求服务端目录自身具有 Git 仓库，或完全跳过 Git；两项互斥。 |
 | `--full-command` | 显示按最终配置生成的完整启动命令。 |
 | `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | 显式指定服务端主机；此时 `[PATH]` 是远端路径。mcpmd 路径可省略，指定时要求 `--ssh`。 |
 
 #### 启动命令扫描
 
 - **脚本引用**：从入口脚本开始，跟踪可静态解析的调用，例如 `sh scripts/launch.sh` 或 `call scripts\launch.bat`。候选记录 Java 命令实际所在的脚本和行号。
-- **不支持的语法**：跳过带有不支持运算符或命令替换的行，以及不支持的控制流块。后续命令如果依赖无法确定的工作目录或变量，则不能导入。
+- **不支持的语法**：跳过带有不支持运算符或命令替换的行，以及不支持的控制流块。
 - **候选资格**：Java 命令必须既能确定服务端身份，又能生成启动配置草稿。某条命令提取身份或生成草稿失败时，其他候选仍可保留。
+
+#### 跳过语句后的工作目录与变量
+
+- **默认**：将被跳过的语句可能修改的工作目录或变量标为未知。若启动命令因此无法识别，错误会指出状态失效的位置，并提示何时可以用 `-I` 重试。
+- **使用 `-I`**：警告指出被跳过语句的脚本、行号和原因；继续沿用已知状态。控制流块仍整体跳过，块内的 Java 命令不会成为候选。
+
+只有确认跳过的语句不会影响预期启动时才使用 `-I`。例如，忽略动态 `cd` 后，`server.jar` 会按此前已知的目录解析。
 
 #### 服务端身份与版本
 
@@ -225,9 +235,10 @@ mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --load
 | `--minecraft-version <VERSION>` | 必填，别名 `--mc-version`。 |
 | `--loader <LOADER>` | 必填：`vanilla`、`fabric`、`forge` 或 `neoforge`。 |
 | `--loader-version <VERSION>` | 模组服务端必填，`--loader vanilla` 禁用。这里填加载器版本，不是 Minecraft 或 FML 版本。 |
-| `--force` | 替换服务端登记，并移除已有的 `launch.toml`。默认保留已有 `conf.toml`。 |
-| `--foverride-conf` | 重新生成 `conf.toml`，覆盖设置和注释。要求 `--force`。 |
-| `--git` / `--no-git` | 要求服务端目录自身具有 Git 仓库，或完全跳过 Git；两项互斥。 |
+| `-f`, `--force` | 替换服务端登记，并移除已有的 `launch.toml`。默认保留已有 `conf.toml`。 |
+| `-F` | 等同于 `--force --foverride-conf`：替换登记、移除旧 `launch.toml`，并重新生成 `conf.toml`。 |
+| `--foverride-conf` | 重新生成 `conf.toml`，覆盖设置和注释。与 `--force` 一起使用。 |
+| `-g`, `--git` / `-G`, `--no-git` | 要求服务端目录自身具有 Git 仓库，或完全跳过 Git；两项互斥。 |
 | `--full-command` | 若有可用启动配置，则显示完整启动命令。 |
 | `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | 显式指定服务端主机；此时 `[PATH]` 是远端路径。mcpmd 路径可省略，指定时要求 `--ssh`。 |
 
@@ -247,8 +258,8 @@ mcpm --ssh 'ssh user@new-host' init ./workspace --remote /srv/new-server --force
 | `[PATH]` | 已存在的本地工作区目录，默认 `.`。 |
 | `--remote <REMOTE_PATH>` | 必填：SSH 主机上已登记为 Local Server 的服务端目录。 |
 | `--ssh <COMMAND>` / `--ssh-mcpmd <PATH>` | 必须显式指定 `--ssh`；可选指定远端 mcpmd 路径。 |
-| `--force` | 替换已有 Remote 工作区保存的连接和服务端路径；不能将 Local 工作区转成 Remote。 |
-| `--git` / `--no-git` | 要求远端服务端目录自身具有 Git 仓库，或完全跳过 Git；两项互斥。 |
+| `-f`, `--force` | 替换已有 Remote 工作区保存的连接和服务端路径；不能将 Local 工作区转成 Remote。 |
+| `-g`, `--git` / `-G`, `--no-git` | 要求远端服务端目录自身具有 Git 仓库，或完全跳过 Git；两项互斥。 |
 | `--full-command` | 若远端服务端有可用启动配置，则显示完整启动命令。 |
 
 登记顺序：

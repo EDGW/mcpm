@@ -86,6 +86,7 @@ async fn recognition_is_read_only_and_transports_the_selected_configuration_draf
         &Recognize {
             path: root.path().into(),
             start_script: Some("run.sh".into()),
+            ignore_unknown_vars: false,
         },
     )
     .await

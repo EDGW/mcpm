@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use mcpm_exec::operation::{Operation, StreamingOutput};
+use mcpm_lib::local::mc::server::identify::SkippedStatement;
 use serde::{Deserialize, Serialize};
 
 mod model;
@@ -23,8 +24,8 @@ impl Operation for RecognizeServer {
                 implementation::recognize(
                     input,
                     || Ok(()),
-                    |phase| {
-                        runtime.block_on(progress.send(RecognizeEvent::Stage(phase)))?;
+                    |event| {
+                        runtime.block_on(progress.send(event))?;
                         Ok(())
                     },
                 )
@@ -39,6 +40,7 @@ impl Operation for RecognizeServer {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum RecognizeEvent {
     Stage(Phase),
+    Warning(SkippedStatement),
     Candidates(Vec<Candidate>),
 }
 

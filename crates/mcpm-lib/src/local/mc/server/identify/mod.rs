@@ -11,6 +11,7 @@ pub(crate) use vanilla::is_vanilla_main_class;
 use super::{MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader};
 use crate::local::modloader::{LoaderId, ModLoaderMeta};
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -29,6 +30,28 @@ pub struct ServerCandidate {
     pub configuration: super::config::ConfigurationDraft,
 }
 
+/// Controls how the script scanner handles statements it cannot interpret.
+pub enum ScriptPolicy<'a> {
+    Strict,
+    KeepKnownState(&'a mut Vec<SkippedStatement>),
+}
+
+/// A statement ignored while keeping the previously known script state.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SkippedStatement {
+    pub script: PathBuf,
+    pub line: usize,
+    pub reason: String,
+}
+
+/// The earlier statement that made state needed for launch discovery unknown.
+#[derive(Clone, Debug, Error)]
+#[error("script state became unknown at {script:?}:{line}")]
+pub struct UncertainScriptState {
+    script: PathBuf,
+    line: usize,
+}
+
 /// `script` must be relative to and contained within `root`. All script/file paths are resolved
 /// without executing anything. This extracts identity evidence, not command validity.
 /// A launch yields one candidate per matching loader. Unavailable commands are diagnosed
@@ -39,8 +62,18 @@ pub fn identify(
     script: impl AsRef<Path>,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
 ) -> Result<Vec<ServerCandidate>> {
+    identify_with_policy(root, script, loaders, ScriptPolicy::Strict)
+}
+
+/// Identifies server launch candidates with the given script-state policy.
+pub fn identify_with_policy(
+    root: impl AsRef<Path>,
+    script: impl AsRef<Path>,
+    loaders: &HashMap<LoaderId, ModLoaderMeta>,
+    mut policy: ScriptPolicy<'_>,
+) -> Result<Vec<ServerCandidate>> {
     tracing::info!(root = ?root.as_ref(), script = ?script.as_ref(), "identifying Minecraft server");
-    let result = identify_inner(root.as_ref(), script.as_ref(), loaders);
+    let result = identify_inner(root.as_ref(), script.as_ref(), loaders, &mut policy);
     match &result {
         Ok(candidates) => {
             tracing::debug!(count = candidates.len(), "server identification completed")
@@ -56,13 +89,14 @@ fn identify_inner(
     root: &Path,
     script: &Path,
     loaders: &HashMap<LoaderId, ModLoaderMeta>,
+    policy: &mut ScriptPolicy<'_>,
 ) -> Result<Vec<ServerCandidate>> {
     let root = std::fs::canonicalize(root)
         .with_context(|| format!("failed to resolve server directory {root:?}"))?;
     anyhow::ensure!(root.is_dir(), "server root is not a directory: {root:?}");
     super::script_path::validate(&root, script)?;
     let path = root.join(script);
-    let evidence = script::read(&root, &path);
+    let evidence = script::read(&root, &path, policy);
     let mut diagnostics = evidence.diagnostics;
     let mut ordered: Vec<_> = loaders.values().collect();
     ordered.sort_by(|a, b| a.id().cmp(b.id()));
@@ -117,6 +151,9 @@ fn identify_inner(
         });
     }
     if candidates.is_empty() {
+        if let Some(error) = evidence.blocked_launch {
+            return Err(error);
+        }
         return Err(diagnostics
             .into_iter()
             .next()

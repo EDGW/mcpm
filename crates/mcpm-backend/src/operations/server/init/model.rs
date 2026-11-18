@@ -66,6 +66,8 @@ pub struct Recognize {
     #[serde(default = "default_path")]
     pub path: PathBuf,
     pub start_script: Option<PathBuf>,
+    #[serde(default)]
+    pub ignore_unknown_vars: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

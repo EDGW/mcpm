@@ -1,7 +1,8 @@
-//! Console-only Git notifications and success messages for server initialization.
+//! Display initialization diagnostics and results.
 
 use std::io::{self, Write};
 
+use mcpm_lib::local::mc::server::identify::SkippedStatement;
 use mcpm_rich::rich;
 
 use crate::{
@@ -12,6 +13,21 @@ use crate::{
     },
     terminal,
 };
+
+pub(super) fn write_skipped_statement(
+    output: &mut impl Write,
+    warning: &SkippedStatement,
+) -> io::Result<()> {
+    let style = OutputStyle::stderr();
+    let path = text(&warning.script.display().to_string());
+    let reason = text(&warning.reason);
+    let line = warning.line;
+    block(
+        &mut ConsoleWriter::new(output),
+        &rich!("[warning:](warning) Skipping `{path}:{line}`: {reason}"),
+        &style,
+    )
+}
 
 /// Import diagnostics stay on stderr, including Raw mode, leaving server records unchanged.
 pub(super) fn write_publication(
