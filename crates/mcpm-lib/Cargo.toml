@@ -37,6 +37,9 @@ zip = { workspace = true, features = ["deflate"] }
 
 tempfile = { workspace = true }
 
+[build-dependencies]
+serde_json = { workspace = true }
+
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 

@@ -137,6 +137,8 @@ Without `--start-script`, the Host's default script is `run.bat` on Windows and 
 
 Recognition statically reads scripts and identity evidence without executing them. Lines with unsupported operators or command substitutions are skipped, as are complete unsupported control-flow blocks. Potential directory/variable changes in skipped text invalidate only the affected state; later commands that depend on unknown state cannot be imported. Insufficient evidence may still require complete manual identity.
 
+For a vanilla launch, JAR version metadata takes precedence. If both `version.json` and `META-INF/versions.list` are absent, `mcpm` hashes the entire JAR and looks up its SHA-1 in a built-in table of official server downloads before `18w47b`. This works offline and does not match modified JARs. `--log-level info` shows which source identified the version.
+
 Candidates include the configuration draft needed for initialization. Git preparation and configuration writes occur only after a candidate is selected; recognition alone or cancelling selection does not write.
 
 #### Complete manual identity
