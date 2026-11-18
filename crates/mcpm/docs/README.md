@@ -78,10 +78,12 @@ The server and Tools entries provide the following options, accepted before or a
 | --- | --- |
 | `--ssh <COMMAND>` | SSH connection command, for example `ssh -i key user@host`. The positional PATH is interpreted on that host. |
 | `--ssh-mcpmd <PATH>` | Remote executable; requires `--ssh`. Migrated `new`, `info`, `init`, and `stash` use remote mcpmd; unmigrated commands use their existing remote program. The corresponding default applies when omitted. |
-| `--log-level <LEVEL>` | stderr diagnostic level: `off`, `error`, `warn`, `info`, `debug`, `trace`; default `warn`. |
+| `--log-level <LEVEL>` | stderr diagnostic level: `off`, `error`, `warn`, `info`, `debug`, `trace`. If omitted, uses `MCPM_LOG_LEVEL`, or `warn` if unset. Invalid values are rejected. |
 | `--remote-logs` | Show remote logs on local stderr, filtered by `--log-level`. |
 | `--raw` | Use Raw mode. |
 | `-h, --help` | Show help. |
+
+Local stderr diagnostics show the source crate before the severity, for example `[mcpm-lib] INFO …`. File logs retain the full module path.
 
 SSH uses key or ssh-agent authentication without prompts. Accept unknown host keys through a manual SSH connection first. Windows SSH requires cmd as its default shell. Connection failure never falls back to local execution.
 

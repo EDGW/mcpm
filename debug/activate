@@ -1,0 +1,4 @@
+#!/bin/sh
+# Source this file to enable debug logging in the current shell.
+export MCPM_LOG_LEVEL=debug
+printf '%s\n' 'mcpm debug environment activated'

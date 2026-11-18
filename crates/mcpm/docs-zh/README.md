@@ -78,10 +78,12 @@ Operation 分为两类：
 | --- | --- |
 | `--ssh <COMMAND>` | SSH 连接命令，例如 `ssh -i key user@host`。指定后，位置参数 PATH 按该主机解释。 |
 | `--ssh-mcpmd <PATH>` | 远端可执行文件；要求 `--ssh`。迁移后的 `new`、`info`、`init`、`stash` 使用远端 mcpmd；未迁移命令使用其原有远端程序。省略时按对应默认值查找。 |
-| `--log-level <LEVEL>` | stderr 诊断级别：`off`、`error`、`warn`、`info`、`debug`、`trace`；默认 `warn`。 |
+| `--log-level <LEVEL>` | stderr 诊断级别：`off`、`error`、`warn`、`info`、`debug`、`trace`。省略时读取 `MCPM_LOG_LEVEL`，未设置则用 `warn`；非法值报错。 |
 | `--remote-logs` | 在本机 stderr 显示远端日志，级别由 `--log-level` 过滤。 |
 | `--raw` | 使用 Raw 模式。 |
 | `-h, --help` | 显示帮助。 |
+
+本地 stderr 诊断日志在级别前标明来源 crate，例如 `[mcpm-lib] INFO …`。日志文件仍保留完整模块路径。
 
 SSH 使用密钥或 ssh-agent 非交互认证；未知 host key 需先手动 SSH 接受。Windows SSH 默认 shell 要求为 cmd。连接失败不改为本机执行。
 

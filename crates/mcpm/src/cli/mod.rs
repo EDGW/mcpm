@@ -2,7 +2,11 @@
 
 use std::ffi::OsString;
 
-use clap::{ArgMatches, Args, ColorChoice, CommandFactory, FromArgMatches, Parser};
+use clap::{
+    ArgMatches, Args, ColorChoice, CommandFactory, FromArgMatches, Parser,
+    builder::{EnumValueParser, TypedValueParser},
+    parser::ValueSource,
+};
 
 use crate::{commands::Command, program::Program, ssh::SshArgs};
 
@@ -15,11 +19,23 @@ pub(crate) fn parse(program: Program, args: Vec<OsString>, color: ColorChoice) -
     let matches = command
         .try_get_matches_from_mut(args)
         .unwrap_or_else(|error| error.exit());
-    match program {
+    let mut invocation = match program {
         Program::Mcpm | Program::McpmServer => parse_root::<roots::ServerRootArgs>(&matches),
         Program::Mcpmc | Program::McpmClient => parse_root::<roots::ClientRootArgs>(&matches),
         Program::McpmTools => parse_root::<roots::ToolsRootArgs>(&matches),
+    };
+    // Clap validates env values per subcommand before propagating explicit global options.
+    if matches.value_source("log_level") != Some(ValueSource::CommandLine)
+        && let Some(value) = std::env::var_os("MCPM_LOG_LEVEL")
+    {
+        let arg = command
+            .get_arguments()
+            .find(|arg| arg.get_id() == "log_level");
+        invocation.common.log_level = EnumValueParser::new()
+            .parse_ref(&command, arg, &value)
+            .unwrap_or_else(|error| error.exit());
     }
+    invocation
 }
 
 /// The same native command schema used for parsing and recursive help output.
@@ -58,7 +74,7 @@ pub(crate) struct CommonArgs {
     /// Disable TUI interaction, formatting, colors, progress, and hints; otherwise each output stream follows its own TTY status.
     #[arg(long, global = true, help_heading = "Mode options")]
     pub(crate) raw: bool,
-    /// Diagnostic log level on stderr; does not filter game stdout/stderr.
+    /// Diagnostic log level on stderr; falls back to MCPM_LOG_LEVEL when omitted.
     #[arg(
         long,
         global = true,
