@@ -288,6 +288,102 @@ fn multiple_candidates_require_a_terminal_or_complete_manual_identity() {
 }
 
 #[test]
+fn manual_init_publishes_ordered_arguments_and_typed_conf_only_when_authorized() {
+    use mcpm_lib::local::mc::server::config::{JavaEntry, decode_conf, decode_launch};
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let launch = root.join("launch.toml");
+    let conf = root.join("conf.toml");
+    let prior = "[java]\n[server]\nworld='old'\n";
+    fs::write(&conf, prior).unwrap();
+    let args = [
+        "--raw",
+        "init",
+        "--no-git",
+        "--minecraft-version",
+        "1.21.1",
+        "--loader",
+        "vanilla",
+        "--entry",
+        "module@example.server:example.Main",
+        "--launch-cwd",
+        "a directory",
+        "--launch-env",
+        "VALUE=a=b",
+        "--java-arg=-Done=1",
+        "--java-args=-Dtwo='two words' -Dthree=3",
+        "--java-arg=-Dfour=4",
+        "--app-args=first 'second item'",
+        "--app-arg=third item",
+        "--app-args=fourth",
+        "--conf",
+        "p=25566",
+        "--conf",
+        "world=123",
+        "--conf",
+        "jvm.heap.maximum=4G",
+        "--conf",
+        "E=-Ddiscard=1",
+        "--conf",
+        "extra:=",
+        "--conf",
+        "E+=-Dfinal=1",
+    ];
+    let rejected = run(root, &args);
+    let error = String::from_utf8_lossy(&rejected.stderr);
+    assert!(
+        !rejected.status.success() && error.contains("--force --foverride-conf"),
+        "{error}"
+    );
+    assert!(!root.join(".mcpm/server.json").exists() && !launch.exists());
+    assert_eq!(fs::read_to_string(&conf).unwrap(), prior);
+
+    let initialized = [&args[..], &["-F"]].concat();
+    let output = run(root, &initialized);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let launch = decode_launch(&fs::read_to_string(&launch).unwrap()).unwrap();
+    assert_eq!(
+        launch.entry,
+        JavaEntry::Module {
+            module: "example.server".into(),
+            main_class: Some("example.Main".into())
+        }
+    );
+    assert_eq!(
+        launch.process.working_directory.as_deref(),
+        Some("a directory")
+    );
+    assert_eq!(launch.process.environment["VALUE"], "a=b");
+    assert_eq!(
+        launch.jvm.extra_arguments,
+        ["-Done=1", "-Dtwo=two words", "-Dthree=3", "-Dfour=4"]
+    );
+    assert_eq!(
+        launch.application.extra_arguments,
+        ["first", "second item", "third item", "fourth"]
+    );
+    let settings = decode_conf(&fs::read_to_string(&conf).unwrap()).unwrap();
+    assert_eq!(settings.server.port, Some(25566));
+    assert_eq!(settings.server.world.as_deref(), Some("123"));
+    assert_eq!(settings.jvm.heap.maximum.as_deref(), Some("4G"));
+    assert_eq!(settings.jvm.extra_arguments, ["-Dfinal=1"]);
+
+    let repeated = [&initialized[..], &["--conf", "server.port=25567"]].concat();
+    let output = run(root, &repeated);
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success()
+            && error.contains("configuration key overridden more than once: server.port"),
+        "{error}"
+    );
+}
+
+#[test]
 fn explicit_git_creates_nested_repository_and_preserves_existing_repository_or_worktree() {
     let parent = TempDir::new().unwrap();
     let git = |root: &Path, args: &[&str]| {

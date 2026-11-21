@@ -3,7 +3,7 @@
 use super::{super::info::ServerInfo, git};
 use mcpm_lib::local::mc::server::{
     MinecraftServerMetadata,
-    config::{ConfigurationDraft, ImportedSetting, Published},
+    config::{ConfigurationDraft, ConfigurationOverrides, ImportedSetting, Published},
     identify::ServerCandidate,
 };
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,10 @@ pub struct Initialize {
 pub struct LocalImport {
     pub configuration: Option<ConfigurationDraft>,
     pub replace_conf: bool,
+    #[serde(default, skip_serializing_if = "ConfigurationOverrides::is_empty")]
+    pub conf_overrides: ConfigurationOverrides,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub preserve_conf: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

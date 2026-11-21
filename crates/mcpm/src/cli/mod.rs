@@ -45,6 +45,20 @@ pub(crate) fn command(program: Program, color: ColorChoice) -> clap::Command {
         Program::Mcpmc | Program::McpmClient => root_command::<roots::ClientRootArgs>(),
         Program::McpmTools => root_command::<roots::ToolsRootArgs>(),
     };
+    let root = match program {
+        Program::Mcpm | Program::McpmServer => crate::commands::server::configure_launch(root, &[]),
+        Program::McpmTools => {
+            let globals: Vec<_> = root
+                .get_arguments()
+                .filter(|arg| arg.is_global_set())
+                .cloned()
+                .collect();
+            root.mut_subcommand("server", |server| {
+                crate::commands::server::configure_launch(server, &globals)
+            })
+        }
+        Program::Mcpmc | Program::McpmClient => root,
+    };
     root.name(program.name())
         .bin_name(program.name())
         .color(color)

@@ -39,6 +39,19 @@ enum ServerCommand {
     Debug(crate::commands::debug::DebugArgs),
 }
 
+pub(crate) fn configure_launch(command: clap::Command, inherited: &[clap::Arg]) -> clap::Command {
+    let mut globals = inherited.to_vec();
+    globals.extend(
+        command
+            .get_arguments()
+            .filter(|arg| arg.is_global_set())
+            .cloned(),
+    );
+    command.mut_subcommand("launch", |launch| {
+        launch::configure_shortcuts(launch, &globals)
+    })
+}
+
 pub(crate) fn run(
     args: ServerArgs,
     ssh: crate::ssh::SshArgs,

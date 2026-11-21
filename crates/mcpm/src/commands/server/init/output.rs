@@ -8,7 +8,7 @@ use mcpm_rich::rich;
 use crate::{
     display::{
         console::ConsoleWriter,
-        rich::block,
+        rich::{block, tip},
         style::{OutputStyle, text},
     },
     terminal,
@@ -51,13 +51,6 @@ pub(super) fn write_publication(
             )?;
         }
     }
-    if !publication.entry_configured {
-        let warning = rich!(
-            "[No launch entry is configured; explicitly import a start script before using
-             launch.](warning)"
-        );
-        block(&mut output, &warning, &style)?;
-    }
     if !publication.imported.is_empty() && !publication.preserved.is_empty() {
         let warning = rich!(
             "[Existing](warning) `conf.toml` [was preserved; source tuning settings were not
@@ -68,15 +61,35 @@ pub(super) fn write_publication(
     Ok(())
 }
 
-pub(super) fn write_success(output: &mut impl Write) -> io::Result<()> {
+pub(super) fn write_success(output: &mut impl Write, launch_missing: bool) -> io::Result<()> {
     if !terminal::stdout_is_tty() {
         return Ok(());
     }
     let mut output = ConsoleWriter::new(output);
     writeln!(output)?;
+    let style = OutputStyle::new();
     block(
         &mut output,
         &rich!("[Initialized successfully.](success)"),
-        &OutputStyle::new(),
-    )
+        &style,
+    )?;
+    if launch_missing {
+        let server = &crate::program::roots().server;
+        tip(
+            &mut output,
+            &rich!(
+                "
+                 `launch.toml` is missing. Before running `{server} launch`:
+
+                 - Import a startup script: run `{server} init --force --start-script run.sh`
+                   (use `run.bat` on Windows).
+                 - Configure it manually: rerun `{server} init --force` with the server identity,
+                   `--entry`, and the original JVM and application arguments.
+
+                 `--force` preserves `conf.toml` by default."
+            ),
+            &style,
+        )?;
+    }
+    Ok(())
 }

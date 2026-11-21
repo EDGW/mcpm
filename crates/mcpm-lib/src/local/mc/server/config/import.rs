@@ -19,7 +19,11 @@ pub struct ConfigurationDraft {
 
 impl ConfigurationDraft {
     pub(crate) fn template(&self) -> Result<String> {
-        template(&self.imported)
+        template(
+            self.imported
+                .iter()
+                .map(|setting| (setting.field.as_str(), &setting.value)),
+        )
     }
 }
 
@@ -29,6 +33,19 @@ impl ConfigurationDraft {
 pub struct ImportedSetting {
     pub field: String,
     pub value: ImportedValue,
+}
+
+impl ImportedSetting {
+    /// A lossless assignment for the configuration override parser, replacing list values.
+    pub fn override_argument(&self) -> Result<String> {
+        let value = encode_setting(&self.value)?;
+        let operator = if matches!(self.value, ImportedValue::Arguments(_)) {
+            ":="
+        } else {
+            "="
+        };
+        Ok(format!("{}{operator}{value}", self.field))
+    }
 }
 
 /// Typed imported values rendered by the single configuration template owner.
@@ -41,19 +58,17 @@ pub enum ImportedValue {
     Arguments(Vec<String>),
 }
 
-impl ImportedValue {
-    fn toml(&self) -> Result<String> {
-        #[derive(Serialize)]
-        struct Value<'a> {
-            value: &'a ImportedValue,
-        }
-        let text = toml::to_string(&Value { value: self })?;
-        Ok(text
-            .strip_prefix("value = ")
-            .context("unexpected TOML value encoding")?
-            .trim_end()
-            .to_owned())
+fn encode_setting(value: &impl Serialize) -> Result<String> {
+    #[derive(Serialize)]
+    struct Value<'a, T> {
+        value: &'a T,
     }
+    let text = toml::to_string(&Value { value })?;
+    Ok(text
+        .strip_prefix("value = ")
+        .context("unexpected TOML value encoding")?
+        .trim_end()
+        .to_owned())
 }
 
 /// Consumes parsed command evidence and agent metadata; never rereads scripts, writes files or runs Java.
@@ -283,25 +298,50 @@ fn suggestion(argument: &str) -> Option<(&'static str, ImportedValue)> {
     None
 }
 
-pub(crate) fn default_template() -> Result<String> {
-    template(&[])
+const CONF_TEMPLATE: &str = include_str!("conf.template.toml");
+
+pub(super) fn default_template() -> String {
+    CONF_TEMPLATE.to_owned()
 }
 
-fn template(suggestions: &[ImportedSetting]) -> Result<String> {
-    let mut remaining = BTreeMap::new();
-    for setting in suggestions {
+/// Render the final values of explicit assignments into the default template.
+pub(super) fn manual_template(
+    overrides: &ConfigurationOverrides,
+) -> Result<(String, ServerConfig)> {
+    let conf = decode_conf_with_overrides(CONF_TEMPLATE, overrides)?;
+    let schema = toml::Value::try_from(&conf)?;
+    // A list may be modified more than once; only its final value is emitted.
+    let mut settings = BTreeMap::new();
+    for key in overrides.keys() {
+        if let std::collections::btree_map::Entry::Vacant(entry) = settings.entry(key) {
+            let value = key
+                .split('.')
+                .try_fold(&schema, |table, part| table.get(part))
+                .with_context(|| format!("cannot encode configured field {key}"))?;
+            entry.insert(value);
+        }
+    }
+    Ok((render_template(settings)?, conf))
+}
+
+fn template<'a, T: Serialize>(
+    suggestions: impl IntoIterator<Item = (&'a str, T)>,
+) -> Result<String> {
+    let mut settings = BTreeMap::new();
+    for (key, value) in suggestions {
         ensure!(
-            remaining
-                .insert(setting.field.as_str(), &setting.value)
-                .is_none(),
-            "repeated imported setting {} cannot be represented as one setting",
-            setting.field
+            settings.insert(key, value).is_none(),
+            "repeated imported setting {key} cannot be represented as one setting"
         );
     }
+    render_template(settings)
+}
+
+fn render_template<T: Serialize>(mut remaining: BTreeMap<&str, T>) -> Result<String> {
     let mut table = String::new();
     let mut result = String::new();
     let mut skip_array = false;
-    for line in include_str!("conf.template.toml").lines() {
+    for line in CONF_TEMPLATE.lines() {
         if skip_array {
             if line.trim_start().starts_with("# ]") {
                 skip_array = false;
@@ -310,10 +350,8 @@ fn template(suggestions: &[ImportedSetting]) -> Result<String> {
         }
         if let Some(rest) = line.strip_prefix("# [") {
             table = rest.split(']').next().unwrap_or("").into();
-            if suggestions.iter().any(|setting| {
-                setting
-                    .field
-                    .rsplit_once('.')
+            if remaining.keys().any(|key| {
+                key.rsplit_once('.')
                     .is_some_and(|(parent, _)| parent == table)
             }) {
                 result.push_str(&line[2..]);
@@ -337,7 +375,7 @@ fn template(suggestions: &[ImportedSetting]) -> Result<String> {
                     .split_once('#')
                     .map(|(_, description)| description.trim())
                     .unwrap_or("");
-                let encoded = format!("{key} = {}", value.toml()?);
+                let encoded = format!("{key} = {}", encode_setting(&value)?);
                 for line in encoded.lines() {
                     result.push_str(line);
                     result.push('\n');
@@ -357,9 +395,8 @@ fn template(suggestions: &[ImportedSetting]) -> Result<String> {
     }
     ensure!(
         remaining.is_empty(),
-        "unsupported imported suggestion fields: {:?}",
+        "unsupported template fields: {:?}",
         remaining.keys()
     );
-    decode_conf(&result)?;
     Ok(result)
 }

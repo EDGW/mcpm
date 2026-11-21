@@ -1,6 +1,6 @@
 //! Line-delimited JSON messaging over any byte stream pair.
 //!
-#![doc = include_str!("../docs/messaging.md")]
+#![doc = include_str!("../../docs/messaging.md")]
 
 // Re-exported Modules
 

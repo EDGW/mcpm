@@ -73,17 +73,18 @@ Forge shim, both Fabric installer layouts, vanilla and bundled vanilla,
 nested BAT scripts, multiple identified entries, and ignored unknown JVM
 options. The CLI tests copy each fixture to a temporary directory before writing.
 
-Forge/NeoForge identification uses the entry point and FML arguments without
-opening dependency JARs. Forge shim reads its embedded properties and dependency
-list for versions, without checking the listed JARs. Installation integrity is
-outside server identification. `fake-vanilla` also succeeds from its declared entry
-and version metadata without checking the class file; `partial-unknown` retains
-the known candidate alongside the unknown Java command.
+Forge/NeoForge identification combines launch options and referenced Maven paths
+without opening dependency JARs. The early NeoForge fixture uses the old Forge
+option name and a FancyModLoader path, without an explicit group. The Forge shim
+fixture obtains family and versions from its embedded list.
+Installation integrity is outside server identification. `fake-vanilla` also
+succeeds from its declared entry and version metadata without checking the class
+file; `partial-unknown` retains the known candidate alongside the unknown command.
 
-`loader-version-conflict` and `game-version-conflict` are manual inspection
-examples; the suite does not pin the old version-source priority. `missing-loader`
-and `fake-loader` add no distinct coverage after the test removes all libraries;
-the Forge/NeoForge missing-dependency cases cover that boundary.
+`loader-version-conflict` and `game-version-conflict` are historical examples;
+an FML component version or dependency JAR's game metadata is not a distribution
+version source. Distribution-coordinate conflicts and legacy Forge constants are
+covered in `mcpm-lib/tests/fml_server.rs`.
 
 Use `--log-level debug` to see scripts, argument-file expansion, identity evidence,
 and failure reasons; `info` shows identification progress and recognized versions.

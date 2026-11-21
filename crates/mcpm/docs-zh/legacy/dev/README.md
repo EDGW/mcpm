@@ -52,8 +52,11 @@
 - 后端 `local/mc/server/config` 拥有 TOML 类型、模板、分类、校验和发布；导入值生效，缺失值保持注释。前端不拼 TOML、不重复解释字段。
 - 初始化输入携带完整配置草稿，本地和远端复用 backend operation；候选通过流返回，本机选择后提交。Host operation 规定 Git 等实际服务端行为，Shallow 仅检查和维护本机 stub。
 - `mcpm-lib::local::mc::server::identify` 静态扫描所有可解析 Java 命令；不支持的运算符/命令替换整行跳过，shell 与 batch 控制流块整体跳过。词法结构只用于定位块边界和保守清除可能改变的目录、变量状态，不执行条件，也不替加载器判断哪条命令应被选中。
-- backend 传输候选及其服务端相对的脚本位置；行号只用于展示。前端使用 `ConfigurationDraft` 渲染摘要并在本机选择候选：TUI 使用卡片，Console 读取控制终端，Raw 列出候选并报错。
-- init 候选详情的 Console/TUI 共用语义样式：脚本名与字段标签为 Normal，行号为 Primary，Main/Entry/Arguments 的值为 Code；TUI 卡片左右各留两列内边距，Console 不加内边距。
+- 识别器从同一个 `ServerLaunch` 读取参数和直接引用的路径。现代 FML 先根据组、NeoForge 版本选项或 FML 组件坐标确定家族，再分别核对 Minecraft 和 loader 版本；没有家族证据不默认 Forge，证据冲突保留选项或路径。
+- Forge 的 ServerMain、bootstrap shim 和旧版 `ForgeVersion.class` 由 Forge 分支解释。ServerMain 和 shim 只向共享 FML 识别提供默认参数和补充路径；旧版独立读取启动 JAR 内的类常量和 properties。识别不扫描依赖目录、不访问网络、不执行 Java。
+- backend 传输候选及其服务端相对的脚本位置。前端使用 `ConfigurationDraft` 渲染启动摘要；Console 从控制终端读取编号，Raw 列出候选并报错。
+- Console 为每个候选用其 `MinecraftServerMetadata` 生成手动初始化命令，沿用原始命令根、目标路径、显式 SSH 参数及写入选项。脚本名和标签使用 Normal，行号使用 Primary，主类、入口、参数和手动命令使用 Code。
+- 手动 `init` 直接构造 `LaunchConfig`，不走脚本识别或参数归类；`--conf` 沿用启动覆盖的语法和类型校验，用字段全路径或唯一快捷名解析。Host 在发布锁内把操作应用到默认配置，并在同一模板中写入最终值。
 - `config/publication.rs` 持有配置锁和恢复日志，统一协调登记及两份 TOML；`--force` 与 `--foverride-conf` 是独立覆盖意图。backend operation 在文件提交后发布 workspace 类型标记。
 - 后端 `launch/plan.rs` 是唯一启动计划生成与原生值 codec；backend `EncodedPlan` 在客户端保持不透明，只在原 Host 解码，避免跨平台客户端解释路径和环境。准备仍复用原配置和 authlib 入口，通过独立的 `server.launch.prepare` 发送有界合并的进度，再调用 `server.shim.launch`，不是把整个 launch 包成一次 operation。
 - `launch/process.rs` 的 `JavaProcess` 持有管道、临时参数文件和进程组/Windows Job，Drop 回收未退出子进程。没有旧的 foreground execute、终端转交、OS stop 信号或自动十秒强杀路径。
@@ -72,8 +75,8 @@
 - `MAX_LOG_BLOCK_BYTES` 是共享的 1 MiB 块/批次上限，管道 reader、Buffer::read 和 attach 订阅复用。`server/shim/logs.rs` 是内存块与原始二进制尾部的唯一 codec；退出时先写入并同步 `logs-<run_id>-stdout.bin`、`logs-<run_id>-stderr.bin`，再发布只含 RunSnapshot 的 finished.json。重放按 snapshot cursor 验证文件大小并恢复原始字节，不需要保存原始读取分块边界。文件名只有 run_id 与来源，移动目录后仍可读；下次启动保留当前 receipt 的尾部并清理更旧的生成文件，避免无界累积。Operation 传输编码不变，不修改 mcpm-exec。
 - v3 登记只存身份，旧 v1/v2 `start` 经原编解码入口兼容读取，仅用于历史展示，不自动迁移成启动配置。
 - 内存或 GC 设置中的显式 `auto` 暂不受支持；不从模板示例、宿主机状态或旧快照推导隐式默认策略。
-- `config/overrides.rs` 拥有本次启动覆盖操作，字段及类型复用配置 schema；标量唯一，列表按序追加或清空重设。前端只将便捷参数转换为同一覆盖输入，最终配置经原 codec 和校验入口生成计划，不回写 TOML。
-- 可选认证表的覆盖类型探测复用同一个配置类型，仅在探测值中填充表以识别字段及数组，不为真实配置启用默认认证。
+- `ConfigFields` 从配置结构体的 Serde 名称和字段类型生成路径查找及类型化赋值；`#[config(command = ..., command_short = ...)]` 声明可选快捷名。构建 Clap 时汇总整棵配置树，重复长名和短名分别取消注册，通用字段路径不变。
+- `config/overrides.rs` 在原有解码入口读取 `ServerConfig` 后应用覆盖，再校验结果并生成本次启动计划。标量不可重复，列表按序处理；可选认证表只有被赋值时才创建。不写回 TOML。
 
 ## 服务端 authlib-injector
 

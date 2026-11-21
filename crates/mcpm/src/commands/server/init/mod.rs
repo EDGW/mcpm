@@ -18,6 +18,7 @@ use mcpm_lib::local::mc::server::{
     MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader,
 };
 
+mod manual;
 mod output;
 mod presentation;
 mod reference;
@@ -32,15 +33,18 @@ fn after_help() -> clap::builder::StyledStr {
     help.blank();
     help.line("  Recognize a startup script");
     help.line("    Omit identity options to import an existing Java launch.");
-    help.line("    One candidate is used directly; for multiple candidates, select a card");
-    help.line("    in TUI or enter a number in Console. Raw lists the candidates and fails.");
+    help.line("    One candidate is used directly. Console lists multiple candidates with");
+    help.line("    manual initialization commands; enter a number to import a launch.");
+    help.line("    Raw lists the candidates and fails (--raw or redirected stdout).");
     help.line("    Example: mcpm init ./server --start-script run.sh");
     help.line("    Example: mcpm init -FIg ./server");
     help.blank();
     help.line("  Set the identity manually");
-    help.line("    Supply the complete identity. This registers the server without");
-    help.line("    generating launch.toml. Partial identity is rejected.");
+    help.line("    Supply the complete identity. Add --entry to write launch.toml and");
+    help.line("    --conf to set fields in the generated conf.toml.");
     help.line("    Example: mcpm init ./server --minecraft-version 1.21.1 --loader vanilla");
+    help.line("    Example: mcpm init . --minecraft-version 1.21.1 --loader vanilla");
+    help.line("      --entry jar@server.jar --conf jvm.heap.maximum=4G");
     help.blank();
     help.line("  Register a Remote workspace");
     help.line("    With --remote, PATH is local and REMOTE_PATH names an already registered");
@@ -91,6 +95,8 @@ pub(super) struct InitArgs {
     /// Required for a modded server; omit for vanilla.
     #[arg(long, value_name = "VERSION", help_heading = "Manual identity")]
     loader_version: Option<String>,
+    #[command(flatten)]
+    manual: manual::ManualArgs,
     /// Replace the existing server or Remote workspace registration.
     #[arg(short = 'f', long, help_heading = "Write options")]
     force: bool,
@@ -105,6 +111,9 @@ pub(super) struct InitArgs {
         help_heading = "Write options"
     )]
     foverride_conf: bool,
+    /// Use --conf only when generating a new conf.toml; keep existing settings unchanged.
+    #[arg(long, requires = "conf", conflicts_with_all = ["foverride_conf", "force_all"], help_heading = "Write options")]
+    preserve_conf: bool,
     /// Skip Git discovery and initialization on the actual server host.
     #[arg(short = 'G', long, help_heading = "Git options")]
     no_git: bool,
@@ -116,9 +125,6 @@ pub(super) struct InitArgs {
         help_heading = "Git options"
     )]
     git: bool,
-    /// Use the numbered Console list for candidate selection.
-    #[arg(long, help_heading = "Script recognition")]
-    no_ui: bool,
     /// Show the complete startup command generated from launch.toml and conf.toml.
     #[arg(long, help_heading = "Result options")]
     full_command: bool,
@@ -131,6 +137,7 @@ pub(super) fn run(args: InitArgs, ssh: SshArgs) -> Result<()> {
 
 async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
     let force = args.force || args.force_all;
+    let replace_conf = args.foverride_conf || args.force_all;
     if let Some(remote_path) = args.remote {
         let info = reference::create(
             args.path,
@@ -145,6 +152,9 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
         return write_info(&info, args.full_command);
     }
     let manual = manual_metadata(args.minecraft_version, args.loader, args.loader_version)?;
+    let (manual_configuration, conf_overrides) = args.manual.build()?;
+    let invoked_path =
+        (manual.is_none() && crate::terminal::stdout_is_tty()).then(|| args.path.clone());
     let (executor, path, _) = ssh.create_executor(Some(args.path)).await?;
     let path = path.context("server initialization requires a path")?;
     let progress = RefCell::new(None);
@@ -158,7 +168,7 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
         *progress.borrow_mut() = Some(Progress::new(description, "Initializing server"));
     };
     let (metadata, configuration) = match manual {
-        Some(metadata) => (metadata, None),
+        Some(metadata) => (metadata, manual_configuration),
         None => {
             let mut stream = executor
                 .call::<RecognizeServer>(Recognize {
@@ -183,10 +193,31 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
             let index = if candidates.len() == 1 {
                 0
             } else {
-                if !crate::terminal::stdout_is_tty() {
+                let Some(invoked_path) = invoked_path else {
                     return Err(presentation::ambiguous(&candidates));
+                };
+                let mut command = crate::program::roots().server.command("init");
+                let copyable = ssh.explicit_arguments().all(|(name, value)| {
+                    presentation::append_option(&mut command, name, value).is_some()
+                });
+                for (name, enabled) in [
+                    (" --force", force),
+                    (" --foverride-conf", replace_conf),
+                    (" --no-git", args.no_git),
+                    (" --git", args.git),
+                    (" --full-command", args.full_command),
+                ] {
+                    if enabled {
+                        command.push_str(name);
+                    }
                 }
-                let Some(index) = selector::select(&candidates, args.no_ui)? else {
+                let Some(index) = selector::select(
+                    &candidates,
+                    copyable.then_some(command.as_str()),
+                    &invoked_path,
+                    replace_conf,
+                )?
+                else {
                     return Ok(());
                 };
                 index
@@ -204,7 +235,9 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
             git: args.git,
             local: Some(LocalImport {
                 configuration,
-                replace_conf: args.foverride_conf || args.force_all,
+                replace_conf,
+                conf_overrides,
+                preserve_conf: args.preserve_conf,
             }),
         })
         .await?;
@@ -273,7 +306,13 @@ fn write_info(info: &Initialized, full_command: bool) -> Result<()> {
         .context("failed to write Git initialization result")?;
     crate::display::server::write_snapshot(&mut stdout, &info.server, full_command, None)
         .context("failed to write initialized server information")?;
-    output::write_success(&mut stdout).context("failed to write initialization success message")?;
+    let launch_missing = info
+        .server
+        .configuration
+        .as_ref()
+        .is_some_and(|configuration| !configuration.launch);
+    output::write_success(&mut stdout, launch_missing)
+        .context("failed to write initialization success output")?;
     stdout
         .flush()
         .context("failed to flush initialized server information")

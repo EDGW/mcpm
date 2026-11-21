@@ -286,7 +286,12 @@ async fn install(
             path,
             metadata: MinecraftServerMetadata { version: SERVER_METADATA_VERSION, minecraft_version: version, loader: ServerLoader::Vanilla },
             force: false,
-            local: Some(LocalConfiguration { configuration: Some(draft), replace_conf: false }),
+            local: Some(LocalConfiguration {
+                configuration: Some(draft),
+                replace_conf: false,
+                conf_overrides: Default::default(),
+                preserve_conf: false,
+            }),
         },
         || observe(("Initializing Local workspace...".into(), None)),
         |_| observe(("Initializing Local workspace...".into(), None)),

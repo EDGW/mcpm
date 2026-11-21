@@ -1,79 +1,35 @@
-//! Local Console and TUI launch selection; RAII restores terminal state on every exit.
+//! Numbered Console launch selection using the controlling terminal.
 
-use std::io::{self, Write};
+use std::{io, path::Path};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use console::{Key, Term};
+#[cfg(windows)]
 use crossterm::{
-    cursor::{Hide, Show},
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    execute,
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal,
 };
 use mcpm_backend::operations::server::init::Candidate;
-use mcpm_rich::Role;
-use ratatui::{
-    Terminal,
-    backend::CrosstermBackend,
-    layout::Rect,
-    text::{Line, Span},
-    widgets::{Block, Padding, Paragraph},
-};
 
 use super::presentation;
-use crate::{
-    display::style::OutputStyle,
-    terminal as policy,
-    theme::widgets::{loader, style},
-};
+use crate::display::style::OutputStyle;
 
-pub(super) fn select(candidates: &[Candidate], no_ui: bool) -> Result<Option<usize>> {
-    ensure!(
-        policy::stdout_is_tty(),
-        "server launch selection requires terminal stdout"
-    );
-    if no_ui || !policy::stderr_is_tty() {
-        return console(candidates);
-    }
-    let summaries: Vec<_> = candidates.iter().map(presentation::summary).collect();
-    let mut screen = Screen {
-        terminal: Terminal::new(CrosstermBackend::new(io::stderr()))
-            .context("failed to open server selector")?,
-        raw: false,
-        alternate: false,
-    };
-    terminal::enable_raw_mode().context("failed to enable server selector")?;
-    screen.raw = true;
-    screen.alternate = true;
-    execute!(screen.terminal.backend_mut(), EnterAlternateScreen, Hide)?;
-    let mut selected = 0;
-    loop {
-        screen.render(candidates, &summaries, selected)?;
-        if let Event::Key(key) = event::read()? {
-            if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                continue;
-            }
-            match key.code {
-                KeyCode::Up => selected = (selected + candidates.len() - 1) % candidates.len(),
-                KeyCode::Down => selected = (selected + 1) % candidates.len(),
-                KeyCode::Home => selected = 0,
-                KeyCode::End => selected = candidates.len() - 1,
-                KeyCode::Enter => return Ok(Some(selected)),
-                KeyCode::Esc => return Ok(None),
-                KeyCode::Char('c' | 'd' | 'z') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    return Ok(None);
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-fn console(candidates: &[Candidate]) -> Result<Option<usize>> {
+pub(super) fn select(
+    candidates: &[Candidate],
+    command: Option<&str>,
+    invoked_path: &Path,
+    replace_conf: bool,
+) -> Result<Option<usize>> {
     // stdout controls interaction; input comes from the terminal, never redirected stdin.
     let term = Term::stdout();
     let style = OutputStyle::new();
     term.write_line("Select an identified server launch to initialize:")?;
+    let label = if cfg!(windows) {
+        "Manual init (PowerShell): "
+    } else {
+        "Manual init: "
+    };
+    let invocation = command.zip(invoked_path.to_str());
     for (index, candidate) in candidates.iter().enumerate() {
         let summary = presentation::summary(candidate);
         term.write_line(&format!(
@@ -88,6 +44,15 @@ fn console(candidates: &[Candidate]) -> Result<Option<usize>> {
                 .collect();
             term.write_line(&line)?;
         }
+        let manual = invocation
+            .and_then(|(prefix, path)| {
+                presentation::manual_command(prefix, path, candidate, replace_conf)
+            })
+            .map_or_else(
+                || style.muted("(cannot represent this candidate as a single-line command)"),
+                |command| style.code(command),
+            );
+        term.write_line(&format!("{}{}", style.normal(label), manual))?;
         term.write_line("")?;
     }
     loop {
@@ -241,98 +206,5 @@ fn read_key(_term: &Term) -> io::Result<Key> {
             KeyCode::Char(ch) => Key::Char(ch),
             _ => Key::Unknown,
         });
-    }
-}
-
-struct Screen {
-    terminal: Terminal<CrosstermBackend<io::Stderr>>,
-    raw: bool,
-    alternate: bool,
-}
-impl Screen {
-    fn render(
-        &mut self,
-        candidates: &[Candidate],
-        summaries: &[presentation::Summary],
-        selected: usize,
-    ) -> io::Result<()> {
-        self.terminal.draw(|frame| {
-            let area = frame.area();
-            frame.render_widget(
-                Paragraph::new("Select an identified server launch to initialize")
-                    .style(style(Role::Primary)),
-                Rect::new(0, 0, area.width, area.height.min(1)),
-            );
-            let available = area.height.saturating_sub(2);
-            let card_height = available.clamp(1, 6);
-            let visible = usize::from((available / card_height).max(1));
-            let start = selected
-                .saturating_sub(visible / 2)
-                .min(candidates.len().saturating_sub(visible));
-            for (offset, index) in (start..candidates.len()).take(visible).enumerate() {
-                let candidate = &candidates[index];
-                let summary = &summaries[index];
-                let loader_id = candidate
-                    .metadata
-                    .loader
-                    .declaration()
-                    .map_or("vanilla", |loader| loader.loader_type.as_str());
-                let title = Line::styled(
-                    format!(" {}. {} ", index + 1, summary.identity),
-                    loader(loader_id),
-                );
-                let card = Block::bordered()
-                    .title(title)
-                    .padding(Padding::horizontal(2))
-                    .border_style(style(if index == selected {
-                        Role::Primary
-                    } else {
-                        Role::Muted
-                    }));
-                let lines: Vec<_> = summary
-                    .details()
-                    .into_iter()
-                    .map(|detail| {
-                        Line::from(
-                            detail
-                                .into_iter()
-                                .map(|(role, value)| Span::styled(value, style(role)))
-                                .collect::<Vec<_>>(),
-                        )
-                    })
-                    .collect();
-                let rect = Rect::new(
-                    0,
-                    1 + offset as u16 * card_height,
-                    area.width,
-                    card_height.min(area.height.saturating_sub(1 + offset as u16 * card_height)),
-                );
-                frame.render_widget(
-                    Paragraph::new(lines).style(style(Role::Normal)).block(card),
-                    rect,
-                );
-            }
-            frame.render_widget(
-                Paragraph::new("Up/Down: move | Enter: initialize | Esc/Ctrl-C: cancel"),
-                Rect::new(
-                    0,
-                    area.height.saturating_sub(1),
-                    area.width,
-                    area.height.min(1),
-                ),
-            );
-        })?;
-        Ok(())
-    }
-}
-impl Drop for Screen {
-    fn drop(&mut self) {
-        if self.alternate {
-            let _ = execute!(self.terminal.backend_mut(), Show, LeaveAlternateScreen);
-        }
-        if self.raw {
-            let _ = terminal::disable_raw_mode();
-        }
-        let _ = self.terminal.backend_mut().flush();
     }
 }

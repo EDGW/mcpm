@@ -43,6 +43,8 @@ fn input(path: &Path, version: &str) -> Initialize {
         local: Some(LocalImport {
             configuration: None,
             replace_conf: false,
+            conf_overrides: Default::default(),
+            preserve_conf: false,
         }),
     }
 }
@@ -111,6 +113,8 @@ async fn recognition_is_read_only_and_transports_the_selected_configuration_draf
             local: Some(LocalImport {
                 configuration: candidate.configuration,
                 replace_conf: false,
+                conf_overrides: Default::default(),
+                preserve_conf: false,
             }),
         },
     )

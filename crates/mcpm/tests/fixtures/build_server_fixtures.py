@@ -59,13 +59,18 @@ def fml(case, kind="forge", bad_game=False):
     write(case, loader, jar({marker: b""}))
     write(case, GAME, jar({"version.json": json.dumps({"id": "1.19.4" if bad_game else mc})}))
     argpath = "launch-args.txt"
-    group = "net.minecraftforge" if kind == "forge" else "net.neoforged"
+    group = "" if kind == "early-neoforge" else "--fml.forgeGroup " + (
+        "net.minecraftforge\n" if kind == "forge" else "net.neoforged\n"
+    )
     option = "--fml.neoForgeVersion" if kind == "neoforge" else "--fml.forgeVersion"
-    args = f"-p {BOOT}\n-DlegacyClassPath={loader}:{GAME}\ncpw.mods.bootstraplauncher.BootstrapLauncher\n--launchTarget forgeserver\n{option} {version}\n--fml.mcVersion {mc}\n--fml.forgeGroup {group}\n"
+    classpath = f"{loader}:{GAME}"
+    if kind == "early-neoforge":
+        classpath += ":libraries/net/neoforged/fancymodloader/loader/47.2.2/loader-47.2.2.jar"
+    args = f"-p {BOOT}\n-DlegacyClassPath={classpath}\ncpw.mods.bootstraplauncher.BootstrapLauncher\n--launchTarget forgeserver\n{option} {version}\n--fml.mcVersion {mc}\n{group}"
     write(case, argpath, args)
     write(case, "user_jvm_args.txt", "# JVM tuning\n-Xmx2G\n-XX:+UseG1GC\n")
     write(case, "run.sh", 'java @user_jvm_args.txt @launch-args.txt nogui "$@"\n')
-    write(case, "launch-args-win.txt", args.replace(f"{loader}:{GAME}", f"{loader};{GAME}"))
+    write(case, "launch-args-win.txt", args.replace(classpath, classpath.replace(":", ";")))
     write(case, "run.bat", '@echo off\r\njava @user_jvm_args.txt @launch-args-win.txt nogui %*\r\npause\r\n')
 
 
@@ -142,9 +147,10 @@ for case in ["fabric-auto", "fabric-auto-missing-version"]:
     write(case, "server.jar", jar({"META-INF/MANIFEST.MF": manifest("net.fabricmc.installer.ServerLauncher"), "net/fabricmc/installer/ServerLauncher.class": b"", "install.properties": props}))
     write(case, "run.sh", "java -jar server.jar nogui\n")
 
-# Newer Forge shim: versions come from referenced artifacts, cross-checked with game JSON.
+# Newer Forge shim: FML component identifies the family; Forge artifact supplies versions.
 case = "forge-shim"
 universal = "net/minecraftforge/forge/1.21.1-52.0.1/forge-1.21.1-52.0.1-universal.jar"
+fmlloader = "net/minecraftforge/fmlloader/1.21.1-52.0.1/fmlloader-1.21.1-52.0.1.jar"
 game = "net/minecraft/server/1.21.1/server-1.21.1-extra.jar"
 write(case, "libraries/" + universal, jar({"net/minecraftforge/common/ForgeMod.class": b""}))
 write(case, "libraries/" + game, jar({"version.json": '{"id":"1.21.1"}'}))
@@ -152,7 +158,7 @@ write(case, "shim.jar", jar({
     "META-INF/MANIFEST.MF": manifest("net.minecraftforge.bootstrap.shim.Main"),
     "net/minecraftforge/bootstrap/shim/Main.class": b"",
     "bootstrap-shim.properties": "Main-Class=net.minecraftforge.bootstrap.ForgeBootstrap\nArguments=--launchTarget forge_server\n",
-    "bootstrap-shim.list": "\n".join("0" * 64 + "\tartifact\t" + path for path in [universal, game]) + "\n",
+    "bootstrap-shim.list": "\n".join("0" * 64 + "\tartifact\t" + path for path in [fmlloader, universal, game]) + "\n",
 }))
 write(case, "run.sh", "java -jar shim.jar nogui\n")
 

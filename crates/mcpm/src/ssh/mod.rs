@@ -39,6 +39,16 @@ impl SshArgs {
         self.ssh.as_deref().and_then(connection::destination)
     }
 
+    /// Explicit CLI options for a command shown on the invoking terminal.
+    pub(crate) fn explicit_arguments(&self) -> impl Iterator<Item = (&'static str, &str)> {
+        [
+            ("--ssh", self.ssh.as_deref()),
+            ("--ssh-mcpmd", self.ssh_mcpmd.as_deref()),
+        ]
+        .into_iter()
+        .filter_map(|(name, value)| Some((name, value?)))
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         if self.ssh_mcpmd.is_some() && self.ssh.is_none() {
             bail!("--ssh-mcpmd requires --ssh");

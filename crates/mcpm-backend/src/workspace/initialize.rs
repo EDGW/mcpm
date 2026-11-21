@@ -9,7 +9,7 @@ use anyhow::{Context, Result, ensure};
 use mcpm_lib::local::{
     mc::server::{
         MinecraftServer, MinecraftServerError, MinecraftServerMetadata,
-        config::{self, ConfigurationDraft, OverwritePolicy, Published},
+        config::{self, ConfigurationDraft, ConfigurationOverrides, OverwritePolicy, Published},
     },
     modloader::BUILTIN_LOADERS,
 };
@@ -28,6 +28,8 @@ pub(crate) struct LocalInitialization {
 pub(crate) struct LocalConfiguration {
     pub configuration: Option<ConfigurationDraft>,
     pub replace_conf: bool,
+    pub conf_overrides: ConfigurationOverrides,
+    pub preserve_conf: bool,
 }
 
 pub(crate) enum Phase {
@@ -89,9 +91,11 @@ pub(crate) fn initialize_local<G>(
                 &input.path,
                 &input.metadata,
                 local.configuration.as_ref(),
+                &local.conf_overrides,
                 OverwritePolicy {
                     replace_registration: input.force,
                     replace_conf: local.replace_conf,
+                    preserve_conf_with_overrides: local.preserve_conf,
                 },
             )
         })

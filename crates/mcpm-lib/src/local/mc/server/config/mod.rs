@@ -16,7 +16,7 @@ pub use import::{ConfigurationDraft, ImportedSetting, ImportedValue, draft};
 mod generate;
 pub use generate::vanilla_server;
 mod overrides;
-pub use overrides::ConfigurationOverrides;
+pub use overrides::{ConfigurationOverrides, ConfigurationShortcut};
 mod publication;
 pub(crate) use publication::ConfigurationLock;
 pub use publication::PublicationRecoveryError;
@@ -75,7 +75,7 @@ pub(crate) fn read(
     overrides: &ConfigurationOverrides,
 ) -> Result<(LaunchConfig, ServerConfig)> {
     let launch = decode_launch(&fs::read_to_string(root.join("launch.toml")).context(
-        "failed to read server-root launch.toml; explicitly import a start script first",
+        "failed to read server-root launch.toml; use init --entry or import a start script first",
     )?)?;
     let conf = decode_conf_with_overrides(
         &fs::read_to_string(root.join("conf.toml"))
@@ -103,17 +103,10 @@ pub fn decode_conf_with_overrides(
     text: &str,
     overrides: &ConfigurationOverrides,
 ) -> Result<ServerConfig> {
-    let mut table: toml::Value = toml::from_str(text).context("invalid conf.toml")?;
-    // Reject unknown fields and invalid source types before applying runtime changes.
-    deserialize_conf(table.clone())?;
-    overrides.apply(&mut table)?;
-    let value = deserialize_conf(table)?;
+    let mut value = toml::from_str::<ServerConfig>(text).context("invalid conf.toml")?;
+    overrides.apply(&mut value)?;
     value.validate().context("invalid conf.toml")?;
     Ok(value)
-}
-
-fn deserialize_conf(value: toml::Value) -> Result<ServerConfig> {
-    value.try_into().context("invalid conf.toml")
 }
 
 impl LaunchConfig {

@@ -1,5 +1,5 @@
 //! Shared aggregate errors, remote failure identity and lossless diagnostic snapshots.
-#![doc = include_str!("../docs/error.md")]
+#![doc = include_str!("../../docs/error.md")]
 
 use std::{error::Error as StdError, fmt};
 

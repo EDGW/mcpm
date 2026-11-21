@@ -118,6 +118,8 @@ Only `.mcpm/server.json` changes. Vanilla and Unrecognized are displayed separat
 
 Register an existing server or create a Remote workspace that points to one.
 
+After successful registration, Console output shows a Tip if the server is missing `launch.toml`. It explains how to import a startup script or supply the launch entry manually. Raw output omits the Tip.
+
 In script recognition and manual initialization, `[PATH]` defaults to `.` and selects the server as follows:
 
 | Invocation | Server location |
@@ -132,7 +134,7 @@ Recognition, Git preparation, and writes run on the server host. Candidate selec
 
 ```sh
 mcpm init ./server
-mcpm init ./server --start-script scripts/start.sh --no-ui
+mcpm init ./server --start-script scripts/start.sh
 mcpm init -FIg ./server
 ```
 
@@ -141,7 +143,6 @@ mcpm init -FIg ./server
 | `[PATH]` | Existing server or workspace directory. |
 | `--start-script <FILE>` | Scan the given server-relative script, including supported references to other scripts. If omitted, try `run.bat` then `start.bat` on Windows, or `run.sh` then `start.sh` elsewhere. Stop at the first script that yields a candidate. |
 | `-I`, `--ignore-unknown-vars` | Warn about statements that cannot be interpreted and skip them, keeping the known working directory and variables. |
-| `--no-ui` | Use the numbered Console list instead of TUI cards. |
 | `--raw` | Disable interaction. |
 | `-f`, `--force` | Required if the server is already registered or `launch.toml` exists. Replaces the registration and `launch.toml` while preserving existing `conf.toml` by default. |
 | `-F` | Equivalent to `--force --foverride-conf`: replace the registration and launch configuration and regenerate `conf.toml`. |
@@ -169,6 +170,8 @@ Use `-I` only if the skipped statements are irrelevant to the intended launch. F
 - **Multiple matching loaders**: Create a separate candidate for each match. Choose which server identity to register.
 - **No matching loader**: Try vanilla version recognition only for a `java -jar` command whose JAR declares a supported vanilla server main class.
 
+Forge and NeoForge recognition uses launch declarations and referenced Maven paths without opening dependency JARs. Legacy Forge is recognized from constants in the launched JAR; FML family or version conflicts reject that launch rather than creating competing candidates. See [Forge and NeoForge identification](../../../mcpm-lib/docs/server/forge.md).
+
 Vanilla Minecraft version sources, in order:
 
 1. **`version.json`**: Read the version ID from the launch JAR.
@@ -179,15 +182,14 @@ Invalid or inconsistent metadata rejects the command rather than falling back to
 
 #### Candidate selection
 
-A single candidate is used directly. With multiple candidates, behavior depends on the [output mode](../README.md#output-modes):
+A single candidate is used directly. Console is the default with terminal stdout. Use `--raw` or redirect stdout to run without interaction.
 
 | Mode | Selection |
 | --- | --- |
-| TUI | Move with Up or Down and confirm with Enter. Esc or Ctrl-C cancels. |
-| Console | Enter a candidate number. An empty answer, Esc, Ctrl-C, or EOF cancels. |
-| Raw | List the candidates and return an error. Use TUI or Console to choose, or supply complete manual identity. |
+| Console | Enter a candidate number to import its startup configuration. An empty answer, Esc, Ctrl-C, or EOF cancels. |
+| Raw | List the candidates and return an error. Run in Console to choose, or supply complete manual identity. |
 
-Console reads from the controlling terminal, not redirected stdin. Candidates show the script location, main class, entry, and application arguments.
+Console reads from the controlling terminal, not redirected stdin. Each candidate shows its script location, main class, entry, application arguments, and a **Manual init** command. Copying the command writes the same registration and configuration as entering that candidate's number, without scanning the script again.
 
 #### Configuration import
 
@@ -226,6 +228,10 @@ A conflict with the preserved `conf.toml` prevents publication. If publication i
 ```sh
 mcpm init ./server --minecraft-version 1.21.1 --loader vanilla
 mcpm init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
+mcpm init ./server --minecraft-version 1.21.1 --loader vanilla \
+  --entry jar@server.jar --launch-env TZ=UTC \
+  --java-args '-Dfile.encoding=UTF-8 -Dexample.mode=server' \
+  --app-arg=--safeMode --conf jvm.heap.maximum=4G --conf p=25565
 mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla --no-git
 ```
 
@@ -235,8 +241,8 @@ mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --load
 | `--minecraft-version <VERSION>` | Required. Alias: `--mc-version`. |
 | `--loader <LOADER>` | Required: `vanilla`, `fabric`, `forge`, or `neoforge`. |
 | `--loader-version <VERSION>` | Required for a modded server; not allowed with `--loader vanilla`. This is the loader version, not the Minecraft or FML version. |
-| `-f`, `--force` | Replace the server registration and remove any existing `launch.toml`. Existing `conf.toml` is preserved by default. |
-| `-F` | Equivalent to `--force --foverride-conf`: replace the registration, remove an existing `launch.toml`, and regenerate `conf.toml`. |
+| `-f`, `--force` | Replace the registration. Replace `launch.toml` with `--entry`, or remove the old file without it. Preserve `conf.toml` by default. |
+| `-F` | Equivalent to `--force --foverride-conf`. |
 | `--foverride-conf` | Regenerate `conf.toml`, replacing user settings and comments. Use with `--force`. |
 | `-g`, `--git` / `-G`, `--no-git` | Require a repository in the server directory itself, or skip Git entirely. Mutually exclusive. |
 | `--full-command` | Show the complete startup command if available. |
@@ -244,7 +250,26 @@ mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --load
 
 Partial identity returns an error.
 
-Manual initialization writes the Local registration and settings without generating `launch.toml`. Use script recognition to import launch configuration.
+#### Set launch configuration manually
+
+`--entry` and `--conf` require complete identity and conflict with script recognition and `--remote`. Without `--entry`, manual initialization writes registration and settings only.
+
+| Option | Behavior |
+| --- | --- |
+| `--entry <ENTRY>` | `jar@<path>`, `class@<mainClass>`, or `module@<module>[:<mainClass>]`. Writes `launch.toml`. |
+| `--launch-platform <unix\|windows>` | Record the source platform in `launch.toml`. Defaults to the current platform when omitted. |
+| `--launch-cwd <PATH>` | Java working directory relative to the server root. |
+| `--launch-env <NAME=VALUE>` | Repeat to set environment variables. Duplicate names are rejected. |
+| `--java-args <ARGS>` / `--java-arg <ARG>` | Split a quoted argument group or pass one literal JVM argument. Both are repeatable and combined in command-line order. |
+| `--app-args <ARGS>` / `--app-arg <ARG>` | Same syntax for fixed application arguments. |
+
+Platform, working directory, environment, and argument options require `--entry`. Argument groups do not expand variables, globs, or `@argfile`. Set memory and GC through `--conf`. Use `--java-arg=-Dkey=value` for an argument beginning with `-`.
+
+#### Set `conf.toml` manually
+
+- Repeat `--conf KEY=VALUE`. It uses the [`launch -O`](launch.md#temporary-overrides) operators: `=` sets a scalar; `=`, `+=`, or `+` appends to a list; `:=` replaces a list, and an empty `:=` clears it.
+- `KEY` accepts the full path or a unique shortcut name without dashes, for example `server.port`, `port`, or `p`. Use the full path when an alias is ambiguous. A scalar cannot be set twice through different names.
+- If `conf.toml` already exists, use `--force --foverride-conf` (or `-F`) to replace it, or `--preserve-conf` to use `--conf` only when generating a new file. A new file uses the default template and the supplied settings.
 
 ### 3. Register a Remote workspace
 

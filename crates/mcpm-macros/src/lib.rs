@@ -2,6 +2,7 @@
 
 // Private Modules
 
+mod config_fields;
 mod rich;
 
 use proc_macro::TokenStream;
@@ -38,6 +39,15 @@ use proc_macro::TokenStream;
 #[proc_macro]
 pub fn rich(input: TokenStream) -> TokenStream {
     rich::expand(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Exposes typed configuration leaves and their command-line shortcuts.
+#[proc_macro_derive(ConfigFields, attributes(config))]
+pub fn config_fields(input: TokenStream) -> TokenStream {
+    syn::parse(input)
+        .and_then(config_fields::expand)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

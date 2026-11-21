@@ -16,6 +16,8 @@ use thiserror::Error;
 pub struct OverwritePolicy {
     pub replace_registration: bool,
     pub replace_conf: bool,
+    /// Permit keeping an existing conf when overrides are only defaults for a new file.
+    pub preserve_conf_with_overrides: bool,
 }
 
 impl OverwritePolicy {
@@ -47,19 +49,20 @@ pub fn publish(
     root: &Path,
     identity: &MinecraftServerMetadata,
     draft: Option<&ConfigurationDraft>,
+    conf_overrides: &ConfigurationOverrides,
     policy: OverwritePolicy,
 ) -> Result<Published> {
     policy.validate()?;
+    ensure!(
+        conf_overrides.is_empty() || draft.is_none_or(|draft| draft.imported.is_empty()),
+        "explicit conf overrides cannot be combined with imported script settings"
+    );
     ensure!(
         root.is_dir(),
         "server root is not an existing directory: {root:?}"
     );
     let (identity, metadata_bytes) = metadata::encode(root, identity)?;
     let launch_text = draft.map(|draft| draft.launch.encode()).transpose()?;
-    let conf_text = match draft {
-        Some(draft) => draft.template()?,
-        None => import::default_template()?,
-    };
     let _lock = ConfigurationLock::acquire(root, true)?;
     recover(root).context(
         "failed to recover interrupted configuration publication; files were not imported",
@@ -73,14 +76,27 @@ pub fn publish(
         "server registration or launch.toml already exists; use --force to import again"
     );
     let preserve_conf = old_conf.is_some() && !policy.replace_conf;
-    let effective_conf = if preserve_conf {
-        decode_conf(
+    ensure!(
+        !preserve_conf || policy.preserve_conf_with_overrides || conf_overrides.is_empty(),
+        "conf.toml already exists; use --force --foverride-conf to apply --conf"
+    );
+    let (conf_text, effective_conf) = if preserve_conf {
+        let conf = decode_conf(
             std::str::from_utf8(old_conf.as_deref().unwrap())
                 .context("preserved conf.toml is not UTF-8")?,
         )
-        .context("preserved conf.toml is invalid; fix it or explicitly override it")?
+        .context("preserved conf.toml is invalid; fix it or explicitly override it")?;
+        (None, conf)
+    } else if !conf_overrides.is_empty() {
+        let (text, conf) = import::manual_template(conf_overrides)?;
+        (Some(text), conf)
     } else {
-        decode_conf(&conf_text)?
+        let text = match draft {
+            Some(draft) => draft.template()?,
+            None => import::default_template(),
+        };
+        let conf = decode_conf(&text)?;
+        (Some(text), conf)
     };
     if let Some(draft) = draft {
         validate_pair(&draft.launch, &effective_conf)
@@ -101,11 +117,11 @@ pub fn publish(
             after: launch_text.map(String::into_bytes),
         });
     }
-    if !preserve_conf {
+    if let Some(text) = conf_text {
         journal.files.push(Change {
             target: Target::Conf,
             before: old_conf,
-            after: Some(conf_text.into_bytes()),
+            after: Some(text.into_bytes()),
         });
     }
     let journal_path = journal_path(root);

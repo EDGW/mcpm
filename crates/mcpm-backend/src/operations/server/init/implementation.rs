@@ -114,6 +114,8 @@ pub(super) fn initialize(
             local: args.local.map(|local| LocalConfiguration {
                 configuration: local.configuration,
                 replace_conf: local.replace_conf,
+                conf_overrides: local.conf_overrides,
+                preserve_conf: local.preserve_conf,
             }),
         },
         checkpoint,

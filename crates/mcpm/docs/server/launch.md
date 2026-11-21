@@ -106,9 +106,9 @@ mcpm launch --server ./server '-Ojvm.extraArguments:=["-Dfirst=1"]'
 mcpm launch --server ./server '-Ojvm.extraArguments=-Dsecond=2'
 ```
 
-Configuration keys use the full path and casing from `conf.toml`. Values are parsed as TOML or as unquoted strings. Quote the whole argument when it contains spaces.
+Configuration keys use the full path and casing from `conf.toml`. The target field determines the value type: `server.world=123` is a string, while `server.port=123` is a number. Pass a TOML array for multiple list items at once. Quote the whole argument when it contains spaces.
 
-A field may be set only once. Using a shortcut and `-O` for the same field is an error.
+A scalar may be set only once, including across `-O` and shortcuts. List operations are applied in `-O` order; `-E` appends one literal argument after them. See `mcpm launch --help` for available shortcuts.
 
 ### Configuration files
 

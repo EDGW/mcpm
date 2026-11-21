@@ -2,10 +2,10 @@
 
 use crate::{commands::CommandOutcome, ssh::SshArgs};
 use anyhow::{Context, Result, ensure};
-use clap::{Args, ValueEnum};
+use clap::{Arg, ArgAction, ArgMatches, Args, FromArgMatches, ValueEnum};
 use mcpm_backend::operations::server::shim;
 use mcpm_lib::local::mc::server::authlib_injector::JarPolicy;
-use mcpm_lib::local::mc::server::config::ConfigurationOverrides;
+use mcpm_lib::local::mc::server::config::{ConfigurationOverrides, ConfigurationShortcut};
 use std::path::PathBuf;
 
 /// Builds the `launch` after-help text.
@@ -115,9 +115,15 @@ fn after_help() -> clap::builder::StyledStr {
     help.finish()
 }
 
+#[derive(Debug)]
+pub(super) struct LaunchArgs {
+    options: LaunchOptions,
+    shortcuts: Vec<(String, String)>,
+}
+
 #[derive(Debug, Args)]
 #[command(after_help = after_help())]
-pub(super) struct LaunchArgs {
+struct LaunchOptions {
     #[command(flatten)]
     target: TargetArgs,
     #[command(flatten)]
@@ -132,10 +138,110 @@ pub(super) struct LaunchArgs {
 
 impl LaunchArgs {
     fn configuration_overrides(&self) -> Result<ConfigurationOverrides> {
-        let mut overrides = self.overrides.build()?;
-        self.auth.apply(&mut overrides)?;
+        let mut overrides = self.options.overrides.build()?;
+        for (path, value) in &self.shortcuts {
+            overrides.set_shortcut(path, value)?;
+        }
         Ok(overrides)
     }
+}
+
+impl Args for LaunchArgs {
+    fn augment_args(command: clap::Command) -> clap::Command {
+        LaunchOptions::augment_args(command)
+    }
+
+    fn augment_args_for_update(command: clap::Command) -> clap::Command {
+        LaunchOptions::augment_args_for_update(command)
+    }
+}
+
+impl FromArgMatches for LaunchArgs {
+    fn from_arg_matches(matches: &ArgMatches) -> std::result::Result<Self, clap::Error> {
+        let options = LaunchOptions::from_arg_matches(matches)?;
+        let shortcuts = matches
+            .ids()
+            .filter_map(|id| {
+                let path = id.as_str().strip_prefix(SHORTCUT_ID_PREFIX)?;
+                let value = matches.get_one::<String>(id.as_str())?;
+                Some((path.to_owned(), value.clone()))
+            })
+            .collect();
+        Ok(Self { options, shortcuts })
+    }
+
+    fn update_from_arg_matches(
+        &mut self,
+        matches: &ArgMatches,
+    ) -> std::result::Result<(), clap::Error> {
+        *self = Self::from_arg_matches(matches)?;
+        Ok(())
+    }
+}
+
+const SHORTCUT_ID_PREFIX: &str = "configuration:";
+
+pub(super) fn configure_shortcuts(command: clap::Command, inherited: &[Arg]) -> clap::Command {
+    register_shortcuts(command, inherited, ConfigurationOverrides::shortcuts())
+}
+
+fn register_shortcuts(
+    mut command: clap::Command,
+    inherited: &[Arg],
+    shortcuts: Vec<ConfigurationShortcut>,
+) -> clap::Command {
+    use std::collections::{HashMap, HashSet};
+
+    let mut long_counts = HashMap::new();
+    let mut short_counts = HashMap::new();
+    for shortcut in &shortcuts {
+        if let Some(long) = shortcut.command {
+            *long_counts.entry(long).or_insert(0usize) += 1;
+        }
+        if let Some(short) = shortcut.command_short {
+            *short_counts.entry(short).or_insert(0usize) += 1;
+        }
+    }
+    let mut occupied_long = HashSet::from(["help".to_owned()]);
+    let mut occupied_short = HashSet::from(['h']);
+    for arg in command.get_arguments().chain(inherited.iter()) {
+        if let Some(long) = arg.get_long() {
+            occupied_long.insert(long.to_owned());
+        }
+        for alias in arg.get_all_aliases().unwrap_or_default() {
+            occupied_long.insert(alias.to_owned());
+        }
+        if let Some(short) = arg.get_short() {
+            occupied_short.insert(short);
+        }
+        occupied_short.extend(arg.get_all_short_aliases().unwrap_or_default());
+    }
+    for shortcut in shortcuts {
+        let long = shortcut
+            .command
+            .filter(|name| long_counts[name] == 1 && !occupied_long.contains(*name));
+        let short = shortcut
+            .command_short
+            .filter(|name| short_counts[name] == 1 && !occupied_short.contains(name));
+        if long.is_none() && short.is_none() {
+            continue;
+        }
+        let mut arg = Arg::new(format!("{SHORTCUT_ID_PREFIX}{}", shortcut.path))
+            .action(ArgAction::Set)
+            .num_args(1)
+            .help(shortcut.help)
+            .help_heading("Override options")
+            .value_name(if shortcut.list { "ARGUMENT" } else { "VALUE" })
+            .allow_hyphen_values(shortcut.list);
+        if let Some(long) = long {
+            arg = arg.long(long);
+        }
+        if let Some(short) = short {
+            arg = arg.short(short);
+        }
+        command = command.arg(arg);
+    }
+    command
 }
 
 /// The registered server directory that launch preparation targets.
@@ -146,31 +252,16 @@ struct TargetArgs {
     server: PathBuf,
 }
 
-/// Typed shortcuts for conf fields; application order follows declaration.
+/// Generic conf overrides and the composite memory convenience option.
 #[derive(Debug, Args)]
 #[command(next_help_heading = "Override options")]
 struct OverrideArgs {
     /// Override a conf field for this launch. Lists: = or + appends; := clears and sets.
     #[arg(short = 'O', long = "override", value_name = "KEY=VALUE")]
     overrides: Vec<String>,
-    /// Override java.executable for this launch.
-    #[arg(short = 'j', long, value_name = "EXECUTABLE")]
-    java: Option<String>,
     /// Override maximum heap, optionally also initial heap (INITIAL:MAXIMUM).
     #[arg(short = 'm', long, value_name = "[INITIAL:]MAXIMUM")]
     memory: Option<String>,
-    /// Override jvm.gc.collector for this launch.
-    #[arg(short = 'G', long, value_name = "COLLECTOR")]
-    gc: Option<String>,
-    /// Override server.port for this launch.
-    #[arg(short = 'p', long, value_name = "PORT")]
-    port: Option<u16>,
-    /// Override server.world for this launch.
-    #[arg(long, value_name = "DIRECTORY")]
-    world: Option<String>,
-    /// Append one JVM argument after -O list changes. May be specified once.
-    #[arg(short = 'E', long, value_name = "ARGUMENT", allow_hyphen_values = true)]
-    extra: Option<String>,
 }
 
 impl OverrideArgs {
@@ -178,9 +269,6 @@ impl OverrideArgs {
         let mut overrides = ConfigurationOverrides::default();
         for assignment in &self.overrides {
             overrides.parse(assignment)?;
-        }
-        if let Some(java) = &self.java {
-            overrides.set("java.executable", java)?;
         }
         if let Some(memory) = &self.memory {
             if let Some((initial, maximum)) = memory.split_once(':') {
@@ -194,18 +282,6 @@ impl OverrideArgs {
                 overrides.set("jvm.heap.maximum", memory)?;
             }
         }
-        if let Some(gc) = &self.gc {
-            overrides.set("jvm.gc.collector", gc)?;
-        }
-        if let Some(port) = self.port {
-            overrides.set("server.port", port)?;
-        }
-        if let Some(world) = &self.world {
-            overrides.set("server.world", world)?;
-        }
-        if let Some(extra) = &self.extra {
-            overrides.set("jvm.extraArguments", vec![extra])?;
-        }
         Ok(overrides)
     }
 }
@@ -214,21 +290,9 @@ impl OverrideArgs {
 #[derive(Debug, Args)]
 #[command(next_help_heading = "Authentication")]
 struct AuthArgs {
-    /// Override authlib-injector.apiUrl for this launch; enables managed authentication if absent.
-    #[arg(short = 'A', long, value_name = "API_URL")]
-    auth: Option<String>,
     /// Managed authentication JAR: auto repairs if needed, local forbids downloads, refresh reinstalls latest.
     #[arg(long, value_enum, value_name = "POLICY")]
     auth_jar_policy: Option<AuthJarPolicy>,
-}
-
-impl AuthArgs {
-    fn apply(&self, overrides: &mut ConfigurationOverrides) -> Result<()> {
-        if let Some(auth) = &self.auth {
-            overrides.set("authlib-injector.apiUrl", auth)?;
-        }
-        Ok(())
-    }
 }
 
 /// Launch transport and whether the command attaches after Java starts.
@@ -291,6 +355,7 @@ impl From<Communication> for shim::Communication {
 
 pub(super) fn run(args: LaunchArgs, ssh: SshArgs) -> Result<CommandOutcome> {
     let overrides = args.configuration_overrides()?;
+    let args = args.options;
     let runtime = crate::commands::execution::Runtime::new()?;
     runtime.block_on(async move {
         let (executor, server, _) = ssh.create_executor(Some(args.target.server)).await?;
@@ -326,4 +391,48 @@ pub(super) fn run(args: LaunchArgs, ssh: SshArgs) -> Result<CommandOutcome> {
         }
         super::attach::flow(executor, launched.reference, Some(launched.initial_cursor), None, args.attachment.no_ui, args.attachment.input_height).await
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conflicting_shortcut_names_are_suppressed_independently() {
+        let field = |path: &str, command, command_short| ConfigurationShortcut {
+            path: path.into(),
+            command,
+            command_short,
+            help: "",
+            list: false,
+        };
+        let argv = register_shortcuts(
+            clap::Command::new("launch"),
+            &[Arg::new("ancestor").long("parent").alias("world")],
+            vec![
+                field("server.port", Some("shared"), Some('p')),
+                field("jvm.gc.parallelThreads", Some("shared"), Some('q')),
+                field("java.executable", Some("java"), Some('x')),
+                field("server.world", Some("world"), Some('x')),
+            ],
+        );
+        let matched = argv
+            .clone()
+            .try_get_matches_from(["launch", "-p25565", "-q2", "--java", "java"])
+            .unwrap();
+        for (id, value) in [
+            ("configuration:server.port", "25565"),
+            ("configuration:jvm.gc.parallelThreads", "2"),
+            ("configuration:java.executable", "java"),
+        ] {
+            assert_eq!(matched.get_one::<String>(id).unwrap(), value);
+        }
+        for option in ["--shared", "-x", "--world"] {
+            let error = argv
+                .clone()
+                .try_get_matches_from(["launch", option, "1"])
+                .unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+        }
+    }
 }

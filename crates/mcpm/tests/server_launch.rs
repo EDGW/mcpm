@@ -224,6 +224,8 @@ fn launch_overrides_are_typed_ordered_and_do_not_rewrite_configuration() {
     for arguments in [
         vec!["-m2G", "-Ojvm.heap.maximum=4G"],
         vec!["--world", "one", "-Oserver.world=two"],
+        vec!["--port", "25565", "-p25566"],
+        vec!["-p65536"],
         vec!["--java", "./runner", "--java", "./runner"],
         vec!["-E-Done=1", "-E-Dtwo=2"],
         vec!["-Gauto"],

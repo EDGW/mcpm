@@ -107,42 +107,50 @@ impl ServerLaunch {
     /// Returns [`ServerOptionError`] when a declaration has no extractable value
     /// or when repeated declarations contain conflicting values.
     pub fn option(&self, name: &str) -> Result<Option<&str>, ServerOptionError> {
-        let mut found: Option<&str> = None;
-        for (index, arg) in self.command.application.iter().enumerate() {
-            let value = if arg == name {
-                Some(
-                    self.command
-                        .application
-                        .get(index + 1)
-                        .ok_or_else(|| ServerOptionError::MissingValue {
-                            name: name.to_owned(),
-                        })?
-                        .as_str(),
-                )
-            } else {
-                arg.strip_prefix(&format!("{name}="))
-            };
-            if let Some(value) = value {
-                if value.trim().is_empty() || value.starts_with('-') {
-                    return Err(ServerOptionError::UnextractableValue {
-                        name: name.to_owned(),
-                        value: value.to_owned(),
-                    });
-                }
-                if let Some(previous) = found
-                    && previous != value
-                {
-                    return Err(ServerOptionError::ConflictingValues {
-                        name: name.to_owned(),
-                        first: previous.to_owned(),
-                        second: value.to_owned(),
-                    });
-                }
-                found = Some(value);
-            }
-        }
-        Ok(found)
+        option(&self.command.application, name)
     }
+}
+
+/// Queries borrowed application arguments with the same rules as [`ServerLaunch::option`].
+pub(crate) fn option<'a>(
+    arguments: &'a [String],
+    name: &str,
+) -> Result<Option<&'a str>, ServerOptionError> {
+    let mut found: Option<&str> = None;
+    for (index, arg) in arguments.iter().enumerate() {
+        let value = if arg == name {
+            Some(
+                arguments
+                    .get(index + 1)
+                    .ok_or_else(|| ServerOptionError::MissingValue {
+                        name: name.to_owned(),
+                    })?
+                    .as_str(),
+            )
+        } else {
+            arg.strip_prefix(name)
+                .and_then(|rest| rest.strip_prefix('='))
+        };
+        if let Some(value) = value {
+            if value.trim().is_empty() || value.starts_with('-') {
+                return Err(ServerOptionError::UnextractableValue {
+                    name: name.to_owned(),
+                    value: value.to_owned(),
+                });
+            }
+            if let Some(previous) = found
+                && previous != value
+            {
+                return Err(ServerOptionError::ConflictingValues {
+                    name: name.to_owned(),
+                    first: previous.to_owned(),
+                    second: value.to_owned(),
+                });
+            }
+            found = Some(value);
+        }
+    }
+    Ok(found)
 }
 
 /// Failures to extract one option's identity evidence from a server command.

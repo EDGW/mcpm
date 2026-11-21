@@ -1,19 +1,22 @@
 //! Authentication configuration and lossless JVM property conversion using the config schema.
 
 use anyhow::{Context, Result, ensure};
+use mcpm_macros::ConfigFields;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, path::Path};
 use toml::{Table, Value};
 
-use super::{ImportedSetting, ImportedValue, ServerConfig, deserialize_conf, nonempty};
+use super::{ImportedSetting, ImportedValue, nonempty, overrides::ConfigFields};
 use crate::local::java::command::JavaCommand;
 
 /// Explicit agent configuration; a missing or empty JAR path selects server-local management.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AuthlibInjector {
     pub jar: Option<String>,
     #[serde(default)]
+    /// Authentication API URL for authlib-injector.
+    #[config(command = "auth", command_short = 'A')]
     pub api_url: String,
     pub no_log_file: Option<bool>,
     pub mojang_namespace: Option<FeatureOption>,
@@ -147,13 +150,7 @@ impl AuthlibInjector {
             let Some(value) = property_value(key, value) else {
                 continue;
             };
-            // The configuration codec remains the sole authority on field names and types.
-            let mut probe = Value::try_from(ServerConfig::default())?;
-            probe.as_table_mut().expect("configuration table").insert(
-                "authlib-injector".into(),
-                Value::Table(Table::from_iter([(key.into(), value.clone())])),
-            );
-            if deserialize_conf(probe).is_err() {
+            if Self::field(key).is_none_or(|field| field.check_value(&value).is_err()) {
                 continue;
             }
             let value = match value {

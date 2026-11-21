@@ -1,6 +1,12 @@
-//! Common FML launch-argument evidence; loader-specific launchers stay with the loader.
+//! Shared FML family and version evidence from statically referenced declarations.
 
-use crate::local::{mc::server::ServerLaunch, modloader::ServerLoaderIdentity};
+use std::path::{Path, PathBuf};
+
+use super::super::utils::coordinate::{argument_coordinate, coordinate};
+use crate::local::{
+    mc::server::{ServerLaunch, launch},
+    modloader::ServerLoaderIdentity,
+};
 use anyhow::{Context, Result, ensure};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,74 +15,234 @@ pub(super) enum Family {
     NeoForge,
 }
 
-/// Extracts FML family and versions from declarations without checking launch validity.
-/// Explicit client targets are excluded; absent or unknown targets do not block
-/// otherwise sufficient evidence. Conflicting identity declarations remain errors.
-pub(super) fn identify(
-    launch: &ServerLaunch,
-    family: Family,
-) -> Result<Option<ServerLoaderIdentity>> {
-    // Handle only known ordinary FML entry points.
-    if !matches!(
+pub(super) struct FmlLaunch<'a> {
+    pub(super) launch: &'a ServerLaunch,
+    pub(super) defaults: Vec<String>,
+    pub(super) paths: Vec<PathBuf>,
+}
+
+impl FmlLaunch<'_> {
+    fn option(&self, name: &str) -> Result<Option<&str>> {
+        match self.launch.option(name)? {
+            Some(value) => Ok(Some(value)),
+            None => launch::option(&self.defaults, name)
+                .with_context(|| format!("embedded FML defaults for {name}")),
+        }
+    }
+}
+
+/// Only ordinary FML entry points use this view; specialized launchers supply defaults.
+pub(super) fn view(launch: &ServerLaunch) -> Option<FmlLaunch<'_>> {
+    matches!(
         launch.main_class(),
         "cpw.mods.bootstraplauncher.BootstrapLauncher"
             | "cpw.mods.modlauncher.Launcher"
             | "net.neoforged.fml.startup.Server"
-    ) {
-        return Ok(None);
+    )
+    .then(|| FmlLaunch {
+        launch,
+        defaults: Vec::new(),
+        paths: Vec::new(),
+    })
+}
+
+pub(super) fn identify(view: &FmlLaunch<'_>) -> Result<Option<(Family, ServerLoaderIdentity)>> {
+    identify_with(view, None, None)
+}
+
+pub(super) fn identify_expected(
+    view: &FmlLaunch<'_>,
+    family: Family,
+    path_list: Option<&str>,
+) -> Result<Option<ServerLoaderIdentity>> {
+    Ok(identify_with(view, Some(family), path_list)?.map(|(_, identity)| identity))
+}
+
+fn identify_with(
+    view: &FmlLaunch<'_>,
+    expected: Option<Family>,
+    path_list: Option<&str>,
+) -> Result<Option<(Family, ServerLoaderIdentity)>> {
+    let group = view.option("--fml.forgeGroup")?;
+    let neo_version = view.option("--fml.neoForgeVersion")?;
+    let mut family = None;
+    match group {
+        Some("net.minecraftforge") => {
+            family_evidence(&mut family, Family::Forge, "--fml.forgeGroup")?
+        }
+        Some("net.neoforged") => {
+            family_evidence(&mut family, Family::NeoForge, "--fml.forgeGroup")?
+        }
+        _ => {}
     }
-    let group = launch.option("--fml.forgeGroup")?;
-    let neo_version = launch.option("--fml.neoForgeVersion")?;
-    // Any NeoForge-specific evidence selects the NeoForge family.
-    let neo = neo_version.is_some()
-        || group == Some("net.neoforged")
-        || launch.main_class().starts_with("net.neoforged.");
-    if neo != (family == Family::NeoForge) {
-        // Leave recognition to the detector for the matching family.
-        return Ok(None);
+    if neo_version.is_some() {
+        family_evidence(&mut family, Family::NeoForge, "--fml.neoForgeVersion")?;
     }
-    if let Some(group) = group {
-        let expected = if neo {
-            "net.neoforged"
-        } else {
-            "net.minecraftforge"
-        };
-        ensure!(
-            group == expected,
-            "conflicting FML loader group {group:?}; expected {expected}"
+
+    let launch = view.launch;
+    let mut paths = launch.classpath();
+    paths.extend(launch.modulepath());
+    if let Some(legacy) = launch.property("legacyClassPath") {
+        paths.extend(
+            legacy
+                .split(launch.path_separator)
+                .map(|path| launch.resolve(path)),
         );
     }
-    if let Some(target) = launch.option("--launchTarget")? {
+    let jar_paths = paths.iter().map(|path| (path, None)).chain(
+        view.paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| (path, path_list.map(|name| (name, index + 1)))),
+    );
+    for (path, position) in jar_paths.clone() {
+        for (group, artifact, value) in [
+            ("net.minecraftforge", "fmlloader", Family::Forge),
+            ("net.neoforged.fancymodloader", "loader", Family::NeoForge),
+        ] {
+            if coordinate(path, group, artifact).is_some() {
+                family_evidence(&mut family, value, &path_source(path, position))?;
+            }
+        }
+    }
+    let Some((family, source)) = family else {
+        return Ok(None);
+    };
+    if let Some(expected) = expected {
+        ensure!(
+            family == expected,
+            "{expected:?} launcher declares the {family:?} family from {source}"
+        );
+    }
+    if let Some(target) = view.option("--launchTarget")? {
         ensure_server_target(target)?;
     }
-    // Read versions, including the Forge argument name used by early NeoForge.
-    let mc = launch
-        .option("--fml.mcVersion")?
-        .context("Minecraft version is missing")?;
-    let version = neo_version
-        .or(launch.option("--fml.forgeVersion")?)
-        .context("loader version is missing")?;
-    if let (Some(neo), Some(forge)) = (neo_version, launch.option("--fml.forgeVersion")?) {
-        // Require old and new loader version arguments to agree when both occur.
+
+    let effective_mc = view.option("--fml.mcVersion")?;
+    let mut minecraft = None;
+    let mut loader = None;
+    if let Some(value) = effective_mc {
+        version_evidence(&mut minecraft, value, "Minecraft", "--fml.mcVersion")?;
+    }
+    for (name, value) in [
+        ("--fml.forgeVersion", view.option("--fml.forgeVersion")?),
+        ("--fml.neoForgeVersion", neo_version),
+    ] {
+        if let Some(value) = value {
+            version_evidence(&mut loader, value, "loader", name)?;
+        }
+    }
+    let group = match family {
+        Family::Forge => "net.minecraftforge",
+        Family::NeoForge => "net.neoforged",
+    };
+    // An args file can declare a distribution version, but is not an FML component JAR.
+    let references = jar_paths
+        .map(|(path, position)| (path, position, false))
+        .chain(launch.argument_files.iter().map(|path| (path, None, true)));
+    for (path, position, arguments) in references {
+        let matcher = if arguments {
+            argument_coordinate
+        } else {
+            coordinate
+        };
+        if let Some(value) = matcher(path, group, "forge") {
+            let source = path_source(path, position);
+            let (mc, version) = distribution_version(value).with_context(|| {
+                format!("invalid FML distribution version {value:?} in {source}")
+            })?;
+            version_evidence(&mut minecraft, mc, "Minecraft", &source)?;
+            version_evidence(&mut loader, version, "loader", &source)?;
+        }
+        if family == Family::NeoForge
+            && let Some(value) = matcher(path, group, "neoforge")
+        {
+            let source = path_source(path, position);
+            version_evidence(&mut loader, value, "loader", &source)?;
+        }
+    }
+    Ok(Some((
+        family,
+        ServerLoaderIdentity {
+            minecraft_version: minecraft.context("Minecraft version is missing")?.0,
+            version: loader.context("loader version is missing")?.0,
+        },
+    )))
+}
+
+fn path_source(path: &Path, position: Option<(&str, usize)>) -> String {
+    if let Some((list, line)) = position {
+        format!("{} ({list} line {line})", path.display())
+    } else {
+        path.display().to_string()
+    }
+}
+
+fn family_evidence(
+    current: &mut Option<(Family, String)>,
+    value: Family,
+    source: &str,
+) -> Result<()> {
+    if let Some((existing, previous)) = current {
         ensure!(
-            neo == forge,
-            "conflicting Forge and NeoForge version arguments: forgeVersion={forge:?}, neoForgeVersion={neo:?}"
+            *existing == value,
+            "conflicting FML family: {existing:?} from {previous} versus {value:?} from {source}"
+        );
+    } else {
+        *current = Some((value, source.to_owned()));
+    }
+    Ok(())
+}
+
+fn version_evidence(
+    current: &mut Option<(String, String)>,
+    value: &str,
+    field: &str,
+    source: &str,
+) -> Result<()> {
+    ensure!(
+        !value.trim().is_empty(),
+        "empty {field} version from {source}"
+    );
+    if let Some((existing, previous)) = current {
+        ensure!(
+            existing == value,
+            "conflicting {field} version: {existing:?} from {previous} versus {value:?} from {source}"
+        );
+    } else {
+        *current = Some((value.to_owned(), source.to_owned()));
+    }
+    Ok(())
+}
+
+/// Modern Forge and early NeoForge use an MC prefix followed by a three-part loader version.
+fn distribution_version(value: &str) -> Result<(&str, &str)> {
+    let (mc, loader) = value
+        .rsplit_once('-')
+        .context("expected Minecraft-loader version")?;
+    let numeric = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+    ensure!(
+        loader.split('.').count() == 3 && loader.split('.').all(numeric),
+        "malformed loader version"
+    );
+    let (release, suffix) = mc
+        .split_once('-')
+        .map_or((mc, None), |(release, suffix)| (release, Some(suffix)));
+    ensure!(
+        (2..=3).contains(&release.split('.').count()) && release.split('.').all(numeric),
+        "malformed Minecraft version"
+    );
+    if let Some(suffix) = suffix {
+        ensure!(
+            suffix
+                .strip_prefix("pre")
+                .or_else(|| suffix.strip_prefix("rc"))
+                .or_else(|| suffix.strip_prefix("snapshot-"))
+                .is_some_and(numeric),
+            "ambiguous Minecraft prerelease version"
         );
     }
-    // Record the sufficient identity evidence without inspecting dependency JARs.
-    tracing::debug!(
-        ?family,
-        main_class = %launch.main_class(),
-        ?group,
-        ?neo_version,
-        minecraft_version = mc,
-        loader_version = version,
-        "identified FML server from launch arguments"
-    );
-    Ok(Some(ServerLoaderIdentity {
-        minecraft_version: mc.into(),
-        version: version.into(),
-    }))
+    Ok((mc, loader))
 }
 
 /// Client targets are evidence against server identity, rather than invalid commands.

@@ -48,12 +48,12 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
             && launch.property("fabric.customLoaderPath").is_none()
         {
             tracing::debug!(?path, %version, "found Fabric loader coordinate");
-            agree(&mut loader, &version, "Fabric loader version")?;
+            agree(&mut loader, version, "Fabric loader version")?;
         } else if let Some(version) = coordinate(path, "net.fabricmc", "intermediary")
             && explicit_game.is_none()
         {
             tracing::debug!(?path, %version, "found Fabric game version coordinate");
-            agree(&mut mc, &version, "Minecraft version")?;
+            agree(&mut mc, version, "Minecraft version")?;
         }
     }
     // A selected custom loader replaces classpath loader evidence.
@@ -163,7 +163,7 @@ fn game_override(launch: &ServerLaunch) -> Option<&str> {
 /// Reads version evidence from the selected loader without validating its launchability.
 fn loader_version(path: &Path) -> Result<Option<String>> {
     if let Some(version) = coordinate(path, "net.fabricmc", "fabric-loader") {
-        return Ok(Some(version));
+        return Ok(Some(version.to_owned()));
     }
     tracing::debug!(?path, "reading shaded Fabric loader version");
     let Some(bytes) = jar::read(path, "fabric.mod.json")? else {

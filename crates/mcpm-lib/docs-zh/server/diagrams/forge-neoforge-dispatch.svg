@@ -1,206 +1,485 @@
-<ns0:svg xmlns:ns0="http://www.w3.org/2000/svg" width="1120" height="2396" viewBox="0 0 1120 2396" role="img" aria-labelledby="title desc" xml:lang="zh-CN">
-  <ns0:title id="title">Forge / NeoForge 识别流程</ns0:title>
-  <ns0:desc id="desc">Forge 和 NeoForge 从两个独立入口开始。Forge 单独分流 Shim；其余进入共同的 FML 识别流程，依次确认入口、loader 家族、group、启动目标和版本证据。</ns0:desc>
-  <ns0:defs>
-    <ns0:marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <ns0:path d="M 0 0 L 10 5 L 0 10 z" class="arrow" />
-    </ns0:marker>
-  </ns0:defs>
-  <ns0:style>
-    svg { --bg: #ffffff; --fg: #17212f; --muted: #536174; --surface: #f6f8fb; --line: #a8b4c3; --decision: #edf3fb; --good: #edf7f0; --bad: #fff1ef; --route: #f2effa; background: var(--bg); }
-    @media (prefers-color-scheme: dark) {
-      svg { --bg: #151b23; --fg: #e6edf5; --muted: #b2bfd1; --surface: #202a37; --line: #738197; --decision: #233449; --good: #203a2d; --bad: #432c2c; --route: #312c45; }
-    }
-    text { fill: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
-    .heading { font-size: 26px; font-weight: 600; }
-    .subtitle { font-size: 18px; fill: var(--muted); }
-    .node-title { font-size: 20px; font-weight: 600; }
-    .body { font-size: 18px; }
-    .code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 17px; }
-    rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
-    .decision rect { fill: var(--decision); }
-    .success rect { fill: var(--good); }
-    .error rect { fill: var(--bad); }
-    .route rect { fill: var(--route); }
-    .edge { fill: none; stroke: var(--line); stroke-width: 1.6; marker-end: url(#arrow); }
-    .arrow { fill: var(--line); }
-    .edge-label { fill: var(--muted); font-size: 17px; }
-
-    .flow-group &gt; rect { fill: none; stroke: var(--line); stroke-width: 1.3; }
-    .group-title { font-size: 21px; font-weight: 600; }
-    .group-subtitle { font-size: 17px; fill: var(--muted); }
-
-</ns0:style>
-  <ns0:g id="ordinary-fml" class="flow-group">
-    <ns0:rect x="6" y="652.0" width="1108" height="1720" rx="14" />
-    <ns0:text class="group-title" x="26" y="684.0">普通 FML 识别</ns0:text>
-    <ns0:text class="group-subtitle" x="26" y="713.0">共用流程；按各自入口家族识别。</ns0:text>
-  </ns0:g>
-  <ns0:g id="family-checks" class="flow-group">
-    <ns0:rect x="16" y="782.0" width="1088" height="548.0" rx="14" />
-    <ns0:text class="group-title" x="36" y="814.0">确认入口与 loader 家族</ns0:text>
-  </ns0:g>
-  <ns0:g id="declaration-checks" class="flow-group">
-    <ns0:rect x="16" y="1356.0" width="1088" height="354.0" rx="14" />
-    <ns0:text class="group-title" x="36" y="1388.0">检查启动声明</ns0:text>
-  </ns0:g>
-  <ns0:g id="version-evidence" class="flow-group">
-    <ns0:rect x="16" y="1736.0" width="1088" height="492.0" rx="14" />
-    <ns0:text class="group-title" x="36" y="1768.0">取得并核对版本</ns0:text>
-  </ns0:g>
-  <ns0:text class="heading" x="28" y="42">Forge / NeoForge 识别流程</ns0:text>
-  <ns0:text class="subtitle" x="28" y="77">大框表示流程范围；内部节点表示独立步骤；连线表示执行与分支。</ns0:text>
-  <ns0:path class="edge" data-from="forge-entry" data-to="shim-condition" d="M 288 198 L 288 252" />
-  <ns0:path class="edge" data-from="shim-condition" data-to="shim-route" d="M 548 309 L 568 309 L 568 485 L 588 485" />
-  <ns0:text class="edge-label" x="551" y="333">是</ns0:text>
-  <ns0:path class="edge" data-from="main-class" data-to="main-class-exit" d="M 758 909 L 816 909" />
-  <ns0:text class="edge-label" x="768" y="897">否</ns0:text>
-  <ns0:path class="edge" data-from="main-class" data-to="family-evidence" d="M 393 980 L 393 1032" />
-  <ns0:text class="edge-label" x="409" y="1002">是</ns0:text>
-  <ns0:path class="edge" data-from="family-evidence" data-to="family-match" d="M 393 1174 L 393 1226" />
-  <ns0:path class="edge" data-from="family-match" data-to="family-match-exit" d="M 758 1269 L 816 1269" />
-  <ns0:text class="edge-label" x="768" y="1257">否</ns0:text>
-  <ns0:path class="edge" data-from="family-match" data-to="group-check" d="M 393 1312 L 393 1412" />
-  <ns0:text class="edge-label" x="409" y="1334">是</ns0:text>
-  <ns0:path class="edge" data-from="group-check" data-to="group-check-exit" d="M 758 1469 L 816 1469" />
-  <ns0:text class="edge-label" x="768" y="1457">否</ns0:text>
-  <ns0:path class="edge" data-from="group-check" data-to="target-check" d="M 393 1526 L 393 1578" />
-  <ns0:text class="edge-label" x="409" y="1548">是</ns0:text>
-  <ns0:path class="edge" data-from="target-check" data-to="target-check-exit" d="M 758 1635 L 816 1635" />
-  <ns0:text class="edge-label" x="768" y="1623">是</ns0:text>
-  <ns0:path class="edge" data-from="target-check" data-to="mc-version" d="M 393 1692 L 393 1792" />
-  <ns0:text class="edge-label" x="409" y="1714">否</ns0:text>
-  <ns0:path class="edge" data-from="mc-version" data-to="mc-version-exit" d="M 758 1835 L 816 1835" />
-  <ns0:text class="edge-label" x="768" y="1823">缺失</ns0:text>
-  <ns0:path class="edge" data-from="mc-version" data-to="loader-version" d="M 393 1878 L 393 1930" />
-  <ns0:path class="edge" data-from="loader-version" data-to="loader-version-exit" d="M 758 1987 L 816 1987" />
-  <ns0:text class="edge-label" x="768" y="1975">缺失</ns0:text>
-  <ns0:path class="edge" data-from="loader-version" data-to="version-conflict" d="M 393 2044 L 393 2096" />
-  <ns0:path class="edge" data-from="version-conflict" data-to="version-conflict-exit" d="M 758 2153 L 816 2153" />
-  <ns0:text class="edge-label" x="768" y="2141">是</ns0:text>
-  <ns0:path class="edge" data-from="version-conflict" data-to="success" d="M 393 2210 L 393 2262" />
-  <ns0:text class="edge-label" x="409" y="2232">否</ns0:text>
-  <ns0:g id="forge-entry" class="node process">
-    <ns0:rect x="28" y="112" width="520" height="86" rx="10" />
-    <ns0:text class="node-title" x="48" y="144">Forge 入口</ns0:text>
-    <ns0:text class="body" x="48" y="177">开始识别 Forge 服务端</ns0:text>
-  </ns0:g>
-  <ns0:g id="neo-entry" class="node process">
-    <ns0:rect x="588" y="112" width="504" height="86" rx="10" />
-    <ns0:text class="node-title" x="608" y="144">NeoForge 入口</ns0:text>
-    <ns0:text class="body" x="608" y="177">开始识别 NeoForge 服务端</ns0:text>
-  </ns0:g>
-  <ns0:g id="shim-condition" class="node decision">
-    <ns0:rect x="28" y="252" width="520" height="114" rx="10" />
-    <ns0:text class="node-title" x="48" y="284">是否为 Forge Shim 入口？</ns0:text>
-    <ns0:text class="body" x="48" y="317">Java 主类为：</ns0:text>
-    <ns0:text class="body" x="48" y="345">
-      <ns0:tspan class="code">net.minecraftforge.bootstrap.shim.Main</ns0:tspan>
-    </ns0:text>
-  </ns0:g>
-  <ns0:g id="shim-route" class="node route">
-    <ns0:rect x="588" y="428" width="504" height="114" rx="10" />
-    <ns0:text class="node-title" x="608" y="460">进入 Forge Shim 识别流程</ns0:text>
-    <ns0:text class="body" x="608" y="493">从启动 JAR 的内嵌配置取得版本证据。</ns0:text>
-    <ns0:text class="body" x="608" y="521">具体流程见下一张图。</ns0:text>
-  </ns0:g>
-  <ns0:g id="main-class" class="node decision">
-    <ns0:rect x="28" y="838" width="730" height="142" rx="10" />
-    <ns0:text class="node-title" x="48" y="870">Java 主类是否为支持的普通 FML 入口？</ns0:text>
-    <ns0:text class="body" x="48" y="903">
-      <ns0:tspan class="code">cpw.mods.bootstraplauncher.BootstrapLauncher</ns0:tspan>
-    </ns0:text>
-    <ns0:text class="body" x="48" y="931">
-      <ns0:tspan class="code">cpw.mods.modlauncher.Launcher</ns0:tspan>
-    </ns0:text>
-    <ns0:text class="body" x="48" y="959">
-      <ns0:tspan class="code">net.neoforged.fml.startup.Server</ns0:tspan>
-    </ns0:text>
-  </ns0:g>
-  <ns0:g id="main-class-exit" class="node route">
-    <ns0:rect x="816" y="866" width="278" height="86" rx="10" />
-    <ns0:text class="node-title" x="836" y="898">不属于当前检测器</ns0:text>
-    <ns0:text class="body" x="836" y="931">普通 FML 入口不匹配</ns0:text>
-  </ns0:g>
-  <ns0:g id="family-evidence" class="node process">
-    <ns0:rect x="28" y="1032" width="730" height="142" rx="10" />
-    <ns0:text class="node-title" x="48" y="1064">判断启动声明所属的 loader 家族</ns0:text>
-    <ns0:text class="body" x="48" y="1097">以下任一证据指向 NeoForge：提供 <ns0:tspan class="code">--fml.neoForgeVersion</ns0:tspan>、</ns0:text>
-    <ns0:text class="body" x="48" y="1125">
-      <ns0:tspan class="code">--fml.forgeGroup</ns0:tspan> 为 <ns0:tspan class="code">net.neoforged</ns0:tspan>，或主类以 <ns0:tspan class="code">net.neoforged.</ns0:tspan> 开头。</ns0:text>
-    <ns0:text class="body" x="48" y="1153">都不存在时，判为 Forge。</ns0:text>
-  </ns0:g>
-  <ns0:g id="family-match" class="node decision">
-    <ns0:rect x="28" y="1226" width="730" height="86" rx="10" />
-    <ns0:text class="node-title" x="48" y="1258">声明家族是否匹配当前入口？</ns0:text>
-    <ns0:text class="body" x="48" y="1291">Forge 入口只接受 Forge；NeoForge 入口只接受 NeoForge。</ns0:text>
-  </ns0:g>
-  <ns0:g id="family-match-exit" class="node route">
-    <ns0:rect x="816" y="1226" width="278" height="86" rx="10" />
-    <ns0:text class="node-title" x="836" y="1258">不属于当前检测器</ns0:text>
-    <ns0:text class="body" x="836" y="1291">当前入口不处理此家族</ns0:text>
-  </ns0:g>
-  <ns0:g id="group-check" class="node decision">
-    <ns0:rect x="28" y="1412" width="730" height="114" rx="10" />
-    <ns0:text class="node-title" x="48" y="1444">声明的 loader group 是否与家族一致？</ns0:text>
-    <ns0:text class="body" x="48" y="1477">
-      <ns0:tspan class="code">--fml.forgeGroup</ns0:tspan> 未提供时通过；提供时必须匹配：</ns0:text>
-    <ns0:text class="body" x="48" y="1505">Forge → <ns0:tspan class="code">net.minecraftforge</ns0:tspan>；NeoForge → <ns0:tspan class="code">net.neoforged</ns0:tspan>。</ns0:text>
-  </ns0:g>
-  <ns0:g id="group-check-exit" class="node error">
-    <ns0:rect x="816" y="1426" width="278" height="86" rx="10" />
-    <ns0:text class="node-title" x="836" y="1458">识别失败</ns0:text>
-    <ns0:text class="body" x="836" y="1491">loader group 与家族冲突</ns0:text>
-  </ns0:g>
-  <ns0:g id="target-check" class="node decision">
-    <ns0:rect x="28" y="1578" width="730" height="114" rx="10" />
-    <ns0:text class="node-title" x="48" y="1610">是否明确声明了客户端启动目标？</ns0:text>
-    <ns0:text class="body" x="48" y="1643">检查 <ns0:tspan class="code">--launchTarget</ns0:tspan>；命中已知客户端目标时拒绝识别。</ns0:text>
-    <ns0:text class="body" x="48" y="1671">未提供或未知的目标不阻止识别。</ns0:text>
-  </ns0:g>
-  <ns0:g id="target-check-exit" class="node error">
-    <ns0:rect x="816" y="1592" width="278" height="86" rx="10" />
-    <ns0:text class="node-title" x="836" y="1624">识别失败</ns0:text>
-    <ns0:text class="body" x="836" y="1657">声明的是客户端目标</ns0:text>
-  </ns0:g>
-  <ns0:g id="mc-version" class="node process">
-    <ns0:rect x="28" y="1792" width="730" height="86" rx="10" />
-    <ns0:text class="node-title" x="48" y="1824">取得 Minecraft 版本</ns0:text>
-    <ns0:text class="body" x="48" y="1857">从 <ns0:tspan class="code">--fml.mcVersion</ns0:tspan> 取得版本；此项必须存在。</ns0:text>
-  </ns0:g>
-  <ns0:g id="mc-version-exit" class="node error">
-    <ns0:rect x="816" y="1792" width="278" height="86" rx="10" />
-    <ns0:text class="node-title" x="836" y="1824">识别失败</ns0:text>
-    <ns0:text class="body" x="836" y="1857">缺少 Minecraft 版本</ns0:text>
-  </ns0:g>
-  <ns0:g id="loader-version" class="node process">
-    <ns0:rect x="28" y="1930" width="730" height="114" rx="10" />
-    <ns0:text class="node-title" x="48" y="1962">取得 loader 版本</ns0:text>
-    <ns0:text class="body" x="48" y="1995">优先采用 <ns0:tspan class="code">--fml.neoForgeVersion</ns0:tspan>；</ns0:text>
-    <ns0:text class="body" x="48" y="2023">未提供时采用 <ns0:tspan class="code">--fml.forgeVersion</ns0:tspan>，两项至少存在一项。</ns0:text>
-  </ns0:g>
-  <ns0:g id="loader-version-exit" class="node error">
-    <ns0:rect x="816" y="1944" width="278" height="86" rx="10" />
-    <ns0:text class="node-title" x="836" y="1976">识别失败</ns0:text>
-    <ns0:text class="body" x="836" y="2009">缺少 loader 版本</ns0:text>
-  </ns0:g>
-  <ns0:g id="version-conflict" class="node decision">
-    <ns0:rect x="28" y="2096" width="730" height="114" rx="10" />
-    <ns0:text class="node-title" x="48" y="2128">两个 loader 版本声明是否冲突？</ns0:text>
-    <ns0:text class="body" x="48" y="2161">若 <ns0:tspan class="code">--fml.neoForgeVersion</ns0:tspan> 与 <ns0:tspan class="code">--fml.forgeVersion</ns0:tspan> 同时存在，</ns0:text>
-    <ns0:text class="body" x="48" y="2189">要求两者相同；只提供一项时无此冲突。</ns0:text>
-  </ns0:g>
-  <ns0:g id="version-conflict-exit" class="node error">
-    <ns0:rect x="816" y="2110" width="278" height="86" rx="10" />
-    <ns0:text class="node-title" x="836" y="2142">识别失败</ns0:text>
-    <ns0:text class="body" x="836" y="2175">两个版本声明不一致</ns0:text>
-  </ns0:g>
-  <ns0:g id="success" class="node success">
-    <ns0:rect x="28" y="2262" width="730" height="86" rx="10" />
-    <ns0:text class="node-title" x="48" y="2294">识别成功</ns0:text>
-    <ns0:text class="body" x="48" y="2327">返回所属 loader 的 Minecraft 版本和 loader 版本。</ns0:text>
-  </ns0:g>
-  <ns0:path class="edge" data-from="shim-condition" data-to="main-class" d="M 288 366 L 288 600 L 393 600 L 393 838" />
-  <ns0:text class="edge-label" x="304" y="400">否</ns0:text>
-  <ns0:path class="edge" data-from="neo-entry" data-to="main-class" d="M 840 198 L 840 224 L 1110 224 L 1110 600 L 393 600 L 393 838" />
-</ns0:svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="4537" viewBox="0 0 1000 4537" role="img" aria-labelledby="title description" xml:lang="zh-CN">
+  <title id="title">Forge / NeoForge 服务端识别</title>
+  <desc id="description">从已解析的 ServerLaunch 分流至 Shim、ServerMain、历史 Forge 和共享 FML。每条分支都给出独立的识别结果或错误出口。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="var(--line)"/>
+    </marker>
+  </defs>
+  <style>
+    :root { color-scheme: light; --fg: #152235; --text: #33445b; --line: #5a6e87; --border: #9eafc2; --surface: #f5f8fc; --accent: #214e91; --tint: #ecf3ff; --success: #186146; --good: #edf8f2; --error: #8d3035; --bad: #fdf0f0; }
+    text { fill: var(--fg); font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .heading { font-size: 28px; font-weight: 680; }
+    .subtitle { font-size: 18px; fill: var(--text); }
+    .section { font-size: 19px; font-weight: 650; fill: var(--accent); }
+    .card rect { fill: var(--surface); stroke: var(--border); stroke-width: 1.25; }
+    .route rect, .decision rect { fill: var(--tint); stroke: var(--accent); }
+    .success rect { fill: var(--good); stroke: var(--success); }
+    .error rect { fill: var(--bad); stroke: var(--error); }
+    .node-title { font-size: 20px; font-weight: 650; }
+    .route .node-title, .decision .node-title { fill: var(--accent); }
+    .success .node-title { fill: var(--success); }
+    .error-text { fill: var(--error); font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+    .body, .code, .detail { font-size: 17px; fill: var(--text); }
+    .code { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+    .code.compact { font-size: 15px; }
+    .example rect { fill: var(--surface); stroke: var(--border); stroke-width: 1.25; }
+    .example .node-title { font-size: 17px; }
+    .example .field, .example .code { font-size: 14px; fill: var(--text); }
+    .example .code { font-size: 13px; }
+    .detail { font-weight: 630; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.55; marker-end: url(#arrow); }
+    .rule { stroke: var(--border); stroke-width: 1; }
+    .branch { font-size: 15px; fill: var(--text); }
+    .port rect { fill: var(--tint); stroke: var(--accent); stroke-width: 1.4; }
+    .port text { font-size: 18px; font-weight: 700; fill: var(--accent); }
+    .rail { fill: none; stroke: var(--line); stroke-width: 1.55; }
+  </style>
+  <rect width="100%" height="100%" fill="#eeeeee"/>
+  <path class="edge" d="M 241 194 V 210"/>
+  <path class="edge" d="M 759 194 V 210"/>
+  <path class="edge" d="M 241 256 V 294"/>
+  <path class="edge" d="M 759 256 V 294"/>
+  <path class="edge" d="M 446 317 H 554"/>
+  <path class="edge" d="M 663 444 V 490"/>
+  <path class="edge" d="M 880 444 V 490"/>
+  <path class="edge" d="M 20 442 H 36"/>
+  <path class="edge" d="M 20 549 H 36"/>
+  <path class="edge" d="M 20 682 H 36"/>
+  <path class="edge" d="M 325 892 V 928"/>
+  <path class="edge" d="M 325 1000 V 1040"/>
+  <path class="edge" d="M 325 1112 V 1152"/>
+  <path class="edge" d="M 325 1224 V 1369"/>
+  <path class="edge" d="M 614 869 H 712"/>
+  <path class="edge" d="M 614 964 H 712"/>
+  <path class="edge" d="M 614 1076 H 712"/>
+  <path class="edge" d="M 614 1188 H 712"/>
+  <g transform="translate(0 105)">
+  <path class="edge" d="M 325 1362 V 1411"/>
+  <path class="edge" d="M 614 1313 H 712"/>
+  <path class="edge" d="M 325 1594 V 1630"/>
+  <path class="edge" d="M 325 1702 V 1742"/>
+  <path class="edge" d="M 325 1814 V 1863"/>
+  <path class="edge" d="M 614 1571 H 712"/>
+  <path class="edge" d="M 614 1666 H 712"/>
+  <path class="edge" d="M 614 1778 H 712"/>
+  <path class="edge" d="M 325 2048 V 2087"/>
+  <path class="edge" d="M 325 2193 V 2242"/>
+  <path class="edge" d="M 614 2025 H 712"/>
+  <path class="edge" d="M 614 2103 H 712"/>
+  <path class="edge" d="M 614 2185 H 712"/>
+  <path class="edge" d="M 614 2291 H 712"/>
+  <path class="edge" d="M 325 2340 V 2380"/>
+  <path class="edge" d="M 614 2416 H 712"/>
+  <path class="edge" d="M 325 2452 V 2492"/>
+  <path class="edge" d="M 614 2541 H 712"/>
+  <path class="edge" d="M 325 2590 V 2631"/>
+  <path class="edge" d="M 614 2655 H 712"/>
+  <path class="edge" d="M 614 2735 H 712"/>
+  <path class="edge" d="M 325 2755 V 2795"/>
+  <path class="edge" d="M 249 3115 V 3142"/>
+  <path class="edge" d="M 735 3115 V 3142"/>
+  <path class="edge" d="M 325 3335 V 3375"/>
+  <path class="edge" d="M 614 3389 H 712"/>
+  <path class="edge" d="M 614 3449 H 712"/>
+  <path class="edge" d="M 325 3455 V 3505"/>
+  <path class="edge" d="M 614 3541 H 712"/>
+  <path class="edge" d="M 325 3577 V 3625"/>
+  <path class="edge" d="M 614 3648 H 712"/>
+  <path class="edge" d="M 237 3710 V 3751"/>
+  <path class="edge" d="M 720 3710 V 3751"/>
+  <path class="edge" d="M 325 4009 V 4040"/>
+  <path class="edge" d="M 614 4065 H 712"/>
+  <path class="edge" d="M 614 4147 H 712"/>
+  <path class="edge" d="M 325 4164 V 4212"/>
+  <path class="edge" d="M 614 4248 H 712"/>
+  <path class="edge" d="M 325 4284 V 4334"/>
+  </g>
+  <text x="28" y="47" class="heading">Forge / NeoForge 服务端识别</text>
+  <text x="28" y="79" class="subtitle">从 Java 主类分流；带相同编号的入口和出口在本图内相连。</text>
+  <g class="card route">
+    <rect x="280" y="105" width="440" height="72" rx="10"/>
+    <text x="298" y="135" class="node-title">ServerLaunch</text>
+    <text x="298" y="160" class="body">启动脚本静态解析；JAR 主类来自 manifest。</text>
+  </g>
+  <g class="card route">
+    <rect x="36" y="210" width="410" height="46" rx="10"/>
+    <text x="54" y="240" class="node-title">Forge 检测器</text>
+  </g>
+  <g class="card route">
+    <rect x="554" y="210" width="410" height="46" rx="10"/>
+    <text x="572" y="240" class="node-title">NeoForge 检测器</text>
+  </g>
+  <path class="rail" d="M 500 177 V 194 M 241 194 H 759"/>
+  <g class="card decision">
+    <rect x="36" y="294" width="410" height="46" rx="10"/>
+    <text x="54" y="324" class="node-title">主类匹配 Forge 专属入口？</text>
+  </g>
+  <g class="card decision">
+    <rect x="554" y="294" width="410" height="150" rx="10"/>
+    <text x="572" y="324" class="node-title">主类匹配普通 FML 入口？</text>
+    <text x="572" y="349" class="code">cpw.mods.bootstraplauncher.</text>
+    <text x="592" y="375" class="code">BootstrapLauncher</text>
+    <text x="572" y="401" class="code">cpw.mods.modlauncher.Launcher</text>
+    <text x="572" y="427" class="code">net.neoforged.fml.startup.Server</text>
+  </g>
+  <text x="500" y="307" class="branch" text-anchor="middle">未匹配</text>
+  <g class="port"><rect x="553" y="490" width="220" height="46" rx="23"/>
+    <text x="663" y="519" class="port-label" text-anchor="middle">④  共享 FML</text>
+  </g>
+  <g class="card neutral">
+    <rect x="796" y="490" width="168" height="72" rx="10"/>
+    <text x="814" y="520" class="node-title">不认领</text>
+    <text x="814" y="545" class="body">不支持的主类。</text>
+  </g>
+  <text x="675" y="474" class="branch">匹配</text>
+  <text x="892" y="474" class="branch">未匹配</text>
+  <g class="card ">
+    <rect x="36" y="406" width="432" height="72" rx="10"/>
+    <text x="54" y="436" class="node-title">①  Forge Shim</text>
+    <text x="54" y="461" class="code">net.minecraftforge.bootstrap.shim.Main</text>
+  </g>
+  <g class="card ">
+    <rect x="36" y="513" width="432" height="72" rx="10"/>
+    <text x="54" y="543" class="node-title">②  Forge ServerMain</text>
+    <text x="54" y="568" class="code">net.minecraftforge.server.ServerMain</text>
+  </g>
+  <g class="card ">
+    <rect x="36" y="620" width="610" height="124" rx="10"/>
+    <text x="54" y="650" class="node-title">③  旧版入口</text>
+    <text x="54" y="675" class="code">cpw.mods.fml.relauncher.ServerLaunchWrapper</text>
+    <text x="54" y="701" class="code">net.minecraftforge.fml.relauncher.ServerLaunchWrapper</text>
+    <text x="54" y="727" class="code">net.minecraft.server.MinecraftServer</text>
+  </g>
+  <path class="rail" d="M 241 340 V 368 H 20 V 682"/>
+  <text x="254" y="363" class="branch">按匹配的主类选一支</text>
+  <line class="rule" x1="28" y1="790" x2="972" y2="790"/>
+  <text x="28" y="822" class="section">①  Forge Shim：读取内嵌元数据</text>
+  <g class="card decision">
+    <rect x="36" y="846" width="578" height="46" rx="10"/>
+    <text x="54" y="876" class="node-title">打开 -jar 指向的 JAR</text>
+  </g>
+  <g class="card ">
+    <rect x="36" y="928" width="578" height="72" rx="10"/>
+    <text x="54" y="958" class="node-title">读取 bootstrap-shim.properties</text>
+    <text x="54" y="983" class="body">复用 Java properties 解析器。</text>
+  </g>
+  <g class="card ">
+    <rect x="36" y="1040" width="578" height="72" rx="10"/>
+    <text x="54" y="1070" class="node-title">提取 Arguments 默认参数</text>
+    <text x="54" y="1095" class="body">有该属性时静态分词；缺席时没有默认参数。</text>
+  </g>
+  <g class="card ">
+    <rect x="36" y="1152" width="578" height="72" rx="10"/>
+    <text x="54" y="1182" class="node-title">读取 bootstrap-shim.list</text>
+    <text x="54" y="1207" class="body">名单必须存在且为 UTF-8；显式版本齐全也读取。</text>
+  </g>
+  <g class="card error">
+    <rect x="712" y="836" width="276" height="66" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="853">Forge shim must be a JAR entry</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="871">invalid JAR {path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="889">failed to open JAR {path:?}</tspan></text>
+  </g>
+  <text x="663" y="861" class="branch" text-anchor="middle">失败</text>
+  <g class="card error">
+    <rect x="712" y="910" width="276" height="108" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="927">missing bootstrap-</tspan><tspan x="727" y="941">shim.properties in {path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="959">failed to read bootstrap-</tspan><tspan x="727" y="973">shim.properties in {path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="991">failed to parse bootstrap-</tspan><tspan x="727" y="1005">shim.properties in {path:?}</tspan></text>
+  </g>
+  <text x="663" y="956" class="branch" text-anchor="middle">失败</text>
+  <g class="card error">
+    <rect x="712" y="1038" width="276" height="76" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1055">invalid Forge shim defaults in </tspan><tspan x="727" y="1069">{path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1087">cannot split embedded bootstrap-</tspan><tspan x="727" y="1101">shim.properties Arguments</tspan></text>
+  </g>
+  <text x="663" y="1068" class="branch" text-anchor="middle">失败</text>
+  <g class="card error">
+    <rect x="712" y="1134" width="276" height="108" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1151">missing bootstrap-shim.list in </tspan><tspan x="727" y="1165">{path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1183">failed to read </tspan><tspan x="727" y="1197">bootstrap-shim.list in {path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1215">invalid UTF-8 in {path:?}!</tspan><tspan x="727" y="1229">bootstrap-shim.list at line {line}</tspan></text>
+  </g>
+  <text x="663" y="1180" class="branch" text-anchor="middle">失败</text>
+  <g class="example">
+    <rect x="342" y="1251" width="584" height="93" rx="10"/>
+    <text x="358" y="1278" class="node-title">bootstrap-shim.list示例</text>
+    <text x="571" y="1278" class="field">TSV（⇥ 表示 Tab）</text>
+    <text x="358" y="1301" class="field">依次为：摘要、坐标、路径</text>
+    <text x="358" y="1324" class="code">42ffff34... ⇥ net.minecraftforge:... ⇥ net/minecraftforge/...</text>
+  </g>
+  <g transform="translate(0 105)">
+  <g class="card">
+    <rect x="36" y="1264" width="578" height="98" rx="10"/>
+    <text x="54" y="1294" class="node-title">逐行取第三列引用路径</text>
+    <text x="54" y="1319" class="body">以工作目录的 libraries/ 为基准定位引用路径。</text>
+    <text x="54" y="1345" class="body">每行以制表符分为三列，保留记录行号。</text>
+  </g>
+  <g class="port"><rect x="215" y="1411" width="220" height="46" rx="23"/>
+    <text x="325" y="1440" class="port-label" text-anchor="middle">④  共享 FML</text>
+  </g>
+  <g class="card error">
+    <rect x="712" y="1284" width="276" height="58" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1301">invalid Forge shim library list </tspan><tspan x="727" y="1315">in {path:?}!bootstrap-shim.list </tspan><tspan x="727" y="1329">at line {}</tspan></text>
+  </g>
+  <text x="663" y="1305" class="branch" text-anchor="middle">无效</text>
+  <text x="337" y="1392" class="branch">带上默认参数、补充路径；期望家族为 Forge</text>
+  <line class="rule" x1="28" y1="1492" x2="972" y2="1492"/>
+  <text x="28" y="1524" class="section">②  Forge ServerMain：从主 manifest 取得默认参数</text>
+  <g class="card decision">
+    <rect x="36" y="1548" width="578" height="46" rx="10"/>
+    <text x="54" y="1578" class="node-title">是否为 -jar 入口？</text>
+  </g>
+  <g class="card ">
+    <rect x="36" y="1630" width="578" height="72" rx="10"/>
+    <text x="54" y="1660" class="node-title">取出 ServerLaunchArgs</text>
+    <text x="54" y="1685" class="body">直接用已解析的主 manifest；续行已拼接。</text>
+  </g>
+  <g class="card ">
+    <rect x="36" y="1742" width="578" height="72" rx="10"/>
+    <text x="54" y="1772" class="node-title">对属性值静态分词</text>
+    <text x="54" y="1797" class="body">所得参数用作同名识别选项的默认值。</text>
+  </g>
+  <g class="port"><rect x="215" y="1863" width="220" height="46" rx="23"/>
+    <text x="325" y="1892" class="port-label" text-anchor="middle">④  共享 FML</text>
+  </g>
+  <text x="337" y="1617" class="branch">是</text>
+  <text x="337" y="1843" class="branch">带上默认参数；期望家族为 Forge</text>
+  <g class="card error">
+    <rect x="712" y="1549" width="276" height="44" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1566">Forge ServerMain must be a JAR </tspan><tspan x="727" y="1580">entry</tspan></text>
+  </g>
+  <text x="663" y="1563" class="branch" text-anchor="middle">否</text>
+  <g class="card error">
+    <rect x="712" y="1628" width="276" height="76" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1645">invalid Forge ServerMain </tspan><tspan x="727" y="1659">manifest in {jar:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1677">missing ServerLaunchArgs in </tspan><tspan x="727" y="1691">META-INF/MANIFEST.MF</tspan></text>
+  </g>
+  <text x="663" y="1658" class="branch" text-anchor="middle">没有</text>
+  <g class="card error">
+    <rect x="712" y="1740" width="276" height="76" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1757">invalid Forge ServerMain </tspan><tspan x="727" y="1771">manifest in {jar:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="1789">cannot split embedded ServerLaun</tspan><tspan x="727" y="1803">chArgs</tspan></text>
+  </g>
+  <text x="663" y="1770" class="branch" text-anchor="middle">失败</text>
+  <line class="rule" x1="28" y1="1946" x2="972" y2="1946"/>
+  <text x="28" y="1978" class="section">③  旧版 Forge：直接从启动 JAR 识别</text>
+  <g class="card decision">
+    <rect x="36" y="2002" width="578" height="46" rx="10"/>
+    <text x="54" y="2032" class="node-title">是否为 -jar 入口？</text>
+  </g>
+  <g class="card decision">
+    <rect x="36" y="2087" width="578" height="106" rx="10"/>
+    <text x="54" y="2117" class="node-title">打开 JAR，查找 ForgeVersion.class</text>
+    <text x="54" y="2142" class="code">net/minecraftforge/common/ForgeVersion.class</text>
+  </g>
+  <g class="card ">
+    <rect x="36" y="2242" width="578" height="98" rx="10"/>
+    <text x="54" y="2272" class="node-title">组成四段 Forge 版本</text>
+    <text x="54" y="2297" class="code compact">majorVersion.minorVersion.revisionVersion.buildVersion</text>
+    <text x="54" y="2323" class="body">四个字段都须提供非负的静态整型常量。</text>
+  </g>
+  <text x="337" y="2072" class="branch">是</text>
+  <text x="337" y="2222" class="branch">存在</text>
+  <g class="card neutral">
+    <rect x="712" y="2002" width="252" height="46" rx="10"/>
+    <text x="730" y="2032" class="node-title">不认领</text>
+  </g>
+  <text x="663" y="2017" class="branch" text-anchor="middle">否</text>
+  <g class="card error">
+    <rect x="712" y="2063" width="276" height="80" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2080">invalid JAR {path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2098">failed to open JAR {path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2116">failed to read {FORGE_VERSION} </tspan><tspan x="727" y="2130">in {path:?}</tspan></text>
+  </g>
+  <text x="663" y="2095" class="branch" text-anchor="middle">读取失败</text>
+  <g class="card neutral">
+    <rect x="712" y="2162" width="252" height="46" rx="10"/>
+    <text x="730" y="2192" class="node-title">不认领</text>
+  </g>
+  <text x="663" y="2177" class="branch" text-anchor="middle">没有此类</text>
+  <g class="card error">
+    <rect x="712" y="2237" width="276" height="108" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2254">invalid {FORGE_VERSION} in </tspan><tspan x="727" y="2268">{path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2286">missing integer constant {name} </tspan><tspan x="727" y="2300">in {FORGE_VERSION} in {path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2318">invalid integer constant {name} </tspan><tspan x="727" y="2332">in {FORGE_VERSION} in {path:?}</tspan></text>
+  </g>
+  <text x="663" y="2283" class="branch" text-anchor="middle">失败</text>
+  <g class="card">
+    <rect x="36" y="2380" width="578" height="72" rx="10"/>
+    <text x="54" y="2410" class="node-title">读取类中的 mcVersion</text>
+    <text x="54" y="2435" class="body">字段可缺席；存在时须为有效的静态字符串常量。</text>
+  </g>
+  <g class="card error">
+    <rect x="712" y="2371" width="276" height="90" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2388">invalid mcVersion in {FORGE_VERS</tspan><tspan x="727" y="2402">ION} in {path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2420">invalid string constant </tspan><tspan x="727" y="2434">mcVersion in {FORGE_VERSION} in </tspan><tspan x="727" y="2448">{path:?}</tspan></text>
+  </g>
+  <text x="663" y="2408" class="branch" text-anchor="middle">无效</text>
+  <g class="card">
+    <rect x="36" y="2492" width="578" height="98" rx="10"/>
+    <text x="54" y="2522" class="node-title">读取 JAR 根目录的另一个来源</text>
+    <text x="54" y="2547" class="code">fmlversion.properties: fmlbuild.mcversion</text>
+    <text x="54" y="2573" class="body">成员或键可缺席；出现的版本值不能含空白或为空。</text>
+  </g>
+  <g class="card error">
+    <rect x="712" y="2487" width="276" height="108" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2504">failed to read {FML_VERSION} in </tspan><tspan x="727" y="2518">{path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2536">failed to parse {MC_PROPERTY} </tspan><tspan x="727" y="2550">in {FML_VERSION} in {path:?}</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2568">invalid {MC_PROPERTY} in </tspan><tspan x="727" y="2582">{FML_VERSION} in {path:?}</tspan></text>
+  </g>
+  <text x="663" y="2533" class="branch" text-anchor="middle">失败</text>
+  <g class="card decision">
+    <rect x="36" y="2631" width="578" height="124" rx="10"/>
+    <text x="54" y="2661" class="node-title">Minecraft 版本是否足够且一致？</text>
+    <text x="54" y="2686" class="body">至少有一个值；两个值同时存在时必须相同。</text>
+  </g>
+  <g class="card error">
+    <rect x="712" y="2619" width="276" height="72" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2636">missing Minecraft version: </tspan><tspan x="727" y="2650">mcVersion in {FORGE_VERSION} or </tspan><tspan x="727" y="2664">{MC_PROPERTY} in {FML_VERSION} </tspan><tspan x="727" y="2678">in {path:?}</tspan></text>
+  </g>
+  <text x="663" y="2647" class="branch" text-anchor="middle">均缺失</text>
+  <g class="card error">
+    <rect x="712" y="2692" width="276" height="86" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="2709">conflicting Minecraft versions </tspan><tspan x="727" y="2723">in {path:?}: {FORGE_VERSION} </tspan><tspan x="727" y="2737">mcVersion={class_mc:?}, </tspan><tspan x="727" y="2751">{FML_VERSION} {MC_PROPERTY}={pro</tspan><tspan x="727" y="2765">perty_mc:?}</tspan></text>
+  </g>
+  <text x="663" y="2727" class="branch" text-anchor="middle">值不同</text>
+  <g class="card success">
+    <rect x="36" y="2795" width="578" height="72" rx="10"/>
+    <text x="54" y="2825" class="node-title">返回 Forge 身份</text>
+    <text x="54" y="2850" class="body">包含 Minecraft 版本和四段 Forge 版本。</text>
+  </g>
+  <text x="337" y="2780" class="branch">通过</text>
+  <line class="rule" x1="28" y1="2880" x2="972" y2="2880"/>
+  <text x="28" y="2912" class="section">④  共享 FML：先认家族，再核对版本</text>
+  <g class="card ">
+    <rect x="36" y="2940" width="426" height="150" rx="10"/>
+    <text x="54" y="2970" class="node-title">查询有效选项</text>
+    <text x="54" y="2995" class="body">显式优先；缺席时才查同名内嵌默认值。</text>
+    <text x="54" y="3017" class="code">--name value / --name=value</text>
+    <text x="334" y="3017" class="branch">重复同值允许</text>
+    <text x="54" y="3039" class="error-text">missing game option value for {name}</text>
+    <text x="54" y="3055" class="error-text">no extractable game option value for {name}: {value:?}</text>
+    <text class="error-text" xml:space="preserve"><tspan x="54" y="3071">conflicting game option {name}: </tspan><tspan x="54" y="3085">{first:?} versus {second:?}</tspan></text>
+  </g>
+  <g class="card ">
+    <rect x="506" y="2940" width="458" height="124" rx="10"/>
+    <text x="524" y="2970" class="node-title">汇总引用的 JAR 路径</text>
+    <text x="524" y="2995" class="body">类路径或 manifest Class-Path、模块路径、</text>
+    <text x="524" y="3021" class="code">-DlegacyClassPath</text>
+    <text x="524" y="3047" class="body">以及入口提供的补充路径。</text>
+  </g>
+  <g class="card ">
+    <rect x="36" y="3142" width="426" height="98" rx="10"/>
+    <text x="54" y="3172" class="node-title">Forge 正证据</text>
+    <text x="54" y="3197" class="code">--fml.forgeGroup = net.minecraftforge</text>
+    <text x="54" y="3223" class="code">net.minecraftforge:fmlloader</text>
+  </g>
+  <g class="card ">
+    <rect x="506" y="3142" width="458" height="124" rx="10"/>
+    <text x="524" y="3172" class="node-title">NeoForge 正证据</text>
+    <text x="524" y="3197" class="code">--fml.forgeGroup = net.neoforged</text>
+    <text x="524" y="3223" class="code">--fml.neoForgeVersion</text>
+    <text x="524" y="3249" class="code">net.neoforged.fancymodloader:loader</text>
+  </g>
+  <path class="rail" d="M 249 3090 V 3115 H 735 M 735 3064 V 3115"/>
+  <text x="348" y="3360" class="branch">--fml.forgeVersion 提供发行版版本。</text>
+  <g class="card decision">
+    <rect x="36" y="3375" width="578" height="80" rx="10"/>
+    <text x="54" y="3405" class="node-title">证据是否指向唯一家族？</text>
+  </g>
+  <path class="rail" d="M 249 3335 H 735"/>
+  <path class="rail" d="M 249 3240 V 3335"/>
+  <path class="rail" d="M 735 3266 V 3335"/>
+  <g class="card neutral">
+    <rect x="712" y="3366" width="252" height="46" rx="10"/>
+    <text x="730" y="3396" class="node-title">不认领</text>
+  </g>
+  <text x="663" y="3381" class="branch" text-anchor="middle">无证据</text>
+  <g class="card error">
+    <rect x="712" y="3420" width="276" height="58" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="3437">conflicting FML family: </tspan><tspan x="727" y="3451">{existing:?} from {previous} </tspan><tspan x="727" y="3465">versus {value:?} from {source}</tspan></text>
+  </g>
+  <text x="663" y="3441" class="branch" text-anchor="middle">两家</text>
+  <g class="card decision">
+    <rect x="36" y="3505" width="578" height="72" rx="10"/>
+    <text x="54" y="3535" class="node-title">Forge 专属入口的家族是否吻合？</text>
+    <text x="54" y="3560" class="body">普通 FML 不设期望家族。</text>
+  </g>
+  <text x="337" y="3485" class="branch">家族唯一</text>
+  <g class="card error">
+    <rect x="712" y="3512" width="276" height="58" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="3529">{expected:?} launcher declares </tspan><tspan x="727" y="3543">the {family:?} family from </tspan><tspan x="727" y="3557">{source}</tspan></text>
+  </g>
+  <text x="663" y="3533" class="branch" text-anchor="middle">不符</text>
+  <g class="card decision">
+    <rect x="36" y="3625" width="578" height="46" rx="10"/>
+    <text x="54" y="3655" class="node-title">--launchTarget 是已知客户端目标？</text>
+  </g>
+  <text x="337" y="3606" class="branch">符合要求</text>
+  <g class="card error">
+    <rect x="712" y="3619" width="276" height="58" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="3636">entry declares a client target, </tspan><tspan x="727" y="3650">not a production server: </tspan><tspan x="727" y="3664">{target:?}</tspan></text>
+  </g>
+  <text x="663" y="3640" class="branch" text-anchor="middle">是</text>
+  <g class="card ">
+    <rect x="36" y="3751" width="402" height="150" rx="10"/>
+    <text x="54" y="3781" class="node-title">参数中的发行版本</text>
+    <text x="54" y="3806" class="code">--fml.mcVersion</text>
+    <text x="54" y="3832" class="code">--fml.forgeVersion</text>
+    <text x="54" y="3858" class="code">--fml.neoForgeVersion</text>
+    <text x="54" y="3884" class="body">后两项并存时也须相等。</text>
+  </g>
+  <g class="card ">
+    <rect x="476" y="3751" width="488" height="228" rx="10"/>
+    <text x="494" y="3781" class="node-title">本家族工件的发行版本</text>
+    <text x="494" y="3806" class="code">net.minecraftforge:forge:M-V</text>
+    <text x="494" y="3832" class="code">net.neoforged:forge:M-V</text>
+    <text x="494" y="3858" class="code">net.neoforged:neoforge:V</text>
+    <text x="494" y="3884" class="body">M-V 提供 Minecraft 和 loader；V 只提供 loader。</text>
+    <text x="494" y="3910" class="body">匹配引用的 JAR，或实际展开且位于 Maven 目录的</text>
+    <text x="494" y="3936" class="code">unix_args.txt / win_args.txt</text>
+    <text x="795" y="3936" class="branch">FML 组件版本不计入</text>
+    <text x="494" y="3962" class="error-text">invalid FML distribution version {value:?} in {source}</text>
+  </g>
+  <path class="rail" d="M 325 3671 V 3710 M 237 3710 H 720"/>
+  <text x="337" y="3698" class="branch">缺席或非已知客户端目标</text>
+  <g class="card decision">
+    <rect x="36" y="4040" width="578" height="124" rx="10"/>
+    <text x="54" y="4070" class="node-title">分别核对 Minecraft 和 loader 版本</text>
+    <text x="54" y="4095" class="body">每项至少有一个有效值；显式选项与路径坐标平等。</text>
+  </g>
+  <path class="rail" d="M 237 4009 H 720"/>
+  <path class="rail" d="M 237 3901 V 4009"/>
+  <path class="rail" d="M 720 3979 V 4009"/>
+  <g class="card error">
+    <rect x="712" y="4041" width="276" height="48" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="4058">Minecraft version is missing</tspan></text>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="4076">loader version is missing</tspan></text>
+  </g>
+  <text x="663" y="4057" class="branch" text-anchor="middle">缺失</text>
+  <g class="card error">
+    <rect x="712" y="4118" width="276" height="58" rx="10"/>
+    <text class="error-text" xml:space="preserve"><tspan x="727" y="4135">conflicting {field} version: </tspan><tspan x="727" y="4149">{existing:?} from {previous} </tspan><tspan x="727" y="4163">versus {value:?} from {source}</tspan></text>
+  </g>
+  <text x="663" y="4139" class="branch" text-anchor="middle">冲突</text>
+  <g class="card decision">
+    <rect x="36" y="4212" width="578" height="72" rx="10"/>
+    <text x="54" y="4242" class="node-title">结果是否属于当前检测器？</text>
+    <text x="54" y="4267" class="body">普通 FML 的 Forge、NeoForge 检测器各收本家族。</text>
+  </g>
+  <text x="337" y="4193" class="branch">每项的所有值一致</text>
+  <g class="card neutral">
+    <rect x="712" y="4212" width="252" height="72" rx="10"/>
+    <text x="730" y="4242" class="node-title">不认领</text>
+    <text x="730" y="4267" class="body">结果属于另一家族。</text>
+  </g>
+  <text x="663" y="4240" class="branch" text-anchor="middle">否</text>
+  <g class="card success">
+    <rect x="36" y="4334" width="578" height="72" rx="10"/>
+    <text x="54" y="4364" class="node-title">返回服务端身份</text>
+    <text x="54" y="4389" class="body">包含 Minecraft 版本和 loader 版本。</text>
+  </g>
+  <text x="337" y="4314" class="branch">是</text>
+  </g>
+</svg>

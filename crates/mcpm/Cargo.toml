@@ -29,7 +29,7 @@ path = "src/bin/mcpm-tools.rs"
 anyhow = { workspace = true }
 vte = { version = "0.15.0", default-features = false }
 arboard = { workspace = true }
-clap = { workspace = true, features = ["derive", "env"] }
+clap = { workspace = true, features = ["derive", "env", "string"] }
 chrono = { workspace = true, features = ["clock"] }
 console = { workspace = true }
 crossterm = { workspace = true, features = ["events", "windows"] }

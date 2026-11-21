@@ -4,12 +4,11 @@ use super::super::server::{self, Family};
 use crate::local::{mc::server::ServerLaunch, modloader::ServerLoaderIdentity};
 use anyhow::Result;
 
-/// 1. Call [`server::identify`] with the NeoForge family.
-/// 2. Return the shared detector's result.
-///    - Recognized: return `Some(identity)`.
-///    - Unrelated entry: return `None`.
-///    - Invalid required evidence: return an error.
+/// Identifies only NeoForge results from the shared ordinary FML entry points.
 pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdentity>> {
-    // Select NeoForge; shared logic filters other families and extracts versions.
-    server::identify(launch, Family::NeoForge)
+    let Some(view) = server::view(launch) else {
+        return Ok(None);
+    };
+    Ok(server::identify(&view)?
+        .and_then(|(family, identity)| (family == Family::NeoForge).then_some(identity)))
 }

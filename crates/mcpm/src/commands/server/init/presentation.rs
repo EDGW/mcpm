@@ -2,7 +2,7 @@
 
 use mcpm_backend::operations::server::init::Candidate;
 use mcpm_exec::error::TippedError;
-use mcpm_lib::local::mc::server::config::ImportedValue;
+use mcpm_lib::local::mc::server::config::{ImportedValue, JavaEntry, LaunchConfig, Platform};
 use mcpm_rich::{Role, rich};
 
 use crate::display::style::text;
@@ -76,7 +76,7 @@ pub(super) fn summary(candidate: &Candidate) -> Summary {
     }
 }
 
-/// Display values stay separate so Console and TUI share the same semantic roles.
+/// Console candidate details with semantic styles for each field.
 pub(super) struct Summary {
     pub identity: String,
     script: String,
@@ -97,6 +97,118 @@ impl Summary {
             ],
         ]
     }
+}
+
+/// Replays the selected identity, launch structure, and settings at the original CLI target.
+pub(super) fn manual_command(
+    prefix: &str,
+    path: &str,
+    candidate: &Candidate,
+    replace_conf: bool,
+) -> Option<String> {
+    let mut command = prefix.to_owned();
+    let metadata = &candidate.metadata;
+    append_option(
+        &mut command,
+        "--minecraft-version",
+        &metadata.minecraft_version,
+    )?;
+    if let Some(loader) = metadata.loader.declaration() {
+        append_option(&mut command, "--loader", &loader.loader_type)?;
+        append_option(&mut command, "--loader-version", &loader.version)?;
+    } else {
+        command.push_str(" --loader vanilla");
+    }
+    if let Some(draft) = &candidate.configuration {
+        append_launch_options(&mut command, &draft.launch)?;
+        if !replace_conf && !draft.imported.is_empty() {
+            command.push_str(" --preserve-conf");
+        }
+        for setting in &draft.imported {
+            append_option(&mut command, "--conf", &setting.override_argument().ok()?)?;
+        }
+    }
+    if path.starts_with('-') {
+        command.push_str(" --");
+    }
+    command.push(' ');
+    append_shell_arg(&mut command, path)?;
+    Some(command)
+}
+
+fn append_launch_options(command: &mut String, launch: &LaunchConfig) -> Option<()> {
+    let entry = match &launch.entry {
+        JavaEntry::Jar { path } if !path.trim().is_empty() => format!("jar@{path}"),
+        JavaEntry::Class { main_class } if !main_class.trim().is_empty() => {
+            format!("class@{main_class}")
+        }
+        JavaEntry::Module { module, main_class }
+            if !module.trim().is_empty() && !module.contains(':') =>
+        {
+            match main_class {
+                Some(class) if !class.trim().is_empty() => format!("module@{module}:{class}"),
+                Some(_) => return None,
+                None => format!("module@{module}"),
+            }
+        }
+        _ => return None,
+    };
+    append_option(command, "--entry", &entry)?;
+    if let Some(platform) = launch.platform {
+        let platform = match platform {
+            Platform::Unix => "unix",
+            Platform::Windows => "windows",
+        };
+        append_option(command, "--launch-platform", platform)?;
+    }
+    if let Some(directory) = &launch.process.working_directory {
+        append_option(command, "--launch-cwd", directory)?;
+    }
+    for (key, value) in &launch.process.environment {
+        append_option(command, "--launch-env", &format!("{key}={value}"))?;
+    }
+    for argument in &launch.jvm.extra_arguments {
+        append_option(command, "--java-arg", argument)?;
+    }
+    for argument in &launch.application.extra_arguments {
+        append_option(command, "--app-arg", argument)?;
+    }
+    Some(())
+}
+
+pub(super) fn append_option(command: &mut String, name: &str, value: &str) -> Option<()> {
+    command.push(' ');
+    if value.is_empty() || value.starts_with('-') {
+        append_shell_arg(command, &format!("{name}={value}"))
+    } else {
+        command.push_str(name);
+        command.push(' ');
+        append_shell_arg(command, value)
+    }
+}
+
+fn append_shell_arg(command: &mut String, value: &str) -> Option<()> {
+    // Keep each command on one printable terminal line without changing its arguments.
+    if value.chars().any(char::is_control) {
+        return None;
+    }
+    #[cfg(not(windows))]
+    command.push_str(&shlex::try_quote(value).ok()?);
+    #[cfg(windows)]
+    append_powershell_arg(command, value);
+    Some(())
+}
+
+#[cfg(windows)]
+fn append_powershell_arg(command: &mut String, value: &str) {
+    command.push('\'');
+    for ch in value.chars() {
+        if matches!(ch, '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}') {
+            command.push(ch);
+        }
+        command.push(ch);
+    }
+    command.push('\'');
 }
 
 pub(super) fn ambiguous(candidates: &[Candidate]) -> anyhow::Error {

@@ -118,6 +118,8 @@ Set loader to Vanilla? [y(es)/n(o)/C(ancel)]
 
 为已有服务端登记，或创建指向已有服务端的 Remote 工作区。
 
+登记成功后，如果服务端缺少 `launch.toml`，Console 会提示如何导入启动脚本或手动设置启动入口。Raw 不显示此提示。
+
 在脚本识别和手动初始化模式中，`[PATH]` 默认为 `.`，按以下规则定位服务端：
 
 | 调用方式 | 服务端位置 |
@@ -132,7 +134,7 @@ Set loader to Vanilla? [y(es)/n(o)/C(ancel)]
 
 ```sh
 mcpm init ./server
-mcpm init ./server --start-script scripts/start.sh --no-ui
+mcpm init ./server --start-script scripts/start.sh
 mcpm init -FIg ./server
 ```
 
@@ -141,7 +143,6 @@ mcpm init -FIg ./server
 | `[PATH]` | 已存在的服务端或工作区目录。 |
 | `--start-script <FILE>` | 扫描指定的服务端相对路径，并跟踪支持的脚本引用。省略时，Windows 先试 `run.bat` 再试 `start.bat`，其他平台先试 `run.sh` 再试 `start.sh`；找到候选即停止。 |
 | `-I`, `--ignore-unknown-vars` | 跳过无法解释的语句并显示警告，保留已知的工作目录和变量。 |
-| `--no-ui` | 使用 Console 编号列表，不打开 TUI 卡片。 |
 | `--raw` | 禁用交互。 |
 | `-f`, `--force` | 已有服务端登记或 `launch.toml` 时必需。替换登记和 `launch.toml`，默认保留已有 `conf.toml`。 |
 | `-F` | 等同于 `--force --foverride-conf`：替换登记和启动配置，同时重新生成 `conf.toml`。 |
@@ -169,6 +170,8 @@ mcpm init -FIg ./server
 - **匹配多个 Loader**：每个 Loader 分别生成一个候选，由用户选择采用哪一种服务端身份。
 - **未匹配 Loader**：仅当命令以 `java -jar` 启动、且 JAR 的主类是受支持的原版服务端入口时，才尝试识别原版版本。
 
+Forge 和 NeoForge 根据启动声明和引用的 Maven 路径识别，不打开依赖 JAR。旧版 Forge 使用启动 JAR 的常量；FML 家族或版本冲突会拒绝该命令，不会生成相互矛盾的候选。详见 [Forge 与 NeoForge 识别](../../../mcpm-lib/docs-zh/server/forge.md)。
+
 原版 Minecraft 版本按以下顺序查找：
 
 1. **`version.json`**：读取启动 JAR 内的版本 ID。
@@ -179,15 +182,14 @@ mcpm init -FIg ./server
 
 #### 候选选择
 
-只有一个候选时直接使用。多个候选按[输出模式](../README.md#输出模式)处理：
+只有一个候选时直接使用。stdout 是终端时默认使用 Console；指定 `--raw` 或重定向 stdout 时使用 Raw。
 
 | 模式 | 选择方式 |
 | --- | --- |
-| TUI | 上下键切换，Enter 确认，Esc 或 Ctrl-C 取消。 |
-| Console | 输入编号确认，空 Enter、Esc、Ctrl-C 或 EOF 取消。 |
-| Raw | 列出候选并报错。改用 TUI 或 Console 选择，或提供完整手动身份。 |
+| Console | 输入编号导入该候选的启动配置；空 Enter、Esc、Ctrl-C 或 EOF 取消。 |
+| Raw | 列出候选并报错。改用 Console 选择，或提供完整手动身份。 |
 
-Console 从控制终端读取输入，不读取重定向的 stdin。候选列表展示脚本位置、主类、入口和应用参数。
+Console 从控制终端读取输入。每个候选显示脚本位置、主类、入口、应用参数，以及一条 **Manual init** 命令。复制执行该命令与输入候选编号写入的登记和配置相同，无需重新扫描脚本。
 
 #### 配置导入
 
@@ -226,6 +228,10 @@ Console 从控制终端读取输入，不读取重定向的 stdin。候选列表
 ```sh
 mcpm init ./server --minecraft-version 1.21.1 --loader vanilla
 mcpm init ./server --minecraft-version 1.20.1 --loader forge --loader-version 47.3.12
+mcpm init ./server --minecraft-version 1.21.1 --loader vanilla \
+  --entry jar@server.jar --launch-env TZ=UTC \
+  --java-args '-Dfile.encoding=UTF-8 -Dexample.mode=server' \
+  --app-arg=--safeMode --conf jvm.heap.maximum=4G --conf p=25565
 mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --loader vanilla --no-git
 ```
 
@@ -235,8 +241,8 @@ mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --load
 | `--minecraft-version <VERSION>` | 必填，别名 `--mc-version`。 |
 | `--loader <LOADER>` | 必填：`vanilla`、`fabric`、`forge` 或 `neoforge`。 |
 | `--loader-version <VERSION>` | 模组服务端必填，`--loader vanilla` 禁用。这里填加载器版本，不是 Minecraft 或 FML 版本。 |
-| `-f`, `--force` | 替换服务端登记，并移除已有的 `launch.toml`。默认保留已有 `conf.toml`。 |
-| `-F` | 等同于 `--force --foverride-conf`：替换登记、移除旧 `launch.toml`，并重新生成 `conf.toml`。 |
+| `-f`, `--force` | 替换服务端登记。传 `--entry` 时替换 `launch.toml`，省略时移除旧 `launch.toml`；默认保留 `conf.toml`。 |
+| `-F` | 等同于 `--force --foverride-conf`。 |
 | `--foverride-conf` | 重新生成 `conf.toml`，覆盖设置和注释。与 `--force` 一起使用。 |
 | `-g`, `--git` / `-G`, `--no-git` | 要求服务端目录自身具有 Git 仓库，或完全跳过 Git；两项互斥。 |
 | `--full-command` | 若有可用启动配置，则显示完整启动命令。 |
@@ -244,7 +250,26 @@ mcpm --ssh 'ssh user@host' init /srv/minecraft --minecraft-version 1.21.1 --load
 
 身份选项缺项时报错。
 
-手动初始化只写入 Local 登记和设置，不生成 `launch.toml`。要导入启动配置，请使用脚本识别模式。
+#### 手动设置启动配置
+
+`--entry`、`--conf` 都要求完整身份，与脚本识别及 `--remote` 互斥。没有 `--entry` 时只登记身份和设置。
+
+| 参数 | 行为 |
+| --- | --- |
+| `--entry <ENTRY>` | `jar@<path>`、`class@<mainClass>` 或 `module@<module>[:<mainClass>]`。指定后生成 `launch.toml`。 |
+| `--launch-platform <unix\|windows>` | 在 `launch.toml` 中记录启动配置的来源平台。省略时使用当前平台。 |
+| `--launch-cwd <PATH>` | 相对于服务端根目录的 Java 工作目录。 |
+| `--launch-env <NAME=VALUE>` | 可重复；同名变量报错。 |
+| `--java-args <ARGS>` / `--java-arg <ARG>` | 前者按引号分词；后者原样传一个 JVM 参数。两种选项可重复，按出现顺序合并。 |
+| `--app-args <ARGS>` / `--app-arg <ARG>` | 同样的规则，写入固定应用参数。 |
+
+来源平台、工作目录、环境变量和参数均要求 `--entry`。分词不展开变量、通配符或 `@argfile`；内存和 GC 用 `--conf` 设置。参数以 `-` 开头时可用 `--java-arg=-Dkey=value` 这类写法。
+
+#### 手动设置 `conf.toml`
+
+- `--conf KEY=VALUE` 可重复，语法与 [`launch -O`](launch.md#临时覆盖) 相同：标量赋值，列表 `=`、`+=` 或 `+` 追加，`:=` 替换，省略 `:=` 后的值则清空。
+- `KEY` 可用完整路径或唯一的配置快捷名，写快捷名时不带 `-`。例如 `server.port`、`port`、`p` 等价；有歧义时用完整路径。同一个标量不能通过不同名字重复赋值。
+- 已有 `conf.toml` 时，用 `--force --foverride-conf`（或 `-F`）重新生成；用 `--preserve-conf` 则保留原文件，仅在生成新文件时应用 `--conf`。新文件由默认模板和本次设置生成。
 
 ### 3. 登记 Remote 工作区
 
