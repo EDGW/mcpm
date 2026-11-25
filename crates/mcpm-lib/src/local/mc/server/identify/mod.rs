@@ -6,6 +6,7 @@ mod script;
 mod tokens;
 mod vanilla;
 
+pub use vanilla::identify_jar;
 pub(crate) use vanilla::is_vanilla_main_class;
 
 use super::{MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader};

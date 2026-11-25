@@ -5,9 +5,9 @@ use anyhow::{Context, Result, bail, ensure};
 use crate::local::{
     java::{
         class::{self, ConstantField},
-        jar, properties,
+        jar,
     },
-    mc::server::ServerLaunch,
+    mc::server::{ServerLaunch, properties},
     modloader::ServerLoaderIdentity,
 };
 
@@ -63,7 +63,7 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
         .read(FML_VERSION, Some(jar::MAX_DOCUMENT))
         .with_context(|| format!("failed to read {FML_VERSION} in {path:?}"))?
         .map(|bytes| -> Result<Option<String>> {
-            let mut properties = properties::parse(&bytes).with_context(|| {
+            let mut properties = properties::parse_bytes(&bytes).with_context(|| {
                 format!("failed to parse {MC_PROPERTY} in {FML_VERSION} in {path:?}")
             })?;
             let value = properties.remove(MC_PROPERTY);

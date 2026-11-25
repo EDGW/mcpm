@@ -1,6 +1,7 @@
 //! Workspace type dispatch and Remote registration storage; local server metadata belongs to mcpm-backend.
 
 use std::{
+    collections::HashSet,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
@@ -273,8 +274,15 @@ impl Drop for Writer {
     }
 }
 
-/// Appends the bundled ignore block unless the file already ends with it, ignoring blank lines.
-/// The caller holds the workspace registration lock.
+/// Ensures `.mcpm/.gitignore` contains every bundled workspace ignore rule,
+/// serialized under the workspace registration lock.
+pub fn ensure_gitignore(root: &Path) -> Result<()> {
+    let _writer = Writer::acquire(root)?;
+    Ok(())
+}
+
+/// Ensures `.mcpm/.gitignore` contains every bundled ignore rule without duplicating existing
+/// entries. The caller holds the workspace registration lock.
 fn append_gitignore(root: &Path) -> Result<()> {
     const BLOCK: &str = include_str!("../../config/workspace.gitignore");
     let path = root.join(".mcpm/.gitignore");
@@ -287,24 +295,37 @@ fn append_gitignore(root: &Path) -> Result<()> {
     let mut contents = Vec::new();
     file.read_to_end(&mut contents)
         .with_context(|| format!("failed to read workspace Git ignore file {path:?}"))?;
-    let mut trailing_lines = gitignore_lines(&contents).rev();
-    if gitignore_lines(BLOCK.as_bytes())
-        .rev()
-        .all(|line| trailing_lines.next() == Some(line))
-    {
+    let existing: HashSet<&[u8]> = gitignore_lines(&contents).collect();
+    if existing.is_empty() {
+        let mut to_append = Vec::new();
+        if !contents.is_empty() && !contents.ends_with(b"\n") {
+            to_append.push(b'\n');
+        }
+        to_append.extend_from_slice(BLOCK.as_bytes());
+        return file
+            .write_all(&to_append)
+            .with_context(|| format!("failed to write workspace Git ignore rules to {path:?}"));
+    }
+    let missing: Vec<&[u8]> = gitignore_lines(BLOCK.as_bytes())
+        .filter(|line| !line.starts_with(b"#") && !existing.contains(line))
+        .collect();
+    if missing.is_empty() {
         return Ok(());
     }
-    if !contents.is_empty() {
-        file.write_all(b"\n").with_context(|| {
-            format!("failed to append newline to workspace Git ignore file {path:?}")
-        })?;
+    let mut to_append = Vec::new();
+    if !contents.ends_with(b"\n") {
+        to_append.push(b'\n');
     }
-    file.write_all(BLOCK.as_bytes())
+    for line in missing {
+        to_append.extend_from_slice(line);
+        to_append.push(b'\n');
+    }
+    file.write_all(&to_append)
         .with_context(|| format!("failed to append workspace Git ignore rules to {path:?}"))
 }
 
 /// Ignores blank lines and normalizes CRLF without changing nonblank line contents.
-fn gitignore_lines(contents: &[u8]) -> impl DoubleEndedIterator<Item = &[u8]> {
+fn gitignore_lines(contents: &[u8]) -> impl Iterator<Item = &[u8]> {
     contents
         .split(|byte| *byte == b'\n')
         .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
@@ -339,5 +360,47 @@ mod tests {
         let final_writer = Writer::acquire(root.path()).unwrap();
         drop(inherited);
         drop(final_writer);
+    }
+
+    #[test]
+    fn ensure_gitignore_appends_only_missing_rules_and_preserves_user_lines() {
+        let root = tempfile::tempdir().unwrap();
+        let mcpm_dir = root.path().join(".mcpm");
+        fs::create_dir_all(&mcpm_dir).unwrap();
+        let gitignore = mcpm_dir.join(".gitignore");
+
+        let legacy = "\
+# Added by mcpm
+
+/cache
+/registration.lock
+/launch.lock
+/launch-publication.json
+/run";
+        fs::write(&gitignore, legacy).unwrap();
+
+        ensure_gitignore(root.path()).unwrap();
+        let after_upgrade = fs::read_to_string(&gitignore).unwrap();
+        assert_eq!(
+            after_upgrade,
+            "\
+# Added by mcpm
+
+/cache
+/registration.lock
+/launch.lock
+/launch-publication.json
+/run
+/loader-install
+"
+        );
+
+        ensure_gitignore(root.path()).unwrap();
+        assert_eq!(fs::read(&gitignore).unwrap(), after_upgrade.as_bytes());
+
+        let with_custom = format!("{after_upgrade}custom-rule\n");
+        fs::write(&gitignore, &with_custom).unwrap();
+        ensure_gitignore(root.path()).unwrap();
+        assert_eq!(fs::read_to_string(&gitignore).unwrap(), with_custom);
     }
 }

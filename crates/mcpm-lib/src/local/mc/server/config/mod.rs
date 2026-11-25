@@ -18,9 +18,10 @@ pub use generate::vanilla_server;
 mod overrides;
 pub use overrides::{ConfigurationOverrides, ConfigurationShortcut};
 mod publication;
-pub(crate) use publication::ConfigurationLock;
-pub use publication::PublicationRecoveryError;
-pub use publication::{OverwritePolicy, Published, publish};
+pub use publication::{
+    ConfigurationLock, OverwritePolicy, PublicationRecoveryError, Published, publish,
+    publish_locked, recover_if_pending,
+};
 
 /// Local configuration file presence for informational views; no Java probe or legacy migration.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -39,6 +40,32 @@ pub fn configuration_files(root: &Path) -> Result<ConfigurationFiles> {
             .join("conf.toml")
             .try_exists()
             .context("failed to inspect conf.toml")?,
+    })
+}
+
+/// Content revision of server registration and launch structure, independent of conf.toml.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ConfigurationRevision {
+    pub metadata_hash: String,
+    pub launch_hash: String,
+}
+
+/// Reads the current registration and launch content revision under a shared configuration lock.
+pub fn read_revision(root: &Path) -> Result<ConfigurationRevision> {
+    let _lock = ConfigurationLock::acquire(root, false)?;
+    read_revision_locked(root)
+}
+
+/// Reads raw registration and launch hashes while the caller holds [`ConfigurationLock`].
+pub(crate) fn read_revision_locked(root: &Path) -> Result<ConfigurationRevision> {
+    let metadata = fs::read(root.join(".mcpm/server.json"))
+        .context("failed to read server registration .mcpm/server.json")?;
+    let launch = fs::read(root.join("launch.toml")).context(
+        "failed to read server-root launch.toml; use init --entry or import a start script first",
+    )?;
+    Ok(ConfigurationRevision {
+        metadata_hash: blake3::hash(&metadata).to_hex().to_string(),
+        launch_hash: blake3::hash(&launch).to_hex().to_string(),
     })
 }
 

@@ -1,9 +1,11 @@
 //! Boundary-aware URL-prefix mappings for compatible mirrors and custom endpoints.
 
+use std::collections::HashSet;
+
 use anyhow::{Result, ensure};
 use url::Url;
 
-use crate::download::DownloadSource;
+use crate::download::{DownloadSource, MappingTable, UrlMapping};
 
 /// A named source with ordered mappings; equally specific mappings may provide
 /// multiple addresses. Only mappings with the longest matching path apply.
@@ -26,9 +28,9 @@ impl MappedSource {
             .iter()
             .filter_map(|mapping| {
                 let (from, to) = if reverse {
-                    (&mapping.mirror, &mapping.original)
+                    (mapping.mirror(), mapping.original())
                 } else {
-                    (&mapping.original, &mapping.mirror)
+                    (mapping.original(), mapping.mirror())
                 };
                 translate(url, from, to).map(|translated| (from.path().len(), translated))
             })
@@ -57,31 +59,19 @@ impl DownloadSource for MappedSource {
         let mut originals = self.mapped(url, true);
         Ok((originals.len() == 1).then(|| originals.remove(0)))
     }
-}
 
-/// Original and mirror directory prefixes. Query strings and fragments belong
-/// to the requested URL, never the mapping configuration.
-#[derive(Debug, Clone)]
-pub struct UrlMapping {
-    original: Url,
-    mirror: Url,
-}
-
-impl UrlMapping {
-    pub fn new(original: Url, mirror: Url) -> Result<Self> {
-        for prefix in [&original, &mirror] {
-            ensure!(
-                matches!(prefix.scheme(), "http" | "https")
-                    && prefix.host_str().is_some()
-                    && prefix.username().is_empty()
-                    && prefix.password().is_none()
-                    && prefix.query().is_none()
-                    && prefix.fragment().is_none()
-                    && prefix.path().ends_with('/'),
-                "URL mapping requires an HTTP(S) directory prefix without credentials, query, or fragment: {prefix}"
-            );
+    fn mapping_table(&self) -> Result<Option<MappingTable>> {
+        if self.mappings.is_empty() {
+            return Ok(None);
         }
-        Ok(Self { original, mirror })
+        let mut seen = HashSet::with_capacity(self.mappings.len());
+        let mut primary = Vec::with_capacity(self.mappings.len());
+        for mapping in &self.mappings {
+            if seen.insert(mapping.original()) {
+                primary.push(mapping.clone());
+            }
+        }
+        Ok(Some(MappingTable::new(primary)?))
     }
 }
 

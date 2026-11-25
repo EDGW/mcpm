@@ -1,5 +1,6 @@
 //! Controlled Java argument-file transport probe, without user arguments or agents.
 
+use super::executable;
 use anyhow::{Context, Result, ensure};
 use std::{
     collections::BTreeMap,
@@ -36,16 +37,7 @@ pub(crate) fn argument_files(
         .stdout(stdout.try_clone()?)
         .stderr(stderr.try_clone()?)
         .spawn()
-        .map_err(|source| {
-            if source.kind() == std::io::ErrorKind::NotFound && directory.is_dir() {
-                anyhow::Error::new(mcpm_exec::error::TippedError::executable_not_found(
-                    executable.display().to_string(),
-                ))
-                .context(source)
-            } else {
-                anyhow::Error::from(source)
-            }
-        })
+        .map_err(|source| executable::map_spawn_error(source, executable, directory))
         .with_context(|| format!("failed to inspect Java capabilities using {executable:?}"))?;
     let started = Instant::now();
     let status = loop {

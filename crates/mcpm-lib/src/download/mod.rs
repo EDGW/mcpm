@@ -16,7 +16,7 @@ pub use config::DownloadConfig;
 mod integrity;
 pub use integrity::{Checksum, ChecksumAlgorithm, ChecksumMismatch, DownloadRequest, SizeMismatch};
 mod source;
-pub use source::DownloadSource;
+pub use source::{DownloadSource, MappingTable, UrlMapping};
 mod progress;
 pub use progress::{Event, RequestKind};
 

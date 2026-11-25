@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 
 use super::{FmlLaunch, embedded_arguments};
 use crate::local::{
-    java::{jar, properties},
-    mc::server::ServerLaunch,
+    java::jar,
+    mc::server::{ServerLaunch, properties},
 };
 
 pub(super) const LIST: &str = "bootstrap-shim.list";
@@ -19,7 +19,7 @@ pub(super) fn view(launch: &ServerLaunch) -> Result<FmlLaunch<'_>> {
             .with_context(|| format!("failed to read {member} in {path:?}"))?
             .with_context(|| format!("missing {member} in {path:?}"))
     };
-    let properties = properties::parse(&read("bootstrap-shim.properties")?)
+    let properties = properties::parse_bytes(&read("bootstrap-shim.properties")?)
         .with_context(|| format!("failed to parse bootstrap-shim.properties in {path:?}"))?;
     let defaults = properties
         .get("Arguments")

@@ -152,6 +152,88 @@ pub async fn serve() -> Result<()> {
     result
 }
 
+/// Verifies that no active or unmanaged shim is present without creating `.mcpm/run`
+/// or writing any files.
+#[allow(dead_code)] // Wired by server.loader.add in Phase 5.
+pub(crate) fn ensure_inactive_readonly(server: &Path) -> Result<()> {
+    let server = std::fs::canonicalize(server).context("failed to resolve server root")?;
+    let directory = server.join(".mcpm/run");
+    let metadata = match std::fs::symlink_metadata(&directory) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).context("failed to inspect shim run directory"),
+    };
+    ensure!(
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
+        "shim run directory must be a directory and not a symlink"
+    );
+    ensure_inactive_in_directory(&directory)
+}
+
+/// Exclusive launch gate holding `.mcpm/run/launch.lock`.
+///
+/// Global lock order: callers MUST acquire [`LaunchGate`] (`.mcpm/run/launch.lock`)
+/// before `ConfigurationLock` (`.mcpm/launch.lock`).
+#[allow(dead_code)] // Wired by server.loader.add in Phase 5.
+pub(crate) struct LaunchGate {
+    _lock: File,
+}
+
+#[allow(dead_code)] // Wired by server.loader.add in Phase 5.
+impl LaunchGate {
+    pub(crate) fn acquire_exclusive(server: &Path) -> Result<Self> {
+        let server = std::fs::canonicalize(server).context("failed to resolve server root")?;
+        let directory = run_directory(&server)?;
+        let lock =
+            lock(&directory.join("launch.lock")).context("another launch is being prepared")?;
+        ensure_inactive_in_directory(&directory)?;
+        Ok(Self { _lock: lock })
+    }
+}
+
+#[allow(dead_code)] // Used by ensure_inactive_readonly and LaunchGate::acquire_exclusive.
+fn ensure_inactive_in_directory(directory: &Path) -> Result<()> {
+    if instance_lock_held(directory)? {
+        bail!("server is currently running; stop it before modifying the server");
+    }
+    let Some(record) = read_optional::<Record>(&directory.join("instance.json"))? else {
+        return Ok(());
+    };
+    ensure!(record.version == 1, "unsupported shim discovery version");
+    let finished = read_optional::<Receipt>(&directory.join("finished.json"))?.is_some_and(
+        |receipt| {
+            receipt.snapshot.reference == record.reference && receipt.snapshot.state == State::Exited
+        },
+    );
+    if finished {
+        return Ok(());
+    }
+    bail!("shim is unmanaged or this is a copied running record; Java's exit was not confirmed");
+}
+
+#[allow(dead_code)] // Used by ensure_inactive_in_directory.
+fn instance_lock_held(directory: &Path) -> Result<bool> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = match options.open(directory.join("instance.lock")) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).context("failed to inspect running instance lock"),
+    };
+    match file.try_lock() {
+        Ok(()) => Ok(false),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(true),
+        Err(std::fs::TryLockError::Error(error)) => {
+            Err(error).context("failed to inspect running instance lock")
+        }
+    }
+}
+
 pub(crate) async fn launch(mut input: LaunchInput) -> Result<Launched> {
     input.server = std::fs::canonicalize(&input.server).context("failed to resolve server root")?;
     crate::workspace::require_current(&input.server)?;
@@ -159,14 +241,16 @@ pub(crate) async fn launch(mut input: LaunchInput) -> Result<Launched> {
         !input.launch_request_id.is_empty() && input.launch_request_id.len() <= 128,
         "invalid launch request id"
     );
+    let mut decoded_plan = None;
     // Check RCON configuration before creating a shim; this never authenticates or runs Java.
     if input.communication == Communication::Rcon {
-        let settings =
-            mcpm_lib::local::mc::server::launch::rcon::Settings::from_plan(&input.plan.decode()?)?;
+        let plan = input.plan.decode()?;
+        let settings = mcpm_lib::local::mc::server::launch::rcon::Settings::from_plan(&plan)?;
         ensure!(
-            input.communication != Communication::Rcon || settings.is_some(),
+            settings.is_some(),
             "rcon mode requires enabled RCON and credentials in Minecraft properties"
         );
+        decoded_plan = Some(plan);
     }
     let directory = run_directory(&input.server)?;
     let _launch_lock =
@@ -213,6 +297,18 @@ pub(crate) async fn launch(mut input: LaunchInput) -> Result<Launched> {
             return Ok(launched);
         }
     }
+    let plan = match decoded_plan {
+        Some(plan) => plan,
+        None => input.plan.decode()?,
+    };
+    let current_revision = mcpm_lib::local::mc::server::config::read_revision(&input.server)
+        .context(
+            "cannot launch server while configuration is unavailable or has an unfinished publication",
+        )?;
+    ensure!(
+        current_revision == *plan.revision(),
+        "server configuration changed after launch preparation; prepare a new launch plan"
+    );
     let run_id = uuid::Uuid::new_v4().to_string();
     let mut hash = blake3::Hasher::new();
     hash.update(b"mcpm.server.shim\0");

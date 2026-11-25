@@ -54,6 +54,11 @@ impl Downloader {
         Ok(Self { client, sources })
     }
 
+    /// Configured download sources in attempt order.
+    pub fn sources(&self) -> &[Arc<dyn DownloadSource>] {
+        &self.sources
+    }
+
     /// Restores mirror addresses using configured mapping rules. Ambiguous rules
     /// across sources are errors; unknown addresses are preserved without guessing.
     pub fn original_url(&self, url: &Url) -> Result<Url> {

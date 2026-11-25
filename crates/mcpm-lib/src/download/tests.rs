@@ -1,4 +1,4 @@
-//! HTTP regressions for attempt-local progress, unknown lengths and observer failure cleanup.
+//! Download regressions for HTTP progress/cleanup, mapping tables, and built-in sources.
 
 use std::{
     cell::RefCell,
@@ -10,7 +10,7 @@ use std::{
 };
 
 use super::*;
-use sources::{MappedSource, UrlMapping};
+use sources::{MappedSource, OfficialSource, UrlMapping, bmclapi};
 
 #[test]
 fn fallback_resets_bytes_and_completion_requires_a_verified_published_file() {
@@ -112,6 +112,109 @@ fn observer_failure_during_transfer_aborts_without_fallback_or_publication() {
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
         fixture.thread.join().unwrap();
     }
+}
+
+#[test]
+fn mapping_table_rejects_duplicates_and_sorts_longest_prefix_first() {
+    let mapping = |original: &str, mirror: &str| {
+        UrlMapping::new(original.parse().unwrap(), mirror.parse().unwrap()).unwrap()
+    };
+
+    let err = MappingTable::new(vec![
+        mapping("https://example.invalid/maven/", "https://m1.invalid/maven/"),
+        mapping("https://example.invalid/maven/", "https://m2.invalid/maven/"),
+    ])
+    .unwrap_err();
+    assert!(err.to_string().contains("duplicate"));
+
+    let table = MappingTable::new(vec![
+        mapping("https://example.invalid/", "https://m.invalid/root/"),
+        mapping("https://a.invalid/maven/", "https://m.invalid/a/"),
+        mapping("https://b.invalid/maven/", "https://m.invalid/b/"),
+        mapping(
+            "https://example.invalid/maven/releases/",
+            "https://m.invalid/releases/",
+        ),
+    ])
+    .unwrap();
+    let originals: Vec<&str> = table
+        .entries()
+        .iter()
+        .map(|entry| entry.original().as_str())
+        .collect();
+    assert_eq!(
+        originals,
+        vec![
+            "https://example.invalid/maven/releases/",
+            "https://a.invalid/maven/",
+            "https://b.invalid/maven/",
+            "https://example.invalid/",
+        ]
+    );
+}
+
+#[test]
+fn source_mapping_tables_and_bmclapi_creeperhost() {
+    let official = OfficialSource.mapping_table().unwrap().unwrap();
+    assert!(official.is_empty());
+    assert!(official.entries().is_empty());
+
+    let mapped = MappedSource::new(
+        "mirror",
+        vec![
+            UrlMapping::new(
+                "https://example.invalid/".parse().unwrap(),
+                "https://primary.invalid/root/".parse().unwrap(),
+            )
+            .unwrap(),
+            UrlMapping::new(
+                "https://example.invalid/".parse().unwrap(),
+                "https://secondary.invalid/root/".parse().unwrap(),
+            )
+            .unwrap(),
+            UrlMapping::new(
+                "https://example.invalid/maven/".parse().unwrap(),
+                "https://primary.invalid/maven/".parse().unwrap(),
+            )
+            .unwrap(),
+        ],
+    )
+    .unwrap();
+    let table = mapped.mapping_table().unwrap().unwrap();
+    let pairs: Vec<(&str, &str)> = table
+        .entries()
+        .iter()
+        .map(|entry| (entry.original().as_str(), entry.mirror().as_str()))
+        .collect();
+    assert_eq!(
+        pairs,
+        vec![
+            (
+                "https://example.invalid/maven/",
+                "https://primary.invalid/maven/",
+            ),
+            ("https://example.invalid/", "https://primary.invalid/root/"),
+        ]
+    );
+
+    let empty_mapped = MappedSource::new("empty", vec![]).unwrap();
+    assert!(empty_mapped.mapping_table().unwrap().is_none());
+
+    let bmcl = bmclapi().unwrap();
+    let translated = bmcl
+        .translate(&"https://maven.creeperhost.net/org/example/mod.jar".parse().unwrap())
+        .unwrap();
+    assert_eq!(
+        translated,
+        vec![
+            url::Url::parse("https://bmclapi2.bangbang93.com/maven/org/example/mod.jar").unwrap()
+        ]
+    );
+    let bmcl_table = bmcl.mapping_table().unwrap().unwrap();
+    assert!(bmcl_table.entries().iter().any(|entry| {
+        entry.original().as_str() == "https://maven.creeperhost.net/"
+            && entry.mirror().as_str() == "https://bmclapi2.bangbang93.com/maven/"
+    }));
 }
 
 fn request() -> DownloadRequest {

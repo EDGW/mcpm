@@ -5,10 +5,11 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use url::Url;
 
-use super::{DownloadConfig, DownloadSource, Downloader};
+use super::{DownloadConfig, DownloadSource, Downloader, MappingTable};
+pub use super::UrlMapping;
 
 mod mapped;
-pub use mapped::{MappedSource, UrlMapping};
+pub use mapped::MappedSource;
 
 /// Builds the configured built-in sources in exactly the requested order.
 /// Unknown source names are configuration errors; no fallback is appended.
@@ -39,6 +40,10 @@ impl DownloadSource for OfficialSource {
     fn translate(&self, original: &Url) -> Result<Vec<Url>> {
         Ok(vec![original.clone()])
     }
+
+    fn mapping_table(&self) -> Result<Option<MappingTable>> {
+        Ok(Some(MappingTable::empty()))
+    }
 }
 
 /// BMCLAPI's protocol-compatible mirrors. Different-format catalog APIs are
@@ -57,6 +62,7 @@ pub fn bmclapi() -> Result<MappedSource> {
         ("https://maven.neoforged.net/releases/", "/maven/"),
         ("https://meta.fabricmc.net/", "/fabric-meta/"),
         ("https://maven.fabricmc.net/", "/maven/"),
+        ("https://maven.creeperhost.net/", "/maven/"),
         (
             "https://authlib-injector.yushi.moe/",
             "/mirrors/authlib-injector/",

@@ -148,7 +148,7 @@ impl JavaCommand {
             }
             index += 1;
         }
-        bail!("Java command has no server entry point")
+        bail!("Java command has no entry point")
     }
 
     /// JVM options paired with their operands; path values are never reinterpreted as flags.
