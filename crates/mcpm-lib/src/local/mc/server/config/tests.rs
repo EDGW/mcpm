@@ -290,17 +290,14 @@ fn runtime_overrides_follow_schema_and_order_list_operations_before_final_valida
         "server.port=65536",
         "server.nogui=1",
         "jvm.extraArguments:=[1]",
+        "jvm.gc.collector=auto",
+        "jvm.memory.auto.heapFraction=0.7",
+        "jvm.memory.auto.reserve=1G",
     ] {
         let mut changes = ConfigurationOverrides::default();
         assert!(changes.parse(invalid).is_err(), "{invalid}");
     }
-    for invalid in [
-        "jvm.heap.maximum=auto",
-        "jvm.gc.collector=auto",
-        "jvm.memory.auto.heapFraction=0.7",
-        "jvm.memory.auto.reserve=1G",
-        "jvm.extraArguments=-Xmx2G",
-    ] {
+    for invalid in ["jvm.extraArguments=-Xmx2G"] {
         let mut changes = ConfigurationOverrides::default();
         changes.parse(invalid).unwrap();
         assert!(

@@ -5,9 +5,13 @@
 //! must be enabled by the caller.
 
 pub mod authlib_injector;
+pub mod catalog;
 pub mod eula;
+pub mod loader;
 pub mod mojang;
 pub mod sources;
+
+pub use catalog::{Catalog, CatalogEndpoint};
 
 mod client;
 pub use client::{DownloadOptions, DownloadOutcome, Downloader};

@@ -36,10 +36,6 @@ impl JavaEntry {
             Self::Class { main_class } => {
                 no_nul(main_class)?;
                 ensure!(
-                    !main_class.ends_with(".java"),
-                    "Java source entries are unsupported"
-                );
-                ensure!(
                     !main_class.starts_with('-'),
                     "class entry changes launcher boundary"
                 );
@@ -75,7 +71,7 @@ impl JavaEntry {
 }
 
 /// Ordered argument regions. No shell text or live @file references are retained.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JavaCommand {
     pub jvm: Vec<String>,
     pub entry: JavaEntry,
@@ -83,7 +79,7 @@ pub struct JavaCommand {
 }
 
 impl JavaCommand {
-    /// Parses flattened arguments. Unknown option arity is an error, never a guessed entry.
+    /// Splits flattened launcher arguments into JVM, entry, and application regions.
     pub fn parse(arguments: &[String]) -> Result<Self> {
         let mut index = 0;
         while let Some(arg) = arguments.get(index) {
@@ -116,15 +112,12 @@ impl JavaCommand {
                     main_class: arg.clone(),
                 })
             } else {
-                match option(arg)? {
-                    OptionArity::Operand => {
-                        index += 1;
-                        let operand = arguments
-                            .get(index)
-                            .with_context(|| format!("missing JVM option operand for {arg}"))?;
-                        ensure!(!operand.contains('\0'), "NUL in JVM operand for {arg}");
-                    }
-                    OptionArity::Flag => {}
+                if takes_separate_operand(arg) {
+                    index += 1;
+                    let operand = arguments
+                        .get(index)
+                        .with_context(|| format!("missing JVM option operand for {arg}"))?;
+                    ensure!(!operand.contains('\0'), "NUL in JVM operand for {arg}");
                 }
                 None
             };
@@ -153,17 +146,7 @@ impl JavaCommand {
 
     /// JVM options paired with their operands; path values are never reinterpreted as flags.
     pub(crate) fn options(&self) -> impl Iterator<Item = (&str, Option<&str>)> {
-        let mut values = self.jvm.iter();
-        std::iter::from_fn(move || {
-            let arg = values.next()?;
-            if let Some((name, value)) = arg.split_once('=') {
-                Some((name, Some(value)))
-            } else if matches!(option(arg), Ok(OptionArity::Operand)) {
-                Some((arg.as_str(), values.next().map(String::as_str)))
-            } else {
-                Some((arg.as_str(), None))
-            }
-        })
+        jvm_options(&self.jvm)
     }
 
     pub fn arguments(&self) -> Vec<String> {
@@ -176,20 +159,35 @@ impl JavaCommand {
     }
 }
 
-/// Checks an isolated JVM region using exactly the same entry grammar as imports.
+/// Iterates JVM options paired with their operands; separate operands are never reinterpreted as flags.
+pub(crate) fn jvm_options(arguments: &[String]) -> impl Iterator<Item = (&str, Option<&str>)> {
+    let mut values = arguments.iter();
+    std::iter::from_fn(move || {
+        let arg = values.next()?;
+        if let Some((name, value)) = arg.split_once('=') {
+            Some((name, Some(value)))
+        } else if takes_separate_operand(arg) {
+            Some((arg.as_str(), values.next().map(String::as_str)))
+        } else {
+            Some((arg.as_str(), None))
+        }
+    })
+}
+
+/// Enforces only minimal configuration invariants on an isolated JVM argument region,
+/// passing all other tokens through verbatim for Java to validate.
 pub fn validate_jvm(arguments: &[String]) -> Result<()> {
-    let mut probe = arguments.to_vec();
-    probe.push("mcpm.validation.Main".into());
-    let parsed = JavaCommand::parse(&probe)?;
-    ensure!(
-        parsed.jvm == arguments && parsed.application.is_empty(),
-        "JVM arguments introduce another entry or consume the declared entry"
-    );
     let mut files_enabled = true;
-    for argument in arguments {
+    for (index, argument) in arguments.iter().enumerate() {
+        ensure!(!argument.contains('\0'), "NUL in Java argument {index}");
         ensure!(
             !files_enabled || !argument.starts_with('@'),
             "live Java @argument files are forbidden in configuration"
+        );
+        ensure!(
+            !matches!(argument.as_str(), "-jar" | "-m" | "--module")
+                && !argument.starts_with("--module="),
+            "JVM arguments cannot introduce an entry switcher: {argument:?}"
         );
         if argument == "--disable-@files" {
             files_enabled = false;
@@ -198,22 +196,11 @@ pub fn validate_jvm(arguments: &[String]) -> Result<()> {
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-enum OptionArity {
-    Operand,
-    Flag,
-}
-
-fn option(arg: &str) -> Result<OptionArity> {
-    ensure!(
-        arg != "--source" && !arg.starts_with("--source="),
-        "Java source entries are unsupported"
-    );
-    let (name, inline) = arg
-        .split_once('=')
-        .map_or((arg, false), |(name, _)| (name, true));
-    if matches!(
-        name,
+/// Standard JVM launcher options that consume the following argument as their operand
+/// when not written inline with `=`.
+fn takes_separate_operand(arg: &str) -> bool {
+    matches!(
+        arg,
         "--describe-module"
             | "-d"
             | "-cp"
@@ -231,58 +218,8 @@ fn option(arg: &str) -> Result<OptionArity> {
             | "--enable-native-access"
             | "--illegal-native-access"
             | "--finalization"
-    ) {
-        return Ok(if inline {
-            OptionArity::Flag
-        } else {
-            OptionArity::Operand
-        });
-    }
-    if matches!(
-        arg,
-        "--dry-run"
-            | "-version"
-            | "--version"
-            | "--list-modules"
-            | "-help"
-            | "--help"
-            | "-h"
-            | "-?"
-            | "--help-extra"
-            | "--validate-modules"
-            | "-server"
-            | "-client"
-            | "-ea"
-            | "-enableassertions"
-            | "-da"
-            | "-disableassertions"
-            | "-esa"
-            | "-enablesystemassertions"
-            | "-dsa"
-            | "-disablesystemassertions"
-            | "-verbose"
-            | "-showversion"
-            | "--show-version"
-            | "--enable-preview"
-            | "--disable-@files"
-            | "-noverify"
-            | "-verify"
-    ) || (inline && arg.starts_with("--"))
-        || arg.starts_with("-D")
-        || arg.starts_with("-X")
-        || arg.starts_with("-javaagent:")
-        || arg.starts_with("-agentlib:")
-        || arg.starts_with("-agentpath:")
-        || arg.starts_with("-verbose:")
-        || arg.starts_with("-ea:")
-        || arg.starts_with("-da:")
-        || arg.starts_with("-enableassertions:")
-        || arg.starts_with("-disableassertions:")
-        || arg.starts_with("--illegal-access=")
-    {
-        return Ok(OptionArity::Flag);
-    }
-    bail!("unknown Java option {arg:?}; cannot determine its operand or entry boundary")
+            | "--source"
+    )
 }
 
 /// Expands Java argument files relative to the JVM working directory, without recursion.
@@ -333,7 +270,7 @@ pub fn expand(
                 } else if !value.starts_with('-') || value.starts_with("--module=") {
                     entry = true;
                 } else {
-                    operand = matches!(option(&value)?, OptionArity::Operand);
+                    operand = takes_separate_operand(&value);
                 }
             }
             flattened.push(value);
@@ -471,16 +408,21 @@ mod tests {
             argv(&["--dry-run", "example.Main"]),
             argv(&["-XX:Flags=anything", "9-valid-at-JVM-layer"]),
             argv(&["--future-option=anything", "example.Main"]),
+            argv(&["--unknown-flag", "-Xfuture", "example.Main"]),
+            argv(&["--source", "21", "Main.java"]),
+            argv(&["Main.java"]),
         ] {
             assert_eq!(JavaCommand::parse(&values).unwrap().arguments(), values);
         }
-        for values in [
-            argv(&["--source", "21", "Main.java"]),
-            argv(&["Main.java"]),
-            argv(&["--unknown", "value", "example.Main"]),
-        ] {
-            assert!(JavaCommand::parse(&values).is_err(), "{values:?}");
-        }
+        let parsed = JavaCommand::parse(&argv(&["--source", "21", "Main.java"])).unwrap();
+        assert_eq!(parsed.jvm, argv(&["--source", "21"]));
+        assert_eq!(
+            parsed.entry,
+            JavaEntry::Class {
+                main_class: "Main.java".into()
+            }
+        );
+        assert!(parsed.application.is_empty());
     }
 
     #[test]
@@ -526,6 +468,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed.jvm, argv(&["--disable-@files", "-cp", "@literal"]));
+        assert!(validate_jvm(&parsed.jvm).is_ok());
         assert_eq!(
             argument_file("'a\\n' \"joined\\\n    line\" # comment\n\"new\nline\"").unwrap(),
             argv(&["a\n", "joinedline", "new", "line"])
@@ -534,6 +477,17 @@ mod tests {
             environment_options("-Dfoo='a\\nb' -Xmx1G").unwrap(),
             argv(&["-Dfoo=a\\nb", "-Xmx1G"])
         );
-        assert!(validate_jvm(&environment_options("-Xmx1G # -Xmx2G").unwrap()).is_err());
+        assert!(validate_jvm(&environment_options("-Xmx1G # -Xmx2G").unwrap()).is_ok());
+        assert!(validate_jvm(&argv(&["--unknown-flag", "bare"])).is_ok());
+        for invalid in [
+            argv(&["-Xmx1G\0"]),
+            argv(&["@argfile"]),
+            argv(&["-jar"]),
+            argv(&["-m"]),
+            argv(&["--module"]),
+            argv(&["--module=example"]),
+        ] {
+            assert!(validate_jvm(&invalid).is_err(), "{invalid:?}");
+        }
     }
 }

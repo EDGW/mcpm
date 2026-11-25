@@ -31,7 +31,7 @@ pub struct LaunchPlan {
     pub(super) directory: PathBuf,
     #[serde(with = "native_environment")]
     pub(super) environment: BTreeMap<OsString, OsString>,
-    pub(super) arguments: Vec<String>,
+    pub(super) command: command::JavaCommand,
     pub(super) argument_file: bool,
     pub(super) revision: config::ConfigurationRevision,
 }
@@ -52,8 +52,11 @@ impl LaunchPlan {
     pub fn directory(&self) -> &Path {
         &self.directory
     }
-    pub fn arguments(&self) -> &[String] {
-        &self.arguments
+    pub fn command(&self) -> &command::JavaCommand {
+        &self.command
+    }
+    pub fn arguments(&self) -> Vec<String> {
+        self.command.arguments()
     }
     pub fn environment(&self) -> &BTreeMap<OsString, OsString> {
         &self.environment
@@ -148,7 +151,8 @@ pub async fn prepare_with_progress(
         };
         validate_agents(&jvm, &directory, &path)?;
     }
-    let arguments = super::description::finish_arguments(&root, launch, conf, jvm)?;
+    let command = super::description::finish_command(&root, launch, conf, jvm)?;
+    let arguments = command.arguments();
     // Environment options belong to Java. Only the launcher's @file switch matters
     // when mcpm itself needs to choose a transport for an oversized command.
     let estimated_length = arguments.iter().fold(0usize, |total, argument| {
@@ -189,7 +193,7 @@ pub async fn prepare_with_progress(
         executable,
         directory,
         environment,
-        arguments,
+        command,
         argument_file,
         revision,
     })
@@ -197,9 +201,7 @@ pub async fn prepare_with_progress(
 
 fn validate_agents(arguments: &[String], directory: &Path, configured: &Path) -> Result<()> {
     let configured = agent_location(configured);
-    let mut probe = arguments.to_vec();
-    probe.push("mcpm.validation.Main".into());
-    for (name, _) in command::JavaCommand::parse(&probe)?.options() {
+    for (name, _) in command::jvm_options(arguments) {
         if let Some(path) = name.strip_prefix("-javaagent:") {
             let path = directory.join(path);
             let location = agent_location(&path);

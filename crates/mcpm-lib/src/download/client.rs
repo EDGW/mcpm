@@ -8,13 +8,14 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use bytes::Bytes;
 use reqwest::{Client, Response};
 use tokio::io::AsyncWriteExt;
 use url::Url;
 
 use super::{
-    DownloadRequest, DownloadSource, Event, RequestKind,
+    Catalog, CatalogEndpoint, DownloadRequest, DownloadSource, Event, RequestKind,
     integrity::{Verifier, validate_url},
 };
 use mcpm_exec::error::CombinedError;
@@ -195,14 +196,7 @@ impl Downloader {
         let decode = &decode;
         let value = self
             .try_urls(url, RequestKind::Metadata, progress, |url| async move {
-                let bytes = self
-                    .response(url)
-                    .await
-                    .map_err(AttemptError::Remote)?
-                    .bytes()
-                    .await
-                    .context("failed to read download metadata")
-                    .map_err(AttemptError::Remote)?;
+                let bytes = self.fetch_bytes(url).await.map_err(AttemptError::Remote)?;
                 decode(&bytes)
                     .context("invalid download metadata")
                     .map_err(AttemptError::Remote)
@@ -212,6 +206,105 @@ impl Downloader {
             kind: RequestKind::Metadata,
         })?;
         Ok(value)
+    }
+
+    /// Queries a version catalog across configured sources without emitting progress events.
+    pub(super) async fn query_catalog<T, R>(
+        &self,
+        official: CatalogEndpoint<T>,
+        override_for: impl Fn(&dyn Catalog) -> Result<Option<CatalogEndpoint<T>>>,
+        select: impl Fn(T) -> Result<R>,
+    ) -> Result<R> {
+        self.query_catalog_with_progress(official, override_for, select, &|_| Ok(()))
+            .await
+    }
+
+    /// Queries a version catalog across configured sources, allowing mirror-specific
+    /// catalog overrides and per-attempt selection so lagging mirrors can fall back.
+    pub(super) async fn query_catalog_with_progress<T, R>(
+        &self,
+        official: CatalogEndpoint<T>,
+        override_for: impl Fn(&dyn Catalog) -> Result<Option<CatalogEndpoint<T>>>,
+        select: impl Fn(T) -> Result<R>,
+        progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
+    ) -> Result<R> {
+        validate_url(&official.url)?;
+        let mut seen = HashSet::new();
+        let mut errors = Vec::new();
+        for source in &self.sources {
+            let candidates = if let Some(catalog) = source.catalog()
+                && let Some(custom) = override_for(catalog).with_context(|| {
+                    format!(
+                        "failed to resolve catalog endpoint for download source {:?}",
+                        source.id()
+                    )
+                })? {
+                vec![custom]
+            } else {
+                source
+                    .translate(&official.url)
+                    .with_context(|| {
+                        format!(
+                            "failed to translate {} using download source {:?}",
+                            official.url,
+                            source.id()
+                        )
+                    })?
+                    .into_iter()
+                    .map(|url| CatalogEndpoint {
+                        url,
+                        decode: official.decode,
+                    })
+                    .collect()
+            };
+            for endpoint in candidates {
+                validate_url(&endpoint.url)?;
+                if !seen.insert(endpoint.url.clone()) {
+                    continue;
+                }
+                progress(Event::AttemptStarted {
+                    kind: RequestKind::Metadata,
+                    source: source.id(),
+                })?;
+                let attempt = match self.fetch_bytes(endpoint.url.clone()).await {
+                    Ok(bytes) => (endpoint.decode)(&bytes)
+                        .context("invalid download metadata")
+                        .and_then(&select),
+                    Err(error) => Err(error),
+                };
+                match attempt {
+                    Ok(value) => {
+                        progress(Event::Completed {
+                            kind: RequestKind::Metadata,
+                        })?;
+                        return Ok(value);
+                    }
+                    Err(error) => {
+                        let error = error.context(format!(
+                            "download source {:?} failed for {}",
+                            source.id(),
+                            endpoint.url
+                        ));
+                        if let Err(observer) = progress(Event::AttemptFailed {
+                            kind: RequestKind::Metadata,
+                            source: source.id(),
+                        }) {
+                            return Err(CombinedError::new(error, observer).into());
+                        }
+                        errors.push(error);
+                    }
+                }
+            }
+        }
+        Err(finish_attempts(&official.url, errors))
+    }
+
+    async fn fetch_bytes(&self, url: Url) -> Result<Bytes> {
+        self.response(url)
+            .await?
+            .bytes()
+            .await
+            .context("failed to read download metadata")
     }
 
     async fn response(&self, url: Url) -> Result<Response> {
@@ -280,21 +373,25 @@ impl Downloader {
                 }
             }
         }
-        let mut errors = errors.into_iter();
-        let first = errors
-            .next()
-            .with_context(|| format!("no configured download source supports {original}"))?;
-        let error = if let Some(second) = errors.next() {
-            let mut combined = CombinedError::new(first, second);
-            for error in errors {
-                combined.push(error);
-            }
-            anyhow::Error::new(combined)
-        } else {
-            first
-        };
-        Err(error).with_context(|| format!("failed to download {original}"))
+        Err(finish_attempts(&original, errors))
     }
+}
+
+fn finish_attempts(original: &Url, errors: Vec<anyhow::Error>) -> anyhow::Error {
+    let mut errors = errors.into_iter();
+    let Some(first) = errors.next() else {
+        return anyhow!("no configured download source supports {original}");
+    };
+    let error = if let Some(second) = errors.next() {
+        let mut combined = CombinedError::new(first, second);
+        for error in errors {
+            combined.push(error);
+        }
+        anyhow::Error::new(combined)
+    } else {
+        first
+    };
+    error.context(format!("failed to download {original}"))
 }
 
 /// Network limits shared by metadata and file requests. Timeouts apply to

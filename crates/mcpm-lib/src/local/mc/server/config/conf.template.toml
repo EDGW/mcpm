@@ -6,8 +6,8 @@
                                       # A bare name uses PATH. A relative executable path is resolved from the server root.
 
 # [jvm.heap]                          # Optional table. Size values use JVM binary units, such as 512M or 8G.
-# initial = "512M"                     # Optional size or "auto". Emits -Xms; "auto" is currently unsupported.
-# maximum = "8G"                     # Optional size or "auto". Emits -Xmx; "auto" is currently unsupported.
+# initial = "512M"                     # Optional size. Emits -Xms.
+# maximum = "8G"                     # Optional size. Emits -Xmx.
 # young = "512M"                       # Optional size. Emits -Xmn; requires a compatible collector.
 # maximumRAM = "16G"                   # Optional size. Emits -XX:MaxRAM; this does not cap total process memory.
 # initialPercentage = 10.0             # Optional number. Emits InitialRAMPercentage; Java interprets the value.
@@ -84,8 +84,3 @@
 #     "-XX:NewRatio=2",                # Example: old-to-young generation ratio; collector-specific behavior applies.
 #     "-XX:SurvivorRatio=8",           # Example: Eden-to-survivor ratio; collector-specific behavior applies.
 # ]                         # Must not duplicate settings already managed by structured fields.
-
-# [jvm.memory.auto]                   # Reserved table. Automatic settings are currently unsupported.
-# heapFraction = 0.70                  # Reserved heap budget fraction; specifying it currently fails.
-# reserve = "1G"                       # Reserved non-heap memory budget; specifying it currently fails.
-                                      # Automatic values are currently unsupported and fail explicitly.

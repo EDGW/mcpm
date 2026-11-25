@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 
 use super::super::{
     authlib_injector,
@@ -27,18 +27,27 @@ pub fn describe(root: &Path) -> Result<Option<CommandDescription>> {
     if !files.launch || !files.conf {
         return Ok(None);
     }
-    let (mut launch, mut conf) = config::read(&root, &config::ConfigurationOverrides::default())?;
+    let (launch, mut conf) = config::read(&root, &config::ConfigurationOverrides::default())?;
     let executable = conf.java.executable.take().unwrap_or_else(|| "java".into());
     let directory = root.join(launch.process.working_directory.as_deref().unwrap_or("."));
     let windows = launch.platform.unwrap_or_else(Platform::current) == Platform::Windows;
-    let jvm = base_jvm(&mut launch, &conf)?;
-    let arguments = finish_arguments(&root, launch, conf, jvm)?;
+    let command = compose_command(&root, launch, conf)?;
     Ok(Some(CommandDescription {
         executable,
         directory,
         windows,
-        arguments,
+        arguments: command.arguments(),
     }))
+}
+
+/// Composes validated launch and server configurations into one ordered [`JavaCommand`].
+pub(crate) fn compose_command(
+    root: &Path,
+    mut launch: LaunchConfig,
+    conf: ServerConfig,
+) -> Result<JavaCommand> {
+    let jvm = base_jvm(&mut launch, &conf)?;
+    finish_command(root, launch, conf, jvm)
 }
 
 pub(super) fn base_jvm(launch: &mut LaunchConfig, conf: &ServerConfig) -> Result<Vec<String>> {
@@ -48,12 +57,12 @@ pub(super) fn base_jvm(launch: &mut LaunchConfig, conf: &ServerConfig) -> Result
 }
 
 /// Configuration owns each argument region and the order is shared by inspection and execution.
-pub(super) fn finish_arguments(
+pub(super) fn finish_command(
     root: &Path,
     launch: LaunchConfig,
     conf: ServerConfig,
     mut jvm: Vec<String>,
-) -> Result<Vec<String>> {
+) -> Result<JavaCommand> {
     if let Some(auth) = &conf.authlib_injector {
         let path = auth
             .manual_jar()
@@ -61,17 +70,12 @@ pub(super) fn finish_arguments(
             .unwrap_or_else(|| authlib_injector::managed_path(root));
         jvm.extend(auth.arguments(&path)?);
     }
-    let arguments: Vec<_> = jvm
-        .into_iter()
-        .chain(launch.entry.arguments())
-        .chain(launch.application.extra_arguments)
-        .chain(conf.server_arguments())
-        .chain(conf.application.extra_arguments)
-        .collect();
-    let parsed = JavaCommand::parse(&arguments)?;
-    ensure!(
-        parsed.entry == launch.entry,
-        "assembled Java entry differs from declared launch entry"
-    );
-    Ok(arguments)
+    let mut application = launch.application.extra_arguments;
+    application.extend(conf.server_arguments());
+    application.extend(conf.application.extra_arguments);
+    Ok(JavaCommand {
+        jvm,
+        entry: launch.entry,
+        application,
+    })
 }

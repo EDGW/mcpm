@@ -28,11 +28,12 @@ pub struct JavaProcess {
 
 impl JavaProcess {
     pub fn spawn(plan: LaunchPlan) -> Result<Self> {
+        let arguments = plan.arguments();
         let inner = ManagedProcess::spawn(ProcessSpec {
             executable: &plan.executable,
             directory: &plan.directory,
             environment: &plan.environment,
-            arguments: &plan.arguments,
+            arguments: &arguments,
             argument_file: plan.argument_file,
         })
         .map_err(attach_executable_tip)?;

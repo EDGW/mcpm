@@ -4,10 +4,10 @@ use anyhow::{Context, Result, ensure};
 use mcpm_macros::ConfigFields;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, path::Path};
-use toml::{Table, Value};
+use toml::Value;
 
 use super::{ImportedSetting, ImportedValue, nonempty, overrides::ConfigFields};
-use crate::local::java::command::JavaCommand;
+use crate::local::java::command;
 
 /// Explicit agent configuration; a missing or empty JAR path selects server-local management.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
@@ -48,21 +48,22 @@ impl AuthlibInjector {
                 "authlib-injector.jar contains NUL or the agent option separator '='"
             );
         }
-        for (key, value) in self.fields()? {
-            let values = match value {
-                Value::Array(values) => values,
-                value => vec![value],
-            };
+        if let Some(proxy) = &self.mojang_proxy {
+            ensure!(
+                !proxy.contains('\0'),
+                "NUL in authlib-injector.mojangProxy"
+            );
+        }
+        for (key, values) in [
+            ("debug", &self.debug),
+            ("ignoredPackages", &self.ignored_packages),
+        ] {
             for value in values {
-                if let Value::String(value) = value {
-                    ensure!(!value.contains('\0'), "NUL in authlib-injector.{key}");
-                    if matches!(key.as_str(), "debug" | "ignoredPackages") {
-                        ensure!(
-                            !value.is_empty() && !value.contains(','),
-                            "authlib-injector.{key} items must be nonempty and cannot contain commas"
-                        );
-                    }
-                }
+                ensure!(!value.contains('\0'), "NUL in authlib-injector.{key}");
+                ensure!(
+                    !value.is_empty() && !value.contains(','),
+                    "authlib-injector.{key} items must be nonempty and cannot contain commas"
+                );
             }
         }
         Ok(())
@@ -78,55 +79,71 @@ impl AuthlibInjector {
             "authlib-injector JAR path contains the agent option separator '='"
         );
         let mut result = vec![format!("-javaagent:{path}={}", self.api_url)];
-        for (key, value) in self.fields()? {
-            if matches!(key.as_str(), "jar" | "apiUrl") {
-                continue;
+        for (key, value) in [
+            ("noLogFile", self.no_log_file),
+            ("disableHttpd", self.disable_httpd),
+            ("noShowServerName", self.no_show_server_name),
+        ] {
+            if value == Some(true) {
+                result.push(format!("-Dauthlibinjector.{key}"));
             }
-            let value = match value {
-                Value::Boolean(true) => {
-                    result.push(format!("-Dauthlibinjector.{key}"));
-                    continue;
-                }
-                Value::Boolean(false) => continue,
-                Value::String(value) => value,
-                Value::Integer(value) => value.to_string(),
-                Value::Array(values) if values.is_empty() => continue,
-                Value::Array(values) => values
-                    .iter()
-                    .map(|value| value.as_str().expect("typed string array"))
-                    .collect::<Vec<_>>()
-                    .join(","),
-                _ => unreachable!("authentication schema contains only properties"),
-            };
-            result.push(format!("-Dauthlibinjector.{key}={value}"));
+        }
+        for (key, value) in [
+            ("mojangNamespace", self.mojang_namespace),
+            ("legacySkinPolyfill", self.legacy_skin_polyfill),
+            ("mojangAntiFeatures", self.mojang_anti_features),
+            ("profileKey", self.profile_key),
+            ("usernameCheck", self.username_check),
+        ] {
+            if let Some(value) = value {
+                result.push(format!("-Dauthlibinjector.{key}={}", value.as_str()));
+            }
+        }
+        if let Some(proxy) = &self.mojang_proxy {
+            result.push(format!("-Dauthlibinjector.mojangProxy={proxy}"));
+        }
+        if let Some(port) = self.httpd_port {
+            result.push(format!("-Dauthlibinjector.httpdPort={port}"));
+        }
+        for (key, values) in [
+            ("debug", &self.debug),
+            ("ignoredPackages", &self.ignored_packages),
+        ] {
+            if !values.is_empty() {
+                result.push(format!("-Dauthlibinjector.{key}={}", values.join(",")));
+            }
         }
         Ok(result)
     }
 
-    fn fields(&self) -> Result<Table> {
-        Value::try_from(self)?
-            .as_table()
-            .cloned()
-            .context("authentication schema must be a table")
-    }
-
     pub(super) fn validate_properties(&self, arguments: &[String]) -> Result<()> {
-        let fields = self.fields()?;
-        let mut probe = arguments.to_vec();
-        probe.push("mcpm.validation.Main".into());
-        for (name, _) in JavaCommand::parse(&probe)?.options() {
+        for (name, _) in command::jvm_options(arguments) {
             if let Some(key) = name.strip_prefix("-Dauthlibinjector.") {
-                let owned = !matches!(key, "jar" | "apiUrl")
-                    && fields.get(key).is_some_and(
-                        |value| !matches!(value, Value::Array(values) if values.is_empty()),
-                    );
                 ensure!(
-                    !owned,
+                    !self.owns_property(key),
                     "authlib-injector.{key} is configured both as a structured field and a raw JVM property"
                 );
             }
         }
         Ok(())
+    }
+
+    fn owns_property(&self, key: &str) -> bool {
+        match key {
+            "noLogFile" => self.no_log_file.is_some(),
+            "mojangNamespace" => self.mojang_namespace.is_some(),
+            "mojangProxy" => self.mojang_proxy.is_some(),
+            "legacySkinPolyfill" => self.legacy_skin_polyfill.is_some(),
+            "debug" => !self.debug.is_empty(),
+            "ignoredPackages" => !self.ignored_packages.is_empty(),
+            "disableHttpd" => self.disable_httpd.is_some(),
+            "httpdPort" => self.httpd_port.is_some(),
+            "noShowServerName" => self.no_show_server_name.is_some(),
+            "mojangAntiFeatures" => self.mojang_anti_features.is_some(),
+            "profileKey" => self.profile_key.is_some(),
+            "usernameCheck" => self.username_check.is_some(),
+            _ => false,
+        }
     }
 
     /// Extracts representable properties, retaining repeated or unsupported values as raw argv.
@@ -231,6 +248,16 @@ pub enum FeatureOption {
     Default,
     Enabled,
     Disabled,
+}
+
+impl FeatureOption {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Enabled => "enabled",
+            Self::Disabled => "disabled",
+        }
+    }
 }
 
 fn property_value(key: &str, value: Option<&str>) -> Option<Value> {

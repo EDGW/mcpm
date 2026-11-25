@@ -1,6 +1,6 @@
 //! RCON configuration selection and bounded exchanges; properties grammar has one shared codec.
 
-use super::{JavaCommand, LaunchPlan};
+use super::LaunchPlan;
 use anyhow::{Context, Result, ensure};
 use bytes::BytesMut;
 use std::{
@@ -37,9 +37,8 @@ pub struct Settings {
 impl Settings {
     /// Only application arguments can select properties, never a similarly named JVM argument.
     pub fn from_plan(plan: &LaunchPlan) -> Result<Option<Self>> {
-        let application = JavaCommand::parse(plan.arguments())?.application;
         let mut path = "server.properties";
-        let mut arguments = application.iter();
+        let mut arguments = plan.command().application.iter();
         while let Some(argument) = arguments.next() {
             if matches!(argument.as_str(), "--config" | "-c") {
                 path = arguments.next().context("properties option has no path")?;

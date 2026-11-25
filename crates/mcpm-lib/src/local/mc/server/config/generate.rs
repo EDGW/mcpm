@@ -27,6 +27,7 @@ pub fn vanilla_server() -> Result<ConfigurationDraft> {
         }],
     };
     let conf = decode_conf(&draft.template()?)?;
+    draft.launch.validate()?;
     validate_pair(&draft.launch, &conf)?;
     Ok(draft)
 }

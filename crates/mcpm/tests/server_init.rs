@@ -101,6 +101,36 @@ fn init_identifies_loaders_and_publishes_configuration_without_legacy_command() 
 }
 
 #[test]
+fn init_preserves_unknown_jvm_options_from_start_script() {
+    let temp = TempDir::new().unwrap();
+    copy(&fixture("unknown-jvm-options"), temp.path());
+    let output = run(temp.path(), &["init", "--start-script", "run.sh"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let server = MinecraftServer::load(temp.path()).unwrap();
+    assert_eq!(server.metadata().minecraft_version, "1.20.1");
+    let launch = mcpm_lib::local::mc::server::config::decode_launch(
+        &fs::read_to_string(temp.path().join("launch.toml")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        launch.jvm.extra_arguments,
+        [
+            "--unknown-launcher-option",
+            "--future-option=value",
+            "-XX:FutureTuning=42",
+        ]
+    );
+    mcpm_lib::local::mc::server::config::decode_conf(
+        &fs::read_to_string(temp.path().join("conf.toml")).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
 fn fml_uses_command_evidence_without_opening_dependency_jars() {
     for (case, mc, version) in [
         ("forge", "1.20.1", "47.3.12"),
@@ -174,7 +204,6 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
         ("unquoted-variable", "run.sh", "word splitting"),
         ("cycle", "run.sh", "recursive"),
         ("argument-cycle", "run.sh", "cannot accurately identify"),
-        ("unknown-jvm-options", "run.sh", "unknown Java option"),
         ("unknown-main", "run.sh", "cannot accurately identify"),
         ("missing-jar", "run.sh", "failed to open"),
         ("corrupt-jar", "run.sh", "invalid JAR"),

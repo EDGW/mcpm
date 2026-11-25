@@ -1,16 +1,18 @@
 //! Mojang's version catalog and fixed, verified vanilla server downloads.
 
-use std::{collections::HashSet, io::Cursor, path::Path};
+use std::{io::Cursor, path::Path};
 
 use anyhow::{Context, Result, ensure};
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use super::{Checksum, ChecksumAlgorithm, DownloadOutcome, DownloadRequest, Downloader, Event};
+use super::{
+    Catalog, Checksum, ChecksumAlgorithm, DownloadOutcome, DownloadRequest, Downloader, Event,
+    catalog::{MinecraftVersionEntry, MinecraftVersionList},
+    sources::OfficialCatalog,
+};
 use crate::local::codec::Codec;
-
-const CATALOG: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
 /// Resolves an exact version, latest release, or latest snapshot through configured sources.
 /// Selection and validation happen inside each attempt so a lagging mirror can fall back.
@@ -20,10 +22,14 @@ pub async fn resolve_server(
     progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
 ) -> Result<ServerRelease> {
     ensure!(!version.trim().is_empty(), "Minecraft version is empty");
+    let official = OfficialCatalog
+        .minecraft_versions()?
+        .expect("OfficialCatalog always provides minecraft_versions");
     let selected = downloader
-        .metadata_with_progress(
-            &Url::parse(CATALOG)?,
-            |bytes| select(bytes, version),
+        .query_catalog_with_progress(
+            official,
+            |catalog| catalog.minecraft_versions(),
+            |list| select(list, version),
             progress,
         )
         .await?;
@@ -121,36 +127,29 @@ struct ResolvedRelease {
     release_time: DateTime<FixedOffset>,
 }
 
-fn select(bytes: &[u8], requested: &str) -> Result<CatalogVersion> {
-    let catalog: Catalog =
-        serde_json::from_slice(bytes).context("invalid Mojang version catalog")?;
-    let mut seen = HashSet::new();
-    for entry in &catalog.versions {
-        ensure!(
-            !entry.id.trim().is_empty(),
-            "empty version ID in Mojang catalog"
-        );
-        ensure!(
-            seen.insert(entry.id.as_str()),
-            "duplicate Minecraft version {:?}",
-            entry.id
-        );
-    }
-    ensure!(
-        seen.contains(catalog.latest.release.as_str()),
-        "latest release is missing from Mojang catalog"
-    );
-    ensure!(
-        seen.contains(catalog.latest.snapshot.as_str()),
-        "latest snapshot is missing from Mojang catalog"
-    );
+pub(super) fn select(
+    catalog: MinecraftVersionList,
+    requested: &str,
+) -> Result<MinecraftVersionEntry> {
     let id = match requested {
-        "latest" => catalog.latest.release.as_str(),
-        "latest-snapshot" => catalog.latest.snapshot.as_str(),
+        "latest" => {
+            ensure!(
+                !catalog.latest_release.trim().is_empty(),
+                "latest release is missing from Mojang catalog"
+            );
+            catalog.latest_release.as_str()
+        }
+        "latest-snapshot" => {
+            ensure!(
+                !catalog.latest_snapshot.trim().is_empty(),
+                "latest snapshot is missing from Mojang catalog"
+            );
+            catalog.latest_snapshot.as_str()
+        }
         id => id,
     };
     let entry = catalog
-        .versions
+        .entries
         .into_iter()
         .find(|entry| entry.id == id)
         .with_context(|| format!("unknown Minecraft version {id:?}"))?;
@@ -192,24 +191,6 @@ fn decode_release(
     })
 }
 
-#[derive(Deserialize)]
-struct Catalog {
-    latest: Latest,
-    versions: Vec<CatalogVersion>,
-}
-#[derive(Deserialize)]
-struct Latest {
-    release: String,
-    snapshot: String,
-}
-#[derive(Deserialize)]
-struct CatalogVersion {
-    id: String,
-    url: Url,
-    sha1: Option<String>,
-    #[serde(rename = "releaseTime")]
-    release_time: DateTime<FixedOffset>,
-}
 #[derive(Deserialize)]
 struct Version {
     id: String,

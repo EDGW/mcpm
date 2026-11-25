@@ -173,7 +173,7 @@ impl LaunchConfig {
             "live Java @argument files are forbidden in the configured entry"
         );
         ensure!(
-            !tuning::contains_managed(&self.jvm.extra_arguments)?,
+            !tuning::contains_managed(&self.jvm.extra_arguments),
             "launch.toml contains memory/GC settings; put them exclusively in conf.toml"
         );
         validate_arguments(&self.application.extra_arguments)?;
@@ -214,15 +214,12 @@ impl ServerConfig {
     }
 }
 
+/// Checks cross-file constraints; callers must validate `launch` and `conf` individually first.
 pub(crate) fn validate_pair(launch: &LaunchConfig, conf: &ServerConfig) -> Result<()> {
-    launch.validate()?;
-    conf.validate()?;
     if let Some(auth) = &conf.authlib_injector {
         auth.validate_properties(&launch.jvm.extra_arguments)?;
     }
-    let mut jvm = launch.jvm.extra_arguments.clone();
-    jvm.extend(conf.jvm_arguments()?);
-    command::validate_jvm(&jvm)
+    Ok(())
 }
 
 pub(crate) fn nonempty(value: &str, field: &str) -> Result<()> {

@@ -190,13 +190,12 @@ pub struct Gc {
     pub g1: G1,
 }
 
-/// Supported collector names; auto is parsed only to report its explicit unsupported status.
+/// Supported garbage collector names.
 /// # Implementations
 /// - [`Self::flag`]: Java flag mapping in `tuning`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Collector {
-    Auto,
     Serial,
     Parallel,
     G1,
@@ -222,17 +221,6 @@ pub struct Memory {
     pub large_pages: Option<bool>,
     #[serde(default)]
     pub extra_arguments: Vec<String>,
-    #[serde(default, rename = "auto")]
-    #[config(nested)]
-    pub automatic: AutoMemory,
-}
-
-/// Reserved automatic policy input; automatic sizing is not implemented in this version.
-#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AutoMemory {
-    pub heap_fraction: Option<f64>,
-    pub reserve: Option<String>,
 }
 
 /// Minecraft launch overrides; server.properties is never read or changed here.

@@ -1,8 +1,8 @@
 //! JVM setting classification and argument generation without validating Java semantics.
 
 use super::*;
-use crate::local::java::command::{self, JavaCommand};
-use anyhow::{Result, bail, ensure};
+use crate::local::java::command;
+use anyhow::{Result, ensure};
 
 /// Canonical memory/GC identity shared by imports and configuration array classification.
 pub(crate) fn managed(argument: &str) -> Option<String> {
@@ -68,11 +68,8 @@ pub(crate) fn managed(argument: &str) -> Option<String> {
 }
 
 /// Classifies options after consuming their operands with the shared Java grammar.
-pub(crate) fn contains_managed(arguments: &[String]) -> Result<bool> {
-    let mut probe = arguments.to_vec();
-    probe.push("mcpm.validation.Main".into());
-    let parsed = JavaCommand::parse(&probe)?;
-    Ok(parsed.options().any(|(name, _)| managed(name).is_some()))
+pub(crate) fn contains_managed(arguments: &[String]) -> bool {
+    command::jvm_options(arguments).any(|(name, _)| managed(name).is_some())
 }
 
 pub(crate) fn validate(conf: &ServerConfig) -> Result<()> {
@@ -84,11 +81,11 @@ pub(crate) fn validate(conf: &ServerConfig) -> Result<()> {
     if let Some(executable) = &conf.java.executable {
         nonempty(executable, "java.executable")?;
     }
-    ensure!(
-        conf.jvm.memory.automatic.heap_fraction.is_none()
-            && conf.jvm.memory.automatic.reserve.is_none(),
-        "automatic JVM settings are not supported in this version"
-    );
+    for (value, flag) in size_fields(&conf.jvm) {
+        if let Some(value) = value {
+            ensure!(!value.contains('\0'), "NUL in JVM setting {flag}");
+        }
+    }
     validate_arguments(&conf.application.extra_arguments)?;
     command::validate_jvm(&conf.jvm.memory.extra_arguments)?;
     ensure!(
@@ -101,38 +98,17 @@ pub(crate) fn validate(conf: &ServerConfig) -> Result<()> {
     );
     command::validate_jvm(&conf.jvm.extra_arguments)?;
     ensure!(
-        !contains_managed(&conf.jvm.extra_arguments)?,
+        !contains_managed(&conf.jvm.extra_arguments),
         "memory/GC flags belong in jvm.memory.extraArguments"
     );
-    command::validate_jvm(&generate(conf)?)?;
     Ok(())
 }
 
 pub(crate) fn generate(conf: &ServerConfig) -> Result<Vec<String>> {
     let jvm = &conf.jvm;
     let mut result = Vec::new();
-    for (value, flag) in [
-        (&jvm.heap.initial, "-Xms"),
-        (&jvm.heap.maximum, "-Xmx"),
-        (&jvm.heap.young, "-Xmn"),
-        (&jvm.heap.maximum_ram, "-XX:MaxRAM="),
-        (&jvm.thread_stack, "-Xss"),
-        (&jvm.metaspace.initial, "-XX:MetaspaceSize="),
-        (&jvm.metaspace.maximum, "-XX:MaxMetaspaceSize="),
-        (
-            &jvm.metaspace.compressed_class_space,
-            "-XX:CompressedClassSpaceSize=",
-        ),
-        (&jvm.direct.maximum, "-XX:MaxDirectMemorySize="),
-        (&jvm.code_cache.initial, "-XX:InitialCodeCacheSize="),
-        (&jvm.code_cache.maximum, "-XX:ReservedCodeCacheSize="),
-        (&jvm.gc.g1.region_size, "-XX:G1HeapRegionSize="),
-    ] {
+    for (value, flag) in size_fields(jvm) {
         if let Some(value) = value {
-            ensure!(
-                value != "auto",
-                "automatic JVM settings are not supported in this version"
-            );
             ensure!(!value.contains('\0'), "NUL in JVM setting {flag}");
             result.push(format!("{flag}{value}"));
         }
@@ -147,7 +123,7 @@ pub(crate) fn generate(conf: &ServerConfig) -> Result<Vec<String>> {
         }
     }
     if let Some(collector) = jvm.gc.collector {
-        result.push(format!("-XX:+{}", collector.flag()?));
+        result.push(format!("-XX:+{}", collector.flag()));
     }
     for (value, flag) in [
         (jvm.gc.max_pause_millis, "MaxGCPauseMillis"),
@@ -180,17 +156,36 @@ pub(crate) fn generate(conf: &ServerConfig) -> Result<Vec<String>> {
 }
 
 impl Collector {
-    pub(crate) fn flag(self) -> Result<&'static str> {
-        Ok(match self {
-            Self::Auto => bail!("automatic GC selection is not supported in this version"),
+    pub(crate) fn flag(self) -> &'static str {
+        match self {
             Self::Serial => "UseSerialGC",
             Self::Parallel => "UseParallelGC",
             Self::G1 => "UseG1GC",
             Self::Zgc => "UseZGC",
             Self::Shenandoah => "UseShenandoahGC",
             Self::Epsilon => "UseEpsilonGC",
-        })
+        }
     }
+}
+
+fn size_fields(jvm: &Jvm) -> [(&Option<String>, &'static str); 12] {
+    [
+        (&jvm.heap.initial, "-Xms"),
+        (&jvm.heap.maximum, "-Xmx"),
+        (&jvm.heap.young, "-Xmn"),
+        (&jvm.heap.maximum_ram, "-XX:MaxRAM="),
+        (&jvm.thread_stack, "-Xss"),
+        (&jvm.metaspace.initial, "-XX:MetaspaceSize="),
+        (&jvm.metaspace.maximum, "-XX:MaxMetaspaceSize="),
+        (
+            &jvm.metaspace.compressed_class_space,
+            "-XX:CompressedClassSpaceSize=",
+        ),
+        (&jvm.direct.maximum, "-XX:MaxDirectMemorySize="),
+        (&jvm.code_cache.initial, "-XX:InitialCodeCacheSize="),
+        (&jvm.code_cache.maximum, "-XX:ReservedCodeCacheSize="),
+        (&jvm.gc.g1.region_size, "-XX:G1HeapRegionSize="),
+    ]
 }
 
 pub(crate) fn validate_arguments(arguments: &[String]) -> Result<()> {

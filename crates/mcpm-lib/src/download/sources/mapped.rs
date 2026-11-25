@@ -1,25 +1,36 @@
 //! Boundary-aware URL-prefix mappings for compatible mirrors and custom endpoints.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt, sync::Arc};
 
 use anyhow::{Result, ensure};
 use url::Url;
 
-use crate::download::{DownloadSource, MappingTable, UrlMapping};
+use crate::download::{Catalog, DownloadSource, MappingTable, UrlMapping};
 
 /// A named source with ordered mappings; equally specific mappings may provide
 /// multiple addresses. Only mappings with the longest matching path apply.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MappedSource {
     id: String,
     mappings: Vec<UrlMapping>,
+    catalog: Option<Arc<dyn Catalog>>,
 }
 
 impl MappedSource {
     pub fn new(id: impl Into<String>, mappings: Vec<UrlMapping>) -> Result<Self> {
         let id = id.into();
         ensure!(!id.trim().is_empty(), "download source ID cannot be empty");
-        Ok(Self { id, mappings })
+        Ok(Self {
+            id,
+            mappings,
+            catalog: None,
+        })
+    }
+
+    /// Attaches a mirror-specific catalog protocol to this source.
+    pub fn with_catalog(mut self, catalog: Arc<dyn Catalog>) -> Self {
+        self.catalog = Some(catalog);
+        self
     }
 
     fn mapped(&self, url: &Url, reverse: bool) -> Vec<Url> {
@@ -43,6 +54,16 @@ impl MappedSource {
             }
         }
         urls
+    }
+}
+
+impl fmt::Debug for MappedSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MappedSource")
+            .field("id", &self.id)
+            .field("mappings", &self.mappings)
+            .field("has_catalog", &self.catalog.is_some())
+            .finish()
     }
 }
 
@@ -72,6 +93,10 @@ impl DownloadSource for MappedSource {
             }
         }
         Ok(Some(MappingTable::new(primary)?))
+    }
+
+    fn catalog(&self) -> Option<&dyn Catalog> {
+        self.catalog.as_deref()
     }
 }
 

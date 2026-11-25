@@ -5,6 +5,8 @@ use std::collections::HashSet;
 use anyhow::{Result, ensure};
 use url::Url;
 
+use super::Catalog;
+
 /// A configured website's URL mapping rules. Implementations perform no I/O.
 pub trait DownloadSource: Send + Sync {
     /// Stable identity used in configuration and diagnostics.
@@ -27,6 +29,12 @@ pub trait DownloadSource: Send + Sync {
     /// - `Ok(Some(entries))`: ordered prefix rewrite rules (longest path prefix first).
     fn mapping_table(&self) -> Result<Option<MappingTable>> {
         Ok(None)
+    }
+
+    /// Optional mirror-specific version catalog protocol. Returning `None` uses
+    /// the official catalog protocol translated through [`DownloadSource::translate`].
+    fn catalog(&self) -> Option<&dyn Catalog> {
+        None
     }
 }
 

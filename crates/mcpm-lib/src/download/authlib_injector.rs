@@ -1,17 +1,18 @@
-//! Sole authlib-injector download API: endpoints, upstream decoding and fixed releases.
+//! Sole authlib-injector download API: catalog queries, validation and fixed releases.
 //!
-//! Raw protocol fields stay private. A resolved release preserves the same build
-//! and SHA-256 across download-source fallback; downloading does not query latest again.
+//! Raw protocol fields stay private in catalog implementations. A resolved release
+//! preserves the same build and SHA-256 across download-source fallback; downloading
+//! does not query latest again.
 
 use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
-use serde::Deserialize;
-use url::Url;
 
-use super::{Checksum, ChecksumAlgorithm, DownloadOutcome, DownloadRequest, Downloader, Event};
-
-const API_ROOT: &str = "https://authlib-injector.yushi.moe/";
+use super::{
+    Catalog, Checksum, ChecksumAlgorithm, DownloadOutcome, DownloadRequest, Downloader, Event,
+    catalog::AuthlibBuildInfo,
+    sources::OfficialCatalog,
+};
 
 /// Resolves the latest build reported by the first successful configured source.
 /// A mirror may lag behind upstream; this does not merge version catalogs.
@@ -19,31 +20,44 @@ pub async fn latest(downloader: &Downloader) -> Result<Release> {
     latest_with_progress(downloader, &|_| Ok(())).await
 }
 
-/// Resolves latest through the sole upstream decoder and reports request source changes.
+/// Resolves latest through the configured catalog and reports request source changes.
 pub async fn latest_with_progress(
     downloader: &Downloader,
     progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
 ) -> Result<Release> {
-    let url = endpoint("artifact/latest.json")?;
+    let official = OfficialCatalog
+        .authlib_latest()?
+        .expect("OfficialCatalog always provides authlib_latest");
     downloader
-        .metadata_with_progress(&url, |bytes| Release::decode(bytes, downloader), progress)
+        .query_catalog_with_progress(
+            official,
+            |catalog| catalog.authlib_latest(),
+            |info| Release::from_catalog(info, downloader),
+            progress,
+        )
         .await
 }
 
 /// Resolves one exact build. A response for a different build is rejected within
 /// the request attempt so another configured source can be tried.
 pub async fn build(downloader: &Downloader, build_number: u64) -> Result<Release> {
-    let url = endpoint(&format!("artifact/{build_number}.json"))?;
+    let official = OfficialCatalog
+        .authlib_build(build_number)?
+        .expect("OfficialCatalog always provides authlib_build");
     downloader
-        .metadata(&url, |bytes| {
-            let release = Release::decode(bytes, downloader)?;
-            ensure!(
-                release.build_number == build_number,
-                "authlib-injector returned build {} instead of {build_number}",
-                release.build_number
-            );
-            Ok(release)
-        })
+        .query_catalog(
+            official,
+            |catalog| catalog.authlib_build(build_number),
+            |info| {
+                let release = Release::from_catalog(info, downloader)?;
+                ensure!(
+                    release.build_number == build_number,
+                    "authlib-injector returned build {} instead of {build_number}",
+                    release.build_number
+                );
+                Ok(release)
+            },
+        )
         .await
 }
 
@@ -103,40 +117,19 @@ impl Release {
             })
     }
 
-    fn decode(bytes: &[u8], downloader: &Downloader) -> Result<Self> {
-        let metadata: Metadata =
-            serde_json::from_slice(bytes).context("invalid authlib-injector release JSON")?;
+    fn from_catalog(info: AuthlibBuildInfo, downloader: &Downloader) -> Result<Self> {
         ensure!(
-            !metadata.version.trim().is_empty(),
+            !info.version.trim().is_empty(),
             "authlib-injector version is empty"
         );
-        let checksum = Checksum::new(ChecksumAlgorithm::Sha256, &metadata.checksums.sha256)
+        let checksum = Checksum::new(ChecksumAlgorithm::Sha256, &info.sha256)
             .context("invalid authlib-injector SHA-256")?;
-        let url = downloader.original_url(&metadata.download_url)?;
+        let url = downloader.original_url(&info.download_url)?;
         Ok(Self {
-            build_number: metadata.build_number,
-            version: metadata.version,
-            release_time: metadata.release_time,
+            build_number: info.build_number,
+            version: info.version,
+            release_time: info.release_time,
             request: DownloadRequest::new(url, None, vec![checksum])?,
         })
     }
-}
-
-fn endpoint(path: &str) -> Result<Url> {
-    Ok(Url::parse(API_ROOT)?.join(path)?)
-}
-
-#[derive(Deserialize)]
-struct Metadata {
-    build_number: u64,
-    version: String,
-    #[serde(default)]
-    release_time: Option<String>,
-    download_url: Url,
-    checksums: Checksums,
-}
-
-#[derive(Deserialize)]
-struct Checksums {
-    sha256: String,
 }

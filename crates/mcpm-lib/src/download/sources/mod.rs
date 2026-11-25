@@ -1,15 +1,19 @@
-//! Built-in and configurable URL mappings; concrete sources are assembled here.
+//! Built-in and configurable URL mappings; concrete sources and catalogs are assembled here.
 
 use std::sync::Arc;
 
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, ensure};
 use url::Url;
 
-use super::{DownloadConfig, DownloadSource, Downloader, MappingTable};
+use super::{Catalog, DownloadConfig, DownloadSource, Downloader, MappingTable};
 pub use super::UrlMapping;
 
+mod bmclapi;
+pub use bmclapi::BmclapiCatalog;
 mod mapped;
 pub use mapped::MappedSource;
+mod official;
+pub use official::OfficialCatalog;
 
 /// Builds the configured built-in sources in exactly the requested order.
 /// Unknown source names are configuration errors; no fallback is appended.
@@ -44,10 +48,14 @@ impl DownloadSource for OfficialSource {
     fn mapping_table(&self) -> Result<Option<MappingTable>> {
         Ok(Some(MappingTable::empty()))
     }
+
+    fn catalog(&self) -> Option<&dyn Catalog> {
+        Some(&OfficialCatalog)
+    }
 }
 
-/// BMCLAPI's protocol-compatible mirrors. Different-format catalog APIs are
-/// deliberately excluded. Maven paths shared by multiple upstreams cannot be reversed.
+/// BMCLAPI's protocol-compatible mirrors combined with its Forge catalog overrides.
+/// Maven paths shared by multiple upstreams cannot be reversed.
 pub fn bmclapi() -> Result<MappedSource> {
     let root = "https://bmclapi2.bangbang93.com";
     let mappings = [
@@ -73,5 +81,25 @@ pub fn bmclapi() -> Result<MappedSource> {
         UrlMapping::new(Url::parse(original)?, Url::parse(&format!("{root}{path}"))?)
     })
     .collect::<Result<_>>()?;
-    MappedSource::new("bmclapi", mappings)
+    Ok(MappedSource::new("bmclapi", mappings)?.with_catalog(Arc::new(BmclapiCatalog)))
+}
+
+pub(super) fn append_path_segment(base: &str, segment: &str, label: &str) -> Result<Url> {
+    ensure!(
+        !segment.is_empty()
+            && segment != "."
+            && segment != ".."
+            && !segment.bytes().any(|byte| {
+                byte.is_ascii_whitespace()
+                    || byte.is_ascii_control()
+                    || matches!(byte, b'/' | b'\\' | b'?' | b'#')
+            }),
+        "invalid {label}: {segment:?}"
+    );
+    let mut url = Url::parse(base)?;
+    url.path_segments_mut()
+        .map_err(|_| anyhow::anyhow!("cannot append path segment to {base}"))?
+        .pop_if_empty()
+        .push(segment);
+    Ok(url)
 }

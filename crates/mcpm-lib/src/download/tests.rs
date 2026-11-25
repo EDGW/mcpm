@@ -10,7 +10,10 @@ use std::{
 };
 
 use super::*;
-use sources::{MappedSource, OfficialSource, UrlMapping, bmclapi};
+use catalog::{
+    FabricInstallerEntry, FabricLoaderEntry, ForgeVersionEntry, NeoForgeVersionEntry,
+};
+use sources::{BmclapiCatalog, MappedSource, OfficialCatalog, OfficialSource, UrlMapping, bmclapi};
 
 #[test]
 fn fallback_resets_bytes_and_completion_requires_a_verified_published_file() {
@@ -26,6 +29,11 @@ fn fallback_resets_bytes_and_completion_requires_a_verified_published_file() {
         fn assert_send(_: impl Send) {}
         assert_send(fixture.downloader.download_to(&request(), &target));
         assert_send(authlib_injector::latest(&fixture.downloader));
+        assert_send(mojang::resolve_server(
+            &fixture.downloader,
+            "latest",
+            &|_| Ok(()),
+        ));
         let events = RefCell::new(Vec::new());
         let result = runtime().block_on(fixture.downloader.download_to_with_progress(
             &request(),
@@ -215,6 +223,479 @@ fn source_mapping_tables_and_bmclapi_creeperhost() {
         entry.original().as_str() == "https://maven.creeperhost.net/"
             && entry.mirror().as_str() == "https://bmclapi2.bangbang93.com/maven/"
     }));
+}
+
+#[test]
+fn official_catalog_decodes_forge_metadata_and_promotions_tolerantly() {
+    let endpoint = OfficialCatalog.forge_versions("1.20.4").unwrap().unwrap();
+    assert_eq!(
+        endpoint.url.as_str(),
+        "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml"
+    );
+    let xml = br#"
+        <metadata>
+          <versioning>
+            <versions>
+              <version>1.5.2-7.8.1.738</version>
+              <version>1.7.10-10.13.4.1614-1.7.10</version>
+              <version>1.7.10-10.13.2.1343-1.7.10ls</version>
+              <version>1.20.4-49.2.0</version>
+              <version>weird-historical</version>
+              <version>1.20.4-notnumeric</version>
+              <version>-49.2.0</version>
+              <version>nohyphen</version>
+              <version>1.20.4-49.2.0-</version>
+            </versions>
+          </versioning>
+        </metadata>
+    "#;
+    let parsed = (endpoint.decode)(xml).unwrap();
+    assert_eq!(
+        parsed,
+        vec![
+            ForgeVersionEntry {
+                mc_version: "1.5.2".into(),
+                loader_version: "7.8.1.738".into(),
+                maven_coord: "1.5.2-7.8.1.738".into(),
+            },
+            ForgeVersionEntry {
+                mc_version: "1.7.10".into(),
+                loader_version: "10.13.4.1614".into(),
+                maven_coord: "1.7.10-10.13.4.1614-1.7.10".into(),
+            },
+            ForgeVersionEntry {
+                mc_version: "1.7.10".into(),
+                loader_version: "10.13.2.1343".into(),
+                maven_coord: "1.7.10-10.13.2.1343-1.7.10ls".into(),
+            },
+            ForgeVersionEntry {
+                mc_version: "1.20.4".into(),
+                loader_version: "49.2.0".into(),
+                maven_coord: "1.20.4-49.2.0".into(),
+            },
+        ]
+    );
+    assert!((endpoint.decode)(b"<metadata></metadata>").is_err());
+
+    let promos_endpoint = OfficialCatalog.forge_promotions().unwrap().unwrap();
+    assert_eq!(
+        promos_endpoint.url.as_str(),
+        "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
+    );
+    let promos = (promos_endpoint.decode)(
+        br#"{
+            "homepage": "https://files.minecraftforge.net/",
+            "promos": {
+                "1.20.4-recommended": "49.2.0",
+                "1.20.4-latest": "49.2.1",
+                "1.7.10-recommended": "10.13.4.1614",
+                "ignored-key": "1.0.0",
+                "-latest": "0.0.1"
+            }
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(
+        promos.recommended.get("1.20.4").map(String::as_str),
+        Some("49.2.0")
+    );
+    assert_eq!(
+        promos.latest.get("1.20.4").map(String::as_str),
+        Some("49.2.1")
+    );
+    assert_eq!(promos.recommended.len(), 2);
+    assert_eq!(promos.latest.len(), 1);
+}
+
+#[test]
+fn bmclapi_catalog_overrides_only_forge_endpoints() {
+    let bmcl = bmclapi().unwrap();
+    let catalog = bmcl.catalog().expect("bmclapi attaches BmclapiCatalog");
+    assert!(catalog.minecraft_versions().unwrap().is_none());
+    assert!(catalog.authlib_latest().unwrap().is_none());
+    assert!(catalog.neoforge_versions("1.21.1").unwrap().is_none());
+    assert!(catalog.fabric_loaders("1.21.1").unwrap().is_none());
+    assert!(catalog.fabric_installers().unwrap().is_none());
+
+    let versions_ep = BmclapiCatalog.forge_versions("1.7.10").unwrap().unwrap();
+    assert_eq!(
+        versions_ep.url.as_str(),
+        "https://bmclapi2.bangbang93.com/forge/minecraft/1.7.10"
+    );
+    let versions = (versions_ep.decode)(
+        br#"[
+            {"mcversion": "1.7.10", "version": "10.13.4.1614", "branch": "1.7.10"},
+            {"mcversion": "1.20.4", "version": "49.2.0"},
+            {"mcversion": "1.20.4", "version": "49.1.0", "branch": ""},
+            {"mcversion": "", "version": "1.0.0"}
+        ]"#,
+    )
+    .unwrap();
+    assert_eq!(
+        versions,
+        vec![
+            ForgeVersionEntry {
+                mc_version: "1.7.10".into(),
+                loader_version: "10.13.4.1614".into(),
+                maven_coord: "1.7.10-10.13.4.1614-1.7.10".into(),
+            },
+            ForgeVersionEntry {
+                mc_version: "1.20.4".into(),
+                loader_version: "49.2.0".into(),
+                maven_coord: "1.20.4-49.2.0".into(),
+            },
+            ForgeVersionEntry {
+                mc_version: "1.20.4".into(),
+                loader_version: "49.1.0".into(),
+                maven_coord: "1.20.4-49.1.0".into(),
+            },
+        ]
+    );
+    assert!(BmclapiCatalog.forge_versions("../1.20.4").is_err());
+
+    let promos_ep = BmclapiCatalog.forge_promotions().unwrap().unwrap();
+    assert_eq!(
+        promos_ep.url.as_str(),
+        "https://bmclapi2.bangbang93.com/forge/promos"
+    );
+    let promos = (promos_ep.decode)(
+        br#"[
+            {"name": "1.20.4-recommended", "build": {"version": "49.2.0"}},
+            {"name": "1.20.4-latest", "build": {"version": "49.2.1"}},
+            {"name": "1.21-recommended", "build": null},
+            {"name": "latest", "build": {"version": "54.0.0"}},
+            {"name": "recommended", "build": {"version": "54.0.0"}}
+        ]"#,
+    )
+    .unwrap();
+    assert_eq!(
+        promos.recommended.get("1.20.4").map(String::as_str),
+        Some("49.2.0")
+    );
+    assert_eq!(
+        promos.latest.get("1.20.4").map(String::as_str),
+        Some("49.2.1")
+    );
+    assert_eq!(promos.recommended.len(), 1);
+    assert_eq!(promos.latest.len(), 1);
+}
+
+#[test]
+fn official_catalog_decodes_neoforge_legacy_and_modern_metadata() {
+    let legacy = OfficialCatalog.neoforge_versions("1.20.1").unwrap().unwrap();
+    assert_eq!(
+        legacy.url.as_str(),
+        "https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml"
+    );
+    let legacy_entries = (legacy.decode)(
+        br#"<metadata><versioning><versions>
+            <version>1.20.1-47.1.106</version>
+            <version>1.20.1-</version>
+            <version>1.20.2-48.0.0</version>
+        </versions></versioning></metadata>"#,
+    )
+    .unwrap();
+    assert_eq!(
+        legacy_entries,
+        vec![NeoForgeVersionEntry {
+            mc_version: "1.20.1".into(),
+            loader_version: "47.1.106".into(),
+            maven_coord: "1.20.1-47.1.106".into(),
+        }]
+    );
+
+    let modern = OfficialCatalog.neoforge_versions("1.21.1").unwrap().unwrap();
+    assert_eq!(
+        modern.url.as_str(),
+        "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
+    );
+    let modern_entries = (modern.decode)(
+        br#"<metadata><versioning><versions>
+            <version>0.25w14craftmine</version>
+            <version>20.2.88</version>
+            <version>21.0.167</version>
+            <version>21.1.72-beta</version>
+            <version>26.1.0</version>
+            <version>26.1.1.0</version>
+            <version>not-a-version</version>
+        </versions></versioning></metadata>"#,
+    )
+    .unwrap();
+    assert_eq!(
+        modern_entries,
+        vec![
+            NeoForgeVersionEntry {
+                mc_version: "1.20.2".into(),
+                loader_version: "20.2.88".into(),
+                maven_coord: "20.2.88".into(),
+            },
+            NeoForgeVersionEntry {
+                mc_version: "1.21".into(),
+                loader_version: "21.0.167".into(),
+                maven_coord: "21.0.167".into(),
+            },
+            NeoForgeVersionEntry {
+                mc_version: "1.21.1".into(),
+                loader_version: "21.1.72-beta".into(),
+                maven_coord: "21.1.72-beta".into(),
+            },
+            NeoForgeVersionEntry {
+                mc_version: "26.1".into(),
+                loader_version: "26.1.0".into(),
+                maven_coord: "26.1.0".into(),
+            },
+            NeoForgeVersionEntry {
+                mc_version: "26.1.1".into(),
+                loader_version: "26.1.1.0".into(),
+                maven_coord: "26.1.1.0".into(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn official_catalog_decodes_fabric_loaders_and_installers() {
+    let loaders_ep = OfficialCatalog.fabric_loaders("1.21.4").unwrap().unwrap();
+    assert_eq!(
+        loaders_ep.url.as_str(),
+        "https://meta.fabricmc.net/v2/versions/loader/1.21.4"
+    );
+    let loaders = (loaders_ep.decode)(
+        br#"[
+            {"loader": {"version": "0.16.10", "stable": true}},
+            {"loader": {"version": "0.16.9-beta.1", "stable": false}},
+            {"loader": {"version": "   ", "stable": true}}
+        ]"#,
+    )
+    .unwrap();
+    assert_eq!(
+        loaders,
+        vec![
+            FabricLoaderEntry {
+                version: "0.16.10".into(),
+                stable: true,
+            },
+            FabricLoaderEntry {
+                version: "0.16.9-beta.1".into(),
+                stable: false,
+            },
+        ]
+    );
+    assert!(OfficialCatalog.fabric_loaders("1.21/../../etc").is_err());
+
+    let installers_ep = OfficialCatalog.fabric_installers().unwrap().unwrap();
+    assert_eq!(
+        installers_ep.url.as_str(),
+        "https://meta.fabricmc.net/v2/versions/installer"
+    );
+    let installers = (installers_ep.decode)(
+        br#"[
+            {"version": "1.0.1", "maven": "net.fabricmc:fabric-installer:1.0.1", "stable": true},
+            {"version": "1.0.0", "maven": "", "stable": false}
+        ]"#,
+    )
+    .unwrap();
+    assert_eq!(
+        installers,
+        vec![FabricInstallerEntry {
+            version: "1.0.1".into(),
+            maven_coord: "net.fabricmc:fabric-installer:1.0.1".into(),
+            stable: true,
+        }]
+    );
+}
+
+#[test]
+fn mojang_select_ignores_unrelated_empty_or_duplicate_entries() {
+    let endpoint = OfficialCatalog.minecraft_versions().unwrap().unwrap();
+    let list = (endpoint.decode)(
+        br#"{
+            "latest": {"release": "1.21.4", "snapshot": ""},
+            "versions": [
+                {"id": "", "url": "https://piston-meta.mojang.com/empty.json", "releaseTime": "2024-01-01T00:00:00+00:00"},
+                {"id": "1.0", "url": "https://piston-meta.mojang.com/dup1.json", "releaseTime": "2011-11-18T00:00:00+00:00"},
+                {"id": "1.0", "url": "https://piston-meta.mojang.com/dup2.json", "releaseTime": "2011-11-18T00:00:00+00:00"},
+                {"id": "1.21.4", "url": "https://piston-meta.mojang.com/1.21.4.json", "sha1": "0123456789abcdef0123456789abcdef01234567", "releaseTime": "2024-12-03T10:12:57+00:00"}
+            ]
+        }"#,
+    )
+    .unwrap();
+
+    let latest = mojang::select(list.clone(), "latest").unwrap();
+    assert_eq!(latest.id, "1.21.4");
+    assert_eq!(
+        latest.url.as_str(),
+        "https://piston-meta.mojang.com/1.21.4.json"
+    );
+
+    let exact = mojang::select(list.clone(), "1.21.4").unwrap();
+    assert_eq!(exact.id, "1.21.4");
+
+    assert!(mojang::select(list, "latest-snapshot").is_err());
+}
+
+#[test]
+fn catalog_lag_falls_back_and_fixed_installer_download_never_requeries_catalog() {
+    struct LaggingMirrorCatalog {
+        forge_versions_url: url::Url,
+    }
+
+    impl Catalog for LaggingMirrorCatalog {
+        fn forge_versions(
+            &self,
+            _mc: &str,
+        ) -> anyhow::Result<Option<CatalogEndpoint<Vec<ForgeVersionEntry>>>> {
+            Ok(Some(CatalogEndpoint {
+                url: self.forge_versions_url.clone(),
+                decode: |bytes| {
+                    let versions: Vec<String> = serde_json::from_slice(bytes)?;
+                    Ok(versions
+                        .into_iter()
+                        .map(|version| ForgeVersionEntry {
+                            mc_version: "1.20.4".into(),
+                            maven_coord: format!("1.20.4-{version}"),
+                            loader_version: version,
+                        })
+                        .collect())
+                },
+            }))
+        }
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+
+    let mirror1 = MappedSource::new(
+        "mirror1",
+        vec![
+            UrlMapping::new(
+                "https://maven.minecraftforge.net/".parse().unwrap(),
+                format!("http://{address}/mirror1/maven/").parse().unwrap(),
+            )
+            .unwrap(),
+        ],
+    )
+    .unwrap()
+    .with_catalog(Arc::new(LaggingMirrorCatalog {
+        forge_versions_url: format!("http://{address}/mirror1/custom-forge/1.20.4")
+            .parse()
+            .unwrap(),
+    }));
+    let mirror2 = MappedSource::new(
+        "mirror2",
+        vec![
+            UrlMapping::new(
+                "https://maven.minecraftforge.net/".parse().unwrap(),
+                format!("http://{address}/mirror2/maven/").parse().unwrap(),
+            )
+            .unwrap(),
+        ],
+    )
+    .unwrap();
+    let sources: Vec<Arc<dyn DownloadSource>> =
+        vec![Arc::new(mirror1) as Arc<dyn DownloadSource>, Arc::new(mirror2)];
+    let downloader = Downloader::new(sources, DownloadOptions::default()).unwrap();
+
+    let installer_bytes = b"forge-1.20.4-49.2.0-installer".to_vec();
+    let sha1_hex = format!(
+        "{:x}",
+        <sha1::Sha1 as sha1::Digest>::digest(&installer_bytes)
+    );
+    let sha1_body = format!("{sha1_hex}  forge-1.20.4-49.2.0-installer.jar\r\n").into_bytes();
+    let exchanges = vec![
+        (
+            "/mirror1/custom-forge/1.20.4".to_owned(),
+            br#"["49.1.0"]"#.to_vec(),
+        ),
+        (
+            "/mirror2/maven/net/minecraftforge/forge/maven-metadata.xml".to_owned(),
+            br#"<metadata><versioning><versions>
+                <version>1.20.4-49.1.0</version>
+                <version>1.20.4-49.2.0</version>
+            </versions></versioning></metadata>"#
+                .to_vec(),
+        ),
+        (
+            "/mirror1/maven/net/minecraftforge/forge/1.20.4-49.2.0/forge-1.20.4-49.2.0-installer.jar.sha1"
+                .to_owned(),
+            sha1_body,
+        ),
+        (
+            "/mirror1/maven/net/minecraftforge/forge/1.20.4-49.2.0/forge-1.20.4-49.2.0-installer.jar"
+                .to_owned(),
+            b"corrupted-mirror-jar".to_vec(),
+        ),
+        (
+            "/mirror2/maven/net/minecraftforge/forge/1.20.4-49.2.0/forge-1.20.4-49.2.0-installer.jar"
+                .to_owned(),
+            installer_bytes.clone(),
+        ),
+    ];
+
+    let server = thread::spawn(move || {
+        let mut visited = Vec::with_capacity(exchanges.len());
+        for (expected_path, body) in exchanges {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "catalog fixture request timed out");
+                        thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(error) => panic!("catalog fixture accept: {error}"),
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let count = stream.read(&mut buffer).unwrap();
+                assert_ne!(count, 0);
+                request.extend_from_slice(&buffer[..count]);
+            }
+            let head = String::from_utf8(request).unwrap();
+            let first_line = head.lines().next().unwrap();
+            let path = first_line.split_whitespace().nth(1).unwrap().to_owned();
+            assert_eq!(path, expected_path);
+            visited.push(path);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            let _ = stream.write_all(&body);
+        }
+        visited
+    });
+
+    let rt = runtime();
+    let release = rt
+        .block_on(loader::resolve(
+            &downloader,
+            loader::LoaderFamily::Forge,
+            "1.20.4",
+            Some("49.2.0"),
+        ))
+        .unwrap();
+    assert_eq!(release.family(), loader::LoaderFamily::Forge);
+    assert_eq!(release.loader_version(), "49.2.0");
+
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("forge-installer.jar");
+    let outcome = rt
+        .block_on(release.download_to(&downloader, &target))
+        .unwrap();
+    assert_eq!(std::fs::read(&target).unwrap(), installer_bytes);
+    assert_eq!(outcome.size, installer_bytes.len() as u64);
+
+    let visited = server.join().unwrap();
+    assert_eq!(visited.len(), 5);
 }
 
 fn request() -> DownloadRequest {
