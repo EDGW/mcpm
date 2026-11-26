@@ -69,7 +69,7 @@ try {
     $manifestPath = Join-Path $installDir 'manifest'
     $recordPath = Join-Path $env:LOCALAPPDATA 'mcpm\mcpmd.path'
     $daemonPath = Join-Path $binDir 'mcpmd.exe'
-    foreach ($version in @('v0.1.0-dev.26w43b', 'v0.1.0-dev.26w42z', 'v0.1.0-alpha', 'v0.0.9')) {
+    foreach ($version in @('v0.1.0-dev.26w45a', 'v0.1.0-rc0', 'v0.1.0-rc.1', 'v0.1.0-alpha', 'v0.0.9')) {
         Invoke-Installer -Version $version -ExpectFailure
     }
     Assert-True ($testState.Downloads -eq 0) 'Unsupported versions reached the download step.'

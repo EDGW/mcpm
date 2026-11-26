@@ -21,8 +21,8 @@ validate_version() {
         }
         if (version == core) exit 0
         sub(/^[^-]*-/, "", version); count = split(version, pre, "\\.")
-        split("dev.26w43c", lower, "\\.")
-        for (i = 1; i <= 2; i++) {
+        split("rc1", lower, "\\.")
+        for (i = 1; i <= 1; i++) {
             if (i > count) exit 1
             numeric = pre[i] ~ /^[0-9]+$/; lower_numeric = lower[i] ~ /^[0-9]+$/
             if (numeric != lower_numeric) exit numeric
@@ -31,7 +31,7 @@ validate_version() {
             exit !("x" pre[i] > "x" lower[i])
         }
         exit 0
-    }' || fail 'supported versions start at v0.1.0-dev.26w43c; specify that release or a newer SemVer tag'
+    }' || fail 'supported versions start at v0.1.0-rc1; specify that release or a newer SemVer tag'
 }
 
 # Local ownership record. The package's manifest.json is validated by mcpm-tools.

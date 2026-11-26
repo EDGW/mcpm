@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 function Assert-SupportedVersion {
     param([string]$Tag)
     if ($Tag -cnotmatch '^v([0-9]+\.[0-9]+\.[0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
-        throw 'Specify a SemVer release tag at or after v0.1.0-dev.26w43c.'
+        throw 'Specify a SemVer release tag at or after v0.1.0-rc1.'
     }
     $core = [version]$Matches[1]
     $prerelease = $Matches[2]
@@ -22,7 +22,7 @@ function Assert-SupportedVersion {
     if ($core -eq $minimum) {
         if (-not $prerelease) { return }
         $parts = $prerelease.Split('.')
-        $lower = @('dev', '26w43c')
+        $lower = @('rc1')
         for ($index = 0; $index -lt $lower.Count; $index++) {
             if ($index -ge $parts.Count) { break }
             $numeric = $parts[$index] -match '^[0-9]+$'
@@ -41,7 +41,7 @@ function Assert-SupportedVersion {
             if ($index -eq $lower.Count - 1) { return }
         }
     }
-    throw 'Supported versions start at v0.1.0-dev.26w43c; older releases cannot be installed by this script.'
+    throw 'Supported versions start at v0.1.0-rc1; older releases cannot be installed by this script.'
 }
 
 # Local ownership record. The package's manifest.json is validated by mcpm-tools.

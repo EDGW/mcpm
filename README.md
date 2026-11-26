@@ -10,9 +10,9 @@ The command reference is currently difficult to read and will be improved over t
 
 ## Installation
 
-Install pre-release [v0.1.0-dev.26w45a](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w45a).
-The installer supports **v0.1.0-dev.26w43c and newer**; older tags are rejected before downloading.
-All six executables are installed together: `mcpm`, `mcpm-server`, `mcpmc`, `mcpm-client`, `mcpm-tools`, and `mcpmd`.
+Install pre-release [v0.1.0-rc1](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-rc1).
+The installer supports **v0.1.0-rc1 and newer**; versions earlier than `v0.1.0-rc1` are not supported and are rejected before downloading.
+All six executables and bundled artifacts are installed together: `mcpm`, `mcpm-server`, `mcpmc`, `mcpm-client`, `mcpm-tools`, and `mcpmd`.
 
 | System | Architectures | Program location | PATH entry |
 | --- | --- | --- | --- |
@@ -25,25 +25,23 @@ Installation does not require administrator privileges. Configuration, caches, a
 ### Windows (PowerShell 5.1 or later)
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.ps1))) -Version v0.1.0-dev.26w45a
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Version v0.1.0-rc1
 ```
-
-For a ZIP release, run `.\scripts\install.ps1 -Version VERSION` from a checkout that supports this layout.
 
 Uninstall:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Uninstall
 ```
 
 PATH changes apply to the current PowerShell session and newly opened terminals. Other existing terminals need to be reopened. Close running mcpm processes before upgrading if Windows reports files in use.
 
 ### macOS and Linux (sh)
 
-The ZIP installer requires `curl`, `unzip`, and either `sha256sum` or `shasum`. The pinned examples below use the matching scripts for an older release; from this checkout, use `sh scripts/install.sh VERSION` for a ZIP release.
+Requires `curl`, `unzip`, and either `sha256sum` or `shasum`.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.sh | sh -s -- v0.1.0-dev.26w45a
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- v0.1.0-rc1
 ```
 
 If `~/.local/bin` is not already on PATH, add the following line to your shell configuration (`~/.zshrc` for zsh or `~/.bashrc` for bash):
@@ -57,10 +55,10 @@ Reload that configuration or open a new terminal. The installer prints this inst
 Uninstall:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- --uninstall
 ```
 
-To use a GitHub URL-prefix proxy with an updated checkout's installer, see [proxy options](scripts/README.md#github-url-prefix-proxy). 
+To use a GitHub URL-prefix proxy (`--proxy` / `-Proxy`), see [proxy options](scripts/README.md#github-url-prefix-proxy).
 
 ### Upgrade, repair and uninstall behavior
 

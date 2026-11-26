@@ -72,8 +72,8 @@ done
 relative=${url#https://github.com/EDGW/mcpm/releases/download/}
 cp "$MCPM_TEST_RELEASES/$relative" "$destination"
 ''')
-        self.archive('v0.1.0-dev.26w43c')
-        self.archive('v0.1.0-dev.26w43d')
+        self.archive('v0.1.0-rc1')
+        self.archive('v0.1.0-rc2')
 
     def shim(self, name, content):
         path = self.shims / name
@@ -122,7 +122,7 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
         data = self.home / '.mcpm'
         data.mkdir()
         (data / 'config').write_text('keep me')
-        result = self.run_installer('v0.1.0-dev.26w43c')
+        result = self.run_installer('v0.1.0-rc1')
         self.assertLess(result.stdout.index('Validated fixture'), result.stdout.index('Installed '))
         self.assertLess(result.stdout.index('Installed '), result.stdout.index('Welcome fixture'))
         self.assertFalse((self.links / AGENT).exists())
@@ -130,10 +130,10 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
         for name in NAMES:
             self.assertEqual((self.links / name).resolve(), (self.install / 'bin' / name).resolve())
         (self.install / 'bin' / NAMES[0]).unlink()
-        self.run_installer('v0.1.0-dev.26w43c')
-        self.run_installer('v0.1.0-dev.26w43d')
-        self.assertIn('version=v0.1.0-dev.26w43d', (self.install / 'manifest').read_text())
-        self.run_installer('v0.1.0-dev.26w43c')
+        self.run_installer('v0.1.0-rc1')
+        self.run_installer('v0.1.0-rc2')
+        self.assertIn('version=v0.1.0-rc2', (self.install / 'manifest').read_text())
+        self.run_installer('v0.1.0-rc1')
         (self.install / 'bin' / 'personal-file').write_text('keep')
         changed_link = self.links / NAMES[0]
         changed_link.unlink()
@@ -149,36 +149,36 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
         self.assertFalse(self.record.exists())
 
     def test_rejects_old_versions_before_download_and_understands_semver(self):
-        for version in ['v0.1.0-dev.26w43b', 'v0.1.0-dev.26w42z', 'v0.0.9', 'v0.1.0-alpha', 'v0.1.0-dev', 'nonsense']:
+        for version in ['v0.1.0-dev.26w45a', 'v0.1.0-rc0', 'v0.1.0-rc.1', 'v0.0.9', 'v0.1.0-alpha', 'v0.1.0-1', 'nonsense']:
             result = self.run_installer(version, success=False)
-            self.assertIn('v0.1.0-dev.26w43c', result.stderr)
+            self.assertIn('v0.1.0-rc1', result.stderr)
             self.assertNotIn('Downloading', result.stdout)
-        for version in ['v0.1.0', 'v0.1.0-rc.1', 'v0.1.1-dev.1', 'v1.0.0', 'v0.1.0-dev.26w43c+build.1']:
+        for version in ['v0.1.0', 'v0.1.0-rc2', 'v0.1.0-rc1.1', 'v0.1.1-dev.1', 'v1.0.0', 'v0.1.0-rc1+build.1']:
             self.archive(version)
             self.run_installer(version)
 
     def test_bad_downloads_and_command_conflicts_preserve_previous_install(self):
-        self.run_installer('v0.1.0-dev.26w43c')
+        self.run_installer('v0.1.0-rc1')
         original = self.snapshot()
-        archive = self.archive('v0.1.0-dev.26w43d')
+        archive = self.archive('v0.1.0-rc2')
         archive.write_bytes(b'corrupt')
-        self.run_installer('v0.1.0-dev.26w43d', success=False)
+        self.run_installer('v0.1.0-rc2', success=False)
         self.assertEqual(self.snapshot(), original)
         for kwargs in [dict(missing=AGENT), dict(incorrect=NAMES[0])]:
-            self.archive('v0.1.0-dev.26w43d', **kwargs)
-            result = self.run_installer('v0.1.0-dev.26w43d', success=False)
+            self.archive('v0.1.0-rc2', **kwargs)
+            result = self.run_installer('v0.1.0-rc2', success=False)
             self.assertNotIn('Welcome fixture', result.stdout)
             self.assertEqual(self.snapshot(), original)
-        self.archive('v0.1.0-dev.26w43d')
+        self.archive('v0.1.0-rc2')
         link = self.links / NAMES[0]
         link.unlink()
         link.write_text('foreign')
-        self.run_installer('v0.1.0-dev.26w43d', success=False)
+        self.run_installer('v0.1.0-rc2', success=False)
         self.assertEqual(link.read_text(), 'foreign')
         self.assertEqual(self.snapshot(), original)
 
     def test_commit_failure_rolls_back_and_concurrent_install_is_refused(self):
-        self.run_installer('v0.1.0-dev.26w43c')
+        self.run_installer('v0.1.0-rc1')
         foreign_record = b'/custom/daemon with spaces\n'
         self.record.write_bytes(foreign_record)
         original = self.snapshot()
@@ -191,18 +191,18 @@ case "$1" in
 esac
 exec {real_mv} "$@"
 ''')
-        self.run_installer('v0.1.0-dev.26w43d', success=False)
+        self.run_installer('v0.1.0-rc2', success=False)
         self.assertEqual(self.snapshot(), original)
         self.assertEqual(self.record.read_bytes(), foreign_record)
         self.assertFalse(list(self.install.glob('.stage.*')))
         (self.install / '.install-lock').mkdir()
-        result = self.run_installer('v0.1.0-dev.26w43d', success=False)
+        result = self.run_installer('v0.1.0-rc2', success=False)
         self.assertIn('another installer', result.stderr)
         self.assertTrue((self.install / '.install-lock').exists())
         self.assertEqual(self.snapshot(), original)
 
     def test_uninstall_preserves_a_record_pointing_at_another_installation(self):
-        self.run_installer('v0.1.0-dev.26w43c')
+        self.run_installer('v0.1.0-rc1')
         self.record.write_text('/other/mcpmd\n')
         self.run_installer('--uninstall')
         self.assertEqual(self.record.read_text(), '/other/mcpmd\n')
@@ -213,7 +213,7 @@ exec {real_mv} "$@"
 case "$1" in */new-manifest) exit 1 ;; esac
 exec {real_mv} "$@"
 ''')
-        self.run_installer('v0.1.0-dev.26w43c', success=False)
+        self.run_installer('v0.1.0-rc1', success=False)
         self.assertFalse(self.record.exists())
         self.assertFalse((self.install / 'bin').exists())
 
@@ -224,14 +224,14 @@ exec {real_mv} "$@"
         hidden = self.install / '.old-settings'
         hidden.write_text('old installation file')
         for answer in ('no\n', ''):
-            result = self.run_installer('v0.1.0-dev.26w43c', answer=answer)
+            result = self.run_installer('v0.1.0-rc1', answer=answer)
             self.assertIn('Installation cancelled', result.stdout)
             self.assertNotIn('Downloading', result.stdout)
             self.assertEqual(foreign.read_text(), 'manual install')
             self.assertTrue(hidden.exists())
         self.run_installer('--uninstall')
         self.assertEqual(foreign.read_text(), 'manual install')
-        self.run_installer('v0.1.0-dev.26w43c')
+        self.run_installer('v0.1.0-rc1')
         self.assertFalse(hidden.exists())
         self.assertEqual((self.install / 'bin' / AGENT).read_bytes(), b'shipped loader agent')
 
@@ -266,14 +266,14 @@ exec {real_mv} "$@"
                         all_proxy='http://127.0.0.1:1')
         prefix = f'http://127.0.0.1:{server.server_port}/download'
         try:
-            self.run_installer('--proxy', prefix + '/', 'v0.1.0-dev.26w43c')
+            self.run_installer('--proxy', prefix + '/', 'v0.1.0-rc1')
             original = self.snapshot()
             self.assertEqual(
                 subprocess.check_output([self.install / 'bin/mcpm', '-V'], text=True).strip(),
-                'mcpm 0.1.0-dev.26w43c')
-            checksum = self.releases / 'v0.1.0-dev.26w43d' / f'{self.asset}.zip.sha256'
+                'mcpm 0.1.0-rc1')
+            checksum = self.releases / 'v0.1.0-rc2' / f'{self.asset}.zip.sha256'
             checksum.write_text('0' * 64 + '\n')
-            self.run_installer('v0.1.0-dev.26w43d', '--proxy', prefix, success=False)
+            self.run_installer('v0.1.0-rc2', '--proxy', prefix, success=False)
             self.assertEqual(self.snapshot(), original)
         finally:
             server.shutdown()

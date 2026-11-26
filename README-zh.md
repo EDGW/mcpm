@@ -10,9 +10,9 @@
 
 ## 安装
 
-安装预发布版本 [v0.1.0-dev.26w43d](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d)。
-安装脚本仅支持 **v0.1.0-dev.26w43c 及更新版本**，旧版本会在下载前被拒绝。
-六个程序整套安装：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`、`mcpmd`。
+安装预发布版本 [v0.1.0-rc1](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-rc1)。
+安装脚本仅支持 **v0.1.0-rc1 及更新版本**，不支持 `v0.1.0-rc1` 之前的版本（旧版本会在下载前被拒绝）。
+六个程序及随包产物整套安装：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`、`mcpmd`。
 
 | 系统 | 架构 | 程序目录 | PATH 入口 |
 | --- | --- | --- | --- |
@@ -25,25 +25,23 @@
 ### Windows（PowerShell 5.1 或更高版本）
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.ps1))) -Version v0.1.0-dev.26w43d
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Version v0.1.0-rc1
 ```
-
-安装 ZIP 版本时，在支持此布局的源码目录运行 `.\scripts\install.ps1 -Version VERSION`。
 
 卸载：
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Uninstall
 ```
 
 PATH 对当前 PowerShell 和之后新开的终端生效，其他已打开的终端需要重新打开。升级时如提示文件被占用，请先退出正在运行的 mcpm 进程。
 
 ### macOS 和 Linux（sh）
 
-ZIP 安装器需要 `curl`、`unzip`，以及 `sha256sum` 或 `shasum`。下面固定版本的示例使用对应旧版本的脚本；安装 ZIP 版本时，在支持此布局的源码目录运行 `sh scripts/install.sh VERSION`。
+需要 `curl`、`unzip`，以及 `sha256sum` 或 `shasum`。
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- v0.1.0-dev.26w43d
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- v0.1.0-rc1
 ```
 
 如果 `~/.local/bin` 尚未加入 PATH，在 shell 配置文件中添加下面一行：zsh 使用 `~/.zshrc`，bash 使用 `~/.bashrc`。
@@ -57,10 +55,10 @@ export PATH="$HOME/.local/bin:$PATH"
 卸载：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- --uninstall
 ```
 
-从包含新安装器的源码目录安装时，可以使用 [GitHub URL 前缀代理参数](scripts/README.md#github-url-prefix-proxy)。
+如需通过 GitHub URL 前缀代理下载（`--proxy` / `-Proxy`），见 [GitHub URL 前缀代理参数](scripts/README.md#github-url-prefix-proxy)。
 
 ### 升级、修复与卸载行为
 

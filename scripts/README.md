@@ -11,14 +11,14 @@
 
 ## GitHub URL-prefix proxy
 
-Set `VERSION` (Unix) or `$Version` (PowerShell) to a release tag that ships the ZIP layout:
+Supported for `v0.1.0-rc1` and newer releases:
 
 ```sh
-sh scripts/install.sh "$VERSION" --proxy https://gh-proxy.com
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- v0.1.0-rc1 --proxy https://gh-proxy.com
 ```
 
 ```powershell
-./scripts/install.ps1 -Version $Version -Proxy https://gh-proxy.com
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Version v0.1.0-rc1 -Proxy https://gh-proxy.com
 ```
 
 - The proxy prefix is prepended to the complete GitHub URL for both the archive and its `.sha256` file, for example `https://gh-proxy.com/https://github.com/EDGW/mcpm/releases/download/...`.
