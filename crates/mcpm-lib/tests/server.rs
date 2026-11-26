@@ -4,159 +4,75 @@ use std::fs;
 use tempfile::TempDir;
 
 #[test]
-fn new_registration_removes_legacy_start_snapshot_and_survives_relocation() {
-    use mcpm_lib::local::mc::server::MinecraftServer;
+fn current_registration_survives_relocation_without_rewriting() {
+    use mcpm_lib::local::mc::server::{MinecraftServer, MinecraftServerMetadata, ServerLoader};
 
     let parent = TempDir::new().unwrap();
     let original = parent.path().join("original");
-    fs::create_dir_all(original.join("scripts")).unwrap();
-    fs::write(original.join("scripts/run.sh"), "java -jar server.jar\n").unwrap();
-    let mut value = serde_json::to_value(metadata_with_script("scripts/run.sh")).unwrap();
-    value["start"]["directory"] = original.to_str().unwrap().into();
-    let server =
-        MinecraftServer::create(&original, serde_json::from_value(value).unwrap()).unwrap();
+    fs::create_dir(&original).unwrap();
+    let server = MinecraftServer::create(
+        &original,
+        MinecraftServerMetadata {
+            version: 4,
+            minecraft_version: "1.21.1".into(),
+            loader: ServerLoader::Vanilla,
+        },
+    )
+    .unwrap();
     let bytes = fs::read(server.metadata_path()).unwrap();
-    let saved: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(saved.get("start").is_none());
     let moved = parent.path().join("moved");
     fs::rename(&original, &moved).unwrap();
     let loaded = MinecraftServer::load(&moved).unwrap();
     assert_eq!(loaded.path(), moved);
     assert_eq!(loaded.metadata(), server.metadata());
-    assert!(loaded.metadata().start.is_none());
-    assert!(loaded.path().join("scripts/run.sh").is_file());
     assert_eq!(fs::read(loaded.metadata_path()).unwrap(), bytes);
 }
 
 #[test]
-fn invalid_start_scripts_fail_all_persistence_entry_points_before_side_effects() {
-    use mcpm_lib::local::mc::server::{MinecraftServer, MinecraftServerError};
-
+fn identification_rejects_scripts_outside_the_server_without_creating_registration() {
+    use mcpm_lib::local::{
+        mc::server::{ServerScriptError, identify},
+        modloader::BUILTIN_LOADERS,
+    };
     for script in [
         "",
         ".",
         "/server/run.sh",
         "../run.sh",
         "sub/../../run.sh",
-        "../server/run.sh",
         r"C:\server\run.bat",
-        r"C:run.bat",
-        r"\server\run.bat",
         r"\\host\share\run.bat",
-        r"sub\..\..\run.bat",
     ] {
         let root = TempDir::new().unwrap();
-        let metadata = metadata_with_script(script);
-        let error = MinecraftServer::create(root.path(), metadata.clone()).unwrap_err();
+        let error = identify::identify(root.path(), script, &BUILTIN_LOADERS).unwrap_err();
         assert!(
-            matches!(error, MinecraftServerError::InvalidStartScript { .. }),
+            error.downcast_ref::<ServerScriptError>().is_some(),
             "{script}: {error:#}"
         );
-        assert!(!root.path().join(".mcpm").exists(), "{script}");
-        assert!(!root.path().join("mods").exists(), "{script}");
-
-        fs::create_dir(root.path().join(".mcpm")).unwrap();
-        let manifest = root.path().join(".mcpm/server.json");
-        let old = b"old registration\n";
-        fs::write(&manifest, old).unwrap();
-        assert!(
-            MinecraftServer::replace(root.path(), metadata.clone()).is_err(),
-            "{script}"
-        );
-        assert_eq!(fs::read(&manifest).unwrap(), old, "{script}");
-
-        fs::write(&manifest, serde_json::to_vec(&metadata).unwrap()).unwrap();
-        assert!(MinecraftServer::load(root.path()).is_err(), "{script}");
-        assert!(MinecraftServer::inspect(root.path()).is_err(), "{script}");
-        assert!(!root.path().join("mods").exists(), "{script}");
-    }
-    for script in [
-        "run.sh",
-        "scripts/run.sh",
-        "scripts/../run.sh",
-        r"scripts\run.bat",
-    ] {
-        let root = TempDir::new().unwrap();
-        MinecraftServer::create(root.path(), metadata_with_script(script)).unwrap();
-        MinecraftServer::load(root.path()).unwrap();
+        assert!(!root.path().join(".mcpm").exists());
     }
 }
 
 #[cfg(unix)]
 #[test]
-fn script_symlinks_cannot_escape_at_initialization_or_after_registration() {
+fn identification_rejects_script_symlinks_escaping_the_server() {
     use mcpm_lib::local::{
-        mc::server::{MinecraftServer, identify},
+        mc::server::{ServerScriptError, identify},
         modloader::BUILTIN_LOADERS,
     };
     use std::os::unix::fs::symlink;
-
     let parent = TempDir::new().unwrap();
     let root = parent.path().join("server");
     let outside = parent.path().join("outside");
     fs::create_dir(&root).unwrap();
     fs::create_dir(&outside).unwrap();
     symlink(&outside, root.join("external")).unwrap();
-    // Even a missing script cannot hide an existing parent symlink that points outside.
-    assert!(MinecraftServer::create(&root, metadata_with_script("external/missing.sh")).is_err());
-    assert!(identify::identify(&root, "external/missing.sh", &BUILTIN_LOADERS).is_err());
+    let error = identify::identify(&root, "external/run.sh", &BUILTIN_LOADERS).unwrap_err();
+    assert!(
+        error.downcast_ref::<ServerScriptError>().is_some(),
+        "{error:#}"
+    );
     assert!(!root.join(".mcpm").exists());
-
-    // Legacy snapshots still use the original validation path when read from disk.
-    fs::create_dir_all(root.join(".mcpm")).unwrap();
-    fs::write(
-        root.join(".mcpm/server.json"),
-        serde_json::to_vec(&metadata_with_script("scripts/run.sh")).unwrap(),
-    )
-    .unwrap();
-    symlink(&outside, root.join("scripts")).unwrap();
-    assert!(MinecraftServer::load(&root).is_err());
-    assert!(MinecraftServer::inspect(&root).is_err());
-    fs::remove_file(root.join("scripts")).unwrap();
-    fs::create_dir(root.join("internal")).unwrap();
-    symlink(root.join("internal"), root.join("scripts")).unwrap();
-    MinecraftServer::load(&root).unwrap();
-    fs::remove_file(root.join("scripts")).unwrap();
-    symlink(outside.join("missing"), root.join("scripts")).unwrap();
-    assert!(MinecraftServer::load(&root).is_err());
-}
-
-fn metadata_with_script(script: &str) -> mcpm_lib::local::mc::server::MinecraftServerMetadata {
-    serde_json::from_value(serde_json::json!({
-        "version": 2, "minecraft_version": "1.21.1",
-        "loader": {"type": "fabric", "version": "0.16.10"},
-        "start": {"script": script, "executable": "java", "arguments": [], "windows": false}
-    }))
-    .unwrap()
-}
-
-#[test]
-fn legacy_metadata_is_read_without_rewriting_and_only_migrates_on_explicit_persistence() {
-    use mcpm_lib::local::mc::server::{MinecraftServer, SERVER_METADATA_VERSION};
-
-    let root = TempDir::new().unwrap();
-    fs::create_dir(root.path().join(".mcpm")).unwrap();
-    let manifest = root.path().join(".mcpm/server.json");
-    let legacy = b"{\"version\":1,\"minecraft_version\":\"1.21.1\",\"loader\":null}\n";
-    fs::write(&manifest, legacy).unwrap();
-    let server = MinecraftServer::load(root.path()).unwrap();
-    assert_eq!(fs::read(&manifest).unwrap(), legacy);
-    let mut invalid = server.metadata().clone();
-    invalid.version = 99;
-    assert!(MinecraftServer::replace(root.path(), invalid).is_err());
-    assert_eq!(fs::read(&manifest).unwrap(), legacy);
-    let updated = MinecraftServer::replace(root.path(), server.metadata().clone()).unwrap();
-    assert_eq!(updated.metadata().version, SERVER_METADATA_VERSION);
-    let mut expected: serde_json::Value = serde_json::from_slice(legacy).unwrap();
-    expected["version"] = SERVER_METADATA_VERSION.into();
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&fs::read(manifest).unwrap()).unwrap(),
-        expected
-    );
-    assert_eq!(
-        MinecraftServer::load(root.path()).unwrap().metadata(),
-        updated.metadata()
-    );
 }
 
 #[test]
@@ -165,9 +81,9 @@ fn inspection_resolves_loader_without_creating_missing_mod_directory() {
 
     let root = TempDir::new().unwrap();
     fs::create_dir(root.path().join(".mcpm")).unwrap();
-    fs::write(root.path().join(".mcpm/server.json"), br#"{"version":2,"minecraft_version":"1.21.1","loader":{"type":"fabric","version":"0.16.10"}}"#).unwrap();
+    fs::write(root.path().join(".mcpm/server.json"), br#"{"version":4,"minecraft_version":"1.21.1","loader":{"type":"fabric","version":"0.16.10"}}"#).unwrap();
     let inspected = MinecraftServer::inspect(root.path()).unwrap();
-    assert_eq!(inspected.loader().unwrap().version, "0.16.10");
+    assert_eq!(inspected.resolved_loader().unwrap().version, "0.16.10");
     assert!(inspected.mods().is_none());
     assert!(!root.path().join("mods").exists());
     assert!(MinecraftServer::load(root.path()).unwrap().mods().is_some());
@@ -212,10 +128,6 @@ fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments(
             .unwrap_or_else(|error| panic!("{suffix:?}: {error:#}"));
         assert_eq!(candidates.len(), 1, "{suffix:?}");
         let candidate = &candidates[0];
-        assert_eq!(candidate.metadata.minecraft_version, "1.21.1");
-        let loader = candidate.metadata.loader.as_ref().unwrap();
-        assert_eq!(loader.loader_type, "neoforge");
-        assert_eq!(loader.version, "21.1.233");
         assert_eq!(candidate.launch.executable, executable);
         let expected: Vec<_> = ["-Xmx2G", "-XX:+UseZGC"]
             .into_iter()
@@ -224,11 +136,6 @@ fn batch_invocation_arguments_expand_empty_without_losing_surrounding_arguments(
             .map(str::to_owned)
             .collect();
         assert_eq!(candidate.launch.command.arguments(), expected, "{suffix:?}");
-        assert_eq!(
-            candidate.metadata.start.as_ref().unwrap().arguments,
-            expected,
-            "{suffix:?}"
-        );
     }
 }
 
@@ -286,5 +193,336 @@ fn identification_errors_retain_script_archive_member_and_parser_cause() {
     let message = format!("{error:#}");
     assert!(message.contains("broken.args"), "{message}");
     assert!(message.contains("run.sh"), "{message}");
-    assert!(error.chain().count() >= 3, "{message}");
+}
+
+/// Minimal modern launch evidence; no Java process or installed libraries are needed.
+fn script_candidates(
+    script: &str,
+    extension: &str,
+) -> anyhow::Result<Vec<mcpm_lib::local::mc::server::identify::ServerCandidate>> {
+    use mcpm_lib::local::{mc::server::identify::identify, modloader::BUILTIN_LOADERS};
+    let root = TempDir::new().unwrap();
+    fs::write(root.path().join("server.args"), "cpw.mods.bootstraplauncher.BootstrapLauncher --launchTarget neoforgeserver --fml.neoForgeVersion 21.1.233 --fml.mcVersion 1.21.1").unwrap();
+    let name = format!("run.{extension}");
+    fs::write(root.path().join(&name), script).unwrap();
+    identify(root.path(), &name, &BUILTIN_LOADERS)
+}
+
+#[test]
+fn same_java_command_keeps_each_matching_loader_as_a_candidate() {
+    use std::sync::Arc;
+
+    use mcpm_lib::local::{
+        mc::server::{ServerLaunch, identify::identify, launch::JavaEntry},
+        mcmod::{ModEntry, ModMeta},
+        modloader::{BUILTIN_LOADERS, ModLoader, ModLoaderMeta, ServerLoaderIdentity},
+    };
+
+    #[derive(Debug)]
+    struct OverlappingForgeDetector;
+
+    impl ModLoader for OverlappingForgeDetector {
+        fn metadata(&self) -> &ModLoaderMeta {
+            &BUILTIN_LOADERS["forge"]
+        }
+
+        fn try_identify_server(
+            &self,
+            launch: &ServerLaunch,
+        ) -> anyhow::Result<Option<ServerLoaderIdentity>> {
+            if launch.main_class() != "cpw.mods.bootstraplauncher.BootstrapLauncher" {
+                return Ok(None);
+            }
+            Ok(Some(ServerLoaderIdentity {
+                minecraft_version: "1.21.1".into(),
+                version: "52.0.1".into(),
+            }))
+        }
+
+        fn try_identify(&self, entry: &ModEntry) -> anyhow::Result<Option<ModMeta>> {
+            self.metadata().instance().try_identify(entry)
+        }
+    }
+
+    let mut loaders = BUILTIN_LOADERS.clone();
+    let forge = &BUILTIN_LOADERS["forge"];
+    loaders.insert(
+        forge.id().clone(),
+        ModLoaderMeta::new(
+            forge.id().clone(),
+            forge.name().into(),
+            Arc::new(OverlappingForgeDetector),
+        ),
+    );
+    let root = TempDir::new().unwrap();
+    let main_class = "cpw.mods.bootstraplauncher.BootstrapLauncher";
+    let command = format!(
+        "java {main_class} --launchTarget neoforgeserver --fml.neoForgeVersion 21.1.233 --fml.mcVersion 1.21.1\n"
+    );
+    fs::write(root.path().join("run.sh"), format!("{command}{command}")).unwrap();
+
+    let candidates = identify(root.path(), "run.sh", &loaders).unwrap();
+    let identities: Vec<_> = candidates
+        .iter()
+        .map(|candidate| {
+            let loader = candidate.metadata.loader.declaration().unwrap();
+            (loader.loader_type.as_str(), loader.version.as_str())
+        })
+        .collect();
+    assert_eq!(identities, [("forge", "52.0.1"), ("neoforge", "21.1.233")]);
+    for candidate in candidates {
+        assert_eq!(candidate.launch.line, 1);
+        assert_eq!(
+            candidate.configuration.launch.entry,
+            JavaEntry::Class {
+                main_class: main_class.into()
+            }
+        );
+    }
+}
+
+#[test]
+fn unsupported_launch_lines_do_not_hide_later_java_commands() {
+    for skipped in [
+        "java @server.args --precheck || exit 1",
+        "java @server.args | tee log.txt",
+        "java @server.args && exit 1",
+        "java @server.args ; echo ignored",
+        "java @server.args &",
+        "java @server.args > log.txt",
+        "java @server.args < input.txt",
+        "(java @server.args)",
+        "java @server.args `echo extra`",
+        "java @server.args \"$(echo extra)\"",
+        "exit 0 | cat",
+        "(echo ignored; exit 0)",
+        "echo ignored > if",
+        "exit 0 > log | cat",
+        "echo ignored > cd",
+    ] {
+        let candidates = script_candidates(&format!("{skipped}\njava @server.args --real\n"), "sh")
+            .unwrap_or_else(|error| panic!("{skipped}: {error:#}"));
+        assert_eq!(candidates.len(), 1, "{skipped}");
+        assert_eq!(candidates[0].launch.line, 2, "{skipped}");
+        assert_eq!(
+            candidates[0]
+                .launch
+                .command
+                .application
+                .last()
+                .map(String::as_str),
+            Some("--real")
+        );
+    }
+}
+
+#[test]
+fn skipped_control_blocks_never_supply_launches_and_resume_after_the_block() {
+    for (extension, block) in [
+        (
+            "sh",
+            "if test -f missing; then\nif true; then\njava @server.args --nested\nfi\nelse\njava @server.args --else\nfi",
+        ),
+        (
+            "sh",
+            "for item in one two; do\nwhile false; do\njava @server.args --nested\ndone\ndone",
+        ),
+        ("sh", "until true; do\njava @server.args --loop\ndone"),
+        (
+            "sh",
+            "case value in\nvalue)\njava @server.args --case\n;;\nesac",
+        ),
+        ("sh", "case value in\nif) : ;;\nesac"),
+        ("sh", "case value in\ncd) : ;;\nesac"),
+        (
+            "bat",
+            "if %ERRORLEVEL% NEQ 0 (\n  if exist missing (\n    java @server.args --nested\n  )\n  goto :exit\n) else (\n  java @server.args --else\n)",
+        ),
+        (
+            "bat",
+            "for %%x in (one two) do (\n  java @server.args --loop\n)",
+        ),
+    ] {
+        let script = format!("java @server.args --before\n{block}\njava @server.args --after\n");
+        let candidates = script_candidates(&script, extension)
+            .unwrap_or_else(|error| panic!("{script}: {error:#}"));
+        let arguments: Vec<_> = candidates
+            .iter()
+            .map(|candidate| {
+                candidate
+                    .launch
+                    .command
+                    .application
+                    .last()
+                    .unwrap()
+                    .as_str()
+            })
+            .collect();
+        assert_eq!(arguments, ["--before", "--after"], "{script}");
+    }
+}
+
+#[test]
+fn unconditional_exit_stops_but_batch_labels_and_exec_java_do_not() {
+    for exit in ["echo stopping; exit 0", "echo stopping; exit 0 2>&1"] {
+        let candidates = script_candidates(
+            &format!("java @server.args --before\n{exit}\njava @server.args --after\n"),
+            "sh",
+        )
+        .unwrap();
+        assert_eq!(candidates.len(), 1, "{exit}");
+        assert_eq!(candidates[0].launch.line, 1);
+    }
+    for (extension, script) in [
+        (
+            "sh",
+            "exec java @server.args --first\njava @server.args --second\n",
+        ),
+        (
+            "bat",
+            "java @server.args --first\ngoto :exit\n:exit\njava @server.args --second\n",
+        ),
+    ] {
+        let candidates = script_candidates(script, extension).unwrap();
+        assert_eq!(candidates.len(), 2, "{script}");
+    }
+}
+
+#[test]
+fn skipped_state_mutations_do_not_leak_stale_directory_or_variable_values() {
+    for (extension, script, expected) in [
+        (
+            "sh",
+            "cd elsewhere || echo failed\njava @server.args\n",
+            "script working directory is unknown",
+        ),
+        (
+            "sh",
+            "if true; then\ncd elsewhere\nfi\njava @server.args\n",
+            "script working directory is unknown",
+        ),
+        (
+            "sh",
+            "source helper.sh || echo failed\njava @server.args\n",
+            "script working directory is unknown",
+        ),
+        (
+            "sh",
+            "ARGS=--old\nARGS=--new || echo failed\njava @server.args $ARGS\n",
+            "unresolved shell variable ARGS",
+        ),
+        (
+            "bat",
+            "set ARGS=--old\nif exist missing (\nset ARGS=--new\n)\njava @server.args %ARGS%\n",
+            "unresolved batch variable ARGS",
+        ),
+        (
+            "bat",
+            "set ARGS=--old\nif exist marker set ARGS=--new\njava @server.args %ARGS%",
+            "unresolved batch variable ARGS",
+        ),
+        (
+            "sh",
+            "if ! cd elsewhere; then\n:\nfi\njava @server.args",
+            "script working directory is unknown",
+        ),
+        (
+            "sh",
+            "c\"d\" elsewhere || echo failed\njava @server.args",
+            "script working directory is unknown",
+        ),
+        (
+            "sh",
+            "c\\d elsewhere || echo failed\njava @server.args",
+            "script working directory is unknown",
+        ),
+        (
+            "bat",
+            "c^d elsewhere || echo failed\njava @server.args",
+            "script working directory is unknown",
+        ),
+        (
+            "sh",
+            "> log cd elsewhere\njava @server.args",
+            "script working directory is unknown",
+        ),
+        (
+            "sh",
+            "2> log cd elsewhere\njava @server.args",
+            "script working directory is unknown",
+        ),
+        (
+            "bat",
+            "echo ignored &> log cd elsewhere\njava @server.args",
+            "script working directory is unknown",
+        ),
+    ] {
+        let error = script_candidates(script, extension).unwrap_err();
+        assert!(
+            format!("{error:#}").contains(expected),
+            "{script}: {error:#}"
+        );
+    }
+    let candidates = script_candidates(
+        "KEEP=--kept\nOTHER=--old\nOTHER=$(echo new)\njava @server.args $KEEP\n",
+        "sh",
+    )
+    .unwrap();
+    assert_eq!(
+        candidates[0]
+            .launch
+            .command
+            .application
+            .last()
+            .map(String::as_str),
+        Some("--kept")
+    );
+}
+
+#[test]
+fn unsupported_batch_input_assignment_cannot_reuse_the_old_value() {
+    for assignment in [
+        "set /p ARGS=Arguments:",
+        "set /a ARGS+=1",
+        "set /a \"ARGS+=1,OTHER=2\"",
+    ] {
+        let candidates = script_candidates(&format!("set ARGS=--old\n{assignment}\njava @server.args %ARGS%\njava @server.args --independent"), "bat").unwrap();
+        assert_eq!(candidates.len(), 1, "{assignment}");
+        assert_eq!(candidates[0].launch.line, 4, "{assignment}");
+        assert_eq!(
+            candidates[0]
+                .launch
+                .command
+                .application
+                .last()
+                .map(String::as_str),
+            Some("--independent")
+        );
+    }
+}
+
+#[test]
+fn skipped_mutations_preserve_unaffected_saved_state() {
+    for (extension, script) in [
+        (
+            "bat",
+            "set ARGS=--kept\nsetlocal\nset ARGS=--new || echo failed\nendlocal\njava @server.args %ARGS%",
+        ),
+        (
+            "sh",
+            "pushd .\ncd elsewhere || echo failed\npopd\njava @server.args --kept",
+        ),
+    ] {
+        let candidates = script_candidates(script, extension)
+            .unwrap_or_else(|error| panic!("{script}: {error:#}"));
+        assert_eq!(
+            candidates[0]
+                .launch
+                .command
+                .application
+                .last()
+                .map(String::as_str),
+            Some("--kept")
+        );
+    }
 }

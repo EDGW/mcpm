@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 4,
   "minecraft_version": "1.21.1",
-  "loader": null
+  "loader": { "type": "vanilla" }
 }

@@ -2,18 +2,16 @@
 
 use crate::download::Downloader;
 use crate::local::{
-    java::{capabilities, command},
+    java::{capabilities, command, executable},
     mc::server::{
-        MinecraftServer,
         authlib_injector::{self, JarPolicy},
         config::{self, Platform},
     },
 };
 use anyhow::{Context, Result, ensure};
-use mcpm_exec::error::ExecutableNotFound;
 use std::{
     collections::BTreeMap,
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     path::{Path, PathBuf},
 };
 
@@ -28,8 +26,9 @@ pub struct LaunchPlan {
     pub(super) directory: PathBuf,
     #[serde(with = "native_environment")]
     pub(super) environment: BTreeMap<OsString, OsString>,
-    pub(super) arguments: Vec<String>,
+    pub(super) command: command::JavaCommand,
     pub(super) argument_file: bool,
+    pub(super) revision: config::ConfigurationRevision,
 }
 
 impl std::fmt::Debug for LaunchPlan {
@@ -48,11 +47,17 @@ impl LaunchPlan {
     pub fn directory(&self) -> &Path {
         &self.directory
     }
-    pub fn arguments(&self) -> &[String] {
-        &self.arguments
+    pub fn command(&self) -> &command::JavaCommand {
+        &self.command
+    }
+    pub fn arguments(&self) -> Vec<String> {
+        self.command.arguments()
     }
     pub fn environment(&self) -> &BTreeMap<OsString, OsString> {
         &self.environment
+    }
+    pub fn revision(&self) -> &config::ConfigurationRevision {
+        &self.revision
     }
 }
 
@@ -91,12 +96,13 @@ pub async fn prepare_with_progress(
 ) -> Result<LaunchPlan> {
     progress(Event::Stage(Stage::Configuration))?;
     let root = std::fs::canonicalize(root).context("failed to resolve local server root")?;
-    let (launch, conf) = {
-        let _lock = config::ConfigurationLock::acquire(&root, false)?;
-        MinecraftServer::inspect(&root)?;
-        let (launch, conf) = config::read(&root, overrides)?;
-        (launch, conf)
+    let snapshot = {
+        let lock = config::ServerLock::acquire_read(&root)?;
+        config::read_snapshot_locked(&root, &lock, overrides)?
     };
+    let mut launch = snapshot.launch;
+    let conf = snapshot.conf;
+    let revision = snapshot.revision;
     progress(Event::Stage(Stage::LocalChecks))?;
     ensure!(
         launch
@@ -112,19 +118,13 @@ pub async fn prepare_with_progress(
         directory.is_dir(),
         "Java working directory is not a directory"
     );
-    let mut environment: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
-    for (key, value) in &launch.process.environment {
-        #[cfg(windows)]
-        environment.retain(|existing, _| !existing.to_string_lossy().eq_ignore_ascii_case(key));
-        environment.insert(key.into(), value.into());
-    }
-    let executable = executable(
+    let environment = executable::merge_environment(&launch.process.environment);
+    let executable = executable::resolve(
         &root,
         conf.java.executable.as_deref().unwrap_or("java"),
         &environment,
     )?;
-    let mut jvm = launch.jvm.extra_arguments.clone();
-    jvm.extend(conf.jvm_arguments()?);
+    let jvm = super::description::base_jvm(&mut launch, &conf)?;
     let managed = conf
         .authlib_injector
         .as_ref()
@@ -144,20 +144,9 @@ pub async fn prepare_with_progress(
             None => authlib_injector::managed_path(&root),
         };
         validate_agents(&jvm, &directory, &path)?;
-        jvm.extend(auth.arguments(&path)?);
     }
-    let arguments: Vec<_> = jvm
-        .into_iter()
-        .chain(launch.entry.arguments())
-        .chain(launch.application.extra_arguments)
-        .chain(conf.server_arguments())
-        .chain(conf.application.extra_arguments)
-        .collect();
-    let parsed = command::JavaCommand::parse(&arguments)?;
-    ensure!(
-        parsed.entry == launch.entry,
-        "assembled Java entry differs from declared launch entry"
-    );
+    let command = super::description::finish_command(&root, launch, conf, jvm)?;
+    let arguments = command.arguments();
     // Environment options belong to Java. Only the launcher's @file switch matters
     // when mcpm itself needs to choose a transport for an oversized command.
     let estimated_length = arguments.iter().fold(0usize, |total, argument| {
@@ -167,7 +156,7 @@ pub async fn prepare_with_progress(
         || arguments.iter().any(|argument| argument.len() > 64_000);
     if argument_file {
         progress(Event::Stage(Stage::JavaCapabilities))?;
-        if let Some(value) = environment_value(&environment, "JDK_JAVA_OPTIONS") {
+        if let Some(value) = executable::environment_value(&environment, "JDK_JAVA_OPTIONS") {
             let value = value
                 .to_str()
                 .context("cannot inspect JDK_JAVA_OPTIONS while preparing a Java argument file")?;
@@ -197,16 +186,15 @@ pub async fn prepare_with_progress(
         executable,
         directory,
         environment,
-        arguments,
+        command,
         argument_file,
+        revision,
     })
 }
 
 fn validate_agents(arguments: &[String], directory: &Path, configured: &Path) -> Result<()> {
     let configured = agent_location(configured);
-    let mut probe = arguments.to_vec();
-    probe.push("mcpm.validation.Main".into());
-    for (name, _) in command::JavaCommand::parse(&probe)?.options() {
+    for (name, _) in command::jvm_options(arguments) {
         if let Some(path) = name.strip_prefix("-javaagent:") {
             let path = directory.join(path);
             let location = agent_location(&path);
@@ -244,94 +232,6 @@ fn agent_location(path: &Path) -> PathBuf {
         }
     }
     result
-}
-
-fn executable(
-    root: &Path,
-    value: &str,
-    environment: &BTreeMap<OsString, OsString>,
-) -> Result<PathBuf> {
-    if Path::new(value).is_absolute() || value.contains('/') || value.contains('\\') {
-        let path = root.join(value);
-        if !path.exists() {
-            return Err(ExecutableNotFound {
-                executable: value.into(),
-                remote: false,
-            }
-            .into());
-        }
-        ensure!(
-            is_executable(&path),
-            "configured Java executable does not exist or is not executable: {path:?}"
-        );
-        return Ok(std::fs::canonicalize(path)?);
-    }
-    let path = environment_value(environment, "PATH")
-        .ok_or_else(|| ExecutableNotFound {
-            executable: value.into(),
-            remote: false,
-        })
-        .context("Java command lookup requires PATH")?;
-    for directory in std::env::split_paths(path) {
-        let directory = if directory.is_absolute() {
-            directory
-        } else {
-            root.join(directory)
-        };
-        let candidate = directory.join(value);
-        if is_executable(&candidate) {
-            return Ok(std::fs::canonicalize(candidate)?);
-        }
-        #[cfg(windows)]
-        if Path::new(value).extension().is_none() {
-            let candidate = directory.join(format!("{value}.exe"));
-            if is_executable(&candidate) {
-                return Ok(std::fs::canonicalize(candidate)?);
-            }
-        }
-    }
-    Err(ExecutableNotFound {
-        executable: value.into(),
-        remote: false,
-    }
-    .into())
-}
-
-fn is_executable(path: &Path) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !metadata.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o111 == 0 {
-            return false;
-        }
-    }
-    #[cfg(windows)]
-    if !path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-    {
-        return false;
-    }
-    true
-}
-
-fn environment_value<'a>(
-    environment: &'a BTreeMap<OsString, OsString>,
-    key: &str,
-) -> Option<&'a OsStr> {
-    #[cfg(windows)]
-    return environment
-        .iter()
-        .find(|(name, _)| name.to_string_lossy().eq_ignore_ascii_case(key))
-        .map(|(_, value)| value.as_os_str());
-    #[cfg(not(windows))]
-    environment.get(OsStr::new(key)).map(OsString::as_os_str)
 }
 
 // Native values cross the transport only to return to their originating Host.

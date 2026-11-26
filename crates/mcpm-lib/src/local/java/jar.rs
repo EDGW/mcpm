@@ -41,10 +41,16 @@ pub(crate) fn read_text(archive: &mut Archive, member: &str) -> Result<Option<St
 }
 
 pub(crate) fn manifest(path: &Path) -> Result<HashMap<String, String>> {
+    manifest_with_content(path).map(|(attributes, _)| attributes)
+}
+
+/// Keeps the exact parsed document for callers checking an optimistic file revision.
+pub(crate) fn manifest_with_content(path: &Path) -> Result<(HashMap<String, String>, Vec<u8>)> {
     let bytes = read(path, "META-INF/MANIFEST.MF")?
         .with_context(|| format!("JAR {path:?} has no manifest"))?;
-    (|| attributes(std::str::from_utf8(&bytes)?))()
-        .with_context(|| format!("failed to parse META-INF/MANIFEST.MF in {path:?}"))
+    let attributes = (|| attributes(std::str::from_utf8(&bytes)?))()
+        .with_context(|| format!("failed to parse META-INF/MANIFEST.MF in {path:?}"))?;
+    Ok((attributes, bytes))
 }
 
 /// Main section only; continuations are unfolded and repeated names keep the last value.

@@ -18,6 +18,7 @@ mod matching;
 mod metadata;
 mod server;
 pub use error::FabricError;
+pub use server::supports_game_jar_property;
 
 #[derive(Debug, Default)]
 pub struct FabricLoader;

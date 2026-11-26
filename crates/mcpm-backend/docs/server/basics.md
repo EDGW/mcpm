@@ -15,10 +15,11 @@ and `no_git` are booleans.
 
 ## `server.info`
 
-Reads server identity, the historical startup snapshot, and whether `launch.toml` and `conf.toml`
-exist. Configuration files are checked only for presence; their contents are not parsed and no
-launch plan is generated. Missing or invalid registration returns an error, since there is no
-identity to report.
+Returns server name, path, Minecraft version, Loader and version, startup command, RCON status, and launch-configuration file presence. Missing or invalid registration returns an error.
+
+RCON uses `server.properties` in the server directory. Results distinguish Disabled, Enabled, invalid RCON fields, and an invalid properties document. Enabled contains only the port and a masked password: the first character plus `****` for passwords of at least two characters, otherwise `****`.
+
+`server.info`, `server.init`, `server.new`, Remote initialization preparation, and upgrade results share one complete server-information constructor. It reads configuration-file status and masked RCON information consistently. Pre-upgrade inspection of legacy registrations remains identity-only.
 
 ## `server.init.recognize`
 

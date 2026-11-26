@@ -5,6 +5,7 @@ use std::{collections::HashMap, path::PathBuf};
 use anyhow::{Context, Result};
 use mcpm_lib::local::{
     cache::mods::ModsCacheSelection,
+    mc::server::ServerLoader,
     mcmod::{
         ModFile,
         dependency::graph::{candidate::ExternalCandidate, identifier::DependencyIdentifier},
@@ -72,8 +73,14 @@ impl ScopeInput {
                 let container = server
                     .mods()
                     .with_context(|| match &server.metadata().loader {
-                        None => format!("server {:?} has no declared mod loader", server.path()),
-                        Some(loader) => format!(
+                        ServerLoader::Vanilla => format!(
+                            "server {:?} is Vanilla and has no mod loader",
+                            server.path()
+                        ),
+                        ServerLoader::Unrecognized => {
+                            format!("server {:?} has an unrecognized loader", server.path())
+                        }
+                        ServerLoader::Modded(loader) => format!(
                             "server {:?} declares unsupported mod loader {:?}",
                             server.path(),
                             loader.loader_type

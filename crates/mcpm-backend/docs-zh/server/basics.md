@@ -19,9 +19,11 @@
 
 ## `server.info`
 
-返回服务端的名称、路径、Minecraft 版本、Loader 及版本、启动命令，以及 `launch.toml`、`conf.toml`
-是否存在。这两个配置文件只确认是否存在，不读取内容，因此结果不代表启动一定能成功。登记缺失或损坏时报错，
-因为没有身份可报告。
+返回服务端名称、路径、Minecraft 版本、Loader 及版本、启动命令、RCON 状态以及启动配置文件是否存在。登记缺失或损坏时报错。
+
+RCON 使用服务端目录的 `server.properties`。结果区分 Disabled、Enabled、RCON 字段解析失败和 properties 文件解析失败；Enabled 仅携带端口及脱敏密码。密码至少有两个字符时返回首字符加 `****`，否则返回 `****`。
+
+`server.info`、`server.init`、`server.new`、Remote 初始化准备和升级结果共用完整的服务端信息构造入口，统一读取配置文件状态和脱敏 RCON 信息。旧登记的升级前检查仍只读取身份。
 
 ## `server.init.recognize`
 

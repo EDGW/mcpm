@@ -3,7 +3,7 @@
 use super::super::ServerLaunch;
 
 use super::{
-    java,
+    ScriptPolicy, SkippedStatement, UncertainScriptState, java,
     tokens::{self, Syntax},
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -17,27 +17,47 @@ use thiserror::Error;
 #[derive(Clone, Debug)]
 struct State {
     cwd: PathBuf,
-    cwd_known: bool,
-    vars: HashMap<String, String>,
+    cwd_lost_at: Option<UncertainScriptState>,
+    variables: Variables,
     directories: Vec<PathBuf>,
-    scopes: Vec<HashMap<String, String>>,
+    scopes: Vec<Variables>,
     exported: HashSet<String>,
     shell_script: PathBuf,
     shell_directory: PathBuf,
 }
+
+#[derive(Clone, Debug, Default)]
+struct Variables {
+    values: HashMap<String, String>,
+    lost_at: HashMap<String, UncertainScriptState>,
+}
+
+type Location<'a> = (&'a Path, usize);
+
+fn lost_at((script, line): Location<'_>) -> UncertainScriptState {
+    UncertainScriptState {
+        script: script.to_owned(),
+        line,
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("script working directory is unknown")]
+struct UnknownWorkingDirectory;
 
 /// Independent command evidence and diagnostics; one failure never erases earlier launches.
 #[derive(Default, Debug)]
 pub(super) struct ScriptEvidence {
     pub launches: Vec<ServerLaunch>,
     pub diagnostics: Vec<anyhow::Error>,
+    pub blocked_launch: Option<anyhow::Error>,
 }
 
-pub(super) fn read(root: &Path, path: &Path) -> ScriptEvidence {
+pub(super) fn read(root: &Path, path: &Path, policy: &mut ScriptPolicy<'_>) -> ScriptEvidence {
     let mut state = State {
         cwd: root.to_owned(),
-        cwd_known: true,
-        vars: HashMap::new(),
+        cwd_lost_at: None,
+        variables: Variables::default(),
         directories: vec![],
         scopes: vec![],
         exported: HashSet::new(),
@@ -45,7 +65,7 @@ pub(super) fn read(root: &Path, path: &Path) -> ScriptEvidence {
         shell_directory: root.to_owned(),
     };
     let mut evidence = ScriptEvidence::default();
-    if let Err(error) = visit(path, &mut state, &mut HashSet::new(), &mut evidence) {
+    if let Err(error) = visit(path, &mut state, &mut HashSet::new(), &mut evidence, policy) {
         evidence.diagnostics.push(error);
     }
     evidence
@@ -56,11 +76,12 @@ fn visit(
     state: &mut State,
     stack: &mut HashSet<PathBuf>,
     evidence: &mut ScriptEvidence,
+    policy: &mut ScriptPolicy<'_>,
 ) -> Result<bool> {
     tracing::debug!(?path, "reading server start script");
     let canonical =
         fs::canonicalize(path).with_context(|| format!("failed to resolve script {path:?}"))?;
-    if stack.len() >= 32 || !stack.insert(canonical.clone()) {
+    if stack.len() >= 32 || stack.contains(&canonical) {
         return Err(ScriptError::Cycle {
             path: path.to_owned(),
         }
@@ -69,13 +90,22 @@ fn visit(
     let syntax = match path.extension().and_then(|s| s.to_str()) {
         Some(s) if s.eq_ignore_ascii_case("bat") || s.eq_ignore_ascii_case("cmd") => Syntax::Batch,
         Some("sh") => Syntax::Shell,
-        _ => bail!("unsupported script extension: {path:?}; expected .sh, .bat, or .cmd"),
+        _ => {
+            return Err(ScriptError::Extension {
+                path: path.to_owned(),
+            }
+            .into());
+        }
     };
-    let input =
-        fs::read_to_string(path).with_context(|| format!("failed to read script {path:?}"))?;
+    let input = fs::read_to_string(path).map_err(|source| ScriptError::Read {
+        path: path.to_owned(),
+        source,
+    })?;
+    stack.insert(canonical.clone());
     let mut joined = String::new();
     let mut first_line = 1;
     let mut terminated = false;
+    let mut blocks = Blocks::default();
     for (index, line) in input.trim_start_matches('\u{feff}').lines().enumerate() {
         if joined.is_empty() {
             first_line = index + 1;
@@ -92,18 +122,54 @@ fn visit(
             continue;
         }
         joined.push_str(line);
-        let stop = match statement(&joined, path, first_line, syntax, state, stack, evidence) {
-            Ok(stop) => stop,
-            Err(source) => {
-                let stop = invalidate(&joined, syntax, state);
-                let error = ScriptError::Statement {
-                    path: path.to_owned(),
-                    line: first_line,
-                    source,
-                };
-                tracing::debug!(error = %format_args!("{error:#}"), "skipping unavailable script evidence");
-                evidence.diagnostics.push(error.into());
-                stop
+        let mut inspected = tokens::inspect(clean_line(&joined, syntax), syntax);
+        let in_block = !blocks.shell.is_empty() || blocks.batch_depth > 0;
+        let skipped_block = blocks.skip(&mut inspected.parts, syntax);
+        let location = (path, first_line);
+        let stop = if skipped_block || inspected.unsupported {
+            match policy {
+                ScriptPolicy::Strict => {
+                    invalidate(&inspected.parts, syntax, state, !skipped_block, location)
+                }
+                ScriptPolicy::KeepKnownState(warnings) => {
+                    if !in_block {
+                        warn_skipped(warnings, location, "unsupported script syntax");
+                    }
+                    false
+                }
+            }
+        } else {
+            match statement(
+                &joined, path, first_line, syntax, state, stack, evidence, policy,
+            ) {
+                Ok(stop) => stop,
+                Err(source) => {
+                    let origin = match policy {
+                        ScriptPolicy::Strict => {
+                            blocked_by_state(&source, &inspected.parts, syntax, state)
+                        }
+                        ScriptPolicy::KeepKnownState(warnings) => {
+                            warn_skipped(warnings, location, format!("{source:#}"));
+                            None
+                        }
+                    };
+                    let error = ScriptError::Statement {
+                        path: path.to_owned(),
+                        line: first_line,
+                        source,
+                    };
+                    tracing::debug!(error = %format_args!("{error:#}"), "skipping unavailable script evidence");
+                    if let Some(origin) = origin {
+                        if evidence.blocked_launch.is_none() {
+                            evidence.blocked_launch =
+                                Some(anyhow::Error::new(error).context(origin));
+                        }
+                    } else {
+                        evidence.diagnostics.push(error.into());
+                    }
+                    matches!(policy, ScriptPolicy::Strict)
+                        && invalidate(&inspected.parts, syntax, state, true, location)
+                }
             }
         };
         joined.clear();
@@ -113,12 +179,75 @@ fn visit(
         }
     }
     if !joined.is_empty() {
-        evidence.diagnostics.push(anyhow::anyhow!(
-            "unfinished script continuation in {path:?}"
-        ));
+        if let ScriptPolicy::KeepKnownState(warnings) = policy {
+            warn_skipped(
+                warnings,
+                (path, first_line),
+                "unfinished script continuation",
+            );
+        }
+        evidence.diagnostics.push(
+            ScriptError::Continuation {
+                path: path.to_owned(),
+                line: first_line,
+            }
+            .into(),
+        );
     }
     stack.remove(&canonical);
     Ok(terminated)
+}
+
+fn warn_skipped(
+    warnings: &mut Vec<SkippedStatement>,
+    (script, line): Location<'_>,
+    reason: impl Into<String>,
+) {
+    warnings.push(SkippedStatement {
+        script: script.to_owned(),
+        line,
+        reason: reason.into(),
+    });
+}
+
+fn blocked_by_state(
+    source: &anyhow::Error,
+    parts: &[tokens::Part<'_>],
+    syntax: Syntax,
+    state: &State,
+) -> Option<UncertainScriptState> {
+    if source.is::<UnknownWorkingDirectory>() {
+        return state.cwd_lost_at.clone();
+    }
+    let variable = source.downcast_ref::<tokens::UnresolvedVariable>()?;
+    let origin = state.variables.lost_at.get(&variable.name)?;
+    let parts = match parts {
+        [tokens::Part::Word("exec"), rest @ ..] if syntax == Syntax::Shell => rest,
+        _ => parts,
+    };
+    let Some(tokens::Part::Word(executable)) = parts.first() else {
+        return None;
+    };
+    let words = tokens::split(
+        executable,
+        syntax,
+        &state.variables.values,
+        &state.shell_script,
+    )
+    .ok()?;
+    words
+        .first()
+        .is_some_and(|word| is_java(word, syntax))
+        .then(|| origin.clone())
+}
+
+fn is_java(command: &str, syntax: Syntax) -> bool {
+    let binary = command.rsplit(['/', '\\']).next().unwrap();
+    if syntax == Syntax::Batch {
+        binary.eq_ignore_ascii_case("java") || binary.eq_ignore_ascii_case("java.exe")
+    } else {
+        matches!(binary, "java" | "java.exe")
+    }
 }
 
 fn statement(
@@ -129,6 +258,7 @@ fn statement(
     state: &mut State,
     stack: &mut HashSet<PathBuf>,
     evidence: &mut ScriptEvidence,
+    policy: &mut ScriptPolicy<'_>,
 ) -> Result<bool> {
     let line = line.trim();
     if line.is_empty() || (syntax == Syntax::Shell && line.starts_with('#')) {
@@ -146,30 +276,14 @@ fn statement(
         return Ok(false);
     }
     let head = lower.split_whitespace().next().unwrap_or("");
-    if !tokens::has_operators(line, syntax)
-        && matches!(
-            (syntax, head),
-            (Syntax::Shell, "echo" | "printf") | (Syntax::Batch, "echo" | "pause")
-        )
-    {
+    if matches!(
+        (syntax, head),
+        (Syntax::Shell, "echo" | "printf") | (Syntax::Batch, "echo" | "pause")
+    ) {
         return Ok(false);
     }
-    if matches!(
-        head,
-        "if" | "for"
-            | "while"
-            | "until"
-            | "case"
-            | "select"
-            | "goto"
-            | "else"
-            | "fi"
-            | "done"
-            | "do"
-            | "("
-    ) || head.ends_with("()")
-    {
-        bail!("control flow are unsupported for evidence extraction");
+    if syntax == Syntax::Batch && (head == "goto" || head.starts_with(':')) {
+        return Ok(false);
     }
     if matches!(head, "exit" | "return") {
         return Ok(true);
@@ -213,28 +327,31 @@ fn statement(
             .split_once('=')
             .ok_or_else(|| anyhow::anyhow!("expected literal variable assignment"))?;
         ensure!(valid_name(name), "unsupported variable assignment");
-        let values = tokens::split(value, syntax, &state.vars, expansion_script);
+        let mut values = tokens::split(value, syntax, &state.variables.values, expansion_script)?;
+        ensure!(
+            values.len() <= 1,
+            "variable assignment needs one literal value"
+        );
         let name = if syntax == Syntax::Batch {
             name.to_ascii_uppercase()
         } else {
             name.to_owned()
         };
-        state.vars.remove(&name);
-        let values = values?;
-        ensure!(
-            values.len() <= 1,
-            "variable assignment needs one literal value"
-        );
-        state
-            .vars
-            .insert(name.clone(), values.first().cloned().unwrap_or_default());
+        state.variables.lost_at.remove(&name);
+        let value = values.pop().unwrap_or_default();
         if syntax == Syntax::Shell && line.starts_with("export ") {
-            state.exported.insert(name);
+            state.exported.insert(name.clone());
         }
+        state.variables.values.insert(name, value);
         return Ok(false);
     }
     if syntax == Syntax::Shell && line.starts_with("export ") {
-        let names = tokens::split(&line[7..], syntax, &state.vars, expansion_script)?;
+        let names = tokens::split(
+            &line[7..],
+            syntax,
+            &state.variables.values,
+            expansion_script,
+        )?;
         ensure!(
             !names.is_empty() && names.iter().all(|name| valid_name(name)),
             "unsupported export declaration"
@@ -248,10 +365,9 @@ fn statement(
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or("");
-    if !tokens::has_operators(line, syntax)
-        && raw_head
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || "_./\\-".contains(ch))
+    if raw_head
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || "_./\\-".contains(ch))
         && !matches!(binary.to_ascii_lowercase().as_str(), "java" | "java.exe")
         && !matches!(
             head,
@@ -284,7 +400,7 @@ fn statement(
     if matches!(head, "eval" | "read" | "shift" | "unset") {
         bail!("cannot extract state changes from {head}");
     }
-    let mut words = tokens::split(line, syntax, &state.vars, expansion_script)?;
+    let mut words = tokens::split(line, syntax, &state.variables.values, expansion_script)?;
     if words.is_empty() {
         return Ok(false);
     }
@@ -305,12 +421,12 @@ fn statement(
     }
     if syntax == Syntax::Batch && command == "setlocal" {
         ensure!(words.len() == 1, "setlocal options are unsupported");
-        state.scopes.push(state.vars.clone());
+        state.scopes.push(state.variables.clone());
         return Ok(false);
     }
     if syntax == Syntax::Batch && command == "endlocal" {
         ensure!(words.len() == 1, "unsupported endlocal arguments");
-        state.vars = state
+        state.variables = state
             .scopes
             .pop()
             .ok_or_else(|| anyhow::anyhow!("unmatched endlocal"))?;
@@ -330,15 +446,15 @@ fn statement(
             args[0].to_owned()
         };
         ensure!(
-            state.cwd_known || Path::new(&value).is_absolute(),
+            state.cwd_lost_at.is_none() || Path::new(&value).is_absolute(),
             "script working directory is unknown"
         );
         let new = state.cwd.join(value);
-        if command == "pushd" && state.cwd_known {
+        if command == "pushd" && state.cwd_lost_at.is_none() {
             state.directories.push(state.cwd.clone());
         }
         state.cwd = new;
-        state.cwd_known = true;
+        state.cwd_lost_at = None;
         return Ok(false);
     }
     if command == "popd" {
@@ -347,14 +463,14 @@ fn statement(
             .directories
             .pop()
             .ok_or_else(|| anyhow::anyhow!("unmatched popd"))?;
+        state.cwd_lost_at = None;
         return Ok(false);
     }
     if matches!(command.as_str(), "exit" | "return") {
         return Ok(true);
     }
-    let binary = command.rsplit(['/', '\\']).next().unwrap();
-    if matches!(binary, "java" | "java.exe") {
-        ensure!(state.cwd_known, "script working directory is unknown");
+    if is_java(&command, syntax) {
+        ensure!(state.cwd_lost_at.is_none(), UnknownWorkingDirectory);
         evidence.launches.push(java::parse(
             state.cwd.clone(),
             path.to_owned(),
@@ -363,13 +479,14 @@ fn statement(
             words[0].clone(),
             words[1..].to_vec(),
             state
-                .vars
+                .variables
+                .values
                 .iter()
                 .filter(|(name, _)| syntax == Syntax::Batch || state.exported.contains(*name))
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
         )?);
-        return Ok(exec);
+        return Ok(false);
     }
     let reference = matches!(
         (syntax, command.as_str()),
@@ -426,7 +543,7 @@ fn statement(
     );
     if matches!(command.as_str(), "source" | "." | "call") {
         ensure!(!exec, "exec of shell builtins is unsupported");
-        let terminated = visit(&child, state, stack, evidence)?;
+        let terminated = visit(&child, state, stack, evidence, policy)?;
         if syntax == Syntax::Shell {
             return Ok(terminated);
         }
@@ -436,69 +553,339 @@ fn statement(
             child_state.shell_script = child.clone();
             child_state.shell_directory = state.cwd.clone();
             child_state
-                .vars
+                .variables
+                .values
+                .retain(|name, _| child_state.exported.contains(name));
+            child_state
+                .variables
+                .lost_at
                 .retain(|name, _| child_state.exported.contains(name));
         }
-        visit(&child, &mut child_state, stack, evidence)?;
+        visit(&child, &mut child_state, stack, evidence, policy)?;
     }
     Ok(exec || (syntax == Syntax::Batch && !reference))
 }
 
-/// Discard only affected state. Unknown control flow ends this script scan because
-/// subsequent lines may be conditional; commands already extracted remain available.
-fn invalidate(line: &str, syntax: Syntax, state: &mut State) -> bool {
-    let line = line.trim().trim_start_matches('@');
-    let lower = line.to_ascii_lowercase();
-    let head = lower.split_whitespace().next().unwrap_or("");
-    if tokens::has_operators(line, syntax) {
-        state.vars.clear();
-        state.cwd_known = false;
-        state.directories.clear();
-        state.scopes.clear();
-        return true;
-    }
-    if matches!(head, "cd" | "chdir" | "pushd" | "popd") {
-        state.cwd_known = false;
-        state.directories.clear();
-        return false;
-    }
-    let assignment = if syntax == Syntax::Batch {
-        line.strip_prefix("set ")
-            .or_else(|| line.strip_prefix("SET "))
-    } else {
-        Some(line.strip_prefix("export ").unwrap_or(line))
-    };
-    if let Some((name, _)) = assignment.and_then(|value| value.trim_matches('"').split_once('='))
-        && valid_name(name)
-    {
-        let name = if syntax == Syntax::Batch {
-            name.to_ascii_uppercase()
+/// Remove comments and the batch echo-suppression prefix before structural inspection.
+fn clean_line(line: &str, syntax: Syntax) -> &str {
+    let line = line.trim();
+    if syntax == Syntax::Batch {
+        let line = line.strip_prefix('@').unwrap_or(line);
+        let head = line.split_whitespace().next().unwrap_or("");
+        if head.eq_ignore_ascii_case("rem") || line.starts_with("::") {
+            ""
         } else {
-            name.to_owned()
-        };
-        state.vars.remove(&name);
+            line
+        }
+    } else {
+        line
+    }
+}
+
+/// Only enough control structure to skip complete unsupported blocks, never evaluate them.
+#[derive(Default)]
+struct Blocks {
+    shell: Vec<(&'static str, bool)>,
+    batch_depth: usize,
+}
+impl Blocks {
+    fn skip(&mut self, parts: &mut [tokens::Part<'_>], syntax: Syntax) -> bool {
+        use tokens::Part;
+        if syntax == Syntax::Batch {
+            let head = parts
+                .first()
+                .and_then(|part| match part {
+                    Part::Word(word) => Some(*word),
+                    _ => None,
+                })
+                .unwrap_or("");
+            let conditional = head.eq_ignore_ascii_case("if");
+            let starts = (conditional || head.eq_ignore_ascii_case("for"))
+                && parts.iter().any(|part| matches!(part, Part::Operator("(")));
+            let skip = self.batch_depth > 0 || starts || conditional;
+            if skip {
+                for part in parts {
+                    match part {
+                        Part::Operator("(") => self.batch_depth += 1,
+                        Part::Operator(")") => {
+                            self.batch_depth = self.batch_depth.saturating_sub(1)
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            return skip;
+        }
+        let mut skip = !self.shell.is_empty();
+        let mut head = true;
+        let mut redirected = false;
+        for part in parts {
+            match part {
+                part if part.is_redirection() => redirected = true,
+                Part::Operator(operator) => {
+                    if let Some(("esac", pattern)) = self.shell.last_mut() {
+                        if *operator == ")" {
+                            *pattern = false;
+                        }
+                        if *operator == ";;" {
+                            *pattern = true;
+                        }
+                    }
+                    head = true;
+                }
+                Part::Word(_) if redirected => redirected = false,
+                Part::Word(word)
+                    if self.shell.last() == Some(&("esac", true)) && *word != "esac" =>
+                {
+                    *word = "";
+                }
+                Part::Word(word) if head => {
+                    head = false;
+                    match *word {
+                        "if" => {
+                            self.shell.push(("fi", false));
+                            skip = true;
+                        }
+                        "for" | "while" | "until" => {
+                            self.shell.push(("done", false));
+                            skip = true;
+                        }
+                        "case" => {
+                            self.shell.push(("esac", true));
+                            skip = true;
+                        }
+                        "fi" | "done" | "esac" => {
+                            if self.shell.last().is_some_and(|(end, _)| end == word) {
+                                self.shell.pop();
+                            }
+                            skip = true;
+                        }
+                        "then" | "do" | "else" | "elif" => {
+                            head = true;
+                            skip = true;
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        skip
+    }
+}
+
+/// Discard only state that a skipped command might modify; never interpret its arguments.
+fn invalidate(
+    parts: &[tokens::Part<'_>],
+    syntax: Syntax,
+    state: &mut State,
+    exits: bool,
+    location: Location<'_>,
+) -> bool {
+    use tokens::Part;
+    let mut begin = 0;
+    let mut conditional = false;
+    let mut stop = false;
+    let mut depth = 0usize;
+    for index in 0..=parts.len() {
+        if index == parts.len()
+            || matches!(
+                parts[index],
+                Part::Operator(";" | ";;" | "&&" | "||" | "|" | "&" | "(" | ")")
+            )
+        {
+            let words = &parts[begin..index];
+            let asynchronous = matches!(parts.get(index), Some(Part::Operator("|" | "&")));
+            stop |= invalidate_command(words, syntax, state, location)
+                && exits
+                && !conditional
+                && depth == 0
+                && !asynchronous;
+            if let Some(Part::Operator(operator)) = parts.get(index) {
+                match *operator {
+                    ";" if depth == 0 => conditional = false,
+                    "(" => {
+                        depth += 1;
+                    }
+                    ")" => {
+                        depth = depth.saturating_sub(1);
+                    }
+                    "&&" | "||" | "|" | "&" => conditional = true,
+                    _ => {}
+                }
+            }
+            begin = index + 1;
+        }
+    }
+    stop
+}
+
+fn invalidate_command(
+    parts: &[tokens::Part<'_>],
+    syntax: Syntax,
+    state: &mut State,
+    location: Location<'_>,
+) -> bool {
+    use tokens::Part;
+    if parts.iter().any(tokens::Part::is_redirection) {
+        let mut command = Vec::new();
+        let mut parts = parts.iter();
+        while let Some(part) = parts.next() {
+            match part {
+                part if part.is_redirection() => {
+                    parts.next();
+                }
+                Part::Word(word) => command.push(Part::Word(word)),
+                _ => {}
+            }
+        }
+        return invalidate_command(&command, syntax, state, location);
+    }
+    let Some(Part::Word(raw)) = parts.first() else {
         return false;
+    };
+    // Decode only the command word, never the skipped launch's argument region.
+    let decoded = tokens::split(raw, syntax, &state.variables.values, &state.shell_script)
+        .unwrap_or_default();
+    let command = decoded.first().map(String::as_str).unwrap_or(raw);
+    let command = if syntax == Syntax::Batch {
+        command.to_ascii_lowercase()
+    } else {
+        command.to_owned()
+    };
+    let args = &parts[1..];
+    if syntax == Syntax::Batch && command == "if" {
+        return invalidate_batch_condition(args, state, location);
     }
     if matches!(
-        head,
-        "setlocal" | "endlocal" | "unset" | "export" | "set" | "read" | "shift"
+        command.as_str(),
+        "then" | "do" | "else" | "elif" | "if" | "while" | "until" | "exec" | "!"
     ) {
-        state.vars.clear();
-        state.scopes.clear();
-        return false;
+        return invalidate_command(args, syntax, state, location);
     }
-    let binary = head.rsplit(['/', '\\']).next().unwrap_or(head);
-    if !tokens::has_operators(line, syntax)
-        && (matches!(binary, "java" | "java.exe") || head == "exec")
+    if matches!(command.as_str(), "cd" | "chdir" | "pushd" | "popd") {
+        state.cwd_lost_at.get_or_insert_with(|| lost_at(location));
+        if matches!(command.as_str(), "pushd" | "popd") {
+            state.directories.clear();
+        }
+    }
+    let extension = Path::new(command.as_str())
+        .extension()
+        .and_then(|s| s.to_str());
+    if matches!(
+        command.as_str(),
+        "source" | "." | "call" | "sh" | "bash" | "eval"
+    ) || matches!(extension, Some("sh" | "bat" | "cmd"))
     {
-        return false;
+        state.cwd_lost_at.get_or_insert_with(|| lost_at(location));
+        state.directories.clear();
+        forget_all_variables(&mut state.variables, location);
+        state.scopes.clear();
+    } else if matches!(command.as_str(), "setlocal" | "endlocal" | "read" | "shift") {
+        forget_all_variables(&mut state.variables, location);
+        state.scopes.clear();
+    } else if matches!(command.as_str(), "export" | "unset" | "set" | "for") {
+        if command == "set" && args.is_empty() {
+            return false;
+        }
+        if syntax == Syntax::Batch
+            && command == "set"
+            && matches!(args.first(), Some(Part::Word("/a" | "/A")))
+        {
+            // Arithmetic may assign several names; discard involved identifiers without evaluating it.
+            for part in &args[1..] {
+                if let Part::Word(expression) = part {
+                    for name in
+                        expression.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+                    {
+                        forget_variable(name, syntax, state, location);
+                    }
+                }
+            }
+            return false;
+        }
+        let args = if syntax == Syntax::Batch
+            && command == "set"
+            && matches!(args.first(), Some(Part::Word("/p" | "/P" | "/a" | "/A")))
+        {
+            &args[1..]
+        } else {
+            args
+        };
+        for part in args {
+            let Part::Word(word) = part else {
+                continue;
+            };
+            let word = word.trim_matches(['\'', '"']);
+            let name = word.split_once('=').map_or(word, |(name, _)| name);
+            if command == "for" && matches!(name, "in" | "do") {
+                break;
+            }
+            forget_variable(name, syntax, state, location);
+            if command == "set" || command == "for" {
+                break;
+            }
+        }
+    } else if let Some((name, _)) = raw.split_once('=') {
+        forget_variable(name, syntax, state, location);
+        // Prefix assignments may be followed by a command with its own side effects.
+        invalidate_command(args, syntax, state, location);
     }
-    // Unknown syntax or a script reference may modify both variables and cwd.
-    state.vars.clear();
-    state.cwd_known = false;
-    state.directories.clear();
-    state.scopes.clear();
-    true
+    matches!(command.as_str(), "exit" | "return")
+}
+
+/// Locate the command after a batch IF condition without evaluating that condition.
+fn invalidate_batch_condition(
+    parts: &[tokens::Part<'_>],
+    state: &mut State,
+    location: Location<'_>,
+) -> bool {
+    use tokens::Part;
+    let mut parts = parts;
+    while matches!(parts.first(), Some(Part::Word(word)) if word.eq_ignore_ascii_case("/i") || word.eq_ignore_ascii_case("not"))
+    {
+        parts = &parts[1..];
+    }
+    let count = match parts.first() {
+        Some(Part::Word(word))
+            if word.eq_ignore_ascii_case("exist")
+                || word.eq_ignore_ascii_case("defined")
+                || word.eq_ignore_ascii_case("errorlevel")
+                || word.eq_ignore_ascii_case("cmdextversion") =>
+        {
+            2
+        }
+        Some(Part::Word(word)) if word.contains("==") => 1,
+        Some(Part::Word(_)) if parts.len() >= 3 => 3,
+        _ => return false,
+    };
+    if let Some(command) = parts.get(count..) {
+        invalidate_command(command, Syntax::Batch, state, location);
+    }
+    false
+}
+
+fn forget_variable(name: &str, syntax: Syntax, state: &mut State, location: Location<'_>) {
+    if !valid_name(name) {
+        return;
+    }
+    let name = if syntax == Syntax::Batch {
+        name.to_ascii_uppercase()
+    } else {
+        name.to_owned()
+    };
+    if state.variables.values.remove(&name).is_some() {
+        state.variables.lost_at.insert(name, lost_at(location));
+    }
+}
+
+fn forget_all_variables(variables: &mut Variables, location: Location<'_>) {
+    variables.lost_at.extend(
+        variables
+            .values
+            .drain()
+            .map(|(name, _)| (name, lost_at(location))),
+    );
 }
 
 fn valid_name(name: &str) -> bool {
@@ -517,6 +904,16 @@ pub(super) fn resolve(cwd: &Path, value: &str, syntax: Syntax) -> PathBuf {
 
 #[derive(Debug, Error)]
 enum ScriptError {
+    #[error("unsupported script extension: {path:?}; expected .sh, .bat, or .cmd")]
+    Extension { path: PathBuf },
+    #[error("unfinished script continuation in {path:?}:{line}")]
+    Continuation { path: PathBuf, line: usize },
+    #[error("failed to read script {path:?}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("cannot statically interpret start script {path:?}:{line}")]
     Statement {
         path: PathBuf,

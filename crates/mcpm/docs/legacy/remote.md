@@ -281,7 +281,7 @@ Malformed requests and server metadata loading failures use terminal `handler_fa
 
 `server.info`, `server.init.recognize`, `server.init`, and `server.init.prepare_remote` use the backend operation registry through `mcpmd`; they are not registered in the legacy protocol. Workspace inspection and stub registration are Shallow operations, executed locally even when the Executor targets a remote host. Git and all actual server preparation belong to Host operations.
 
-Recognition streams stage events followed by candidates containing their configuration drafts. Initialization streams stages followed by its committed result. Local execution uses the same types without serde; remote execution uses the existing operation framing. See [initialization behavior](server/init.md#remote-behavior) and the [execution layer](../../../mcpm-exec/README.md).
+Recognition streams stage events followed by candidates containing their configuration drafts. Initialization streams stages followed by its committed result. Local execution uses the same types without serde; remote execution uses the existing operation framing. See [initialization behavior](../server/basics.md#mcpm-init) and the [execution layer](../../../mcpm-exec/README.md).
 
 ## Registration and SSH
 

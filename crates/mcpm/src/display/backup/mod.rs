@@ -11,9 +11,11 @@ use mcpm_backend::operations::mods::backup::{
     Manifest, Outcome, VerifiedBackup,
 };
 use mcpm_lib::local::mcmod::backup::{ChecksumMismatch, Event, Stage, VerificationError};
+use mcpm_rich::rich;
 
 use super::{
     console::ConsoleWriter,
+    rich::block,
     size::size,
     style::{OutputStyle, text, tsv},
 };
@@ -192,11 +194,11 @@ pub(crate) fn deletion_result(
         )?;
         let mut fields = console.subwriter();
         let message = if deleted {
-            style.success("The backup was deleted successfully.")
+            rich!("[The backup was deleted successfully.](success)")
         } else {
-            style.danger("The backup could not be deleted.")
+            rich!("[The backup could not be deleted.](danger)")
         };
-        writeln!(fields, "{message}")?;
+        block(&mut fields, &message, &style)?;
     } else {
         if headers {
             writeln!(out, "backup\tstatus")?;

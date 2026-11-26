@@ -22,7 +22,7 @@ fn server(root: &Path, loader: &str) {
     fs::write(
         root.join(".mcpm/server.json"),
         serde_json::to_vec(&json!({
-            "version":2,"minecraft_version":"1.21.1","loader":{"type":loader,"version":"1.0"}
+            "version":4,"minecraft_version":"1.21.1","loader":{"type":loader,"version":"1.0"}
         }))
         .unwrap(),
     )

@@ -70,26 +70,29 @@ cargo test --manifest-path crates/mcpm/Cargo.toml --test server_init
 
 Success cases cover Forge, NeoForge, early NeoForge with Forge argument names,
 Forge shim, both Fabric installer layouts, vanilla and bundled vanilla,
-nested shell/BAT scripts, multiple identified entries, and ignored unknown JVM
+nested BAT scripts, multiple identified entries, and ignored unknown JVM
 options. The CLI tests copy each fixture to a temporary directory before writing.
 
-Forge/NeoForge identification uses the entry point and FML arguments without
-opening dependency JARs. Forge shim reads its embedded properties and dependency
-list for versions, without checking the listed JARs. The `loader-version-conflict`,
-`game-version-conflict`, `missing-loader`, and `fake-loader` fixtures now succeed:
-installation integrity is outside server identification. `fake-vanilla` also succeeds
-from its declared entry and version metadata without checking the class file;
-`partial-unknown` retains the known candidate alongside the unknown Java command.
+Forge/NeoForge identification combines launch options and referenced Maven paths
+without opening dependency JARs. The early NeoForge fixture uses the old Forge
+option name and a FancyModLoader path, without an explicit group. The Forge shim
+fixture obtains family and versions from its embedded list.
+Installation integrity is outside server identification. `fake-vanilla` also
+succeeds from its declared entry and version metadata without checking the class
+file; `partial-unknown` retains the known candidate alongside the unknown command.
+
+`loader-version-conflict` and `game-version-conflict` are historical examples;
+an FML component version or dependency JAR's game metadata is not a distribution
+version source. Distribution-coordinate conflicts and legacy Forge constants are
+covered in `mcpm-lib/tests/fml_server.rs`.
 
 Use `--log-level debug` to see scripts, argument-file expansion, identity evidence,
 and failure reasons; `info` shows identification progress and recognized versions.
 
-Failure examples are intentionally preserved for inspection:
+Failure fixtures used by the CLI suite:
 
 | Fixture | Reason initialization must fail |
 | --- | --- |
-| `dynamic-control` / `dynamic-batch` | Conditional launch selection cannot be resolved statically |
-| `dynamic-command` | Arbitrary command substitution is not executed |
 | `undefined-variable` / `unquoted-variable` | Unresolved expansion or shell word splitting |
 | `delayed-batch` | Delayed variable expansion is unsupported |
 | `cycle` / `argument-cycle` | Recursive script or nested Java argument-file reference |
@@ -100,9 +103,14 @@ Failure examples are intentionally preserved for inspection:
 | `client-target` | Client entry cannot initialize a production server |
 | `fabric-auto-missing-version` | Automatic launcher lacks loader version configuration |
 
-Every failure is also tried with `--force` to verify that the old configuration
+These failures are also tried with `--force` to verify that the old configuration
 survives. Multiple candidates are rejected in non-TTY/raw mode. Unknown JVM flags
 are retained in the full command and do not themselves cause rejection.
+
+`dynamic-control`, `dynamic-batch`, `dynamic-command`, and `nested-shell` remain
+manual inspection examples, not assertions of the old syntax-error behavior.
+Unsupported lines/blocks are skipped; command substitution is never evaluated.
+Scanner boundary regressions use minimal inline fixtures in `mcpm-lib/tests/server.rs`.
 
 Fabric server identification trusts declared loader/intermediary coordinates without
 opening dependency JARs. `fabric-version-conflict` succeeds using the intermediary

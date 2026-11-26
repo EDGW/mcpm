@@ -1,0 +1,8 @@
+[package]
+name = "mcpm-rich"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mcpm-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

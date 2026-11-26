@@ -5,13 +5,14 @@ use crate::{
         dependency::{format_details, text},
         style::OutputStyle,
     },
-    theme::{self, Role},
+    theme,
 };
 use anyhow::{Context, Result};
 use mcpm_backend::operations::mods::dep_graph::{
     CandidateSummary, CandidateView, Fold, MatchState, TreeLabel, ViewOutput,
 };
 use mcpm_lib::local::mcmod::dependency::DependencyKind;
+use mcpm_rich::Role;
 use owo_colors::Style;
 use std::io::Write;
 

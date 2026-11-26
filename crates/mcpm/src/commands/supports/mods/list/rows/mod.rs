@@ -1,9 +1,9 @@
 //! Shared semantic mod rows used by interactive and line-oriented renderers.
 
+use mcpm_rich::Role;
 use std::collections::HashSet;
 use std::ops::Range;
 
-use crate::theme::Role;
 use mcpm_lib::local::mcmod::ModEntry;
 use mcpm_lib::local::modloader::ModLoaderMeta;
 use unicode_width::UnicodeWidthStr;

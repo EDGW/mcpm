@@ -1,6 +1,6 @@
 //! Remote operations over a messaging session.
 //!
-#![doc = include_str!("../docs/operation.md")]
+#![doc = include_str!("../../docs/operation.md")]
 
 // Imports
 

@@ -29,7 +29,7 @@ use tokio::task::JoinSet;
 
 fn identity(version: &str) -> MinecraftServerMetadata {
     serde_json::from_value(
-        serde_json::json!({"version":3,"minecraft_version":version,"loader":null}),
+        serde_json::json!({"version":4,"minecraft_version":version,"loader":{"type":"vanilla"}}),
     )
     .unwrap()
 }
@@ -43,6 +43,8 @@ fn input(path: &Path, version: &str) -> Initialize {
         local: Some(LocalImport {
             configuration: None,
             replace_conf: false,
+            conf_overrides: Default::default(),
+            preserve_conf: false,
         }),
     }
 }
@@ -86,9 +88,7 @@ async fn recognition_is_read_only_and_transports_the_selected_configuration_draf
         &Recognize {
             path: root.path().into(),
             start_script: Some("run.sh".into()),
-            minecraft_version: None,
-            loader: None,
-            loader_version: None,
+            ignore_unknown_vars: false,
         },
     )
     .await
@@ -113,6 +113,8 @@ async fn recognition_is_read_only_and_transports_the_selected_configuration_draf
             local: Some(LocalImport {
                 configuration: candidate.configuration,
                 replace_conf: false,
+                conf_overrides: Default::default(),
+                preserve_conf: false,
             }),
         },
     )
@@ -222,7 +224,9 @@ async fn remote_stub_preparation_owns_host_git_and_shallow_registration_never_cr
     let original = fs::read(stub.path().join(".mcpm/server.json")).unwrap();
     assert!(
         Info::run(InfoInput {
-            path: stub.path().into()
+            path: stub.path().into(),
+            full_command: false,
+            allow_legacy: false,
         })
         .await
         .is_err()
@@ -234,7 +238,7 @@ async fn remote_stub_preparation_owns_host_git_and_shallow_registration_never_cr
 }
 
 #[tokio::test]
-async fn metadata_transport_keeps_foreign_argv_and_inspects_configuration_without_loading_it() {
+async fn metadata_transport_preserves_legacy_identity_without_loading_tuning() {
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().join("server ' $()");
     fs::create_dir_all(root.join(".mcpm")).unwrap();
@@ -253,21 +257,39 @@ async fn metadata_transport_keeps_foreign_argv_and_inspects_configuration_withou
     )
     .unwrap();
     let session = client().await;
-    let info = operation::call::<Info>(&session, &InfoInput { path: root.clone() })
-        .await
-        .unwrap();
+    let info = operation::call::<Info>(
+        &session,
+        &InfoInput {
+            path: root.clone(),
+            full_command: true,
+            allow_legacy: true,
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(info.path, root.display().to_string());
-    assert_eq!(info.loader.unwrap().id, "fabric");
-    let start = info.start.unwrap();
-    assert!(start.windows);
-    assert_eq!(start.executable, metadata["start"]["executable"]);
-    assert_eq!(
-        serde_json::to_value(start.arguments).unwrap(),
-        metadata["start"]["arguments"]
+    let mcpm_backend::operations::server::info::ServerLoaderInfo::Modded(loader) = info.loader
+    else {
+        panic!("expected retained Fabric declaration");
+    };
+    assert_eq!(loader.id, "fabric");
+    assert_eq!(loader.version, "0.16.10");
+    assert_eq!(info.metadata_version, 1);
+    assert!(info.start.is_none());
+    assert!(info.configuration.is_none());
+    assert!(info.upgrade_required.is_some());
+    assert!(
+        operation::call::<Info>(
+            &session,
+            &InfoInput {
+                path: root.clone(),
+                full_command: false,
+                allow_legacy: false,
+            }
+        )
+        .await
+        .is_err()
     );
-    let configuration = info.configuration.unwrap();
-    assert!(configuration.conf);
-    assert!(!configuration.launch);
     assert_eq!(fs::read(root.join(".mcpm/server.json")).unwrap(), bytes);
     assert!(!root.join("escaped").exists());
 }

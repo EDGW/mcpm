@@ -1,8 +1,9 @@
 //! Terminal summaries for mod files excluded by loader selection.
 
+use mcpm_rich::Role;
 use std::io::{self, Write};
 
-use crate::theme::{self, Role};
+use crate::theme;
 
 use crate::{display::console::ConsoleWriter, terminal};
 

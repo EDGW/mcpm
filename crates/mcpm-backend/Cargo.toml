@@ -1,6 +1,6 @@
 [package]
 name = "mcpm-backend"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 
 [dependencies]
@@ -8,6 +8,7 @@ anyhow = { workspace = true }
 blake3 = { workspace = true }
 mcpm-exec = { workspace = true }
 mcpm-lib = { workspace = true }
+mcpm-rich = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }

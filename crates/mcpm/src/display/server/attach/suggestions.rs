@@ -1,7 +1,8 @@
 //! Session-local help catalog, command completion and opt-in argument assistance.
 
 use super::command_hints::{Diagnostic, Handler, Query};
-use crate::theme::{Role, widgets::style};
+use crate::theme::widgets::style;
+use mcpm_rich::Role;
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},

@@ -41,27 +41,31 @@ pub(crate) enum CommandOutcome {
     Exited(u32),
 }
 
-pub(crate) fn run(command: Command, ssh: crate::ssh::SshArgs) -> Result<CommandOutcome> {
+pub(crate) fn run(
+    command: Command,
+    ssh: crate::ssh::SshArgs,
+    program: crate::program::Program,
+) -> Result<CommandOutcome> {
     ssh.validate()?;
-    if ssh.is_requested()
-        && !matches!(
-            command,
-            Command::Mods(_) | Command::Server(_) | Command::Cache(_)
-        )
-    {
+    let supports_ssh = match &command {
+        Command::Mods(_) | Command::Server(_) | Command::Cache(_) => true,
+        Command::Debug(args) => args.supports_ssh(),
+        Command::Customize(_) | Command::Client(_) => false,
+    };
+    if ssh.is_requested() && !supports_ssh {
         anyhow::bail!(
-            "--ssh and --ssh-mcpmd are supported by {} cache/mods and {} init/info/stash/mods",
+            "--ssh and --ssh-mcpmd are supported by {} cache/mods/debug lock and {} init/info/stash/mods",
             crate::program::roots().tools,
             crate::program::roots().server
         );
     }
     let result = match command {
         Command::Customize(args) => customize::run(args),
-        Command::Debug(args) => debug::run(args),
+        Command::Debug(args) => debug::run(args, ssh, program),
         Command::Mods(args) => mods::run(args, ssh),
         Command::Client(args) => client::run(args),
         Command::Cache(args) => cache::run(args, ssh),
-        Command::Server(args) => return server::run(args, ssh),
+        Command::Server(args) => return server::run(args, ssh, program),
     };
     result.map(|()| CommandOutcome::Completed)
 }

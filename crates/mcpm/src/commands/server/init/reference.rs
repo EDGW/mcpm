@@ -18,6 +18,7 @@ pub(super) async fn create(
     force: bool,
     no_git: bool,
     git: bool,
+    full_command: bool,
 ) -> Result<Initialized> {
     let connection = ssh
         .explicit_connection()?
@@ -25,13 +26,25 @@ pub(super) async fn create(
     let (executor, host_path, _) = ssh
         .create_executor(Some(PathBuf::from(&remote_path)))
         .await?;
-    let initialized = executor
+    let host_path = host_path.context("remote server requires a path")?;
+    let mut initialized = executor
         .call::<PrepareRemote>(PrepareRemoteInput {
-            path: host_path.context("remote server requires a path")?,
+            path: host_path.clone(),
             no_git,
             git,
         })
         .await?;
+    if full_command {
+        initialized.server = executor
+            .call::<mcpm_backend::operations::server::info::Info>(
+                mcpm_backend::operations::server::info::InfoInput {
+                    path: host_path,
+                    full_command: true,
+                    allow_legacy: false,
+                },
+            )
+            .await?;
+    }
     executor
         .call::<RegisterRemote>(RegisterRemoteInput {
             path,

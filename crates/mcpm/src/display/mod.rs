@@ -8,6 +8,7 @@ pub(crate) mod dependency;
 pub(crate) mod digest;
 pub(crate) mod error;
 pub(crate) mod mod_meta;
+pub(crate) mod rich;
 pub(crate) mod size;
 pub(crate) mod source_match;
 pub(crate) mod stash;

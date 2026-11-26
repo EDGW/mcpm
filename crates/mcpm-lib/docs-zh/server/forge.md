@@ -1,32 +1,31 @@
-# Forge · NeoForge 识别流程
+# Forge / NeoForge 服务端识别
 
-识别逻辑位于 `mcpm-lib`，输入为静态解析得到的 `ServerLaunch`。整个过程不执行脚本、Java 或安装器，也不下载依赖。
+识别从启动脚本静态解析出的 `ServerLaunch` 开始，证据来自启动参数、启动 JAR 的元数据和命令直接引用的路径。
 
-- `Ok(Some(identity))`：识别成功，返回 Minecraft 版本和 loader 版本。
-- `Ok(None)`：当前检测器不处理该入口或家族。
-- `Err`：必要证据缺失、冲突或无法读取。上层跳过当前 launch，保留其他已识别候选。
+图中 `Ok(Some(identity))` 表示识别成功，`Ok(None)` 表示当前检测器不认领，`Err` 表示当前启动命令的证据无法解析、缺失或冲突。有其他已识别的候选时，上层仍会保留它们。
 
-## Forge / NeoForge 通用分发
+## 识别流程
 
-![Forge 与 NeoForge 两个独立入口，以及后续的 FML 家族判断、启动声明检查和版本识别流程](diagrams/forge-neoforge-dispatch.svg)
+![Forge / NeoForge 服务端识别：从主类分流，分别读取 Shim、ServerMain 或旧版 Forge 的证据，再按对应规则返回身份](diagrams/forge-neoforge-dispatch.svg)
 
-相关实现：
+相同编号连接同一张图里的分流出口与后续入口。报错使用代码原文；花括号是格式参数。
 
-- [`forge::server::identify`](../../src/local/modloader/impls/fml/forge/server.rs)：Forge 入口，单独分流 Shim。
-- [`neoforge::server::identify`](../../src/local/modloader/impls/fml/neoforge/server.rs)：NeoForge 入口，直接调用共享 FML 检测。
-- [`fml::server::identify` / `ensure_server_target`](../../src/local/modloader/impls/fml/server.rs)：家族选择、版本提取和已知客户端 target 排除。
-- [`ServerLaunch::option`](../../src/local/mc/server/launch/mod.rs)：支持 `--name value` 和 `--name=value`；重复相同值允许，缺失值、空白值、以 `-` 开头的值或重复冲突值报错。
+## 对应实现
 
-## Forge Shim 识别流程
+| 职责 | 源码 |
+| --- | --- |
+| 入口分发 | [Forge](../../src/local/modloader/impls/fml/forge/server/mod.rs) · [NeoForge](../../src/local/modloader/impls/fml/neoforge/server.rs) |
+| 内嵌数据 | [Forge Shim](../../src/local/modloader/impls/fml/forge/server/shim.rs) · [旧版 Forge](../../src/local/modloader/impls/fml/forge/server/legacy.rs) · [Java 字段常量](../../src/local/java/class.rs) |
+| 家族与版本 | [共享 FML 规则](../../src/local/modloader/impls/fml/server.rs) · [Maven 路径匹配](../../src/local/modloader/impls/utils/coordinate.rs) |
 
-![Forge Shim 的内嵌参数读取、显式选项优先级、依赖列表回退与版本合并流程](diagrams/forge-shim-identify.svg)
+## `init` 提示
 
-- 每个选项优先使用显式启动参数，未提供时才使用内嵌 `Arguments` 中的默认值。
-- 依赖列表中的 Forge 版本证据须相互一致；已声明的版本优先保留，不要求与列表版本相同。
+启动命令因未知脚本状态无法识别时，错误链包含 `script state became unknown at {script:?}:{line}`。
 
-相关实现：
+**Tip:** Retry with `--ignore-unknown-vars` (`-I`) if the skipped statements can safely be ignored. This keeps the previous working directory and variable values.
 
-- [`forge::server::identify_shim`](../../src/local/modloader/impls/fml/forge/server.rs)：读取 Shim 元数据并合并版本来源。
-- [`coordinate` / `agree`](../../src/local/modloader/impls/utils/coordinate.rs)：提取完整 Maven 路径中的版本，校验非空及多个声明的一致性。
+Raw 下有多个候选时，报 `multiple identified server launches found; selection requires an interactive terminal`。
 
-图中的读取、解析和选项查询失败均返回 `Err`；错误保留来源上下文。识别只提取身份与版本证据，不保证依赖完整或服务器可启动。
+**Tip:** Run init in an interactive terminal without --raw to choose a launch, or supply complete version and loader options to initialize manually without importing a startup script.
+
+该 Tip 随后列出每个候选的身份、脚本位置、`Main`、`Entry` 和 `Arguments`。

@@ -1,13 +1,14 @@
 //! Workspace type dispatch and Remote registration storage; local server metadata belongs to mcpm-backend.
 
 use std::{
-    fs::{self, File, OpenOptions},
+    collections::HashSet,
+    fs::{self, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, ensure};
-use mcpm_lib::local::mc::server::MinecraftServer;
+use mcpm_lib::local::mc::server::{MinecraftServer, MinecraftServerError, config::ServerLock};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -15,6 +16,7 @@ use mcpm_exec::operation::Connection;
 
 mod resolve;
 pub use resolve::*;
+pub(crate) mod initialize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -135,19 +137,36 @@ pub fn require_local(root: &Path) -> Result<()> {
 
 pub fn load_local(root: PathBuf) -> Result<MinecraftServer> {
     require_local(&root)?;
-    Ok(MinecraftServer::load(root)?)
+    MinecraftServer::load(root).map_err(MinecraftServerError::into_diagnostic)
 }
 
 pub fn inspect_local(root: PathBuf) -> Result<MinecraftServer> {
     require_local(&root)?;
-    Ok(MinecraftServer::inspect(root)?)
+    MinecraftServer::inspect(root).map_err(MinecraftServerError::into_diagnostic)
 }
 
-/// Serializes mcpm registration writers across processes. Readers may observe an
-/// incomplete first registration, which fails closed rather than selecting another type.
+/// Requires a current Local registration without constructing runtime resources.
+pub fn require_current(root: &Path) -> Result<()> {
+    require_local(root)?;
+    mcpm_lib::local::mc::server::require_current_metadata(root)
+        .map_err(MinecraftServerError::into_diagnostic)
+}
+
+/// Initialization may create registration, but cannot bypass an existing legacy format.
+pub fn require_current_if_registered(root: &Path) -> Result<()> {
+    let path = root.join(".mcpm/server.json");
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).context("failed to inspect server registration"),
+        Ok(_) => require_current(root),
+    }
+}
+
+/// Serializes mcpm registration writers across processes via `.mcpm/server.lock`. Readers may
+/// observe an incomplete first registration, which fails closed rather than selecting another type.
 pub struct Writer {
     root: PathBuf,
-    _lock: File,
+    lock: ServerLock,
 }
 
 impl Writer {
@@ -156,23 +175,18 @@ impl Writer {
             root.is_dir(),
             "workspace must be an existing directory: {root:?}"
         );
-        fs::create_dir_all(root.join(".mcpm"))
-            .context("failed to create workspace metadata directory")?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(root.join(".mcpm/registration.lock"))
-            .context("failed to open workspace registration lock")?;
-        lock.try_lock()
+        let lock = ServerLock::acquire_write(root)
             .context("workspace registration is already being changed or cannot be locked")?;
         let writer = Self {
             root: root.to_owned(),
-            _lock: lock,
+            lock,
         };
         append_gitignore(root)?;
         Ok(writer)
+    }
+
+    pub(crate) fn lock(&self) -> &ServerLock {
+        &self.lock
     }
 
     pub fn mark_local(&self) -> Result<()> {
@@ -246,17 +260,15 @@ impl Writer {
     }
 }
 
-impl Drop for Writer {
-    fn drop(&mut self) {
-        // Closing one descriptor does not release a lock inherited by another process.
-        if let Err(error) = self._lock.unlock() {
-            tracing::warn!(path = %self.root.display(), %error, "failed to release workspace registration lock");
-        }
-    }
+/// Ensures `.mcpm/.gitignore` contains every bundled workspace ignore rule,
+/// serialized under `.mcpm/server.lock`.
+pub fn ensure_gitignore(root: &Path) -> Result<()> {
+    let _writer = Writer::acquire(root)?;
+    Ok(())
 }
 
-/// Appends the bundled ignore block unless the file already ends with it, ignoring blank lines.
-/// The caller holds the workspace registration lock.
+/// Ensures `.mcpm/.gitignore` contains every bundled ignore rule without duplicating existing
+/// entries. The caller holds the workspace registration lock.
 fn append_gitignore(root: &Path) -> Result<()> {
     const BLOCK: &str = include_str!("../../config/workspace.gitignore");
     let path = root.join(".mcpm/.gitignore");
@@ -269,24 +281,37 @@ fn append_gitignore(root: &Path) -> Result<()> {
     let mut contents = Vec::new();
     file.read_to_end(&mut contents)
         .with_context(|| format!("failed to read workspace Git ignore file {path:?}"))?;
-    let mut trailing_lines = gitignore_lines(&contents).rev();
-    if gitignore_lines(BLOCK.as_bytes())
-        .rev()
-        .all(|line| trailing_lines.next() == Some(line))
-    {
+    let existing: HashSet<&[u8]> = gitignore_lines(&contents).collect();
+    if existing.is_empty() {
+        let mut to_append = Vec::new();
+        if !contents.is_empty() && !contents.ends_with(b"\n") {
+            to_append.push(b'\n');
+        }
+        to_append.extend_from_slice(BLOCK.as_bytes());
+        return file
+            .write_all(&to_append)
+            .with_context(|| format!("failed to write workspace Git ignore rules to {path:?}"));
+    }
+    let missing: Vec<&[u8]> = gitignore_lines(BLOCK.as_bytes())
+        .filter(|line| !line.starts_with(b"#") && !existing.contains(line))
+        .collect();
+    if missing.is_empty() {
         return Ok(());
     }
-    if !contents.is_empty() {
-        file.write_all(b"\n").with_context(|| {
-            format!("failed to append newline to workspace Git ignore file {path:?}")
-        })?;
+    let mut to_append = Vec::new();
+    if !contents.ends_with(b"\n") {
+        to_append.push(b'\n');
     }
-    file.write_all(BLOCK.as_bytes())
+    for line in missing {
+        to_append.extend_from_slice(line);
+        to_append.push(b'\n');
+    }
+    file.write_all(&to_append)
         .with_context(|| format!("failed to append workspace Git ignore rules to {path:?}"))
 }
 
 /// Ignores blank lines and normalizes CRLF without changing nonblank line contents.
-fn gitignore_lines(contents: &[u8]) -> impl DoubleEndedIterator<Item = &[u8]> {
+fn gitignore_lines(contents: &[u8]) -> impl Iterator<Item = &[u8]> {
     contents
         .split(|byte| *byte == b'\n')
         .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
@@ -306,11 +331,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registration_lease_ends_even_while_a_duplicate_file_description_is_alive() {
+    fn writer_uses_server_lock_and_excludes_concurrent_access() {
         let root = tempfile::tempdir().unwrap();
         let writer = Writer::acquire(root.path()).unwrap();
-        // A concurrently spawned process can briefly inherit this open file description.
-        let inherited = writer._lock.try_clone().unwrap();
+        assert!(root.path().join(".mcpm/server.lock").is_file());
+        assert!(!root.path().join(".mcpm/registration.lock").exists());
+        assert!(Writer::acquire(root.path()).is_err());
+        assert!(ServerLock::acquire_write(root.path()).is_err());
+        assert!(ServerLock::acquire_read(root.path()).is_err());
         drop(writer);
         let successor = Writer::acquire(root.path()).expect("the previous writer lease has ended");
         assert!(
@@ -318,8 +346,48 @@ mod tests {
             "the successor must still own its lease"
         );
         drop(successor);
-        let final_writer = Writer::acquire(root.path()).unwrap();
-        drop(inherited);
-        drop(final_writer);
+    }
+
+    #[test]
+    fn ensure_gitignore_appends_only_missing_rules_and_preserves_user_lines() {
+        let root = tempfile::tempdir().unwrap();
+        let mcpm_dir = root.path().join(".mcpm");
+        fs::create_dir_all(&mcpm_dir).unwrap();
+        let gitignore = mcpm_dir.join(".gitignore");
+
+        let legacy = "\
+# Added by mcpm
+
+/cache
+/registration.lock
+/launch.lock
+/launch-publication.json
+/run";
+        fs::write(&gitignore, legacy).unwrap();
+
+        ensure_gitignore(root.path()).unwrap();
+        let after_upgrade = fs::read_to_string(&gitignore).unwrap();
+        assert_eq!(
+            after_upgrade,
+            "\
+# Added by mcpm
+
+/cache
+/registration.lock
+/launch.lock
+/launch-publication.json
+/run
+/server.lock
+/loader-install
+"
+        );
+
+        ensure_gitignore(root.path()).unwrap();
+        assert_eq!(fs::read(&gitignore).unwrap(), after_upgrade.as_bytes());
+
+        let with_custom = format!("{after_upgrade}custom-rule\n");
+        fs::write(&gitignore, &with_custom).unwrap();
+        ensure_gitignore(root.path()).unwrap();
+        assert_eq!(fs::read_to_string(&gitignore).unwrap(), with_custom);
     }
 }

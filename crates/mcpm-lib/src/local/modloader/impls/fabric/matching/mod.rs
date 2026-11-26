@@ -9,9 +9,9 @@ use crate::local::mcmod::{
 };
 
 use super::super::utils::dependency;
-use version::SemanticVersion;
 
 mod version;
+pub(super) use version::SemanticVersion;
 
 pub(super) fn matches(candidate: &ModInfo, required: &Dependency) -> DependencyMatch {
     let semantic = SemanticVersion::parse(&candidate.version, false);

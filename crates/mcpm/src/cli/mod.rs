@@ -2,35 +2,74 @@
 
 use std::ffi::OsString;
 
-use clap::{Args, ColorChoice, CommandFactory, FromArgMatches, Parser};
+use clap::{
+    ArgMatches, Args, ColorChoice, CommandFactory, FromArgMatches, Parser,
+    builder::{EnumValueParser, TypedValueParser},
+    parser::ValueSource,
+};
 
 use crate::{commands::Command, program::Program, ssh::SshArgs};
 
 mod roots;
+pub(crate) mod source;
 
 /// Parses the actual root directly; no synthetic command components enter argv.
 pub(crate) fn parse(program: Program, args: Vec<OsString>, color: ColorChoice) -> Invocation {
-    match program {
-        Program::Mcpm | Program::McpmServer => {
-            parse_root::<roots::ServerRootArgs>(program, args, color)
-        }
-        Program::Mcpmc | Program::McpmClient => {
-            parse_root::<roots::ClientRootArgs>(program, args, color)
-        }
-        Program::McpmTools => parse_root::<roots::ToolsRootArgs>(program, args, color),
-    }
-}
-
-fn parse_root<R: Root>(program: Program, args: Vec<OsString>, color: ColorChoice) -> Invocation {
-    let mut command = Cli::<R>::command()
-        .name(program.name())
-        .bin_name(program.name())
-        .about(R::ABOUT)
-        .color(color);
+    let mut command = command(program, color);
     let matches = command
         .try_get_matches_from_mut(args)
         .unwrap_or_else(|error| error.exit());
-    let cli = Cli::<R>::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    let mut invocation = match program {
+        Program::Mcpm | Program::McpmServer => parse_root::<roots::ServerRootArgs>(&matches),
+        Program::Mcpmc | Program::McpmClient => parse_root::<roots::ClientRootArgs>(&matches),
+        Program::McpmTools => parse_root::<roots::ToolsRootArgs>(&matches),
+    };
+    // Clap validates env values per subcommand before propagating explicit global options.
+    if matches.value_source("log_level") != Some(ValueSource::CommandLine)
+        && let Some(value) = std::env::var_os("MCPM_LOG_LEVEL")
+    {
+        let arg = command
+            .get_arguments()
+            .find(|arg| arg.get_id() == "log_level");
+        invocation.common.log_level = EnumValueParser::new()
+            .parse_ref(&command, arg, &value)
+            .unwrap_or_else(|error| error.exit());
+    }
+    invocation
+}
+
+/// The same native command schema used for parsing and recursive help output.
+pub(crate) fn command(program: Program, color: ColorChoice) -> clap::Command {
+    let root = match program {
+        Program::Mcpm | Program::McpmServer => root_command::<roots::ServerRootArgs>(),
+        Program::Mcpmc | Program::McpmClient => root_command::<roots::ClientRootArgs>(),
+        Program::McpmTools => root_command::<roots::ToolsRootArgs>(),
+    };
+    let root = match program {
+        Program::Mcpm | Program::McpmServer => crate::commands::server::configure_launch(root, &[]),
+        Program::McpmTools => {
+            let globals: Vec<_> = root
+                .get_arguments()
+                .filter(|arg| arg.is_global_set())
+                .cloned()
+                .collect();
+            root.mut_subcommand("server", |server| {
+                crate::commands::server::configure_launch(server, &globals)
+            })
+        }
+        Program::Mcpmc | Program::McpmClient => root,
+    };
+    root.name(program.name())
+        .bin_name(program.name())
+        .color(color)
+}
+
+fn root_command<R: Root>() -> clap::Command {
+    Cli::<R>::command().about(R::ABOUT)
+}
+
+fn parse_root<R: Root>(matches: &ArgMatches) -> Invocation {
+    let cli = Cli::<R>::from_arg_matches(matches).unwrap_or_else(|error| error.exit());
     cli.root.into_invocation(cli.common)
 }
 
@@ -49,7 +88,7 @@ pub(crate) struct CommonArgs {
     /// Disable TUI interaction, formatting, colors, progress, and hints; otherwise each output stream follows its own TTY status.
     #[arg(long, global = true, help_heading = "Mode options")]
     pub(crate) raw: bool,
-    /// Diagnostic log level on stderr; does not filter game stdout/stderr.
+    /// Diagnostic log level on stderr; falls back to MCPM_LOG_LEVEL when omitted.
     #[arg(
         long,
         global = true,

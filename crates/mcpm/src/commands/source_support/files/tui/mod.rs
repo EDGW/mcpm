@@ -4,7 +4,6 @@ use super::super::config;
 use super::super::request;
 use crate::{
     display::style::text,
-    theme::Role,
     widgets::browser::{self, Screen},
 };
 use anyhow::Result;
@@ -14,6 +13,7 @@ use mcpm_backend::operations::mods::source::{
 };
 use mcpm_exec::service::Executor;
 use mcpm_lib::source::{FilePage, FileQuery, FileRef, ProjectFile, ProjectRef};
+use mcpm_rich::Role;
 use ratatui::{layout::Rect, widgets::TableState};
 use std::{io, time::Duration};
 use tokio::runtime::Runtime;

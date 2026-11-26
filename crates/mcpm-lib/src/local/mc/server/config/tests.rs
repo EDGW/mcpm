@@ -1,10 +1,7 @@
 //! Import preservation, configuration ownership, runtime overrides and publication boundaries.
 
 use super::*;
-use crate::local::{
-    mc::server::{MinecraftServer, identify},
-    modloader::BUILTIN_LOADERS,
-};
+use crate::local::{mc::server::identify, modloader::BUILTIN_LOADERS};
 
 #[test]
 fn authentication_import_uses_manifest_identity_and_preserves_foreign_operands() {
@@ -26,7 +23,7 @@ fn authentication_import_uses_manifest_identity_and_preserves_foreign_operands()
         .unwrap();
     archive.finish().unwrap();
     fs::write(root.path().join("agents/foreign.jar"), b"foreign agent").unwrap();
-    fs::write(root.path().join("run.sh"), "cd agents\njava '-javaagent:renamed.jar=https://example.com/api/?a=b' -Dauthlibinjector.debug -Dauthlibinjector.noLogFile=false -Dauthlibinjector.future=x -Dauthlibinjector.httpdPort=invalid -javaagent:foreign.jar=opaque -cp '-Dauthlibinjector.profileKey=disabled' cpw.mods.bootstraplauncher.BootstrapLauncher --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1\n").unwrap();
+    fs::write(root.path().join("run.sh"), "cd agents\njava '-javaagent:renamed.jar=https://example.com/api/?a=b' -Dauthlibinjector.debug -Dauthlibinjector.noLogFile=false -Dauthlibinjector.future=x -Dauthlibinjector.httpdPort=invalid -javaagent:foreign.jar=opaque -cp '-Dauthlibinjector.profileKey=disabled' cpw.mods.bootstraplauncher.BootstrapLauncher --fml.forgeGroup net.minecraftforge --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1\n").unwrap();
     let candidate = identify::identify(root.path(), "run.sh", &BUILTIN_LOADERS)
         .unwrap()
         .remove(0);
@@ -67,7 +64,7 @@ fn authentication_import_uses_manifest_identity_and_preserves_foreign_operands()
 }
 
 #[test]
-fn authentication_overrides_probe_optional_table_without_enabling_defaults() {
+fn authentication_overrides_can_set_fields_in_an_absent_optional_table() {
     let mut changes = ConfigurationOverrides::default();
     for assignment in [
         "authlib-injector.apiUrl=https://example.com/",
@@ -89,7 +86,7 @@ fn authentication_overrides_probe_optional_table_without_enabling_defaults() {
 }
 
 fn candidate(root: &Path, options: &str) -> identify::ServerCandidate {
-    fs::write(root.join("run.sh"), format!("java {options} cpw.mods.bootstraplauncher.BootstrapLauncher --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1 --launchTarget forge_server nogui\n")).unwrap();
+    fs::write(root.join("run.sh"), format!("java {options} cpw.mods.bootstraplauncher.BootstrapLauncher --fml.forgeGroup net.minecraftforge --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1 --launchTarget forge_server nogui\n")).unwrap();
     identify::identify(root, "run.sh", &BUILTIN_LOADERS)
         .unwrap()
         .remove(0)
@@ -115,7 +112,7 @@ fn imported_values_are_active_and_absent_values_remain_comments() {
         candidate.configuration.launch.jvm.extra_arguments,
         ["-Dloader.fixed=yes", "-cp", "-Xmx2G"]
     );
-    let empty = decode_conf(&import::default_template().unwrap()).unwrap();
+    let empty = decode_conf(&import::default_template()).unwrap();
     assert!(empty.jvm_arguments().unwrap().is_empty());
     assert!(empty.server_arguments().is_empty());
     assert!(empty.java.executable.is_none());
@@ -162,9 +159,21 @@ fn ordered_unlock_dependencies_and_unpaired_young_sizes_stay_in_one_memory_regio
 #[test]
 fn import_retains_existing_conf_bytes_and_invalid_preserved_conf_blocks_publication() {
     let root = tempfile::tempdir().unwrap();
+    let publish_import = |identity: &crate::local::mc::server::MinecraftServerMetadata,
+                          draft: Option<&ConfigurationDraft>,
+                          policy: OverwritePolicy| {
+        let lock = ServerLock::acquire_write(root.path()).unwrap();
+        commit_import(
+            root.path(),
+            &lock,
+            identity,
+            draft,
+            &ConfigurationOverrides::default(),
+            policy,
+        )
+    };
     let initial = candidate(root.path(), "-Xmx2G");
-    publish(
-        root.path(),
+    publish_import(
         &initial.metadata,
         Some(&initial.configuration),
         OverwritePolicy::default(),
@@ -176,49 +185,51 @@ fn import_retains_existing_conf_bytes_and_invalid_preserved_conf_blocks_publicat
     let force = OverwritePolicy {
         replace_registration: true,
         replace_conf: false,
+        preserve_conf_with_overrides: false,
     };
-    publish(
+    publish_import(&next.metadata, Some(&next.configuration), force).unwrap();
+    assert_eq!(fs::read(root.path().join("conf.toml")).unwrap(), conf);
+    let read_lock = ServerLock::acquire_read(root.path()).unwrap();
+    let snapshot = read_snapshot_locked(
         root.path(),
-        &next.metadata,
-        Some(&next.configuration),
-        force,
+        &read_lock,
+        &ConfigurationOverrides::default(),
     )
     .unwrap();
-    assert_eq!(fs::read(root.path().join("conf.toml")).unwrap(), conf);
+    assert_eq!(snapshot.metadata, next.metadata);
+    assert_eq!(
+        snapshot.revision,
+        read_revision_locked(root.path(), &read_lock).unwrap()
+    );
+    assert_eq!(snapshot.conf_hash, blake3::hash(conf).to_hex().to_string());
+    assert_eq!(snapshot.conf.jvm.heap.maximum.as_deref(), Some("3G"));
+    drop(read_lock);
     let old_launch = fs::read(root.path().join("launch.toml")).unwrap();
     fs::write(root.path().join("conf.toml"), "[java]\nunknown = true").unwrap();
-    assert!(
-        publish(
-            root.path(),
-            &next.metadata,
-            Some(&next.configuration),
-            force
-        )
-        .is_err()
-    );
+    assert!(publish_import(&next.metadata, Some(&next.configuration), force).is_err());
     assert_eq!(
         fs::read(root.path().join("launch.toml")).unwrap(),
         old_launch
     );
     assert!(
-        publish(
-            root.path(),
+        publish_import(
             &next.metadata,
             Some(&next.configuration),
             OverwritePolicy {
                 replace_registration: false,
-                replace_conf: true
+                replace_conf: true,
+                preserve_conf_with_overrides: false,
             }
         )
         .is_err()
     );
-    publish(
-        root.path(),
+    publish_import(
         &next.metadata,
         Some(&next.configuration),
         OverwritePolicy {
             replace_registration: true,
             replace_conf: true,
+            preserve_conf_with_overrides: false,
         },
     )
     .unwrap();
@@ -230,13 +241,6 @@ fn import_retains_existing_conf_bytes_and_invalid_preserved_conf_blocks_publicat
             .maximum
             .as_deref(),
         Some("4G")
-    );
-    assert!(
-        MinecraftServer::inspect(root.path())
-            .unwrap()
-            .metadata()
-            .start
-            .is_none()
     );
 }
 
@@ -258,10 +262,14 @@ fn runtime_overrides_follow_schema_and_order_list_operations_before_final_valida
         "jvm.extraArguments+-Dtwo=2",
         "jvm.extraArguments+=['-Dthree=3', '-Dfour=4']",
         "application.extraArguments:=['', '中文 world']",
+        "application.extraArguments+=123",
+        "application.extraArguments+=true",
     ] {
         overrides.parse(assignment).unwrap();
     }
-    let effective = decode_conf_with_overrides(source, &overrides).unwrap();
+    let wire = serde_json::to_vec(&overrides).unwrap();
+    let transmitted: ConfigurationOverrides = serde_json::from_slice(&wire).unwrap();
+    let effective = decode_conf_with_overrides(source, &transmitted).unwrap();
     assert_eq!(effective.jvm.heap.maximum.as_deref(), Some("4G"));
     assert_eq!(
         effective.jvm.heap.maximum_ram.as_deref(),
@@ -275,30 +283,27 @@ fn runtime_overrides_follow_schema_and_order_list_operations_before_final_valida
         effective.jvm.extra_arguments,
         ["-Done=1", "-Dtwo=2", "-Dthree=3", "-Dfour=4"]
     );
-    assert_eq!(effective.application.extra_arguments, ["", "中文 world"]);
+    assert_eq!(
+        effective.application.extra_arguments,
+        ["", "中文 world", "123", "true"]
+    );
     assert!(overrides.set("jvm.heap.maximum", "8G").is_err());
     for invalid in [
         "unknown.field=1",
         "jvm={}",
         "server.port+=1",
         "server.port=hello",
+        "server.port=65536",
+        "server.nogui=1",
         "jvm.extraArguments:=[1]",
-    ] {
-        let mut changes = ConfigurationOverrides::default();
-        if changes.parse(invalid).is_ok() {
-            assert!(
-                decode_conf_with_overrides("[java]", &changes).is_err(),
-                "{invalid}"
-            );
-        }
-    }
-    for invalid in [
-        "jvm.heap.maximum=auto",
         "jvm.gc.collector=auto",
         "jvm.memory.auto.heapFraction=0.7",
         "jvm.memory.auto.reserve=1G",
-        "jvm.extraArguments=-Xmx2G",
     ] {
+        let mut changes = ConfigurationOverrides::default();
+        assert!(changes.parse(invalid).is_err(), "{invalid}");
+    }
+    for invalid in ["jvm.extraArguments=-Xmx2G"] {
         let mut changes = ConfigurationOverrides::default();
         changes.parse(invalid).unwrap();
         assert!(
@@ -412,8 +417,9 @@ fn imports_preserve_raw_repetition_and_unrepresentable_application_values() {
 #[test]
 fn independent_exports_keep_per_command_environment_snapshots() {
     let root = tempfile::tempdir().unwrap();
-    fs::write(root.path().join("child.sh"), "java cpw.mods.bootstraplauncher.BootstrapLauncher --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1\n").unwrap();
-    fs::write(root.path().join("run.sh"), "EXPORTED='first value'\nLOCAL_ONLY=private\nexport EXPORTED LATER\nLATER=later\nsh ./child.sh\nEXPORTED='second value'\njava cpw.mods.bootstraplauncher.BootstrapLauncher --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1\n").unwrap();
+    let launch = "java cpw.mods.bootstraplauncher.BootstrapLauncher --fml.forgeGroup net.minecraftforge --fml.mcVersion 1.21.1 --fml.forgeVersion 52.0.1\n";
+    fs::write(root.path().join("child.sh"), launch).unwrap();
+    fs::write(root.path().join("run.sh"), format!("EXPORTED='first value'\nLOCAL_ONLY=private\nexport EXPORTED LATER\nLATER=later\nsh ./child.sh\nEXPORTED='second value'\n{launch}")).unwrap();
     let candidates = identify::identify(root.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
     assert_eq!(candidates.len(), 2);
     for (candidate, value) in candidates.iter().zip(["first value", "second value"]) {

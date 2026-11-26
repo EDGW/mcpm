@@ -1,14 +1,12 @@
 //! Inline/Console/Raw attach output; Minecraft prefix coloring is exclusively frontend presentation.
 
-use crate::{
-    logging, terminal,
-    theme::{Role, widgets::style},
-};
+use crate::{logging, terminal, theme::widgets::style};
 use anyhow::Result;
 use mcpm_backend::operations::server::shim::{
     Channel, CommandOutcome, CommandResult, ServerStatus, Source, State,
 };
 use mcpm_exec::messaging::SessionTrafficStats;
+use mcpm_rich::Role;
 use ratatui::text::{Line, Span};
 use std::io::{self, Write};
 
@@ -45,6 +43,7 @@ impl Display {
         state: State,
         channel: Channel,
         server_status: ServerStatus,
+        traffic: Option<SessionTrafficStats>,
     ) -> Result<Self> {
         let tui =
             !no_ui && terminal::stdout_is_tty() && terminal::stderr_is_tty() && !console::is_dumb();
@@ -57,7 +56,7 @@ impl Display {
         };
         Ok(Self {
             screen: if tui {
-                Some(inline::Screen::new(height)?)
+                Some(inline::Screen::new(height, speed::lines(traffic, false))?)
             } else {
                 None
             },

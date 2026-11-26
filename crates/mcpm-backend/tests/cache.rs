@@ -231,10 +231,9 @@ async fn host_preflight_checks_every_export_target_and_original_stash_alias() ->
         let server = MinecraftServer::create(
             root.path().join("server"),
             MinecraftServerMetadata {
-                version: 3,
+                version: 4,
                 minecraft_version: "1.21.1".into(),
-                loader: None,
-                start: None,
+                loader: mcpm_lib::local::mc::server::ServerLoader::Vanilla,
             },
         )?;
         let blob = server.runtime().cache.stash.selection().path()?;

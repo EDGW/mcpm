@@ -1,10 +1,7 @@
 //! Scheme-first customization controller with inline editing and live previews.
 
 use super::{preview, settings};
-use crate::{
-    terminal as policy,
-    theme::{Role, config::Config},
-};
+use crate::{terminal as policy, theme::config::Config};
 use anyhow::{Context, Result};
 use crossterm::{
     cursor::{Hide, Show},
@@ -12,6 +9,7 @@ use crossterm::{
     execute,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use mcpm_rich::Role;
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,

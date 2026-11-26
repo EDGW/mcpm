@@ -117,11 +117,13 @@ jobs:
         shell: powershell
         run: ./scripts/tests/install.Tests.ps1 -BinaryDir "target/${{ matrix.target }}/release"
 
-      - name: Upload suite and checksum
+      - name: Upload suite, manifest, and checksum
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
-          path: dist/${{ matrix.asset }}.*
+          path: |
+            dist/${{ matrix.asset }}.*
+            dist/manifest.json
           if-no-files-found: error
 
   release:
@@ -140,12 +142,11 @@ jobs:
         with:
           pattern: mcpm-*
           path: dist
-          merge-multiple: true
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/mcpm-*
+          files: dist/mcpm-*/mcpm-*
           fail_on_unmatched_files: true
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}

@@ -6,10 +6,11 @@ use std::{
 };
 
 use mcpm_lib::local::mc::client::{CheckOptionValue, CheckReport, CheckTarget, FileCheckStatus};
+use mcpm_rich::rich;
 
 use super::super::output::text;
 use crate::{
-    display::{console::ConsoleWriter, style::OutputStyle},
+    display::{console::ConsoleWriter, rich::block, style::OutputStyle},
     terminal,
 };
 
@@ -124,13 +125,8 @@ pub(super) fn write_report(output: &mut impl Write, report: &CheckReport) -> io:
                 "{}",
                 style.muted(text(&file.path.display().to_string()))
             )?;
-            writeln!(
-                output.subwriter(),
-                "{}",
-                style.warning(format!(
-                    "{reason}; cannot complete the requested verification."
-                ))
-            )?;
+            let warning = rich!("[{reason}; cannot complete the requested verification.](warning)");
+            block(&mut output.subwriter(), &warning, &style)?;
         } else {
             raw_row(
                 output,

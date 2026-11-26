@@ -5,7 +5,7 @@
 //! behavior: https://github.com/HMCL-dev/HMCL/blob/main/HMCLCore/src/main/java/org/jackhuang/hmcl/download/LibraryAnalyzer.java
 
 use anyhow::{Result as AnyResult, ensure};
-use std::path::Path;
+use std::path::{Component, Path};
 use thiserror::Error;
 
 use crate::local::mc::client::MinecraftVersionManifest;
@@ -63,23 +63,56 @@ pub enum ClientLibraryError {
 }
 
 /// Extracts a version only from a complete referenced Maven artifact path.
-pub(in crate::local::modloader::impls) fn coordinate(
-    path: &Path,
+pub(in crate::local::modloader::impls) fn coordinate<'a>(
+    path: &'a Path,
     group: &str,
     artifact: &str,
-) -> Option<String> {
-    let text = path.to_string_lossy().replace('\\', "/");
-    let marker = format!("/{}/{artifact}/", group.replace('.', "/"));
-    let (_, tail) = text.rsplit_once(&marker)?;
-    let (version, file) = tail.split_once('/')?;
-    if version.is_empty()
-        || file.contains('/')
-        || !(file == format!("{artifact}-{version}.jar")
-            || (file.starts_with(&format!("{artifact}-{version}-")) && file.ends_with(".jar")))
+) -> Option<&'a str> {
+    let (version, file) = artifact_path(path, group, artifact)?;
+    let suffix = file
+        .strip_suffix(".jar")?
+        .strip_prefix(artifact)?
+        .strip_prefix('-')?;
+    let classifier = suffix.strip_prefix(version)?;
+    (classifier.is_empty()
+        || classifier
+            .strip_prefix('-')
+            .is_some_and(|value| !value.is_empty()))
+    .then_some(version)
+}
+
+/// Matches only expanded Maven argument files, never JAR artifacts.
+pub(in crate::local::modloader::impls) fn argument_coordinate<'a>(
+    path: &'a Path,
+    group: &str,
+    artifact: &str,
+) -> Option<&'a str> {
+    let (version, file) = artifact_path(path, group, artifact)?;
+    matches!(file, "unix_args.txt" | "win_args.txt").then_some(version)
+}
+
+fn artifact_path<'a>(path: &'a Path, group: &str, artifact: &str) -> Option<(&'a str, &'a str)> {
+    // Components normalize trailing separators and `/.`, which denote directories.
+    let raw = path.as_os_str().as_encoded_bytes();
+    let last = *raw.strip_suffix(b".").unwrap_or(raw).last()?;
+    if std::path::is_separator(char::from(last)) {
+        return None;
+    }
+    let mut components = path.components();
+    let Component::Normal(file) = components.next_back()? else {
+        return None;
+    };
+    let Component::Normal(version) = components.next_back()? else {
+        return None;
+    };
+    if components.next_back()? != Component::Normal(artifact.as_ref())
+        || !group
+            .rsplit('.')
+            .all(|part| components.next_back() == Some(Component::Normal(part.as_ref())))
     {
         return None;
     }
-    Some(version.to_owned())
+    Some((version.to_str()?, file.to_str()?))
 }
 
 pub(in crate::local::modloader::impls) fn agree(

@@ -10,9 +10,9 @@
 
 ## 安装
 
-安装预发布版本 [v0.1.0-dev.26w43d](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d)。
-安装脚本仅支持 **v0.1.0-dev.26w43c 及更新版本**，旧版本会在下载前被拒绝。
-六个程序整套安装：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`、`mcpmd`。
+安装预发布版本 [v0.1.0-rc1](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-rc1)。
+安装脚本仅支持 **v0.1.0-rc1 及更新版本**，不支持 `v0.1.0-rc1` 之前的版本（旧版本会在下载前被拒绝）。
+六个程序及随包产物整套安装：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`、`mcpmd`。
 
 | 系统 | 架构 | 程序目录 | PATH 入口 |
 | --- | --- | --- | --- |
@@ -25,23 +25,23 @@
 ### Windows（PowerShell 5.1 或更高版本）
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.ps1))) -Version v0.1.0-dev.26w43d
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Version v0.1.0-rc1
 ```
 
 卸载：
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Uninstall
 ```
 
 PATH 对当前 PowerShell 和之后新开的终端生效，其他已打开的终端需要重新打开。升级时如提示文件被占用，请先退出正在运行的 mcpm 进程。
 
 ### macOS 和 Linux（sh）
 
-需要 `curl`、`tar`，以及 `sha256sum` 或 `shasum`。
+需要 `curl`、`unzip`，以及 `sha256sum` 或 `shasum`。
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- v0.1.0-dev.26w43d
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- v0.1.0-rc1
 ```
 
 如果 `~/.local/bin` 尚未加入 PATH，在 shell 配置文件中添加下面一行：zsh 使用 `~/.zshrc`，bash 使用 `~/.bashrc`。
@@ -55,32 +55,32 @@ export PATH="$HOME/.local/bin:$PATH"
 卸载：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w43d/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- --uninstall
 ```
+
+如需通过 GitHub URL 前缀代理下载（`--proxy` / `-Proxy`），见 [GitHub URL 前缀代理参数](scripts/README.md#github-url-prefix-proxy)。
 
 ### 升级、修复与卸载行为
 
-- 使用支持的版本标签重新安装，即可整套升级或降级；重复安装同一版本可修复丢失的程序。
-- 改动安装前，先验证安装包 SHA-256、清单和每个程序的版本。
+- 重新安装即可升级、降级或修复。安装目录已有内容时，须确认替换并删除该目录原有的全部内容；拒绝则不下载、不替换。
+- 安装器验证 ZIP 的 SHA-256，执行解包后的 `mcpm-tools debug validate --exact`，并检查程序版本。安装成功后运行 `mcpm-tools debug hello`。
 - 文件先暂存并备份，替换失败时尝试回滚。如果回滚未完成，会保留备份并报告位置，请先恢复安装再清理备份。
 - 同一时间只允许一个安装器运行。Unix 安装器被中断后，确认没有安装器运行才可删除提示的 `.install-lock` 目录；残留 `.stage.*` 目录可能包含恢复备份。
-- 安装记录统一标记受管理文件。卸载删除这些程序、属于该安装的 Unix 链接，以及安装器添加的 Windows PATH 项；保留其他文件和原先就有的 PATH 项。
+- 卸载删除登记的程序和附带产物、属于该安装的 Unix 链接，以及安装器添加的 Windows PATH 项；保留其他文件和原先已有的 PATH 项。
 - 卸载保留配置、缓存、日志和项目数据。
 
 ### 已有安装与 SSH
 
 - 保留旧 Unix 安装 `/usr/local/bin/mcpm`。若它优先于新程序被找到，请检查 PATH，或确认来源后显式删除旧程序。
-- 保留旧 Windows 程序 `%LOCALAPPDATA%\Programs\mcpm\mcpm.exe` 及其 PATH 项。如果旧程序仍优先被找到，安装器会提示；验证新程序后再显式移除旧程序和旧 PATH 项。
-- 没有安装记录的 `bin` 目录不会被自动接管或覆盖，需要先处理冲突。
-- 新脚本只管理新目录布局，不负责卸载旧版单文件安装。
+- 确认替换后，位于 `%LOCALAPPDATA%\Programs\mcpm` 内的旧版程序也会删除。安装目录之外的程序和原先已有的 PATH 项保持不变。
 - 非交互 SSH 会话可能不会加载 shell 配置。安装器会将 `mcpmd` 位置记录到 Unix 的 `~/.mcpm/mcpmd.path` 或 Windows 的 `%LOCALAPPDATA%\mcpm\mcpmd.path`。未指定 `--ssh-mcpmd` 时，SSH 读取远端主机的记录；文件不存在仅发出 warning 并尝试远端 PATH，fallback 也失败才报错。详见[远端程序查找](crates/mcpmd/docs-zh/README.md#远端程序查找)。未迁移的 mods/cache 命令仍要求远端安装 `mcpm-tools`。
 
 ### 手动安装
 
-[发布附件](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w43d) 中提供完整的 `bin/` 目录和 `manifest`：
+[发布附件](https://github.com/EDGW/mcpm/releases)的 ZIP 安装包包含 `bin/` 和 `manifest.json`：
 
-- macOS/Linux：`mcpm-PLATFORM-ARCH[-LIBC].tar.gz`。
+- macOS/Linux：`mcpm-PLATFORM-ARCH[-LIBC].zip`。
 - Windows：`mcpm-windows-x86_64.zip`。
 - 每个安装包附带对应的 `.sha256` 文件。Linux 提供 glibc 和 musl 两类产物，安装脚本选择 musl。
 
-解压到自选目录并将其中的 `bin` 加入 PATH 即可。手动安装由使用者管理，安装器不会自动接管。
+解压后将 `bin` 加入 PATH，并运行 `mcpm-tools debug validate` 检查解包文件。

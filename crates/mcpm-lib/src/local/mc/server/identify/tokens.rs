@@ -9,6 +9,13 @@ pub(super) enum Syntax {
     Batch,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("unresolved {shell} variable {name}")]
+pub(super) struct UnresolvedVariable {
+    pub name: String,
+    shell: &'static str,
+}
+
 /// A deliberately restricted lexer. Expansion never becomes executable syntax.
 pub(super) fn split(
     input: &str,
@@ -53,13 +60,7 @@ pub(super) fn split(
         }
         let literal = quote == Some('\'');
         if syntax == Syntax::Shell && !literal && ch == '$' {
-            let tail: String = chars[i..].iter().collect();
-            let (value, consumed) = if tail.starts_with("$(dirname \"$0\")") {
-                (
-                    script.parent().unwrap().to_string_lossy().into_owned(),
-                    "$(dirname \"$0\")".chars().count(),
-                )
-            } else if chars.get(i + 1) == Some(&'0') {
+            let (value, consumed) = if chars.get(i + 1) == Some(&'0') {
                 (script.to_string_lossy().into_owned(), 2)
             } else {
                 let start = i + 1;
@@ -78,11 +79,11 @@ pub(super) fn split(
                     );
                 }
                 let name: String = chars[name_start..end].iter().collect();
-                let value = vars
-                    .get(&name)
-                    .ok_or_else(|| anyhow::anyhow!("unresolved shell variable {name}"))?
-                    .clone();
-                (value, end + usize::from(braced) - i)
+                let value = vars.get(&name).ok_or_else(|| UnresolvedVariable {
+                    name,
+                    shell: "shell",
+                })?;
+                (value.clone(), end + usize::from(braced) - i)
             };
             ensure!(
                 quote.is_some()
@@ -113,12 +114,11 @@ pub(super) fn split(
                     .iter()
                     .collect::<String>()
                     .to_ascii_uppercase();
-                (
-                    vars.get(&name)
-                        .ok_or_else(|| anyhow::anyhow!("unresolved batch variable {name}"))?
-                        .clone(),
-                    end - i + 1,
-                )
+                let value = vars.get(&name).ok_or_else(|| UnresolvedVariable {
+                    name,
+                    shell: "batch",
+                })?;
+                (value.clone(), end - i + 1)
             };
             ensure!(
                 !value.contains(|c: char| "&|<>^\"%".contains(c))
@@ -176,63 +176,133 @@ pub(super) fn split(
     Ok(tokens)
 }
 
-/// Detect control operators outside quotes before discarding irrelevant command text.
-/// Expansion contents are not executed or reinterpreted as shell syntax.
-pub(super) fn has_operators(input: &str, syntax: Syntax) -> bool {
+/// Lexical words retain their original quoting; operators never come from expansions.
+#[derive(Debug)]
+pub(super) enum Part<'a> {
+    Word(&'a str),
+    Operator(&'a str),
+}
+
+impl Part<'_> {
+    pub(super) fn is_redirection(&self) -> bool {
+        matches!(
+            self,
+            Self::Operator("<" | ">" | "<<" | ">>" | "<&" | ">&" | "&>")
+        )
+    }
+}
+
+pub(super) struct Inspection<'a> {
+    pub parts: Vec<Part<'a>>,
+    pub unsupported: bool,
+}
+
+/// Inspect structure without expanding variables or interpreting launch arguments.
+pub(super) fn inspect(input: &str, syntax: Syntax) -> Inspection<'_> {
+    let mut parts = Vec::new();
+    let mut unsupported = false;
+    let mut start = None;
     let mut quote = None;
-    let mut escaped = false;
-    let mut expansion = Vec::new();
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if (syntax == Syntax::Shell && quote != Some('\'') && ch == '\\')
-            || (syntax == Syntax::Batch && quote.is_none() && ch == '^')
+    let mut index = 0;
+    let bytes = input.as_bytes();
+    while index < bytes.len() {
+        let ch = bytes[index];
+        if (syntax == Syntax::Shell && quote != Some(b'\'') && ch == b'\\')
+            || (syntax == Syntax::Batch && quote.is_none() && ch == b'^')
         {
-            escaped = true;
+            start.get_or_insert(index);
+            index = (index + 2).min(bytes.len());
             continue;
         }
         if syntax == Syntax::Shell
-            && quote != Some('\'')
-            && ch == '$'
-            && let Some(&next @ ('(' | '{')) = chars.peek()
+            && quote != Some(b'\'')
+            && (ch == b'`' || (ch == b'$' && bytes.get(index + 1) == Some(&b'(')))
         {
-            chars.next();
-            expansion.push(if next == '(' { ')' } else { '}' });
+            unsupported = true;
+            start.get_or_insert(index);
+            index = substitution_end(bytes, index);
             continue;
         }
-        if let Some(&end) = expansion.last() {
-            if ch == end {
-                expansion.pop();
-            } else if ch == '(' && end == ')' {
-                expansion.push(')');
-            }
-            continue;
-        }
-        if syntax == Syntax::Shell && ch == '`' && quote != Some('\'') {
-            // A substitution runs outside the current shell's variable/directory scope.
-            while let Some(next) = chars.next() {
-                if next == '\\' {
-                    chars.next();
-                } else if next == '`' {
-                    break;
-                }
-            }
-            continue;
-        }
-        if ch == '"' || (syntax == Syntax::Shell && ch == '\'') {
+        if ch == b'"' || (syntax == Syntax::Shell && ch == b'\'') {
+            start.get_or_insert(index);
             if quote == Some(ch) {
                 quote = None;
             } else if quote.is_none() {
                 quote = Some(ch);
             }
+            index += 1;
             continue;
         }
-        if quote.is_none() && ";&|<>()".contains(ch) {
-            return true;
+        if quote.is_none() {
+            if syntax == Syntax::Shell && ch == b'#' && start.is_none() {
+                break;
+            }
+            if ch.is_ascii_whitespace() || b";&|<>()".contains(&ch) {
+                if let Some(begin) = start.take()
+                    && !(matches!(ch, b'<' | b'>')
+                        && input[begin..index].bytes().all(|ch| ch.is_ascii_digit()))
+                {
+                    parts.push(Part::Word(&input[begin..index]));
+                }
+                if !ch.is_ascii_whitespace() {
+                    unsupported = true;
+                    let begin = index;
+                    if (b"&|<>;".contains(&ch) && bytes.get(index + 1) == Some(&ch))
+                        || (matches!(ch, b'<' | b'>') && bytes.get(index + 1) == Some(&b'&'))
+                        || (syntax == Syntax::Shell
+                            && ch == b'&'
+                            && bytes.get(index + 1) == Some(&b'>'))
+                    {
+                        index += 1;
+                    }
+                    parts.push(Part::Operator(&input[begin..=index]));
+                }
+                index += 1;
+                continue;
+            }
         }
+        start.get_or_insert(index);
+        index += 1;
     }
-    false
+    if let Some(begin) = start {
+        parts.push(Part::Word(&input[begin..index]));
+    }
+    Inspection { parts, unsupported }
+}
+
+/// Skip a substitution's contents: its commands cannot modify the parent shell state.
+fn substitution_end(bytes: &[u8], start: usize) -> usize {
+    let backtick = bytes[start] == b'`';
+    let mut depth = 1;
+    let mut quote = None;
+    let mut index = start + if backtick { 1 } else { 2 };
+    while index < bytes.len() {
+        let ch = bytes[index];
+        if ch == b'\\' && quote != Some(b'\'') {
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+        if backtick && ch == b'`' {
+            return index + 1;
+        }
+        if ch == b'"' || ch == b'\'' {
+            if quote == Some(ch) {
+                quote = None;
+            } else if quote.is_none() {
+                quote = Some(ch);
+            }
+        } else if !backtick && quote.is_none() {
+            if ch == b'(' {
+                depth += 1;
+            }
+            if ch == b')' {
+                depth -= 1;
+                if depth == 0 {
+                    return index + 1;
+                }
+            }
+        }
+        index += 1;
+    }
+    index
 }

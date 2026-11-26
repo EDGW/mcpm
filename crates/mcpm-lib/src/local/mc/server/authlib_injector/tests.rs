@@ -30,10 +30,9 @@ fn launch_preflights_before_downloading_and_returns_a_plan_without_a_lease() {
     MinecraftServer::create(
         root.path(),
         MinecraftServerMetadata {
-            version: 3,
+            version: 4,
             minecraft_version: "1.21.1".into(),
-            loader: None,
-            start: None,
+            loader: crate::local::mc::server::ServerLoader::Vanilla,
         },
     )
     .unwrap();

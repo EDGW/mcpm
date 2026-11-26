@@ -1,6 +1,7 @@
 //! Frontend-only recognition of Minecraft Log4j prefixes; message bodies are never rewritten.
 
-use crate::theme::{self, Role, widgets::style};
+use crate::theme::{self, widgets::style};
+use mcpm_rich::Role;
 use ratatui::text::{Line, Span};
 use regex::Regex;
 use std::{

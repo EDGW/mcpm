@@ -3,13 +3,11 @@
 use super::{Browser, Focus};
 use crate::{
     display::style::text,
-    theme::{
-        Role,
-        widgets::{self, style},
-    },
+    theme::widgets::{self, style},
     widgets::browser::{self, BrowserLayout, TableColumns, panel, short_line},
 };
 use mcpm_lib::source::{FilePage, FileQuery, ProjectFile, ProjectRef, ReleaseType};
+use mcpm_rich::Role;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -90,6 +88,7 @@ fn channel(release: ReleaseType) -> &'static str {
         ReleaseType::Release => "release",
         ReleaseType::Beta => "beta",
         ReleaseType::Alpha => "alpha",
+        ReleaseType::Unknown => "unknown",
     }
 }
 

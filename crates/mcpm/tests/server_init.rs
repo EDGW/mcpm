@@ -53,7 +53,6 @@ fn init_identifies_loaders_and_publishes_configuration_without_legacy_command() 
         ("fake-vanilla", None, "1.20.1", ""),
         ("partial-unknown", None, "1.20.1", ""),
         ("bundled-vanilla", None, "1.21.1", ""),
-        ("nested-shell", None, "1.20.1", ""),
         ("nested-batch", None, "1.20.1", ""),
     ] {
         let temp = TempDir::new().unwrap();
@@ -75,15 +74,14 @@ fn init_identifies_loaders_and_publishes_configuration_without_legacy_command() 
             server
                 .metadata()
                 .loader
-                .as_ref()
+                .declaration()
                 .map(|l| l.loader_type.as_str()),
             loader,
             "{case}"
         );
-        if let Some(info) = server.loader() {
+        if let Some(info) = server.resolved_loader() {
             assert_eq!(info.version, version);
         }
-        assert!(server.metadata().start.is_none());
         let launch = mcpm_lib::local::mc::server::config::decode_launch(
             &fs::read_to_string(temp.path().join("launch.toml")).unwrap(),
         )
@@ -103,16 +101,42 @@ fn init_identifies_loaders_and_publishes_configuration_without_legacy_command() 
 }
 
 #[test]
+fn init_preserves_unknown_jvm_options_from_start_script() {
+    let temp = TempDir::new().unwrap();
+    copy(&fixture("unknown-jvm-options"), temp.path());
+    let output = run(temp.path(), &["init", "--start-script", "run.sh"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let server = MinecraftServer::load(temp.path()).unwrap();
+    assert_eq!(server.metadata().minecraft_version, "1.20.1");
+    let launch = mcpm_lib::local::mc::server::config::decode_launch(
+        &fs::read_to_string(temp.path().join("launch.toml")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        launch.jvm.extra_arguments,
+        [
+            "--unknown-launcher-option",
+            "--future-option=value",
+            "-XX:FutureTuning=42",
+        ]
+    );
+    mcpm_lib::local::mc::server::config::decode_conf(
+        &fs::read_to_string(temp.path().join("conf.toml")).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
 fn fml_uses_command_evidence_without_opening_dependency_jars() {
     for (case, mc, version) in [
         ("forge", "1.20.1", "47.3.12"),
         ("neoforge", "1.21.1", "21.1.77"),
         ("early-neoforge", "1.20.1", "47.1.79"),
         ("forge-shim", "1.21.1", "52.0.1"),
-        ("loader-version-conflict", "1.20.1", "47.4.0"),
-        ("game-version-conflict", "1.20.1", "47.3.12"),
-        ("missing-loader", "1.20.1", "47.3.12"),
-        ("fake-loader", "1.20.1", "47.3.12"),
     ] {
         let temp = TempDir::new().unwrap();
         copy(&fixture(case), temp.path());
@@ -130,19 +154,13 @@ fn fml_uses_command_evidence_without_opening_dependency_jars() {
             };
             fs::write(&path, format!("{helper}{original}")).unwrap();
             let candidates = identify::identify(temp.path(), script, &BUILTIN_LOADERS).unwrap();
-            // Conflict fixtures change only the shell argument file.
-            let expected_version = if case == "loader-version-conflict" && script == "run.bat" {
-                "47.3.12"
-            } else {
-                version
-            };
             assert_eq!(
                 candidates[0].metadata.minecraft_version, mc,
                 "{case}: {script}"
             );
             assert_eq!(
-                candidates[0].metadata.loader.as_ref().unwrap().version,
-                expected_version,
+                candidates[0].metadata.loader.declaration().unwrap().version,
+                version,
                 "{case}: {script}"
             );
         }
@@ -163,7 +181,7 @@ fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
         let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
         assert_eq!(candidates[0].metadata.minecraft_version, "1.20.1", "{case}");
         assert_eq!(
-            candidates[0].metadata.loader.as_ref().unwrap().version,
+            candidates[0].metadata.loader.declaration().unwrap().version,
             "0.16.10",
             "{case}"
         );
@@ -182,21 +200,16 @@ fn fabric_uses_minimum_version_evidence_and_falls_back_only_when_needed() {
 #[test]
 fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configuration() {
     for (case, script, reason) in [
-        ("dynamic-control", "run.sh", "control flow are unsupported"),
-        ("dynamic-command", "run.sh", "unsupported shell expansion"),
         ("undefined-variable", "run.sh", "unresolved shell variable"),
         ("unquoted-variable", "run.sh", "word splitting"),
         ("cycle", "run.sh", "recursive"),
         ("argument-cycle", "run.sh", "cannot accurately identify"),
-        ("unknown-jvm-options", "run.sh", "unknown Java option"),
         ("unknown-main", "run.sh", "cannot accurately identify"),
         ("missing-jar", "run.sh", "failed to open"),
         ("corrupt-jar", "run.sh", "invalid JAR"),
         ("no-java", "run.sh", "no Java server launch"),
-        ("dynamic-batch", "run.bat", "control flow are unsupported"),
         ("delayed-batch", "run.bat", "delayed batch expansion"),
         ("duplicate-version", "run.sh", "conflicting game option"),
-        ("client-target", "run.sh", "not a production server"),
         (
             "fabric-auto-missing-version",
             "run.sh",
@@ -209,10 +222,6 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
         assert_eq!(output.status.code(), Some(1), "{case}");
         assert!(output.stdout.is_empty(), "{case}");
         let error = String::from_utf8(output.stderr).unwrap();
-        assert!(
-            error.contains("server remains unrecognized") && error.contains("initialize manually"),
-            "{case}: {error}"
-        );
         assert!(
             error.contains(reason),
             "{case}: expected {reason:?}, got {error}"
@@ -233,23 +242,69 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
 }
 
 #[test]
-fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identified_results() {
+fn relaxed_recognition_keeps_known_state_when_skipping_script_statements() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    copy(&fixture("bundled-vanilla"), root);
+    fs::write(
+        root.join("run.sh"),
+        "JAR=server.jar\nJAR=$UNDEFINED\nif true; then\n\
+         cd somewhere-else\njava -jar not-a-candidate.jar\nfi\njava -jar \"$JAR\"\n",
+    )
+    .unwrap();
+
+    let strict = run(root, &["--raw", "init", "-G", "--start-script", "run.sh"]);
+    let error = String::from_utf8_lossy(&strict.stderr);
+    assert_eq!(strict.status.code(), Some(1), "{error}");
+    assert!(error.contains("unresolved shell variable JAR"), "{error}");
+    assert!(error.contains("--ignore-unknown-vars"), "{error}");
+    assert!(!root.join("launch.toml").exists());
+
+    let relaxed = run(root, &["--raw", "init", "-IG", "--start-script", "run.sh"]);
+    let warnings = String::from_utf8_lossy(&relaxed.stderr);
+    assert!(relaxed.status.success(), "{warnings}");
+    assert_eq!(warnings.matches("warning:").count(), 2, "{warnings}");
+    assert!(warnings.contains("run.sh:2") && warnings.contains("run.sh:3"));
+    let server = MinecraftServer::load(root).unwrap();
+    assert_eq!(server.metadata().minecraft_version, "1.21.1");
+}
+
+#[test]
+fn multiple_candidates_require_a_terminal_or_complete_manual_identity() {
     let temp = TempDir::new().unwrap();
     copy(&fixture("multiple"), temp.path());
-    let candidates = identify::identify(temp.path(), "run.sh", &BUILTIN_LOADERS).unwrap();
-    assert_eq!(candidates.len(), 2);
     for args in [
         vec!["init", "--start-script", "run.sh"],
         vec!["--raw", "init", "--start-script", "run.sh"],
     ] {
         let output = run(temp.path(), &args);
         assert!(!output.status.success());
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains("multiple identified server launches")
-        );
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains("selection requires an interactive terminal"));
+        assert!(error.contains("run.sh:1") && error.contains("run.sh:2"));
+        assert!(!error.contains("--start-line"));
         assert!(!temp.path().join(".mcpm").exists());
     }
-    let output = run(temp.path(), &["init", "--minecraft-version", "1.21.1"]);
+    for args in [
+        vec!["init", "--minecraft-version", "1.21.1"],
+        vec!["init", "--minecraft-version", "1.21.1", "--loader", "forge"],
+        vec!["init", "--start-script", "run.sh", "--start-line", "2"],
+    ] {
+        let output = run(temp.path(), &args);
+        assert!(!output.status.success());
+        assert!(!temp.path().join(".mcpm").exists());
+    }
+
+    let output = run(
+        temp.path(),
+        &[
+            "init",
+            "--minecraft-version",
+            "1.21.1",
+            "--loader",
+            "vanilla",
+        ],
+    );
     assert!(
         output.status.success(),
         "{}",
@@ -257,15 +312,102 @@ fn multiple_candidates_require_a_terminal_and_partial_values_only_filter_identif
     );
     let server = MinecraftServer::load(temp.path()).unwrap();
     assert_eq!(server.metadata().minecraft_version, "1.21.1");
-    let launch = mcpm_lib::local::mc::server::config::decode_launch(
-        &fs::read_to_string(temp.path().join("launch.toml")).unwrap(),
-    )
-    .unwrap();
+    assert!(!temp.path().join("launch.toml").exists());
+}
+
+#[test]
+fn manual_init_publishes_ordered_arguments_and_typed_conf_only_when_authorized() {
+    use mcpm_lib::local::mc::server::config::{JavaEntry, decode_conf, decode_launch};
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let launch = root.join("launch.toml");
+    let conf = root.join("conf.toml");
+    let prior = "[java]\n[server]\nworld='old'\n";
+    fs::write(&conf, prior).unwrap();
+    let args = [
+        "--raw",
+        "init",
+        "--no-git",
+        "--minecraft-version",
+        "1.21.1",
+        "--loader",
+        "vanilla",
+        "--entry",
+        "module@example.server:example.Main",
+        "--launch-cwd",
+        "a directory",
+        "--launch-env",
+        "VALUE=a=b",
+        "--java-arg=-Done=1",
+        "--java-args=-Dtwo='two words' -Dthree=3",
+        "--java-arg=-Dfour=4",
+        "--app-args=first 'second item'",
+        "--app-arg=third item",
+        "--app-args=fourth",
+        "--conf",
+        "p=25566",
+        "--conf",
+        "world=123",
+        "--conf",
+        "jvm.heap.maximum=4G",
+        "--conf",
+        "E=-Ddiscard=1",
+        "--conf",
+        "extra:=",
+        "--conf",
+        "E+=-Dfinal=1",
+    ];
+    let rejected = run(root, &args);
+    let error = String::from_utf8_lossy(&rejected.stderr);
+    assert!(
+        !rejected.status.success() && error.contains("--force --foverride-conf"),
+        "{error}"
+    );
+    assert!(!root.join(".mcpm/server.json").exists() && !launch.exists());
+    assert_eq!(fs::read_to_string(&conf).unwrap(), prior);
+
+    let initialized = [&args[..], &["-F"]].concat();
+    let output = run(root, &initialized);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let launch = decode_launch(&fs::read_to_string(&launch).unwrap()).unwrap();
     assert_eq!(
         launch.entry,
-        mcpm_lib::local::mc::server::launch::JavaEntry::Jar {
-            path: "other.jar".into()
+        JavaEntry::Module {
+            module: "example.server".into(),
+            main_class: Some("example.Main".into())
         }
+    );
+    assert_eq!(
+        launch.process.working_directory.as_deref(),
+        Some("a directory")
+    );
+    assert_eq!(launch.process.environment["VALUE"], "a=b");
+    assert_eq!(
+        launch.jvm.extra_arguments,
+        ["-Done=1", "-Dtwo=two words", "-Dthree=3", "-Dfour=4"]
+    );
+    assert_eq!(
+        launch.application.extra_arguments,
+        ["first", "second item", "third item", "fourth"]
+    );
+    let settings = decode_conf(&fs::read_to_string(&conf).unwrap()).unwrap();
+    assert_eq!(settings.server.port, Some(25566));
+    assert_eq!(settings.server.world.as_deref(), Some("123"));
+    assert_eq!(settings.jvm.heap.maximum.as_deref(), Some("4G"));
+    assert_eq!(settings.jvm.extra_arguments, ["-Dfinal=1"]);
+
+    let repeated = [&initialized[..], &["--conf", "server.port=25567"]].concat();
+    let output = run(root, &repeated);
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success()
+            && error.contains("configuration key overridden more than once: server.port"),
+        "{error}"
     );
 }
 

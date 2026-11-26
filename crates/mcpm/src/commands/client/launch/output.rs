@@ -5,8 +5,13 @@ use std::{
     process::ExitStatus,
 };
 
+use mcpm_rich::rich;
+
 use super::super::output::text;
-use crate::{display::style::OutputStyle, terminal};
+use crate::{
+    display::{rich::line, style::OutputStyle},
+    terminal,
+};
 
 pub(super) enum Event {
     Preparing,
@@ -47,33 +52,19 @@ fn write(output: &mut impl Write, name: &str, event: Event) -> io::Result<()> {
         }?;
     } else {
         let style = OutputStyle::new();
-        match event {
-            Event::Preparing => writeln!(
-                output,
-                "{} {}",
-                style.primary("Preparing"),
-                style.primary(name)
-            ),
-            Event::Started { pid } => writeln!(
-                output,
-                "{} {}  {} {}",
-                style.success("Started"),
-                style.primary(name),
-                style.muted("PID"),
-                style.important(pid)
-            ),
-            Event::Exited { status } => writeln!(
-                output,
-                "{} {}  {}",
-                if status.success() {
-                    style.success("Exited")
-                } else {
-                    style.danger("Exited")
-                },
-                style.primary(name),
-                style.muted(status)
-            ),
-        }?;
+        let message = match event {
+            Event::Preparing => rich!("[Preparing {name}](primary)"),
+            Event::Started { pid } => {
+                rich!("[Started](success) [{name}](primary)  [PID](muted) [{pid}](important)")
+            }
+            Event::Exited { status } if status.success() => {
+                rich!("[Exited](success) [{name}](primary)  [{status}](muted)")
+            }
+            Event::Exited { status } => {
+                rich!("[Exited](danger) [{name}](primary)  [{status}](muted)")
+            }
+        };
+        writeln!(output, "{}", line(&message, &style))?;
     }
     output.flush()
 }

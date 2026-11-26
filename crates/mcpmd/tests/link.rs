@@ -232,10 +232,7 @@ fn remote_bad_records_do_not_fall_back_to_a_different_daemon() {
         let Ready::Error(error) = serde_json::from_slice::<Ready>(&output.stdout).unwrap() else {
             panic!("bad record unexpectedly started a link")
         };
-        assert_eq!(
-            error.executable_not_found.is_some(),
-            record == "/nonexistent/mcpmd\n"
-        );
+        assert_eq!(missing_mcpmd(&error), record == "/nonexistent/mcpmd\n");
     }
 }
 
@@ -264,11 +261,14 @@ fn missing_record_warns_then_reports_error_only_when_path_fallback_also_fails() 
     let Ready::Error(error) = &events[1] else {
         unreachable!()
     };
-    assert_eq!(
-        error
-            .executable_not_found
-            .as_ref()
-            .map(|missing| (missing.executable.as_str(), missing.remote)),
-        Some(("mcpmd", true))
-    );
+    assert!(missing_mcpmd(error), "{error:?}");
+}
+
+/// Missing remote mcpmd: the lookup failure plus both the `mcpmd.path` note and the SSH/PATH
+/// advice, the latter already resolved to its remote form inside the link process.
+fn missing_mcpmd(error: &mcpm_exec::error::ErrorReport) -> bool {
+    std::iter::once(&error.message)
+        .chain(&error.causes)
+        .any(|message| message == "executable \"mcpmd\" was not found")
+        && error.tips.iter().filter(|tip| tip.local.is_some()).count() == 2
 }

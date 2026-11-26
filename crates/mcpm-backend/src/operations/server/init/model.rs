@@ -2,12 +2,12 @@
 
 use super::{super::info::ServerInfo, git};
 use mcpm_lib::local::mc::server::{
-    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader,
-    config::{ConfigurationDraft, ImportedSetting, Published},
+    MinecraftServerMetadata,
+    config::{ConfigurationDraft, ConfigurationOverrides, ImportedSetting, Published},
     identify::ServerCandidate,
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -28,6 +28,10 @@ pub struct Initialize {
 pub struct LocalImport {
     pub configuration: Option<ConfigurationDraft>,
     pub replace_conf: bool,
+    #[serde(default, skip_serializing_if = "ConfigurationOverrides::is_empty")]
+    pub conf_overrides: ConfigurationOverrides,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub preserve_conf: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,55 +70,34 @@ pub struct Recognize {
     #[serde(default = "default_path")]
     pub path: PathBuf,
     pub start_script: Option<PathBuf>,
-    pub minecraft_version: Option<String>,
-    pub loader: Option<String>,
-    pub loader_version: Option<String>,
-}
-impl Recognize {
-    pub fn manual_metadata(&self) -> anyhow::Result<Option<MinecraftServerMetadata>> {
-        super::implementation::validate_options(self)?;
-        let Some(minecraft_version) = self.minecraft_version.as_ref() else {
-            return Ok(None);
-        };
-        let Some(loader_type) = self.loader.as_deref() else {
-            return Ok(None);
-        };
-        let loader = match loader_type {
-            "vanilla" => None,
-            loader_type => {
-                let Some(version) = self.loader_version.as_ref() else {
-                    return Ok(None);
-                };
-                Some(ServerModLoader {
-                    loader_type: loader_type.to_owned(),
-                    version: version.clone(),
-                })
-            }
-        };
-        Ok(Some(MinecraftServerMetadata {
-            version: SERVER_METADATA_VERSION,
-            minecraft_version: minecraft_version.clone(),
-            loader,
-            start: None,
-        }))
-    }
+    #[serde(default)]
+    pub ignore_unknown_vars: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Candidate {
     pub metadata: MinecraftServerMetadata,
+    pub script: PathBuf,
     pub line: usize,
     pub main_class: String,
     pub configuration: Option<ConfigurationDraft>,
 }
-impl From<ServerCandidate> for Candidate {
-    fn from(candidate: ServerCandidate) -> Self {
-        Self {
+impl Candidate {
+    pub(super) fn from_server(candidate: ServerCandidate, root: &Path) -> anyhow::Result<Self> {
+        use anyhow::Context;
+        let script = std::fs::canonicalize(&candidate.launch.script)
+            .context("failed to resolve candidate script")?;
+        let script = script
+            .strip_prefix(root)
+            .context("candidate script escapes server root")?
+            .to_owned();
+        Ok(Self {
             metadata: candidate.metadata,
             line: candidate.launch.line,
             main_class: candidate.launch.main_class().to_owned(),
+            script,
             configuration: Some(candidate.configuration),
-        }
+        })
     }
 }
 

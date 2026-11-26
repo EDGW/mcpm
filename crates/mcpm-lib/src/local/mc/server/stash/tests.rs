@@ -17,13 +17,12 @@ impl Fixture {
         let server = MinecraftServer::create(
             root.path(),
             MinecraftServerMetadata {
-                version: 2,
+                version: 4,
                 minecraft_version: "1.21.1".into(),
-                loader: Some(ServerModLoader {
+                loader: crate::local::mc::server::ServerLoader::Modded(ServerModLoader {
                     loader_type: "fabric".into(),
                     version: "1".into(),
                 }),
-                start: None,
             },
         )
         .unwrap();

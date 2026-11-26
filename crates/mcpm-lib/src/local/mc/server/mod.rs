@@ -1,8 +1,7 @@
 //! Local server roots identified exclusively by `.mcpm/server.json`.
 
 use std::{
-    fs,
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -18,8 +17,10 @@ pub mod authlib_injector;
 pub mod config;
 pub mod identify;
 pub mod launch;
+pub mod loader_install;
 pub mod properties;
 pub mod stash;
+pub mod upgrade;
 
 pub use launch::{ServerLaunch, ServerOptionError};
 mod metadata;
@@ -28,8 +29,11 @@ mod script_path;
 pub use script_path::ServerScriptError;
 
 pub use metadata::{
-    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerModLoader, ServerStartCommand,
+    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader,
 };
+
+/// Fixed artifact name shared by vanilla installation and generated launch configuration.
+pub const VANILLA_SERVER_JAR: &str = "server.jar";
 
 /// A successfully loaded snapshot of a Minecraft server's declared metadata.
 /// Loading does not inspect JARs or guarantee that the server can launch.
@@ -38,6 +42,7 @@ pub struct MinecraftServer {
     path: PathBuf,
     name: String,
     metadata: MinecraftServerMetadata,
+    metadata_version: u32,
     mods: Option<ModContainer>,
     runtime: RuntimeEnvironment,
 }
@@ -55,39 +60,34 @@ impl MinecraftServer {
             path,
             name,
             metadata,
+            metadata_version: SERVER_METADATA_VERSION,
             mods,
             runtime,
         })
     }
 
-    /// Reads and validates metadata, then creates a missing `mods` directory for
-    /// a recognized built-in loader. Vanilla and unknown loaders create no directory.
-    /// Paths are retained as supplied; `~` is not expanded.
+    /// Requires current metadata, then creates a missing `mods` directory for
+    /// a recognized built-in loader. Other identity states create no directory.
     pub fn load(path: impl Into<PathBuf>) -> Result<Self, MinecraftServerError> {
         Self::open(path.into(), true)
     }
 
-    /// Opens a server without creating a missing `mods` directory. Metadata and
-    /// loader information remain available; `mods()` is `None` when it is absent.
+    /// Opens current metadata without creating a missing `mods` directory.
+    /// Legacy documents require explicit upgrade before becoming usable servers.
     pub fn inspect(path: impl Into<PathBuf>) -> Result<Self, MinecraftServerError> {
         Self::open(path.into(), false)
     }
 
     fn open(path: PathBuf, create_mods: bool) -> Result<Self, MinecraftServerError> {
-        let name = directory_name(&path)?;
-        let manifest = path.join(".mcpm/server.json");
-        let bytes = fs::read(&manifest).map_err(|source| MinecraftServerError::ReadMetadata {
-            path: manifest.clone(),
-            source,
-        })?;
-        let metadata = metadata::decode(&manifest, &bytes)?;
-        validate_start_script(&path, &metadata)?;
-        let mods = mod_container(&path, &metadata, create_mods)?;
-        let runtime = server_runtime(&path);
+        let registration = inspect_metadata(path)?;
+        require_current_version(&registration)?;
+        let mods = mod_container(&registration.path, &registration.metadata, create_mods)?;
+        let runtime = server_runtime(&registration.path);
         Ok(Self {
-            path,
-            name,
-            metadata,
+            path: registration.path,
+            name: registration.name,
+            metadata: registration.metadata,
+            metadata_version: registration.metadata_version,
             mods,
             runtime,
         })
@@ -111,43 +111,54 @@ impl MinecraftServer {
         Self::write(path.into(), metadata, true)
     }
 
+    /// Saves metadata while the caller already holds an exclusive [`config::ServerLock`].
+    pub fn save_locked(
+        path: PathBuf,
+        metadata: MinecraftServerMetadata,
+        lock: &config::ServerLock,
+        overwrite: bool,
+    ) -> Result<Self, MinecraftServerError> {
+        let name = directory_name(&path)?;
+        let (metadata, bytes) = metadata::encode(&path, &metadata)?;
+        Self::save_encoded_locked(path, name, metadata, &bytes, lock, overwrite)
+    }
+
     fn write(
         path: PathBuf,
         metadata: MinecraftServerMetadata,
         overwrite: bool,
     ) -> Result<Self, MinecraftServerError> {
         let name = directory_name(&path)?;
-        let manifest = path.join(".mcpm/server.json");
         let (metadata, bytes) = metadata::encode(&path, &metadata)?;
-        let _lock = config::ConfigurationLock::acquire(&path, true)
+        let lock = config::ServerLock::acquire_write(&path)
             .map_err(|source| MinecraftServerError::Configuration { source })?;
-        config::ConfigurationLock::require_clean(&path)
+        Self::save_encoded_locked(path, name, metadata, &bytes, &lock, overwrite)
+    }
+
+    fn save_encoded_locked(
+        path: PathBuf,
+        name: String,
+        metadata: MinecraftServerMetadata,
+        bytes: &[u8],
+        lock: &config::ServerLock,
+        overwrite: bool,
+    ) -> Result<Self, MinecraftServerError> {
+        lock.ensure_write_for(&path, "saving server registration")
             .map_err(|source| MinecraftServerError::Configuration { source })?;
+        config::ServerLock::require_clean(&path)
+            .map_err(|source| MinecraftServerError::Configuration { source })?;
+        if overwrite {
+            require_current_version(&inspect_metadata(path.clone())?)?;
+        }
         // Validate the optional mod directory before changing registration metadata.
         let mods = mod_container(&path, &metadata, true)?;
-        let write = || -> io::Result<()> {
-            let directory = path.join(".mcpm");
-            fs::create_dir_all(&directory)?;
-            let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
-            temporary.write_all(&bytes)?;
-            if overwrite {
-                temporary.persist(&manifest).map_err(|error| error.error)?;
-            } else {
-                temporary
-                    .persist_noclobber(&manifest)
-                    .map_err(|error| error.error)?;
-            }
-            Ok(())
-        };
-        write().map_err(|source| MinecraftServerError::WriteMetadata {
-            path: manifest,
-            source,
-        })?;
+        metadata::publish(&path, bytes, overwrite)?;
         let runtime = server_runtime(&path);
         Ok(Self {
             path,
             name,
             metadata,
+            metadata_version: SERVER_METADATA_VERSION,
             mods,
             runtime,
         })
@@ -169,12 +180,10 @@ impl MinecraftServer {
         &self.name
     }
 
-    /// Resolves the declared loader against the complete [`BUILTIN_LOADERS`] registry.
-    /// `None` means vanilla or unrecognized; declarations remain in `metadata()`.
-    /// All loaders must be registered there; behavior for unregistered loaders
-    /// is undefined by the library's API contract.
-    pub fn loader(&self) -> Option<LoaderInfo> {
-        let declaration = self.metadata.loader.as_ref()?;
+    /// Resolves a concrete declaration to a supported mod-loader implementation.
+    /// Identity remains in `metadata().loader`; missing capability never implies Vanilla.
+    pub fn resolved_loader(&self) -> Option<LoaderInfo> {
+        let declaration = self.metadata.loader.declaration()?;
         let loader = BUILTIN_LOADERS.get(declaration.loader_type.as_str())?;
         Some(LoaderInfo {
             loader: loader.clone(),
@@ -191,12 +200,63 @@ impl MinecraftServer {
         &self.metadata
     }
 
+    /// Source registration format on disk, before legacy identity normalization.
+    pub fn metadata_version(&self) -> u32 {
+        self.metadata_version
+    }
+
     /// Mod directory associated with the declared built-in loader at load time.
-    /// Returns `None` for vanilla or unknown loaders.
+    /// Returns `None` for Vanilla, Unrecognized, or unsupported loader declarations.
     /// Entries are scanned afresh by the container.
     pub fn mods(&self) -> Option<&ModContainer> {
         self.mods.as_ref()
     }
+}
+
+/// Reads registration data only. Legacy snapshots cannot be used as runnable servers.
+pub fn inspect_metadata(
+    path: impl Into<PathBuf>,
+) -> Result<ServerMetadataSnapshot, MinecraftServerError> {
+    let path = path.into();
+    let name = directory_name(&path)?;
+    let manifest = path.join(".mcpm/server.json");
+    let bytes = fs::read(&manifest).map_err(|source| MinecraftServerError::ReadMetadata {
+        path: manifest.clone(),
+        source,
+    })?;
+    let decoded = metadata::decode(&manifest, &bytes)?;
+    Ok(ServerMetadataSnapshot {
+        path,
+        name,
+        metadata: decoded.metadata,
+        metadata_version: decoded.source_version,
+    })
+}
+
+/// Data-only registration inspection, including the source on-disk format.
+#[derive(Debug)]
+pub struct ServerMetadataSnapshot {
+    pub path: PathBuf,
+    pub name: String,
+    pub metadata: MinecraftServerMetadata,
+    pub metadata_version: u32,
+}
+
+/// Applies the current-version requirement without constructing a runtime or Mod container.
+pub fn require_current_metadata(path: &Path) -> Result<(), MinecraftServerError> {
+    require_current_version(&inspect_metadata(path)?)
+}
+
+fn require_current_version(
+    registration: &ServerMetadataSnapshot,
+) -> Result<(), MinecraftServerError> {
+    if registration.metadata_version != SERVER_METADATA_VERSION {
+        return Err(MinecraftServerError::UpgradeRequired {
+            path: registration.path.join(".mcpm/server.json"),
+            version: registration.metadata_version,
+        });
+    }
+    Ok(())
 }
 
 fn server_runtime(path: &Path) -> RuntimeEnvironment {
@@ -207,23 +267,12 @@ fn server_runtime(path: &Path) -> RuntimeEnvironment {
     )
 }
 
-fn validate_start_script(
-    root: &Path,
-    metadata: &MinecraftServerMetadata,
-) -> Result<(), MinecraftServerError> {
-    if let Some(start) = &metadata.start {
-        script_path::validate(root, &start.script)
-            .map_err(|source| MinecraftServerError::InvalidStartScript { source })?;
-    }
-    Ok(())
-}
-
 fn mod_container(
     root: &Path,
     metadata: &MinecraftServerMetadata,
     create_missing: bool,
 ) -> Result<Option<ModContainer>, MinecraftServerError> {
-    let Some(declaration) = &metadata.loader else {
+    let Some(declaration) = metadata.loader.declaration() else {
         return Ok(None);
     };
     let Some(loader) = BUILTIN_LOADERS.get(declaration.loader_type.as_str()) else {
@@ -289,15 +338,12 @@ fn directory_name(path: &Path) -> Result<String, MinecraftServerError> {
 
 #[derive(Debug, Error)]
 pub enum MinecraftServerError {
+    #[error("server metadata version {version} at {path:?} requires an upgrade")]
+    UpgradeRequired { path: PathBuf, version: u32 },
     #[error("server configuration cannot be changed")]
     Configuration {
         #[source]
         source: anyhow::Error,
-    },
-    #[error("invalid Minecraft server start script")]
-    InvalidStartScript {
-        #[source]
-        source: ServerScriptError,
     },
     #[error("failed to create Minecraft server mod directory {path:?}")]
     CreateModDirectory {
@@ -342,4 +388,18 @@ pub enum MinecraftServerError {
         #[source]
         source: io::Error,
     },
+}
+
+impl MinecraftServerError {
+    /// Converts to a diagnostic error, attaching the upgrade Tip where applicable.
+    pub fn into_diagnostic(self) -> anyhow::Error {
+        let tip = match &self {
+            Self::UpgradeRequired { version, .. } => mcpm_rich::rich!(
+                "Deprecated server metadata version {version}; run `mcpm info --upgrade`
+                 in Console mode to upgrade the metadata version."
+            ),
+            _ => return self.into(),
+        };
+        mcpm_exec::error::TippedError::new(self, Some(tip.clone()), Some(tip)).into()
+    }
 }

@@ -3,7 +3,6 @@
 use super::{super::info::ServerInfo, Initialized, git};
 use anyhow::Result;
 use mcpm_exec::operation::Operation;
-use mcpm_lib::local::mc::server::config;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -16,8 +15,7 @@ impl Operation for PrepareRemote {
         tokio::task::spawn_blocking(move || {
             git::validate_options(input.git, input.no_git)?;
             let server = crate::workspace::inspect_local(input.path)?;
-            let mut info = ServerInfo::from_server(&server);
-            info.configuration = Some(config::configuration_files(server.path())?);
+            let info = ServerInfo::from_server(&server)?;
             let git = if input.no_git {
                 None
             } else {

@@ -5,10 +5,8 @@ use super::super::{
     rows::{Paint, Piece, Row},
 };
 use super::{Browser, DETAIL_FIELDS, DetailField, Focus, Summary, filter, identify};
-use crate::theme::{
-    Role,
-    widgets::{self, style},
-};
+use crate::theme::widgets::{self, style};
+use mcpm_rich::Role;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},

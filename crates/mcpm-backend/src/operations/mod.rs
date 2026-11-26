@@ -4,6 +4,7 @@ use anyhow::Result;
 use mcpm_exec::operation::Registry;
 
 pub mod cache;
+pub mod debug;
 pub mod mods;
 pub mod server;
 pub mod workspace;
@@ -15,6 +16,8 @@ pub fn registry() -> Result<Registry> {
     registry.register::<workspace::Inspect>()?;
     registry.register::<workspace::RegisterRemote>()?;
     registry.register::<server::info::Info>()?;
+    registry.register::<server::upgrade::PrepareUpgrade>()?;
+    registry.register::<server::upgrade::ApplyUpgrade>()?;
     registry.register::<server::shim::Prepare>()?;
     registry.register::<server::shim::Launch>()?;
     registry.register::<server::shim::Inspect>()?;
@@ -25,6 +28,8 @@ pub fn registry() -> Result<Registry> {
     registry.register::<server::shim::Kill>()?;
     registry.register::<server::init::RecognizeServer>()?;
     registry.register::<server::init::Init>()?;
+    registry.register::<server::loader::AddLoader>()?;
+    registry.register::<server::new::New>()?;
     registry.register::<server::init::prepare_remote::PrepareRemote>()?;
     registry.register::<server::stash::Create>()?;
     registry.register::<server::stash::Switch>()?;
@@ -60,5 +65,6 @@ pub fn registry() -> Result<Registry> {
     registry.register::<mods::backup::Checksum>()?;
     registry.register::<mods::backup::VerifyWith>()?;
     registry.register::<mods::backup::Delete>()?;
+    registry.register::<debug::lock::LockServer>()?;
     Ok(registry)
 }

@@ -2,15 +2,15 @@
 """Verify Cargo binary targets and package one complete platform release with SHA-256."""
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import re
 import shutil
 import subprocess
-import tarfile
 import tempfile
 import zipfile
+
+from prepare_artifacts import load_artifacts, sha256
 
 
 def package(binary_dir, output_dir, asset, target, tag=None):
@@ -32,10 +32,25 @@ def package(binary_dir, output_dir, asset, target, tag=None):
     filenames = [name + ('.exe' if windows else '') for name in names]
     build_version = None
     output_dir.mkdir(parents=True, exist_ok=True)
-    archive = output_dir / (asset + ('.zip' if windows else '.tar.gz'))
+    archive = output_dir / f'{asset}.zip'
+    artifacts = load_artifacts()
+    binary_names = {name.casefold() for name in filenames}
+    if any(artifact.name.casefold() in binary_names for artifact in artifacts):
+        raise ValueError('a pinned artifact has the same filename as a Cargo binary')
     with tempfile.TemporaryDirectory(prefix='mcpm-package-') as temporary:
         staging = Path(temporary)
         (staging / 'bin').mkdir()
+        files = []
+        for artifact in artifacts:
+            source = binary_dir / artifact.name
+            if not source.is_file():
+                raise FileNotFoundError(f'{source}: build the suite with Cargo before packaging')
+            file = staging / 'bin' / artifact.name
+            shutil.copyfile(source, file)
+            actual = sha256(file)
+            if actual != artifact.sha256:
+                raise ValueError(f'{source}: expected SHA-256 {artifact.sha256}, got {actual}; rebuild with Cargo')
+            files.append((file, actual))
         for name, filename in zip(names, filenames):
             binary = binary_dir / filename
             actual = subprocess.check_output([str(binary), '-V'], text=True).strip()
@@ -56,22 +71,30 @@ def package(binary_dir, output_dir, asset, target, tag=None):
                 headers = subprocess.check_output(['readelf', '-l', str(binary)], text=True)
                 if 'INTERP' in headers:
                     raise ValueError(f'{filename}: musl executable is not static')
-            shutil.copy2(binary, staging / 'bin' / filename)
-        # Installers interpret this format through their manifest readers; never source/eval it.
-        manifest = ['format=1', f'version=v{build_version}', f'asset={asset}']
-        manifest.extend(f'file={filename}' for filename in filenames)
-        (staging / 'manifest').write_text('\n'.join(manifest) + '\n', encoding='utf-8')
-        files = [staging / 'manifest', *(staging / 'bin' / name for name in filenames)]
-        if windows:
-            with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as packed:
-                for file in files:
-                    packed.write(file, file.relative_to(staging).as_posix())
-        else:
-            with tarfile.open(archive, 'w:gz') as packed:
-                for file in files:
-                    packed.add(file, arcname=file.relative_to(staging).as_posix())
-    with archive.open('rb') as stream:
-        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+            file = staging / 'bin' / filename
+            shutil.copy2(binary, file)
+            files.append((file, sha256(file)))
+        manifest = {
+            'format': 1,
+            'version': f'v{build_version}',
+            'asset': asset,
+            'target': target,
+            'files': [
+                {'path': file.relative_to(staging).as_posix(), 'sha256': digest}
+                for file, digest in files
+            ],
+        }
+        manifest_path = staging / 'manifest.json'
+        manifest_path.write_bytes((json.dumps(manifest, indent=2) + '\n').encode('utf-8'))
+        write_archive(archive, staging, [manifest_path, *(file for file, _ in files)])
+        shutil.copyfile(manifest_path, output_dir / manifest_path.name)
+
+
+def write_archive(archive, staging, files):
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as packed:
+        for file in files:
+            packed.write(file, file.relative_to(staging).as_posix())
+    digest = sha256(archive)
     archive.with_name(archive.name + '.sha256').write_text(
         f'{digest}  {archive.name}\n', encoding='ascii',
     )

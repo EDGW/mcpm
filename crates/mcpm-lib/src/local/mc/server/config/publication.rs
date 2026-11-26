@@ -1,8 +1,9 @@
-//! Locked multi-file publication with durable preimages and rollback on failure or explicit retry.
+//! Pure 3-file atomic transaction engine (`.mcpm/server.json`, `launch.toml`, `conf.toml`)
+//! with durable preimages, rollback recovery, and the `.mcpm/server.lock` coordination lock.
 
-use super::*;
+use super::{ImportedSetting, LaunchConfig};
 use crate::local::mc::server::{MinecraftServer, MinecraftServerMetadata, metadata};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
@@ -11,21 +12,26 @@ use std::{
 };
 use thiserror::Error;
 
-/// Separate overwrite intents; replacing conf additionally requires replacing registration.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct OverwritePolicy {
-    pub replace_registration: bool,
-    pub replace_conf: bool,
+/// Transactional 3-file publication plan for `.mcpm/server.json`, `launch.toml`, and `conf.toml`.
+pub struct Publication<'a> {
+    pub identity: &'a MinecraftServerMetadata,
+    pub launch: LaunchAction<'a>,
+    pub conf: ConfAction<'a>,
+    pub replace_existing: bool,
+    pub recover_pending: bool,
 }
 
-impl OverwritePolicy {
-    fn validate(self) -> Result<()> {
-        ensure!(
-            !self.replace_conf || self.replace_registration,
-            "replacing conf.toml requires explicit registration replacement as well"
-        );
-        Ok(())
-    }
+/// Target transition for `launch.toml` within a [`Publication`].
+pub enum LaunchAction<'a> {
+    Keep,
+    Write(&'a LaunchConfig),
+    Remove,
+}
+
+/// Target transition for `conf.toml` within a [`Publication`].
+pub enum ConfAction<'a> {
+    Keep,
+    Write(&'a str),
 }
 
 /// Actual filesystem outcome; suggestions are never silently applied to preserved conf.
@@ -40,52 +46,51 @@ pub struct Published {
     pub entry_configured: bool,
 }
 
-/// Publishes local registration and configuration under the backend's own coordination lock.
-/// A journal is removed only after all files have been installed. An interrupted publication
-/// is rolled back on the next explicit import; launch refuses a pending journal.
-pub fn publish(
-    root: &Path,
-    identity: &MinecraftServerMetadata,
-    draft: Option<&ConfigurationDraft>,
-    policy: OverwritePolicy,
-) -> Result<Published> {
-    policy.validate()?;
+/// Atomically publishes `.mcpm/server.json` together with the requested `launch.toml` and
+/// `conf.toml` transitions while the caller holds an exclusive [`ServerLock`].
+///
+/// A v1 journal is removed only after all target files have been installed. When
+/// `plan.recover_pending` is `true`, any interrupted publication is rolled back first;
+/// otherwise a pending journal is rejected immediately.
+pub fn commit(root: &Path, lock: &ServerLock, plan: Publication<'_>) -> Result<Published> {
     ensure!(
         root.is_dir(),
         "server root is not an existing directory: {root:?}"
     );
-    let (identity, metadata_bytes) = metadata::encode(root, identity)?;
-    let launch_text = draft.map(|draft| draft.launch.encode()).transpose()?;
-    let conf_text = match draft {
-        Some(draft) => draft.template()?,
-        None => import::default_template()?,
+    lock.ensure_write_for(root, "configuration publication")?;
+    let (identity, metadata_bytes) = metadata::encode(root, plan.identity)?;
+    let launch_bytes = match plan.launch {
+        LaunchAction::Write(launch) => Some(launch.encode()?.into_bytes()),
+        LaunchAction::Keep | LaunchAction::Remove => None,
     };
-    let _lock = ConfigurationLock::acquire(root, true)?;
-    recover(root).context(
-        "failed to recover interrupted configuration publication; files were not imported",
-    )?;
     let server = MinecraftServer::registration_snapshot(root.to_owned(), identity)?;
-    let old_metadata = existing(&root.join(".mcpm/server.json"))?;
-    let old_launch = existing(&root.join("launch.toml"))?;
-    let old_conf = existing(&root.join("conf.toml"))?;
+    if plan.recover_pending {
+        recover(root).context(
+            "failed to recover interrupted configuration publication; no files were modified",
+        )?;
+    } else {
+        ServerLock::require_clean(root)?;
+    }
+    let old_metadata = existing(&Target::Metadata.path(root))?;
+    let (old_launch, launch_exists, preserved_launch) = match plan.launch {
+        LaunchAction::Keep => {
+            let exists = path_exists(&Target::Launch.path(root))?;
+            (None, exists, exists)
+        }
+        LaunchAction::Write(_) | LaunchAction::Remove => {
+            let old = existing(&Target::Launch.path(root))?;
+            let exists = old.is_some();
+            (old, exists, false)
+        }
+    };
+    let (old_conf, preserved_conf) = match plan.conf {
+        ConfAction::Keep => (None, path_exists(&Target::Conf.path(root))?),
+        ConfAction::Write(_) => (existing(&Target::Conf.path(root))?, false),
+    };
     ensure!(
-        policy.replace_registration || (old_metadata.is_none() && old_launch.is_none()),
+        plan.replace_existing || (old_metadata.is_none() && !launch_exists),
         "server registration or launch.toml already exists; use --force to import again"
     );
-    let preserve_conf = old_conf.is_some() && !policy.replace_conf;
-    let effective_conf = if preserve_conf {
-        decode_conf(
-            std::str::from_utf8(old_conf.as_deref().unwrap())
-                .context("preserved conf.toml is not UTF-8")?,
-        )
-        .context("preserved conf.toml is invalid; fix it or explicitly override it")?
-    } else {
-        decode_conf(&conf_text)?
-    };
-    if let Some(draft) = draft {
-        validate_pair(&draft.launch, &effective_conf)
-            .context("new launch structure conflicts with effective conf.toml")?;
-    }
     let mut journal = Journal {
         version: 1,
         files: vec![Change {
@@ -94,35 +99,50 @@ pub fn publish(
             after: Some(metadata_bytes),
         }],
     };
-    if launch_text.is_some() || old_launch.is_some() {
-        journal.files.push(Change {
-            target: Target::Launch,
-            before: old_launch,
-            after: launch_text.map(String::into_bytes),
-        });
+    match plan.launch {
+        LaunchAction::Keep => {}
+        LaunchAction::Write(_) => {
+            journal.files.push(Change {
+                target: Target::Launch,
+                before: old_launch,
+                after: launch_bytes,
+            });
+        }
+        LaunchAction::Remove => {
+            if old_launch.is_some() {
+                journal.files.push(Change {
+                    target: Target::Launch,
+                    before: old_launch,
+                    after: None,
+                });
+            }
+        }
     }
-    if !preserve_conf {
-        journal.files.push(Change {
-            target: Target::Conf,
-            before: old_conf,
-            after: Some(conf_text.into_bytes()),
-        });
+    match plan.conf {
+        ConfAction::Keep => {}
+        ConfAction::Write(text) => {
+            journal.files.push(Change {
+                target: Target::Conf,
+                before: old_conf,
+                after: Some(text.as_bytes().to_vec()),
+            });
+        }
     }
     let journal_path = journal_path(root);
     let bytes =
         serde_json::to_vec(&journal).context("failed to encode configuration recovery journal")?;
     replace(&journal_path, &bytes).context("failed to prepare configuration recovery journal")?;
-    let commit = (|| -> Result<()> {
+    let outcome = (|| -> Result<()> {
         for change in &journal.files {
             install(&change.target.path(root), change.after.as_deref())?;
         }
         fs::remove_file(&journal_path).context("failed to finish configuration publication")?;
         Ok(())
     })();
-    if let Err(source) = commit {
+    if let Err(source) = outcome {
         if let Err(recovery) = recover(root) {
             return Err(PublicationRecoveryError {
-                errors: mcpm_exec::error::CombinedError::new(source, recovery),
+                errors: crate::error::CombinedError::new(source, recovery),
                 journal: journal_path,
             }
             .into());
@@ -137,10 +157,8 @@ pub fn publish(
         replaced: Vec::new(),
         preserved: Vec::new(),
         removed: Vec::new(),
-        imported: draft
-            .map(|draft| draft.imported.clone())
-            .unwrap_or_default(),
-        entry_configured: draft.is_some(),
+        imported: Vec::new(),
+        entry_configured: matches!(plan.launch, LaunchAction::Write(_)),
     };
     for change in journal.files {
         let destination = if change.after.is_none() {
@@ -152,60 +170,225 @@ pub fn publish(
         };
         destination.push(change.target.path(root));
     }
-    if preserve_conf {
-        result.preserved.push(root.join("conf.toml"));
+    if preserved_launch {
+        result.preserved.push(Target::Launch.path(root));
+    }
+    if preserved_conf {
+        result.preserved.push(Target::Conf.path(root));
     }
     Ok(result)
 }
 
+/// Recovers a pending configuration publication journal while holding an exclusive
+/// [`ServerLock`].
+///
+/// Returns `Ok(true)` if a pending journal existed and its preimages were restored, or
+/// `Ok(false)` if no pending journal was present.
+pub fn recover_if_pending(root: &Path, lock: &ServerLock) -> Result<bool> {
+    lock.ensure_write_for(root, "configuration recovery")?;
+    recover(root).context("failed to recover interrupted configuration publication")
+}
+
 /// Preserves both independent error chains if automatic rollback also fails.
 #[derive(Debug, Error)]
-#[error("configuration publication and recovery failed; retry import to recover from {journal:?}")]
+#[error(
+    "configuration publication and recovery failed; retry the interrupted operation to recover from {journal:?}"
+)]
 pub struct PublicationRecoveryError {
     #[source]
-    pub errors: mcpm_exec::error::CombinedError,
+    pub errors: crate::error::CombinedError,
     pub journal: PathBuf,
 }
 
-pub(crate) struct ConfigurationLock {
-    _file: File,
+/// An interrupted v1 configuration publication journal blocks reads and new commits until recovered.
+#[derive(Debug, Error)]
+#[error(
+    "interrupted configuration publication requires explicit recovery through init --force or add-loader"
+)]
+pub struct PendingPublication {
+    pub journal: PathBuf,
 }
 
-impl ConfigurationLock {
-    pub(crate) fn acquire(root: &Path, write: bool) -> Result<Self> {
-        if write {
-            fs::create_dir_all(root.join(".mcpm"))
-                .context("failed to create server metadata directory")?;
-        }
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(root.join(".mcpm/launch.lock"))
-            .context("failed to open server configuration lock")?;
-        if write {
-            file.try_lock()
-        } else {
-            file.try_lock_shared()
-        }
-        .context("server configuration is busy or cannot be locked")?;
-        if !write {
-            ensure!(
-                !journal_path(root).try_exists()?,
-                "an interrupted configuration import requires recovery; explicitly run init --force again before launching"
-            );
-        }
-        Ok(Self { _file: file })
+/// Short-lived coordination lock on `.mcpm/server.lock` serializing server configuration writes,
+/// launch preparation/startup critical sections, and consistent reads.
+pub struct ServerLock {
+    _file: Option<File>,
+    root: PathBuf,
+    write: bool,
+}
+
+impl ServerLock {
+    /// Acquires a shared read lock on `.mcpm/server.lock` with zero disk writes.
+    ///
+    /// If `.mcpm/server.lock` does not exist yet, neither `.mcpm/` nor the lock file is created;
+    /// pending publication journals are still rejected.
+    pub fn acquire_read(root: &Path) -> Result<Self> {
+        let canonical_root = resolve_root(root)?;
+        let lock_path = server_lock_path(&canonical_root);
+        let file = match fs::symlink_metadata(&lock_path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Ok(meta) => {
+                ensure!(
+                    meta.is_file(),
+                    "server lock path is not a regular file: {lock_path:?}"
+                );
+                Some(open_existing_shared(&lock_path)?)
+            }
+            Err(error) => return Err(error).context("failed to inspect server lock"),
+        };
+        Self::require_clean(&canonical_root)?;
+        Ok(Self {
+            _file: file,
+            root: canonical_root,
+            write: false,
+        })
     }
 
-    pub(crate) fn require_clean(root: &Path) -> Result<()> {
+    /// Acquires a real OS shared lock on an existing `.mcpm/server.lock` without creating files
+    /// or checking for pending journals. Fails if `.mcpm/server.lock` does not exist.
+    pub fn acquire_existing_read(root: &Path) -> Result<Self> {
+        let canonical_root = resolve_root(root)?;
+        let lock_path = server_lock_path(&canonical_root);
+        match fs::symlink_metadata(&lock_path) {
+            Ok(meta) => ensure!(
+                meta.is_file(),
+                "server lock path is not a regular file: {lock_path:?}"
+            ),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                bail!("server lock file does not exist: {lock_path:?}");
+            }
+            Err(error) => return Err(error).context("failed to inspect server lock"),
+        }
+        let file = open_existing_shared(&lock_path)?;
+        Ok(Self {
+            _file: Some(file),
+            root: canonical_root,
+            write: false,
+        })
+    }
+
+    /// Acquires an exclusive write lock on `.mcpm/server.lock`, creating `.mcpm/` as needed.
+    ///
+    /// Does not reject pending journals so recovery workflows can hold the write lock.
+    pub fn acquire_write(root: &Path) -> Result<Self> {
+        let canonical_root = resolve_root(root)?;
+        let mcpm_dir = canonical_root.join(".mcpm");
+        match fs::create_dir(&mcpm_dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(error).context("failed to create server metadata directory");
+            }
+        }
+        let meta = fs::symlink_metadata(&mcpm_dir)
+            .context("failed to inspect server metadata directory")?;
         ensure!(
-            !journal_path(root).try_exists()?,
-            "interrupted configuration import requires explicit recovery through server initialization"
+            meta.is_dir(),
+            "server metadata path is not a regular directory: {mcpm_dir:?}"
+        );
+        let lock_path = server_lock_path(&canonical_root);
+        match fs::symlink_metadata(&lock_path) {
+            Ok(meta) => ensure!(
+                meta.is_file(),
+                "server lock path is not a regular file: {lock_path:?}"
+            ),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).context("failed to inspect server lock"),
+        }
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = options
+            .open(&lock_path)
+            .with_context(|| format!("failed to open server lock {lock_path:?}"))?;
+        file.try_lock()
+            .context("server is busy or cannot be locked")?;
+        Ok(Self {
+            _file: Some(file),
+            root: canonical_root,
+            write: true,
+        })
+    }
+
+    /// Returns the canonical lock file path `<root>/.mcpm/server.lock`.
+    pub fn path(&self) -> PathBuf {
+        server_lock_path(&self.root)
+    }
+
+    /// Rejects operations when a pending configuration publication journal exists.
+    pub fn require_clean(root: &Path) -> Result<()> {
+        let path = journal_path(root);
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error)
+                .with_context(|| format!("failed to inspect configuration journal {path:?}")),
+            Ok(_) => Err(PendingPublication { journal: path }.into()),
+        }
+    }
+
+    pub(crate) fn ensure_held_for(&self, root: &Path, action: &str) -> Result<()> {
+        let canonical = fs::canonicalize(root)
+            .with_context(|| format!("failed to resolve server root {root:?}"))?;
+        ensure!(
+            self.root == canonical,
+            "{action} lock belongs to {:?}, not {:?}",
+            self.root,
+            canonical
         );
         Ok(())
     }
+
+    pub(crate) fn ensure_write_for(&self, root: &Path, action: &str) -> Result<()> {
+        ensure!(self.write, "{action} requires an exclusive server lock");
+        self.ensure_held_for(root, action)
+    }
+}
+
+impl Drop for ServerLock {
+    fn drop(&mut self) {
+        if let Some(file) = &self._file {
+            // Closing one descriptor does not release a lock inherited by another process.
+            if let Err(error) = file.unlock() {
+                tracing::warn!(
+                    path = %self.path().display(),
+                    %error,
+                    "failed to release server lock"
+                );
+            }
+        }
+    }
+}
+
+fn resolve_root(root: &Path) -> Result<PathBuf> {
+    ensure!(
+        root.is_dir(),
+        "server root is not an existing directory: {root:?}"
+    );
+    fs::canonicalize(root).with_context(|| format!("failed to resolve server root {root:?}"))
+}
+
+fn server_lock_path(root: &Path) -> PathBuf {
+    root.join(".mcpm/server.lock")
+}
+
+fn open_existing_shared(lock_path: &Path) -> Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options
+        .open(lock_path)
+        .with_context(|| format!("failed to open server lock {lock_path:?}"))?;
+    file.try_lock_shared()
+        .context("server is busy or cannot be locked")?;
+    Ok(file)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -241,10 +424,10 @@ impl Target {
     }
 }
 
-fn recover(root: &Path) -> Result<()> {
+fn recover(root: &Path) -> Result<bool> {
     let path = journal_path(root);
     let Some(bytes) = existing(&path)? else {
-        return Ok(());
+        return Ok(false);
     };
     let journal: Journal =
         serde_json::from_slice(&bytes).context("invalid configuration recovery journal")?;
@@ -265,14 +448,15 @@ fn recover(root: &Path) -> Result<()> {
             .context("failed to restore configuration preimage")?;
     }
     fs::remove_file(path).context("failed to remove recovered configuration journal")?;
-    sync_directory(&root.join(".mcpm"))
+    sync_directory(&root.join(".mcpm"))?;
+    Ok(true)
 }
 
 fn journal_path(root: &Path) -> PathBuf {
     root.join(".mcpm/launch-publication.json")
 }
 
-fn existing(path: &Path) -> Result<Option<Vec<u8>>> {
+pub(super) fn existing(path: &Path) -> Result<Option<Vec<u8>>> {
     match fs::symlink_metadata(path) {
         Ok(metadata) => {
             ensure!(
@@ -284,6 +468,14 @@ fn existing(path: &Path) -> Result<Option<Vec<u8>>> {
             ))
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("failed to inspect {path:?}")),
+    }
+}
+
+fn path_exists(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(error).with_context(|| format!("failed to inspect {path:?}")),
     }
 }
@@ -365,9 +557,10 @@ mod tests {
         install(&Target::Metadata.path(root.path()), Some(b"new metadata")).unwrap();
         install(&Target::Launch.path(root.path()), Some(b"new launch")).unwrap();
         install(&Target::Conf.path(root.path()), Some(b"old conf")).unwrap();
-        assert!(ConfigurationLock::acquire(root.path(), false).is_err());
-        let _lock = ConfigurationLock::acquire(root.path(), true).unwrap();
-        recover(root.path()).unwrap();
+        assert!(ServerLock::acquire_read(root.path()).is_err());
+        assert!(!server_lock_path(root.path()).exists());
+        let lock = ServerLock::acquire_write(root.path()).unwrap();
+        assert!(recover_if_pending(root.path(), &lock).unwrap());
         assert_eq!(
             fs::read(Target::Metadata.path(root.path())).unwrap(),
             b"old metadata"
@@ -379,6 +572,147 @@ mod tests {
         assert!(!Target::Launch.path(root.path()).exists());
         assert!(!journal_path(root.path()).exists());
         // Recovery is idempotent after every restored preimage.
-        recover(root.path()).unwrap();
+        assert!(!recover_if_pending(root.path(), &lock).unwrap());
+        assert!(!recover(root.path()).unwrap());
+        drop(lock);
+
+        let missing = root.path().join("does-not-exist");
+        assert!(ServerLock::acquire_write(&missing).is_err());
+        assert!(!missing.exists());
+
+        let shared = ServerLock::acquire_read(root.path()).unwrap();
+        assert!(recover_if_pending(root.path(), &shared).is_err());
+        drop(shared);
+
+        let other = tempfile::tempdir().unwrap();
+        let other_lock = ServerLock::acquire_write(other.path()).unwrap();
+        assert!(recover_if_pending(root.path(), &other_lock).is_err());
+    }
+
+    #[test]
+    fn acquire_read_performs_zero_disk_writes_and_existing_read_enforces_real_os_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let mcpm_dir = root.path().join(".mcpm");
+        let lock_path = server_lock_path(root.path());
+
+        // Missing .mcpm/ and server.lock: acquire_read succeeds with zero writes.
+        let read_without_dir = ServerLock::acquire_read(root.path()).unwrap();
+        assert!(!mcpm_dir.exists());
+        assert!(!lock_path.exists());
+        drop(read_without_dir);
+
+        // acquire_existing_read rejects missing server.lock without creating files.
+        assert!(ServerLock::acquire_existing_read(root.path()).is_err());
+        assert!(!mcpm_dir.exists());
+
+        // Pending journal is still rejected even when server.lock does not exist.
+        fs::create_dir(&mcpm_dir).unwrap();
+        fs::write(journal_path(root.path()), b"{}").unwrap();
+        assert!(ServerLock::acquire_read(root.path()).is_err());
+        assert!(!lock_path.exists());
+        fs::remove_file(journal_path(root.path())).unwrap();
+
+        // Missing server.lock with existing .mcpm/ still creates no lock file.
+        let read_without_file = ServerLock::acquire_read(root.path()).unwrap();
+        assert!(!lock_path.exists());
+        drop(read_without_file);
+
+        // Create server.lock via write lock, then verify duplicate-fd release on Drop.
+        let write = ServerLock::acquire_write(root.path()).unwrap();
+        assert!(lock_path.is_file());
+        let inherited = write._file.as_ref().unwrap().try_clone().unwrap();
+        assert!(ServerLock::acquire_read(root.path()).is_err());
+        assert!(ServerLock::acquire_existing_read(root.path()).is_err());
+        drop(write);
+
+        // Existing shared lock blocks concurrent exclusive writes while allowing shared reads.
+        let existing_shared = ServerLock::acquire_existing_read(root.path()).unwrap();
+        let second_shared = ServerLock::acquire_read(root.path()).unwrap();
+        assert!(ServerLock::acquire_write(root.path()).is_err());
+        drop(second_shared);
+        drop(existing_shared);
+
+        let reacquired = ServerLock::acquire_write(root.path()).unwrap();
+        drop(inherited);
+        drop(reacquired);
+    }
+
+    #[test]
+    fn commit_keep_conf_leaves_conf_unread_and_rejects_pending_journal_when_recovery_disabled() {
+        use crate::local::{
+            java::command::JavaEntry,
+            mc::server::{
+                SERVER_METADATA_VERSION, ServerLoader,
+                config::{Arguments, Process},
+            },
+        };
+
+        let root = tempfile::tempdir().unwrap();
+        let conf_path = root.path().join("conf.toml");
+        // Non-UTF-8 and invalid TOML proves ConfAction::Keep never reads or parses conf.toml.
+        let conf_bytes = b"\xff# raw user bytes\r\n[not valid toml";
+        fs::write(&conf_path, conf_bytes).unwrap();
+
+        let identity = MinecraftServerMetadata {
+            version: SERVER_METADATA_VERSION,
+            minecraft_version: "1.21.1".into(),
+            loader: ServerLoader::Vanilla,
+        };
+        let launch = LaunchConfig {
+            version: 1,
+            platform: None,
+            process: Process::default(),
+            jvm: Arguments::default(),
+            entry: JavaEntry::Jar {
+                path: "server.jar".into(),
+            },
+            application: Arguments::default(),
+        };
+
+        let lock = ServerLock::acquire_write(root.path()).unwrap();
+        let pending = Journal {
+            version: 1,
+            files: vec![Change {
+                target: Target::Metadata,
+                before: None,
+                after: Some(b"pending".to_vec()),
+            }],
+        };
+        replace(
+            &journal_path(root.path()),
+            &serde_json::to_vec(&pending).unwrap(),
+        )
+        .unwrap();
+
+        let plan = Publication {
+            identity: &identity,
+            launch: LaunchAction::Write(&launch),
+            conf: ConfAction::Keep,
+            replace_existing: true,
+            recover_pending: false,
+        };
+        assert!(commit(root.path(), &lock, plan).is_err());
+        assert!(journal_path(root.path()).exists());
+        assert_eq!(fs::read(&conf_path).unwrap(), conf_bytes);
+
+        assert!(recover_if_pending(root.path(), &lock).unwrap());
+        let published = commit(
+            root.path(),
+            &lock,
+            Publication {
+                identity: &identity,
+                launch: LaunchAction::Write(&launch),
+                conf: ConfAction::Keep,
+                replace_existing: true,
+                recover_pending: false,
+            },
+        )
+        .unwrap();
+        assert!(published.entry_configured);
+        assert!(published.imported.is_empty());
+        assert_eq!(published.preserved, vec![conf_path.clone()]);
+        assert_eq!(fs::read(&conf_path).unwrap(), conf_bytes);
+        assert!(Target::Metadata.path(root.path()).is_file());
+        assert!(Target::Launch.path(root.path()).is_file());
     }
 }

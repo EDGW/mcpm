@@ -1,6 +1,7 @@
 //! Strict version-one launch and tuning schemas; decoding is owned by the config facade.
 
 pub use crate::local::java::command::JavaEntry;
+use mcpm_macros::ConfigFields;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -50,7 +51,7 @@ pub struct Process {
 }
 
 /// Ordered argv region; each string denotes exactly one argument.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Arguments {
     #[serde(default)]
@@ -61,19 +62,24 @@ pub struct Arguments {
 /// # Implementations
 /// - [`Self::default`]: empty explicit configuration.
 /// - [`Self::validate`], [`Self::jvm_arguments`], [`Self::server_arguments`]: argument generation in the configuration module.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServerConfig {
     #[serde(default = "version")]
     pub version: u32,
+    #[config(nested)]
     pub java: Java,
     #[serde(default)]
+    #[config(nested)]
     pub jvm: Jvm,
     #[serde(default)]
+    #[config(nested)]
     pub server: Server,
     #[serde(default)]
+    #[config(nested)]
     pub application: Arguments,
     #[serde(default, rename = "authlib-injector")]
+    #[config(nested)]
     pub authlib_injector: Option<super::AuthlibInjector>,
 }
 
@@ -91,35 +97,45 @@ impl Default for ServerConfig {
 }
 
 /// Java lookup is performed after applying the effective process environment.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(deny_unknown_fields)]
 pub struct Java {
+    /// Java executable used to launch the server.
+    #[config(command = "java", command_short = 'j')]
     pub executable: Option<String>,
 }
 
 /// JVM tuning with independent ordered memory and general argument regions.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Jvm {
     pub thread_stack: Option<String>,
     #[serde(default)]
+    #[config(nested)]
     pub heap: Heap,
     #[serde(default)]
+    #[config(nested)]
     pub metaspace: Metaspace,
     #[serde(default)]
+    #[config(nested)]
     pub direct: Direct,
     #[serde(default)]
+    #[config(nested)]
     pub code_cache: CodeCache,
     #[serde(default)]
+    #[config(nested)]
     pub gc: Gc,
     #[serde(default)]
+    #[config(nested)]
     pub memory: Memory,
     #[serde(default)]
+    /// Additional JVM arguments, in their supplied order.
+    #[config(command = "extra", command_short = 'E')]
     pub extra_arguments: Vec<String>,
 }
 
 /// Heap sizes and ergonomics percentages; MinRAMPercentage is not an initial heap.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Heap {
     pub initial: Option<String>,
@@ -133,7 +149,7 @@ pub struct Heap {
 }
 
 /// Metaspace thresholds and limits, separate from heap memory.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Metaspace {
     pub initial: Option<String>,
@@ -142,14 +158,14 @@ pub struct Metaspace {
 }
 
 /// Direct-buffer memory limit.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(deny_unknown_fields)]
 pub struct Direct {
     pub maximum: Option<String>,
 }
 
 /// Initial and reserved JIT code-cache sizes.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(deny_unknown_fields)]
 pub struct CodeCache {
     pub initial: Option<String>,
@@ -157,9 +173,11 @@ pub struct CodeCache {
 }
 
 /// Explicit collector and collector-dependent tuning. Omission keeps JVM ergonomics.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Gc {
+    /// Garbage collector used by the JVM.
+    #[config(command = "gc", command_short = 'G')]
     pub collector: Option<Collector>,
     pub max_pause_millis: Option<u32>,
     pub parallel_threads: Option<u32>,
@@ -168,16 +186,16 @@ pub struct Gc {
     pub explicit_concurrent: Option<bool>,
     pub string_deduplication: Option<bool>,
     #[serde(default)]
+    #[config(nested)]
     pub g1: G1,
 }
 
-/// Supported collector names; auto is parsed only to report its explicit unsupported status.
+/// Supported garbage collector names.
 /// # Implementations
 /// - [`Self::flag`]: Java flag mapping in `tuning`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Collector {
-    Auto,
     Serial,
     Parallel,
     G1,
@@ -187,7 +205,7 @@ pub enum Collector {
 }
 
 /// G1 tuning does not implicitly select G1.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct G1 {
     pub region_size: Option<String>,
@@ -196,31 +214,25 @@ pub struct G1 {
 }
 
 /// Additional memory/GC flags preserve their own order and never hide in general JVM flags.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Memory {
     pub pre_touch: Option<bool>,
     pub large_pages: Option<bool>,
     #[serde(default)]
     pub extra_arguments: Vec<String>,
-    #[serde(default, rename = "auto")]
-    pub automatic: AutoMemory,
-}
-
-/// Reserved automatic policy input; automatic sizing is not implemented in this version.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AutoMemory {
-    pub heap_fraction: Option<f64>,
-    pub reserve: Option<String>,
 }
 
 /// Minecraft launch overrides; server.properties is never read or changed here.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, ConfigFields)]
 #[serde(deny_unknown_fields)]
 pub struct Server {
     pub nogui: Option<bool>,
+    /// Port on which the Minecraft server listens.
+    #[config(name = "port", command = "port", command_short = 'p')]
     pub port: Option<u16>,
+    /// World directory loaded by the Minecraft server.
+    #[config(command = "world")]
     pub world: Option<String>,
 }
 

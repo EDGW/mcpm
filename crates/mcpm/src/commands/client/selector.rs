@@ -1,5 +1,6 @@
 //! Interactive client selection rendered through the shared TUI theme.
 
+use mcpm_rich::Role;
 use std::io::{self, IsTerminal, Write};
 
 use anyhow::{Context, Result};
@@ -105,7 +106,7 @@ impl Screen {
         action: &str,
     ) -> io::Result<()> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
-        let title = crate::theme::tui(crate::theme::Role::Primary);
+        let title = crate::theme::tui(Role::Primary);
         queue!(
             self.output,
             Clear(ClearType::All),
@@ -128,11 +129,11 @@ impl Screen {
                 if broken { "broken" } else { "normal" }
             );
             let style = crate::theme::tui(if index == selected {
-                crate::theme::Role::Primary
+                Role::Primary
             } else if broken {
-                crate::theme::Role::Danger
+                Role::Danger
             } else {
-                crate::theme::Role::Normal
+                Role::Normal
             });
             queue!(
                 self.output,

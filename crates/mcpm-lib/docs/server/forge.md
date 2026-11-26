@@ -6,27 +6,27 @@ Identification lives in `mcpm-lib` and receives a statically parsed `ServerLaunc
 - `Ok(None)`: the current detector does not handle this entry or family.
 - `Err`: required evidence is missing, conflicting, or unreadable. The caller skips the current launch and keeps other identified candidates.
 
-## Forge / NeoForge dispatch
+## Entry points and evidence
 
-![Forge and NeoForge entry dispatch, FML family selection, launch declaration checks, and version identification](diagrams/forge-neoforge-dispatch.svg)
+```mermaid
+flowchart TD
+    A[Parsed Java launch] --> B{Entry}
+    B -->|Ordinary FML| S[Shared FML rules]
+    B -->|Forge bootstrap shim| H[Embedded Arguments and library paths]
+    B -->|Forge ServerMain| M[Manifest ServerLaunchArgs]
+    B -->|Legacy Forge or old Vanilla main| L[ForgeVersion.class in the launch JAR]
+    H --> S
+    M --> S
+    S --> F{Consistent family evidence?}
+    F -->|None| N[Not recognized]
+    F -->|Conflict| E[Error with sources]
+    F -->|Forge or NeoForge| V[Require consistent Minecraft and loader versions]
+    L -->|Absent| N
+    L -->|Present| W[Read loader constants and Minecraft version]
+```
 
-Relevant implementation:
-
-- [`forge::server::identify`](../../src/local/modloader/impls/fml/forge/server.rs): Forge entry; dispatches Shim separately.
-- [`neoforge::server::identify`](../../src/local/modloader/impls/fml/neoforge/server.rs): NeoForge entry; calls the shared FML detector.
-- [`fml::server::identify` / `ensure_server_target`](../../src/local/modloader/impls/fml/server.rs): family selection, version extraction, and exclusion of known client targets.
-- [`ServerLaunch::option`](../../src/local/mc/server/launch/mod.rs): supports `--name value` and `--name=value`; repeated identical values are allowed; a missing value, blank value, value starting with `-`, or conflicting repeated value is an error.
-
-## Forge Shim identification
-
-![Forge Shim embedded argument reading, explicit-option precedence, dependency-list fallback, and version merging](diagrams/forge-shim-identify.svg)
-
-- Each option uses the explicit launch argument first and falls back to the embedded `Arguments` default.
-- Forge version evidence from the dependency list must agree. A declared version is preserved and need not equal the dependency-list version.
-
-Relevant implementation:
-
-- [`forge::server::identify_shim`](../../src/local/modloader/impls/fml/forge/server.rs): reads Shim metadata and merges version sources.
-- [`coordinate` / `agree`](../../src/local/modloader/impls/utils/coordinate.rs): extracts versions from full Maven paths and checks nonempty values and consistency across declarations.
-
-Read, parse, and option-lookup failures in the diagrams return `Err`; errors retain their source context. Identification extracts only identity and version evidence and does not guarantee complete dependencies or a launchable server.
+- [Forge server recognition](../../src/local/modloader/impls/fml/forge/server/mod.rs) adapts shim and `ServerMain` metadata before applying the [shared FML rules](../../src/local/modloader/impls/fml/server.rs). NeoForge uses those rules directly. Each detector returns only its own family.
+- A family needs positive evidence: `--fml.forgeGroup`, a NeoForge version option, or a referenced `net.minecraftforge:fmlloader` / `net.neoforged.fancymodloader:loader` JAR. The historical `--fml.forgeVersion` name, shared libraries, and entry-class prefixes do not select a family. Known client targets are rejected.
+- An explicit option overrides the same embedded default. **Effective options and distribution coordinates have equal weight**: both Minecraft and loader versions need at least one source, and all sources for each version must agree. FML component versions are not loader distribution versions. Coordinates come from referenced paths, including Maven-layout `unix_args.txt` / `win_args.txt` files actually expanded for the launch.
+- The shim reads `bootstrap-shim.list` even when explicit arguments provide both versions. Recognition reads the list's referenced paths but does not open dependency JARs, verify hashes, or check installation completeness.
+- For legacy Forge, four integer `ForgeVersion.class` constants identify the loader. The `mcVersion` string constant and `fmlversion.properties` (`fmlbuild.mcversion`) provide the Minecraft version; if both are present they must agree. Without `ForgeVersion.class`, the legacy detector does not claim the launch.

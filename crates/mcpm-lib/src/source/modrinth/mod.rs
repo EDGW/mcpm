@@ -71,6 +71,23 @@ impl ModrinthSource {
         ))
     }
 
+    pub(super) fn request_segments(&self, segments: &[&str]) -> Result<reqwest::RequestBuilder> {
+        let mut url = self.base_url.clone();
+        {
+            let mut path = url
+                .path_segments_mut()
+                .map_err(|_| anyhow::anyhow!("Modrinth API root cannot take path segments"))?;
+            path.pop_if_empty();
+            for segment in segments {
+                path.push(segment);
+            }
+        }
+        Ok(self.client.get(url).header(
+            USER_AGENT,
+            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")),
+        ))
+    }
+
     fn project_info(&self, project: api::SearchHit) -> Result<ProjectInfo> {
         ensure!(
             project.project_type == "mod",
@@ -131,28 +148,7 @@ impl Source for ModrinthSource {
             query.offset <= u64::from(u32::MAX),
             "Modrinth search offset exceeds its supported range"
         );
-        let mut facets = vec![vec!["project_type:mod".to_owned()]];
-        if !query.game_versions.is_empty() {
-            facets.push(
-                query
-                    .game_versions
-                    .iter()
-                    .map(|version| format!("versions:{version}"))
-                    .collect(),
-            );
-        }
-        for loader in &query.loaders {
-            check_loader(loader)?;
-        }
-        if !query.loaders.is_empty() {
-            facets.push(
-                query
-                    .loaders
-                    .iter()
-                    .map(|loader| format!("categories:{loader}"))
-                    .collect(),
-            );
-        }
+        let facets = build_search_facets(query)?;
         let sort = match query.sort {
             SearchSort::SourceDefault => "relevance",
             SearchSort::Downloads => "downloads",
@@ -201,15 +197,9 @@ impl Source for ModrinthSource {
     }
 
     async fn resolve_project(&self, id_or_slug: &str) -> Result<ProjectRef> {
-        ensure!(
-            !id_or_slug.is_empty()
-                && id_or_slug
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'),
-            "invalid Modrinth project ID or slug"
-        );
+        check_path_segment(id_or_slug, "Modrinth project ID or slug")?;
         let response: api::Project = self
-            .request(&format!("project/{id_or_slug}"))?
+            .request_segments(&["project", id_or_slug])?
             .send()
             .await
             .context("Modrinth project resolution failed")?
@@ -236,13 +226,9 @@ impl Source for ModrinthSource {
             project.source == self.id,
             "project reference does not belong to this Modrinth source"
         );
-        // IDs, unlike slugs, consist solely of ASCII alphanumeric characters.
-        ensure!(
-            !project.id.0.is_empty() && project.id.0.bytes().all(|c| c.is_ascii_alphanumeric()),
-            "invalid Modrinth project ID"
-        );
+        check_path_segment(&project.id.0, "Modrinth project ID")?;
         let response: api::Project = self
-            .request(&format!("project/{}", project.id.0))?
+            .request_segments(&["project", &project.id.0])?
             .send()
             .await
             .context("Modrinth project request failed")?
@@ -279,12 +265,21 @@ impl Source for ModrinthSource {
     }
 }
 
-/// Categories include gameplay tags too; accept supported loader identifiers only.
-fn check_loader(loader: &str) -> Result<()> {
-    ensure!(is_loader(loader), "unsupported Modrinth loader: {loader}");
+/// Validates that a Modrinth identifier is safe to place in a single URL path segment.
+pub(super) fn check_path_segment(value: &str, label: &str) -> Result<()> {
+    ensure!(
+        !value.is_empty()
+            && value != "."
+            && value != ".."
+            && !value.chars().any(|ch| {
+                ch.is_whitespace() || ch.is_control() || matches!(ch, '/' | '\\' | '?' | '#')
+            }),
+        "invalid {label}"
+    );
     Ok(())
 }
 
+/// Filters display loader tags out of Modrinth's mixed `categories` array; never used to reject requests.
 fn is_loader(loader: &str) -> bool {
     matches!(
         loader,
@@ -302,4 +297,60 @@ fn is_loader(loader: &str) -> bool {
             | "nilloader"
             | "ornithe"
     )
+}
+
+/// Builds Modrinth search facets without rejecting unknown non-empty loader identifiers.
+fn build_search_facets(query: &SearchQuery) -> Result<Vec<Vec<String>>> {
+    let mut facets = vec![vec!["project_type:mod".to_owned()]];
+    if !query.game_versions.is_empty() {
+        facets.push(
+            query
+                .game_versions
+                .iter()
+                .map(|version| format!("versions:{version}"))
+                .collect(),
+        );
+    }
+    ensure!(
+        query.loaders.iter().all(|loader| !loader.trim().is_empty()),
+        "Modrinth loader filter cannot be empty"
+    );
+    if !query.loaders.is_empty() {
+        facets.push(
+            query
+                .loaders
+                .iter()
+                .map(|loader| format!("categories:{loader}"))
+                .collect(),
+        );
+    }
+    Ok(facets)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_passes_through_unknown_nonempty_loader_and_rejects_empty_loader() {
+        assert!(
+            build_search_facets(&SearchQuery {
+                loaders: vec!["   ".into()],
+                ..Default::default()
+            })
+            .is_err()
+        );
+        let facets = build_search_facets(&SearchQuery {
+            loaders: vec!["future-loader".into()],
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(
+            facets,
+            vec![
+                vec!["project_type:mod".to_owned()],
+                vec!["categories:future-loader".to_owned()],
+            ]
+        );
+    }
 }

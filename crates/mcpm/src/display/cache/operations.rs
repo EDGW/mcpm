@@ -6,8 +6,11 @@ use anyhow::Result;
 use mcpm_backend::operations::cache::VerificationSummary;
 use mcpm_lib::local::cache::{ImportOutcome, TransferMethod, hash::Blake3Hash};
 
+use mcpm_rich::rich;
+
 use super::super::{
     console::ConsoleWriter,
+    rich::block,
     style::{OutputStyle, text, tsv},
 };
 use crate::terminal;
@@ -168,30 +171,30 @@ pub(crate) fn verification_summary(
     summary: &VerificationSummary,
 ) -> Result<()> {
     let style = OutputStyle::stderr();
-    writeln!(
-        out,
-        "Verification: {} checked, {} available, {} failed",
-        summary.available + summary.failed,
-        style.success(summary.available),
-        if summary.failed == 0 {
-            style.normal(summary.failed)
-        } else {
-            style.danger(summary.failed)
-        },
-    )?;
+    let checked = summary.available + summary.failed;
+    let (available, failed) = (summary.available, summary.failed);
+    let mut message = if failed == 0 {
+        rich!("Verification: {checked} checked, [{available}](success) available, {failed} failed")
+    } else {
+        rich!(
+            "Verification: {checked} checked, [{available}](success) available,
+             [{failed}](danger) failed"
+        )
+    };
     if let Some(removal) = &summary.removal {
-        writeln!(
-            out,
-            "Autoremove: {} removed, {} already absent, {} failed",
-            style.success(removal.removed),
-            removal.absent,
-            if removal.failed == 0 {
-                style.normal(removal.failed)
-            } else {
-                style.danger(removal.failed)
-            },
-        )?;
+        let (removed, absent, failed) = (removal.removed, removal.absent, removal.failed);
+        message.extend(if failed == 0 {
+            rich!(
+                "Autoremove: [{removed}](success) removed, {absent} already absent, {failed} failed"
+            )
+        } else {
+            rich!(
+                "Autoremove: [{removed}](success) removed, {absent} already absent,
+                 [{failed}](danger) failed"
+            )
+        });
     }
+    block(out, &message, &style)?;
     Ok(())
 }
 

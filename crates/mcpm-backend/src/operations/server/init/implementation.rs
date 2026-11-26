@@ -1,73 +1,100 @@
 //! Read-only server recognition and independent complete-data initialization on the file-owning host.
 
-use std::{fs, io, path::PathBuf, time::Instant};
+use std::{fs, path::Path, time::Instant};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result};
+use mcpm_exec::error::TippedError;
 use mcpm_lib::local::{
-    mc::server::{
-        MinecraftServer, MinecraftServerMetadata,
-        config::{self, OverwritePolicy},
-        identify,
-    },
+    mc::server::identify::{self, ScriptPolicy, ServerCandidate, UncertainScriptState},
     modloader::BUILTIN_LOADERS,
 };
-use thiserror::Error;
+use mcpm_rich::rich;
 
 use super::super::info::ServerInfo;
+use super::RecognizeEvent;
 use super::git;
 use super::model::{Candidate, Initialize, Initialized, Phase, Recognize};
-use crate::workspace::{self, Writer};
+use crate::workspace::{
+    self,
+    initialize::{self as local, LocalConfiguration, LocalInitialization},
+};
 
-/// Recognition never loads registration metadata, creates directories, or writes configuration.
+/// Recognition never writes registration and refuses registered legacy formats.
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
 pub(super) fn recognize(
     args: Recognize,
     checkpoint: impl Fn() -> Result<()>,
-    phase: impl Fn(Phase) -> Result<()>,
+    emit: impl Fn(RecognizeEvent) -> Result<()>,
 ) -> Result<Vec<Candidate>> {
     checkpoint()?;
     workspace::require_local(&args.path)?;
-    validate_options(&args)?;
-    phase(Phase::Recognizing)?;
+    workspace::require_current_if_registered(&args.path)?;
+    emit(RecognizeEvent::Stage(Phase::Recognizing))?;
     checkpoint()?;
     let started = Instant::now();
-    let script = args
-        .start_script
-        .unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "run.bat" } else { "run.sh" }));
-    tracing::info!(path = %args.path.display(), script = %script.display(), "Recognizing server launch candidates");
-    let mut candidates = identify::identify(&args.path, &script, &BUILTIN_LOADERS)
-        .context("automatic server identification failed; server remains unrecognized; initialize manually with --minecraft-version VERSION --loader forge|neoforge|fabric --loader-version VERSION, or explicitly use --loader vanilla for a known vanilla server")?;
-    checkpoint()?;
-    candidates.retain(|candidate| {
-        let metadata = &candidate.metadata;
-        args.minecraft_version
-            .as_ref()
-            .is_none_or(|value| *value == metadata.minecraft_version)
-            && args
-                .loader
-                .as_ref()
-                .is_none_or(|loader| match &metadata.loader {
-                    Some(info) => info.loader_type == *loader,
-                    None => loader == "vanilla",
-                })
-            && args.loader_version.as_ref().is_none_or(|version| {
-                metadata
-                    .loader
-                    .as_ref()
-                    .is_some_and(|info| info.version == *version)
-            })
-    });
-    if candidates.is_empty() {
-        bail!(
-            "no identified server launch matches the supplied version/loader options; server remains unrecognized; initialize manually with complete --minecraft-version, --loader and --loader-version options (omit --loader-version only for explicitly selected vanilla)"
-        );
+    let probe = |script| recognize_script(&args, script, &emit);
+    let candidates = if let Some(script) = args.start_script.as_deref() {
+        probe(script)?
+    } else {
+        let [run, start] = if cfg!(windows) {
+            ["run.bat", "start.bat"]
+        } else {
+            ["run.sh", "start.sh"]
+        }
+        .map(Path::new);
+        match probe(run)? {
+            Ok(candidates) => Ok(candidates),
+            Err(first) => {
+                checkpoint()?;
+                match probe(start)? {
+                    Err(second) if first.is::<UncertainScriptState>() && !second.is::<UncertainScriptState>() => {
+                        Err(first).with_context(|| format!("{start:?} also failed: {second:#}"))
+                    }
+                    result => result.with_context(|| format!("{run:?} failed: {first:#}; {start:?} also failed")),
+                }
+            }
+        }
     }
+    .context("automatic server identification failed; server remains unrecognized; initialize manually with --minecraft-version VERSION --loader forge|neoforge|fabric --loader-version VERSION, or explicitly use --loader vanilla for a known vanilla server")
+    .map_err(|error| {
+        if error.is::<UncertainScriptState>() {
+            let tip = rich!("Retry with `--ignore-unknown-vars` (`-I`) if the skipped statements can safely be ignored. This keeps the previous working directory and variable values.");
+            TippedError::new(error, Some(tip.clone()), Some(tip)).into()
+        } else {
+            error
+        }
+    })?;
+    checkpoint()?;
     tracing::debug!(
         candidates = candidates.len(),
         elapsed_ms = started.elapsed().as_millis(),
         "Server recognition completed without writing configuration"
     );
-    Ok(candidates.into_iter().map(Candidate::from).collect())
+    let root =
+        fs::canonicalize(&args.path).context("failed to resolve recognized server directory")?;
+    candidates
+        .into_iter()
+        .map(|candidate| Candidate::from_server(candidate, &root))
+        .collect()
+}
+
+fn recognize_script(
+    args: &Recognize,
+    script: &Path,
+    emit: &impl Fn(RecognizeEvent) -> Result<()>,
+) -> Result<Result<Vec<ServerCandidate>>> {
+    tracing::info!(path = %args.path.display(), script = %script.display(), "Recognizing server launch candidates");
+    let mut warnings = Vec::new();
+    let policy = if args.ignore_unknown_vars {
+        ScriptPolicy::KeepKnownState(&mut warnings)
+    } else {
+        ScriptPolicy::Strict
+    };
+    let result = identify::identify_with_policy(&args.path, script, &BUILTIN_LOADERS, policy);
+    for warning in warnings {
+        emit(RecognizeEvent::Warning(warning))?;
+    }
+    Ok(result)
 }
 
 /// Metadata is supplied in full; initialization never rereads a script or requires a recognition token.
@@ -78,71 +105,44 @@ pub(super) fn initialize(
     phase: impl Fn(Phase) -> Result<()>,
 ) -> Result<Initialized> {
     let started = Instant::now();
-    checkpoint()?;
-    phase(Phase::Validating)?;
     git::validate_options(args.git, args.no_git)?;
-    tracing::info!(path = %args.path.display(), force = args.force, "Validating complete server initialization data");
-    workspace::require_local(&args.path)?;
-    validate_metadata(&args.metadata)?;
-    let manifest = args.path.join(".mcpm/server.json");
-    match fs::symlink_metadata(&manifest) {
-        Ok(metadata) => {
-            ensure!(
-                args.force,
-                InitializationError::AlreadyExists { path: manifest }
-            );
-            ensure!(
-                !metadata.is_dir(),
-                InitializationError::ManifestDirectory { path: manifest }
-            );
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).context("failed to inspect existing server configuration"),
-    }
-    // This is the final cancellation boundary before the atomic write. A later
-    // cancellation or disconnected client cannot roll back a completed registration.
-    checkpoint()?;
-    phase(Phase::Writing)?;
-    checkpoint()?;
-    tracing::info!(path = %args.path.display(), force = args.force, "Writing server registration metadata");
-    let writer = Writer::acquire(&args.path)?;
-    workspace::require_local(&args.path)?;
-    let git = if args.no_git {
-        None
-    } else {
-        Some(git::ensure_repository(&args.path, args.git)?)
-    };
-    let publication = if let Some(local) = args.local {
-        let result = config::publish(
-            &args.path,
-            &args.metadata,
-            local.configuration.as_ref(),
-            OverwritePolicy {
-                replace_registration: args.force,
+    let result = local::initialize_local(
+        LocalInitialization {
+            path: args.path,
+            metadata: args.metadata,
+            force: args.force,
+            local: args.local.map(|local| LocalConfiguration {
+                configuration: local.configuration,
                 replace_conf: local.replace_conf,
-            },
-        );
-        Some(result?)
-    } else {
-        None
-    };
-    let server = if let Some(publication) = &publication {
-        publication.server.clone()
-    } else if args.force {
-        MinecraftServer::replace(args.path, args.metadata)?
-    } else {
-        MinecraftServer::create(args.path, args.metadata)?
-    };
-    writer.mark_local().context("Local server registration/configuration was written, but publishing mcpm.json failed; inspect the completed files before retrying")?;
-    tracing::info!(path = %server.path().display(), "Server registration written");
+                conf_overrides: local.conf_overrides,
+                preserve_conf: local.preserve_conf,
+            }),
+        },
+        checkpoint,
+        |stage| {
+            phase(match stage {
+                local::Phase::Validating => Phase::Validating,
+                local::Phase::Writing => Phase::Writing,
+            })
+        },
+        |path| {
+            if args.no_git {
+                Ok(None)
+            } else {
+                git::ensure_repository(path, args.git).map(Some)
+            }
+        },
+    )?;
+    let local::LocalInitialized {
+        server,
+        git,
+        publication,
+    } = result;
     tracing::debug!(
         elapsed_ms = started.elapsed().as_millis(),
         "Server initialization completed"
     );
-    let mut info = ServerInfo::from_server(&server);
-    if publication.is_some() {
-        info.configuration = Some(config::configuration_files(server.path())?);
-    }
+    let info = ServerInfo::from_server(&server)?;
     Ok(Initialized {
         server: info,
         git,
@@ -150,74 +150,12 @@ pub(super) fn initialize(
     })
 }
 
-pub(super) fn validate_options(args: &Recognize) -> Result<()> {
-    for version in [&args.minecraft_version, &args.loader_version]
-        .into_iter()
-        .flatten()
-    {
-        ensure!(
-            !version.trim().is_empty(),
-            InitializationError::EmptyVersion
-        );
-    }
-    if let Some(loader) = &args.loader {
-        ensure!(
-            loader == "vanilla" || BUILTIN_LOADERS.contains_key(loader.as_str()),
-            InitializationError::UnsupportedLoader {
-                loader: loader.clone()
-            }
-        );
-    }
-    ensure!(
-        !(args.loader.as_deref() == Some("vanilla") && args.loader_version.is_some()),
-        InitializationError::VanillaLoaderVersion
-    );
-    Ok(())
-}
-
-fn validate_metadata(metadata: &MinecraftServerMetadata) -> Result<()> {
-    if let Some(loader) = &metadata.loader {
-        ensure!(
-            BUILTIN_LOADERS.contains_key(loader.loader_type.as_str()),
-            InitializationError::UnsupportedLoader {
-                loader: loader.loader_type.clone()
-            }
-        );
-    }
-    if let Some(start) = &metadata.start {
-        ensure!(
-            !start.executable.trim().is_empty()
-                && !start.executable.contains('\0')
-                && start.arguments.iter().all(|arg| !arg.contains('\0')),
-            InitializationError::InvalidStart
-        );
-    }
-    // Metadata format and nonempty versions are validated by MinecraftServer's
-    // persistence API for both public caller-constructed and deserialized inputs.
-    Ok(())
-}
-
-#[derive(Debug, Error)]
-enum InitializationError {
-    #[error("server configuration already exists at {path:?}; use --force to replace it")]
-    AlreadyExists { path: PathBuf },
-    #[error("server configuration path is a directory: {path:?}")]
-    ManifestDirectory { path: PathBuf },
-    #[error("version options must not be empty")]
-    EmptyVersion,
-    #[error("unsupported server loader {loader:?}")]
-    UnsupportedLoader { loader: String },
-    #[error("vanilla does not have a loader version")]
-    VanillaLoaderVersion,
-    #[error(
-        "invalid server start snapshot: executable must be nonempty, and executable/arguments must not contain NUL"
-    )]
-    InvalidStart,
-}
-
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+    use std::fs;
+
+    use thiserror::Error;
 
     use super::*;
 
@@ -232,7 +170,7 @@ mod tests {
         Initialize {
             path: path.into(),
             metadata: serde_json::from_value(serde_json::json!({
-                "version":1,"minecraft_version":"1.21.1","loader":null
+                "version":4,"minecraft_version":"1.21.1","loader":{"type":"vanilla"}
             }))
             .unwrap(),
             force,
@@ -248,7 +186,8 @@ mod tests {
             for force in [false, true] {
                 let root = tempfile::tempdir().unwrap();
                 let manifest = root.path().join(".mcpm/server.json");
-                let old = b"existing invalid configuration\n";
+                let old =
+                    br#"{"version":4,"minecraft_version":"1.21.1","loader":{"type":"vanilla"}}"#;
                 if force {
                     fs::create_dir(root.path().join(".mcpm")).unwrap();
                     fs::write(&manifest, old).unwrap();
@@ -315,29 +254,5 @@ mod tests {
                 .is_some()
         );
         assert_eq!(fs::read(manifest).unwrap(), winner);
-    }
-
-    #[test]
-    fn recognition_cancelled_at_phase_boundary_does_not_even_read_missing_script() {
-        let root = tempfile::tempdir().unwrap();
-        let cancelled = Cell::new(false);
-        let recognition: Recognize =
-            serde_json::from_value(serde_json::json!({"path":root.path()})).unwrap();
-        let error = recognize(
-            recognition,
-            || {
-                if cancelled.get() {
-                    return Err(Cancelled.into());
-                }
-                Ok(())
-            },
-            |_| {
-                cancelled.set(true);
-                Ok(())
-            },
-        )
-        .unwrap_err();
-        assert!(error.is::<Cancelled>(), "{error:#}");
-        assert!(!root.path().join(".mcpm").exists());
     }
 }

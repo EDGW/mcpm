@@ -37,7 +37,7 @@ impl Storage {
     pub fn lock(&self) -> Result<File> {
         fs::create_dir_all(&self.directory)
             .context("failed to create authlib-injector directory")?;
-        let path = self.directory.join("lock");
+        let path = self.directory.join("storage.lock");
         regular_file(&path)?;
         let file = OpenOptions::new()
             .read(true)

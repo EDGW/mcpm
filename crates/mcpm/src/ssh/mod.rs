@@ -14,7 +14,7 @@ pub(crate) struct SshArgs {
         long,
         global = true,
         value_name = "COMMAND",
-        help = format!("SSH connection command, e.g. \"ssh -i key -p 2222 user@host\"; supported by {} init/info/launch/attach/stash/mods and {} cache/mods. Source queries run on the selected Host.", crate::program::roots().server, crate::program::roots().tools),
+        help = format!("SSH connection command, e.g. \"ssh -i key -p 2222 user@host\"; supported by {} new/init/add-loader/info/launch/attach/stash/mods and {} cache/mods/debug lock. Source queries run on the selected Host.", crate::program::roots().server, crate::program::roots().tools),
         help_heading = "Global options"
     )]
     ssh: Option<String>,
@@ -37,6 +37,16 @@ impl SshArgs {
     /// Best-effort display identity without revealing the full connection command.
     pub(crate) fn destination(&self) -> Option<String> {
         self.ssh.as_deref().and_then(connection::destination)
+    }
+
+    /// Explicit CLI options for a command shown on the invoking terminal.
+    pub(crate) fn explicit_arguments(&self) -> impl Iterator<Item = (&'static str, &str)> {
+        [
+            ("--ssh", self.ssh.as_deref()),
+            ("--ssh-mcpmd", self.ssh_mcpmd.as_deref()),
+        ]
+        .into_iter()
+        .filter_map(|(name, value)| Some((name, value?)))
     }
 
     pub(crate) fn validate(&self) -> Result<()> {

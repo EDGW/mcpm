@@ -47,7 +47,7 @@ Operation 分为两类：
 
 | 命令或功能 | 状态 |
 | --- | --- |
-| `server info`、`server init` | 已迁移到 operation + Executor + mcpmd |
+| `server new`、`server add-loader`、`server info`、`server init` | 已迁移到 operation + Executor + mcpmd |
 | `workspace.inspect`、`workspace.register_remote` | 已迁移，Shallow operation |
 | `server stash.*` | 已迁移，Host operation |
 | `server launch` | 未迁移 |
@@ -77,11 +77,13 @@ Operation 分为两类：
 | 选项 | 说明 |
 | --- | --- |
 | `--ssh <COMMAND>` | SSH 连接命令，例如 `ssh -i key user@host`。指定后，位置参数 PATH 按该主机解释。 |
-| `--ssh-mcpmd <PATH>` | 远端可执行文件；要求 `--ssh`。迁移后的 `info`、`init`、`stash` 使用远端 mcpmd；未迁移命令使用其原有远端程序。省略时按对应默认值查找。 |
-| `--log-level <LEVEL>` | stderr 诊断级别：`off`、`error`、`warn`、`info`、`debug`、`trace`；默认 `warn`。 |
+| `--ssh-mcpmd <PATH>` | 远端可执行文件；要求 `--ssh`。迁移后的 `new`、`add-loader`、`info`、`init`、`stash` 使用远端 mcpmd；未迁移命令使用其原有远端程序。省略时按对应默认值查找。 |
+| `--log-level <LEVEL>` | stderr 诊断级别：`off`、`error`、`warn`、`info`、`debug`、`trace`。省略时读取 `MCPM_LOG_LEVEL`，未设置则用 `warn`；非法值报错。 |
 | `--remote-logs` | 在本机 stderr 显示远端日志，级别由 `--log-level` 过滤。 |
 | `--raw` | 使用 Raw 模式。 |
 | `-h, --help` | 显示帮助。 |
+
+本地 stderr 诊断日志在级别前标明来源 crate，例如 `[mcpm-lib] INFO …`。日志文件仍保留完整模块路径。
 
 SSH 使用密钥或 ssh-agent 非交互认证；未知 host key 需先手动 SSH 接受。Windows SSH 默认 shell 要求为 cmd。连接失败不改为本机执行。
 
@@ -93,11 +95,17 @@ SSH 使用密钥或 ssh-agent 非交互认证；未知 host key 需先手动 SSH
 | Console | 终端 stdout 默认；命令可用 `--no-ui` 指定 | 格式化文本 |
 | Raw | `--raw`，或 stdout 不是终端 | 禁用交互、格式和颜色；输出制表符分隔值（TSV）或原始数据 |
 
+Console 确认使用当前主题区分证据、选项、默认选择、重试提示和操作结果；说明、提问、结果等不同段落之间留空行。`NO_COLOR` 保留排版并禁用颜色；Raw 保持无交互、无样式。
+
 ## 命令文档
 
+- [创建服务端：new](server/new.md)
+- [安装 Mod 加载器：add-loader](server/add-loader.md)
 - [Server 基础：info、init](server/basics.md)
 - [Server 启动与连接：launch、attach](server/launch.md)
 - [Server stash](server/stash.md)
+- 服务端创建、迁移与启动速览：`mcpm-tools debug hello`
+- [递归命令帮助：debug all-help](debug/all-help.md)
 - [mcpmd：serve、link](../../mcpmd/docs-zh/README.md)
 - [Legacy：尚未迁移（client、mods、cache 等）](legacy/README.md)
 - [Backend 模块](../../mcpm-backend/docs-zh/README.md)

@@ -1,4 +1,4 @@
-//! Console log formatting with italic severity labels for forwarded remote events.
+//! Console log formatting with local crate labels and italic severity for forwarded events.
 
 use std::fmt;
 
@@ -40,6 +40,17 @@ where
         event: &Event<'_>,
     ) -> fmt::Result {
         if event.metadata().target() != super::REMOTE_TARGET {
+            let metadata = event.metadata();
+            let source = metadata.module_path().unwrap_or(metadata.target());
+            let crate_name = source.split_once("::").map_or(source, |(name, _)| name);
+            write!(writer, "[")?;
+            for (index, part) in crate_name.split('_').enumerate() {
+                if index != 0 {
+                    write!(writer, "-")?;
+                }
+                write!(writer, "{part}")?;
+            }
+            write!(writer, "] ")?;
             return self.local.format_event(ctx, writer, event);
         }
         let level = event.metadata().level();

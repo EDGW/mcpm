@@ -106,9 +106,9 @@ mcpm launch --server ./server '-Ojvm.extraArguments:=["-Dfirst=1"]'
 mcpm launch --server ./server '-Ojvm.extraArguments=-Dsecond=2'
 ```
 
-配置键使用 `conf.toml` 中的完整路径和大小写。值按 TOML 解析；也可以直接写不带引号的字符串。Shell 参数包含空格时，应为整个参数加引号。
+配置键使用 `conf.toml` 中的完整路径和大小写。值按目标字段的类型解析：`server.world=123` 是字符串，`server.port=123` 是数字。一次传多个列表项时使用 TOML 数组；Shell 参数包含空格时，为整个参数加引号。
 
-同一字段只能设置一次；快捷选项与 `-O` 指向同一字段时也会报错。
+同一标量只能设置一次，快捷选项和 `-O` 也不能重复设置。列表按 `-O` 的顺序应用；`-E` 在其后原样追加一个参数。可用快捷选项见 `mcpm launch --help`。
 
 ### 配置文件
 

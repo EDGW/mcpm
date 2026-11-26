@@ -1,7 +1,8 @@
-//! Java archive metadata and document formats shared by local inspectors.
-
-pub mod command;
-pub(crate) mod jar;
-pub(crate) mod properties;
+//! Java archive metadata, command grammar, executable resolution and process primitives.
 
 pub(crate) mod capabilities;
+pub(crate) mod class;
+pub mod command;
+pub(crate) mod executable;
+pub(crate) mod jar;
+pub(crate) mod process;

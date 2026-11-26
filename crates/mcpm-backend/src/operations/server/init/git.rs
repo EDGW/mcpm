@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Reuses discovered repositories unless a repository in the target itself is required.
-pub(super) fn ensure_repository(root: &Path, local: bool) -> Result<Outcome> {
+pub(crate) fn ensure_repository(root: &Path, local: bool) -> Result<Outcome> {
     let outcome = |status| Outcome {
         status,
         path: root.display().to_string(),
@@ -65,7 +65,7 @@ pub enum Status {
 }
 
 /// Remote requests must enforce the same conflict as clap before any writes.
-pub(super) fn validate_options(local: bool, disabled: bool) -> Result<()> {
+pub(crate) fn validate_options(local: bool, disabled: bool) -> Result<()> {
     ensure!(
         !(local && disabled),
         "--git and --no-git cannot be used together"
@@ -117,11 +117,8 @@ fn run(root: &Path, arguments: &[&str]) -> Result<Output> {
         .output()
         .map_err(|source| {
             if source.kind() == io::ErrorKind::NotFound && root.is_dir() {
-                anyhow::Error::new(mcpm_exec::error::ExecutableNotFound {
-                    executable: "git".into(),
-                    remote: false,
-                })
-                .context(source)
+                anyhow::Error::new(mcpm_exec::error::TippedError::executable_not_found("git"))
+                    .context(source)
             } else {
                 anyhow::Error::from(source)
             }
