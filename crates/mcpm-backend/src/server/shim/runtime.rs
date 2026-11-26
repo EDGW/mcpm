@@ -55,7 +55,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     // This shim owns one server. Relative paths stay valid if its folder is renamed.
     std::env::set_current_dir(&directory).context("failed to enter shim run directory")?;
     let directory = PathBuf::from(".");
-    let _lock = lock(&directory.join("instance.lock"))?;
+    let _lock = lock(&directory.join(RUNNING_LOCK))?;
     let mut listener = Endpoint::for_key(&record.key)?.listen().map_err(|error| {
         if error.is::<mcpm_exec::endpoint::AlreadyRunning>() {
             error.context(format!(
@@ -243,7 +243,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     Ok(())
 }
 
-/// Only generated databases are removed, while the instance lock excludes all other shims.
+/// Only generated databases are removed, while the running lock excludes all other shims.
 fn remove_obsolete_command_databases(directory: &Path) -> Result<()> {
     for entry in std::fs::read_dir(directory)? {
         let entry = entry?;

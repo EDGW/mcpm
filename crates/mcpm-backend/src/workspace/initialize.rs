@@ -87,8 +87,9 @@ pub(crate) fn initialize_local<G>(
     let publication = input
         .local
         .map(|local| {
-            config::publish(
+            config::commit_import(
                 &input.path,
+                writer.lock(),
                 &input.metadata,
                 local.configuration.as_ref(),
                 &local.conf_overrides,
@@ -102,11 +103,8 @@ pub(crate) fn initialize_local<G>(
         .transpose()?;
     let server = if let Some(publication) = &publication {
         publication.server.clone()
-    } else if input.force {
-        MinecraftServer::replace(input.path, input.metadata)
-            .map_err(MinecraftServerError::into_diagnostic)?
     } else {
-        MinecraftServer::create(input.path, input.metadata)
+        MinecraftServer::save_locked(input.path, input.metadata, writer.lock(), input.force)
             .map_err(MinecraftServerError::into_diagnostic)?
     };
     writer.mark_local().context("Local server registration/configuration was written, but publishing mcpm.json failed; inspect the completed files before retrying")?;

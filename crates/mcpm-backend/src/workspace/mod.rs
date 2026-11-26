@@ -2,13 +2,13 @@
 
 use std::{
     collections::HashSet,
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, ensure};
-use mcpm_lib::local::mc::server::{MinecraftServer, MinecraftServerError};
+use mcpm_lib::local::mc::server::{MinecraftServer, MinecraftServerError, config::ServerLock};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -162,11 +162,11 @@ pub fn require_current_if_registered(root: &Path) -> Result<()> {
     }
 }
 
-/// Serializes mcpm registration writers across processes. Readers may observe an
-/// incomplete first registration, which fails closed rather than selecting another type.
+/// Serializes mcpm registration writers across processes via `.mcpm/server.lock`. Readers may
+/// observe an incomplete first registration, which fails closed rather than selecting another type.
 pub struct Writer {
     root: PathBuf,
-    _lock: File,
+    lock: ServerLock,
 }
 
 impl Writer {
@@ -175,23 +175,18 @@ impl Writer {
             root.is_dir(),
             "workspace must be an existing directory: {root:?}"
         );
-        fs::create_dir_all(root.join(".mcpm"))
-            .context("failed to create workspace metadata directory")?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(root.join(".mcpm/registration.lock"))
-            .context("failed to open workspace registration lock")?;
-        lock.try_lock()
+        let lock = ServerLock::acquire_write(root)
             .context("workspace registration is already being changed or cannot be locked")?;
         let writer = Self {
             root: root.to_owned(),
-            _lock: lock,
+            lock,
         };
         append_gitignore(root)?;
         Ok(writer)
+    }
+
+    pub(crate) fn lock(&self) -> &ServerLock {
+        &self.lock
     }
 
     pub fn mark_local(&self) -> Result<()> {
@@ -265,17 +260,8 @@ impl Writer {
     }
 }
 
-impl Drop for Writer {
-    fn drop(&mut self) {
-        // Closing one descriptor does not release a lock inherited by another process.
-        if let Err(error) = self._lock.unlock() {
-            tracing::warn!(path = %self.root.display(), %error, "failed to release workspace registration lock");
-        }
-    }
-}
-
 /// Ensures `.mcpm/.gitignore` contains every bundled workspace ignore rule,
-/// serialized under the workspace registration lock.
+/// serialized under `.mcpm/server.lock`.
 pub fn ensure_gitignore(root: &Path) -> Result<()> {
     let _writer = Writer::acquire(root)?;
     Ok(())
@@ -345,11 +331,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registration_lease_ends_even_while_a_duplicate_file_description_is_alive() {
+    fn writer_uses_server_lock_and_excludes_concurrent_access() {
         let root = tempfile::tempdir().unwrap();
         let writer = Writer::acquire(root.path()).unwrap();
-        // A concurrently spawned process can briefly inherit this open file description.
-        let inherited = writer._lock.try_clone().unwrap();
+        assert!(root.path().join(".mcpm/server.lock").is_file());
+        assert!(!root.path().join(".mcpm/registration.lock").exists());
+        assert!(Writer::acquire(root.path()).is_err());
+        assert!(ServerLock::acquire_write(root.path()).is_err());
+        assert!(ServerLock::acquire_read(root.path()).is_err());
         drop(writer);
         let successor = Writer::acquire(root.path()).expect("the previous writer lease has ended");
         assert!(
@@ -357,9 +346,6 @@ mod tests {
             "the successor must still own its lease"
         );
         drop(successor);
-        let final_writer = Writer::acquire(root.path()).unwrap();
-        drop(inherited);
-        drop(final_writer);
     }
 
     #[test]
@@ -391,6 +377,7 @@ mod tests {
 /launch.lock
 /launch-publication.json
 /run
+/server.lock
 /loader-install
 "
         );

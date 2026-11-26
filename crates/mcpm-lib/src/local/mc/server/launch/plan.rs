@@ -4,7 +4,6 @@ use crate::download::Downloader;
 use crate::local::{
     java::{capabilities, command, executable},
     mc::server::{
-        MinecraftServer, MinecraftServerError,
         authlib_injector::{self, JarPolicy},
         config::{self, Platform},
     },
@@ -97,13 +96,13 @@ pub async fn prepare_with_progress(
 ) -> Result<LaunchPlan> {
     progress(Event::Stage(Stage::Configuration))?;
     let root = std::fs::canonicalize(root).context("failed to resolve local server root")?;
-    let (mut launch, conf, revision) = {
-        let _lock = config::ConfigurationLock::acquire(&root, false)?;
-        MinecraftServer::inspect(&root).map_err(MinecraftServerError::into_diagnostic)?;
-        let (launch, conf) = config::read(&root, overrides)?;
-        let revision = config::read_revision_locked(&root)?;
-        (launch, conf, revision)
+    let snapshot = {
+        let lock = config::ServerLock::acquire_read(&root)?;
+        config::read_snapshot_locked(&root, &lock, overrides)?
     };
+    let mut launch = snapshot.launch;
+    let conf = snapshot.conf;
+    let revision = snapshot.revision;
     progress(Event::Stage(Stage::LocalChecks))?;
     ensure!(
         launch

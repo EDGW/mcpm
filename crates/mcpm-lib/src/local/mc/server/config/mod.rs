@@ -1,6 +1,11 @@
 //! Sole TOML codec, validation, import classification and recoverable local configuration publication.
 
-use crate::local::java::command;
+use crate::local::{
+    java::command,
+    mc::server::{
+        MinecraftServerError, MinecraftServerMetadata, SERVER_METADATA_VERSION, metadata,
+    },
+};
 use anyhow::{Context, Result, ensure};
 use std::{fs, path::Path};
 
@@ -12,15 +17,17 @@ pub use authlib_injector::{AuthlibInjector, FeatureOption};
 pub(crate) mod tuning;
 pub(crate) use tuning::{managed, validate_arguments};
 mod import;
-pub use import::{ConfigurationDraft, ImportedSetting, ImportedValue, draft};
+pub use import::{
+    ConfigurationDraft, ImportedSetting, ImportedValue, OverwritePolicy, commit_import, draft,
+};
 mod generate;
 pub use generate::vanilla_server;
 mod overrides;
 pub use overrides::{ConfigurationOverrides, ConfigurationShortcut};
 mod publication;
 pub use publication::{
-    ConfigurationLock, OverwritePolicy, PublicationRecoveryError, Published, publish,
-    publish_locked, recover_if_pending,
+    ConfAction, LaunchAction, PendingPublication, Publication, PublicationRecoveryError, Published,
+    ServerLock, commit, recover_if_pending,
 };
 
 /// Local configuration file presence for informational views; no Java probe or legacy migration.
@@ -43,6 +50,67 @@ pub fn configuration_files(root: &Path) -> Result<ConfigurationFiles> {
     })
 }
 
+/// Single-read validated server configuration snapshot with exact content hashes.
+pub struct ServerConfigSnapshot {
+    pub metadata: MinecraftServerMetadata,
+    pub launch: LaunchConfig,
+    pub conf: ServerConfig,
+    pub revision: ConfigurationRevision,
+    pub conf_hash: String,
+}
+
+/// Reads `.mcpm/server.json`, `launch.toml`, and `conf.toml` once each while the caller holds
+/// [`ServerLock`], validating current metadata, both TOML files, and cross-file constraints,
+/// while computing BLAKE3 hashes from the exact bytes read.
+pub fn read_snapshot_locked(
+    root: &Path,
+    lock: &ServerLock,
+    overrides: &ConfigurationOverrides,
+) -> Result<ServerConfigSnapshot> {
+    lock.ensure_held_for(root, "reading server configuration snapshot")?;
+    ServerLock::require_clean(root)?;
+    let manifest = root.join(".mcpm/server.json");
+    let metadata_bytes = fs::read(&manifest).map_err(|source| {
+        MinecraftServerError::ReadMetadata {
+            path: manifest.clone(),
+            source,
+        }
+        .into_diagnostic()
+    })?;
+    let metadata_hash = blake3::hash(&metadata_bytes).to_hex().to_string();
+    let decoded = metadata::decode(&manifest, &metadata_bytes)
+        .map_err(MinecraftServerError::into_diagnostic)?;
+    if decoded.source_version != SERVER_METADATA_VERSION {
+        return Err(MinecraftServerError::UpgradeRequired {
+            path: manifest,
+            version: decoded.source_version,
+        }
+        .into_diagnostic());
+    }
+    let launch_bytes = fs::read(root.join("launch.toml")).context(
+        "failed to read server-root launch.toml; use init --entry or import a start script first",
+    )?;
+    let launch_hash = blake3::hash(&launch_bytes).to_hex().to_string();
+    let launch_text = std::str::from_utf8(&launch_bytes).context("launch.toml is not UTF-8")?;
+    let launch = decode_launch(launch_text)?;
+    let conf_bytes =
+        fs::read(root.join("conf.toml")).context("failed to read server-root conf.toml")?;
+    let conf_hash = blake3::hash(&conf_bytes).to_hex().to_string();
+    let conf_text = std::str::from_utf8(&conf_bytes).context("conf.toml is not UTF-8")?;
+    let conf = decode_conf_with_overrides(conf_text, overrides)?;
+    validate_pair(&launch, &conf)?;
+    Ok(ServerConfigSnapshot {
+        metadata: decoded.metadata,
+        launch,
+        conf,
+        revision: ConfigurationRevision {
+            metadata_hash,
+            launch_hash,
+        },
+        conf_hash,
+    })
+}
+
 /// Content revision of server registration and launch structure, independent of conf.toml.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ConfigurationRevision {
@@ -50,14 +118,16 @@ pub struct ConfigurationRevision {
     pub launch_hash: String,
 }
 
-/// Reads the current registration and launch content revision under a shared configuration lock.
+/// Reads the current registration and launch content revision under a shared server lock.
 pub fn read_revision(root: &Path) -> Result<ConfigurationRevision> {
-    let _lock = ConfigurationLock::acquire(root, false)?;
-    read_revision_locked(root)
+    let lock = ServerLock::acquire_read(root)?;
+    read_revision_locked(root, &lock)
 }
 
-/// Reads raw registration and launch hashes while the caller holds [`ConfigurationLock`].
-pub(crate) fn read_revision_locked(root: &Path) -> Result<ConfigurationRevision> {
+/// Reads raw registration and launch hashes while the caller holds [`ServerLock`].
+pub fn read_revision_locked(root: &Path, lock: &ServerLock) -> Result<ConfigurationRevision> {
+    lock.ensure_held_for(root, "reading server configuration revision")?;
+    ServerLock::require_clean(root)?;
     let metadata = fs::read(root.join(".mcpm/server.json"))
         .context("failed to read server registration .mcpm/server.json")?;
     let launch = fs::read(root.join("launch.toml")).context(

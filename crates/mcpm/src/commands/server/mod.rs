@@ -61,10 +61,10 @@ pub(crate) fn run(
     let result = match args.command {
         ServerCommand::Debug(args) => {
             anyhow::ensure!(
-                !ssh.is_requested(),
-                "debug commands run locally and do not accept --ssh"
+                !ssh.is_requested() || args.supports_ssh(),
+                "this debug command runs locally and does not accept --ssh"
             );
-            crate::commands::debug::run(args, program)
+            crate::commands::debug::run(args, ssh, program)
         }
         ServerCommand::Launch(args) => return launch::run(args, ssh),
         ServerCommand::Attach(args) => return attach::run(args, ssh),

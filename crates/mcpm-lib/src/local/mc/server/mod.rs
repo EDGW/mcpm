@@ -110,6 +110,18 @@ impl MinecraftServer {
         Self::write(path.into(), metadata, true)
     }
 
+    /// Saves metadata while the caller already holds an exclusive [`config::ServerLock`].
+    pub fn save_locked(
+        path: PathBuf,
+        metadata: MinecraftServerMetadata,
+        lock: &config::ServerLock,
+        overwrite: bool,
+    ) -> Result<Self, MinecraftServerError> {
+        let name = directory_name(&path)?;
+        let (metadata, bytes) = metadata::encode(&path, &metadata)?;
+        Self::save_encoded_locked(path, name, metadata, &bytes, lock, overwrite)
+    }
+
     fn write(
         path: PathBuf,
         metadata: MinecraftServerMetadata,
@@ -117,16 +129,29 @@ impl MinecraftServer {
     ) -> Result<Self, MinecraftServerError> {
         let name = directory_name(&path)?;
         let (metadata, bytes) = metadata::encode(&path, &metadata)?;
-        let _lock = config::ConfigurationLock::acquire(&path, true)
+        let lock = config::ServerLock::acquire_write(&path)
             .map_err(|source| MinecraftServerError::Configuration { source })?;
-        config::ConfigurationLock::require_clean(&path)
+        Self::save_encoded_locked(path, name, metadata, &bytes, &lock, overwrite)
+    }
+
+    fn save_encoded_locked(
+        path: PathBuf,
+        name: String,
+        metadata: MinecraftServerMetadata,
+        bytes: &[u8],
+        lock: &config::ServerLock,
+        overwrite: bool,
+    ) -> Result<Self, MinecraftServerError> {
+        lock.ensure_write_for(&path, "saving server registration")
+            .map_err(|source| MinecraftServerError::Configuration { source })?;
+        config::ServerLock::require_clean(&path)
             .map_err(|source| MinecraftServerError::Configuration { source })?;
         if overwrite {
             require_current_version(&inspect_metadata(path.clone())?)?;
         }
         // Validate the optional mod directory before changing registration metadata.
         let mods = mod_container(&path, &metadata, true)?;
-        metadata::publish(&path, &bytes, overwrite)?;
+        metadata::publish(&path, bytes, overwrite)?;
         let runtime = server_runtime(&path);
         Ok(Self {
             path,

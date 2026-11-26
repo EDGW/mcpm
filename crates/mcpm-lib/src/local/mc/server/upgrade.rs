@@ -19,7 +19,7 @@ use crate::local::java::jar;
 /// Reads an upgrade proposal without changing registration or holding a lease across user input.
 pub fn prepare(root: &Path) -> Result<UpgradePreview> {
     let root = fs::canonicalize(root).context("failed to resolve server directory")?;
-    let _lock = config::ConfigurationLock::acquire(&root, false)?;
+    let _lock = config::ServerLock::acquire_read(&root)?;
     let (_, preview) = inspect(&root)?;
     Ok(preview)
 }
@@ -31,8 +31,8 @@ pub fn apply(
     decision: UpgradeDecision,
 ) -> Result<MinecraftServer> {
     let root = fs::canonicalize(root).context("failed to resolve server directory")?;
-    let _lock = config::ConfigurationLock::acquire(&root, true)?;
-    config::ConfigurationLock::require_clean(&root)?;
+    let _lock = config::ServerLock::acquire_write(&root)?;
+    config::ServerLock::require_clean(&root)?;
     let (mut metadata, preview) = inspect(&root)?;
     ensure!(
         preview.revision == expected_revision,

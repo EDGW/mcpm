@@ -196,6 +196,11 @@ impl<T> StreamSender<T> {
         }
     }
 
+    /// Completes once the consumer is gone, without polling or sending an item.
+    pub async fn closed(&self) {
+        self.items.closed().await;
+    }
+
     /// Sends one item, waiting while the buffer is full. Fails once the consumer is gone.
     pub async fn send(&self, item: T) -> Result<(), StreamClosed> {
         self.items.send(Ok(item)).await.map_err(|_| StreamClosed)

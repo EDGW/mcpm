@@ -159,12 +159,23 @@ fn ordered_unlock_dependencies_and_unpaired_young_sizes_stay_in_one_memory_regio
 #[test]
 fn import_retains_existing_conf_bytes_and_invalid_preserved_conf_blocks_publication() {
     let root = tempfile::tempdir().unwrap();
+    let publish_import = |identity: &crate::local::mc::server::MinecraftServerMetadata,
+                          draft: Option<&ConfigurationDraft>,
+                          policy: OverwritePolicy| {
+        let lock = ServerLock::acquire_write(root.path()).unwrap();
+        commit_import(
+            root.path(),
+            &lock,
+            identity,
+            draft,
+            &ConfigurationOverrides::default(),
+            policy,
+        )
+    };
     let initial = candidate(root.path(), "-Xmx2G");
-    publish(
-        root.path(),
+    publish_import(
         &initial.metadata,
         Some(&initial.configuration),
-        &ConfigurationOverrides::default(),
         OverwritePolicy::default(),
     )
     .unwrap();
@@ -176,37 +187,34 @@ fn import_retains_existing_conf_bytes_and_invalid_preserved_conf_blocks_publicat
         replace_conf: false,
         preserve_conf_with_overrides: false,
     };
-    publish(
+    publish_import(&next.metadata, Some(&next.configuration), force).unwrap();
+    assert_eq!(fs::read(root.path().join("conf.toml")).unwrap(), conf);
+    let read_lock = ServerLock::acquire_read(root.path()).unwrap();
+    let snapshot = read_snapshot_locked(
         root.path(),
-        &next.metadata,
-        Some(&next.configuration),
+        &read_lock,
         &ConfigurationOverrides::default(),
-        force,
     )
     .unwrap();
-    assert_eq!(fs::read(root.path().join("conf.toml")).unwrap(), conf);
+    assert_eq!(snapshot.metadata, next.metadata);
+    assert_eq!(
+        snapshot.revision,
+        read_revision_locked(root.path(), &read_lock).unwrap()
+    );
+    assert_eq!(snapshot.conf_hash, blake3::hash(conf).to_hex().to_string());
+    assert_eq!(snapshot.conf.jvm.heap.maximum.as_deref(), Some("3G"));
+    drop(read_lock);
     let old_launch = fs::read(root.path().join("launch.toml")).unwrap();
     fs::write(root.path().join("conf.toml"), "[java]\nunknown = true").unwrap();
-    assert!(
-        publish(
-            root.path(),
-            &next.metadata,
-            Some(&next.configuration),
-            &ConfigurationOverrides::default(),
-            force
-        )
-        .is_err()
-    );
+    assert!(publish_import(&next.metadata, Some(&next.configuration), force).is_err());
     assert_eq!(
         fs::read(root.path().join("launch.toml")).unwrap(),
         old_launch
     );
     assert!(
-        publish(
-            root.path(),
+        publish_import(
             &next.metadata,
             Some(&next.configuration),
-            &ConfigurationOverrides::default(),
             OverwritePolicy {
                 replace_registration: false,
                 replace_conf: true,
@@ -215,11 +223,9 @@ fn import_retains_existing_conf_bytes_and_invalid_preserved_conf_blocks_publicat
         )
         .is_err()
     );
-    publish(
-        root.path(),
+    publish_import(
         &next.metadata,
         Some(&next.configuration),
-        &ConfigurationOverrides::default(),
         OverwritePolicy {
             replace_registration: true,
             replace_conf: true,

@@ -22,7 +22,7 @@ pub struct CommandDescription {
 /// Missing configuration has no startup command; existing invalid configuration remains an error.
 pub fn describe(root: &Path) -> Result<Option<CommandDescription>> {
     let root = std::fs::canonicalize(root).context("failed to resolve server directory")?;
-    let _lock = config::ConfigurationLock::acquire(&root, false)?;
+    let _lock = config::ServerLock::acquire_read(&root)?;
     let files = config::configuration_files(&root)?;
     if !files.launch || !files.conf {
         return Ok(None);

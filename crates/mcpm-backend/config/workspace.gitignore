@@ -1,6 +1,7 @@
 # Added by mcpm
 
 /cache
+/server.lock
 /registration.lock
 /launch.lock
 /launch-publication.json

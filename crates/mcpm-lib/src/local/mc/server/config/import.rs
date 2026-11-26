@@ -1,13 +1,110 @@
-//! Classifies parsed launch evidence and agent JAR metadata into fixed structure and user settings.
+//! Classifies parsed launch evidence and agent JAR metadata into fixed structure and user settings,
+//! and plans template-backed import publications for the configuration transaction engine.
 
 use super::*;
-use crate::local::mc::server::ServerLaunch;
+use crate::local::mc::server::{MinecraftServerMetadata, ServerLaunch};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet},
     path::Path,
 };
+
+/// Separate overwrite intents; replacing conf additionally requires replacing registration.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OverwritePolicy {
+    pub replace_registration: bool,
+    pub replace_conf: bool,
+    /// Permit keeping an existing conf when overrides are only defaults for a new file.
+    pub preserve_conf_with_overrides: bool,
+}
+
+impl OverwritePolicy {
+    fn validate(self) -> Result<()> {
+        ensure!(
+            !self.replace_conf || self.replace_registration,
+            "replacing conf.toml requires explicit registration replacement as well"
+        );
+        Ok(())
+    }
+}
+
+/// Resolves template or preserved `conf.toml`, validates cross-file consistency,
+/// and commits through the sole [`commit`](super::commit) transaction engine.
+pub fn commit_import(
+    root: &Path,
+    lock: &ServerLock,
+    identity: &MinecraftServerMetadata,
+    draft: Option<&ConfigurationDraft>,
+    conf_overrides: &ConfigurationOverrides,
+    policy: OverwritePolicy,
+) -> Result<Published> {
+    policy.validate()?;
+    ensure!(
+        conf_overrides.is_empty() || draft.is_none_or(|draft| draft.imported.is_empty()),
+        "explicit conf overrides cannot be combined with imported script settings"
+    );
+    ensure!(
+        root.is_dir(),
+        "server root is not an existing directory: {root:?}"
+    );
+    lock.ensure_write_for(root, "configuration publication")?;
+    if let Some(draft) = draft {
+        draft.launch.validate()?;
+    }
+    publication::recover_if_pending(root, lock).context(
+        "failed to recover interrupted configuration publication; no files were modified",
+    )?;
+    let old_conf = publication::existing(&root.join("conf.toml"))?;
+    let preserve_conf = old_conf.is_some() && !policy.replace_conf;
+    ensure!(
+        !preserve_conf || policy.preserve_conf_with_overrides || conf_overrides.is_empty(),
+        "conf.toml already exists; use --force --foverride-conf to apply --conf"
+    );
+    let (conf_text, effective_conf) = if preserve_conf {
+        let conf = decode_conf(
+            std::str::from_utf8(old_conf.as_deref().unwrap())
+                .context("preserved conf.toml is not UTF-8")?,
+        )
+        .context("preserved conf.toml is invalid; fix it or explicitly override it")?;
+        (None, conf)
+    } else if !conf_overrides.is_empty() {
+        let (text, conf) = manual_template(conf_overrides)?;
+        (Some(text), conf)
+    } else {
+        let text = match draft {
+            Some(draft) => draft.template()?,
+            None => default_template(),
+        };
+        let conf = decode_conf(&text)?;
+        (Some(text), conf)
+    };
+    if let Some(draft) = draft {
+        validate_pair(&draft.launch, &effective_conf)
+            .context("new launch structure conflicts with effective conf.toml")?;
+    }
+    let mut published = publication::commit(
+        root,
+        lock,
+        Publication {
+            identity,
+            launch: match draft {
+                Some(draft) => LaunchAction::Write(&draft.launch),
+                None => LaunchAction::Remove,
+            },
+            conf: match conf_text.as_deref() {
+                Some(text) => ConfAction::Write(text),
+                None => ConfAction::Keep,
+            },
+            replace_existing: policy.replace_registration,
+            recover_pending: false,
+        },
+    )?;
+    published.imported = draft
+        .map(|draft| draft.imported.clone())
+        .unwrap_or_default();
+    Ok(published)
+}
 
 /// Complete local initialization input; independent of a previous recognition session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -305,9 +402,7 @@ pub(super) fn default_template() -> String {
 }
 
 /// Render the final values of explicit assignments into the default template.
-pub(super) fn manual_template(
-    overrides: &ConfigurationOverrides,
-) -> Result<(String, ServerConfig)> {
+fn manual_template(overrides: &ConfigurationOverrides) -> Result<(String, ServerConfig)> {
     let conf = decode_conf_with_overrides(CONF_TEMPLATE, overrides)?;
     let schema = toml::Value::try_from(&conf)?;
     // A list may be modified more than once; only its final value is emitted.

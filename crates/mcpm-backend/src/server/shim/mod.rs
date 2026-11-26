@@ -19,6 +19,8 @@ mod history;
 mod logs;
 mod runtime;
 
+const RUNNING_LOCK: &str = "running.lock";
+
 #[derive(Serialize, Deserialize)]
 pub(crate) enum Request {
     Inspect(InspectInput),
@@ -170,30 +172,58 @@ pub(crate) fn ensure_inactive_readonly(server: &Path) -> Result<()> {
     ensure_inactive_in_directory(&directory)
 }
 
-/// Exclusive launch gate holding `.mcpm/run/launch.lock`.
-///
-/// Global lock order: callers MUST acquire [`LaunchGate`] (`.mcpm/run/launch.lock`)
-/// before `ConfigurationLock` (`.mcpm/launch.lock`).
-#[allow(dead_code)] // Wired by server.loader.add in Phase 5.
-pub(crate) struct LaunchGate {
-    _lock: File,
-}
-
-#[allow(dead_code)] // Wired by server.loader.add in Phase 5.
-impl LaunchGate {
-    pub(crate) fn acquire_exclusive(server: &Path) -> Result<Self> {
-        let server = std::fs::canonicalize(server).context("failed to resolve server root")?;
+/// Acquires a shared or exclusive OS lock on `.mcpm/run/running.lock` for lock debugging.
+/// Does not create `.mcpm/run` when acquiring a shared lock if missing; creates on exclusive.
+pub(crate) fn acquire_running_lock(server: &Path, exclusive: bool) -> Result<(File, PathBuf)> {
+    let server = std::fs::canonicalize(server).context("failed to resolve server root")?;
+    if exclusive {
         let directory = run_directory(&server)?;
-        let lock =
-            lock(&directory.join("launch.lock")).context("another launch is being prepared")?;
-        ensure_inactive_in_directory(&directory)?;
-        Ok(Self { _lock: lock })
+        let path = directory.join(RUNNING_LOCK);
+        let file = lock(&path)?;
+        return Ok((file, path));
     }
+    let run_dir = server.join(".mcpm/run");
+    match std::fs::symlink_metadata(&run_dir) {
+        Ok(metadata) => ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "shim run directory must be a directory and not a symlink"
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            bail!(
+                "running lock file does not exist: {:?}",
+                run_dir.join(RUNNING_LOCK)
+            );
+        }
+        Err(error) => return Err(error).context("failed to inspect shim run directory"),
+    }
+    let path = run_dir.join(RUNNING_LOCK);
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => ensure!(
+            metadata.is_file(),
+            "running lock path is not a regular file: {path:?}"
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            bail!("running lock file does not exist: {path:?}");
+        }
+        Err(error) => return Err(error).context("failed to inspect running lock"),
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options
+        .open(&path)
+        .with_context(|| format!("failed to open running lock {path:?}"))?;
+    file.try_lock_shared()
+        .context("server shim is already running or cannot be locked")?;
+    Ok((file, path))
 }
 
-#[allow(dead_code)] // Used by ensure_inactive_readonly and LaunchGate::acquire_exclusive.
 fn ensure_inactive_in_directory(directory: &Path) -> Result<()> {
-    if instance_lock_held(directory)? {
+    if is_running(directory)? {
         bail!("server is currently running; stop it before modifying the server");
     }
     let Some(record) = read_optional::<Record>(&directory.join("instance.json"))? else {
@@ -211,8 +241,17 @@ fn ensure_inactive_in_directory(directory: &Path) -> Result<()> {
     bail!("shim is unmanaged or this is a copied running record; Java's exit was not confirmed");
 }
 
-#[allow(dead_code)] // Used by ensure_inactive_in_directory.
-fn instance_lock_held(directory: &Path) -> Result<bool> {
+/// Non-creating, non-blocking liveness probe against `.mcpm/run/running.lock`.
+fn is_running(directory: &Path) -> Result<bool> {
+    let path = directory.join(RUNNING_LOCK);
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => ensure!(
+            metadata.is_file(),
+            "running lock path is not a regular file: {path:?}"
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).context("failed to inspect running lock"),
+    }
     let mut options = OpenOptions::new();
     options.read(true).write(true);
     #[cfg(unix)]
@@ -220,16 +259,19 @@ fn instance_lock_held(directory: &Path) -> Result<bool> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW);
     }
-    let file = match options.open(directory.join("instance.lock")) {
+    let file = match options.open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(error).context("failed to inspect running instance lock"),
+        Err(error) => return Err(error).context("failed to inspect running lock"),
     };
     match file.try_lock() {
-        Ok(()) => Ok(false),
+        Ok(()) => {
+            let _ = file.unlock();
+            Ok(false)
+        }
         Err(std::fs::TryLockError::WouldBlock) => Ok(true),
         Err(std::fs::TryLockError::Error(error)) => {
-            Err(error).context("failed to inspect running instance lock")
+            Err(error).context("failed to inspect running lock")
         }
     }
 }
@@ -252,9 +294,9 @@ pub(crate) async fn launch(mut input: LaunchInput) -> Result<Launched> {
         );
         decoded_plan = Some(plan);
     }
+    let server_lock = mcpm_lib::local::mc::server::config::ServerLock::acquire_write(&input.server)
+        .context("server is busy or another launch is being prepared")?;
     let directory = run_directory(&input.server)?;
-    let _launch_lock =
-        lock(&directory.join("launch.lock")).context("another launch is being prepared")?;
     if let Some(record) = read_optional::<Record>(&directory.join("instance.json"))? {
         ensure!(record.version == 1, "unsupported shim discovery version");
         // A matching receipt proves this run ended, even after the folder was moved.
@@ -278,7 +320,7 @@ pub(crate) async fn launch(mut input: LaunchInput) -> Result<Launched> {
             );
         } else {
             ensure!(
-                instance_locked(&directory)?,
+                is_running(&directory)?,
                 "shim is unmanaged or this is a copied running record; Java's exit was not confirmed"
             );
             publish(&run_hint_path(&record.reference.run_id)?, &record)?;
@@ -297,14 +339,19 @@ pub(crate) async fn launch(mut input: LaunchInput) -> Result<Launched> {
             return Ok(launched);
         }
     }
+    ensure!(
+        !is_running(&directory)?,
+        "server shim is already running or its running lock is held"
+    );
     let plan = match decoded_plan {
         Some(plan) => plan,
         None => input.plan.decode()?,
     };
-    let current_revision = mcpm_lib::local::mc::server::config::read_revision(&input.server)
-        .context(
-            "cannot launch server while configuration is unavailable or has an unfinished publication",
-        )?;
+    let current_revision =
+        mcpm_lib::local::mc::server::config::read_revision_locked(&input.server, &server_lock)
+            .context(
+                "cannot launch server while configuration is unavailable or has an unfinished publication",
+            )?;
     ensure!(
         current_revision == *plan.revision(),
         "server configuration changed after launch preparation; prepare a new launch plan"
@@ -413,7 +460,7 @@ pub(crate) async fn call<T: DeserializeOwned>(
             ));
         }
         ensure!(
-            instance_locked(&directory)?,
+            is_running(&directory)?,
             "shim is unmanaged or this is a copied running record; Java's exit was not confirmed"
         );
     }
@@ -495,7 +542,7 @@ pub(crate) async fn subscribe_logs(
             return retained_logs(receipt, &server.join(".mcpm/run"), input, sender).await;
         }
         ensure!(
-            instance_locked(&server.join(".mcpm/run"))?,
+            is_running(&server.join(".mcpm/run"))?,
             "shim is unmanaged or this is a copied running record; Java's exit was not confirmed"
         );
     }
@@ -547,7 +594,7 @@ pub(crate) async fn subscribe_status(
     }
     if let Some(server) = &server {
         ensure!(
-            instance_locked(&server.join(".mcpm/run"))?,
+            is_running(&server.join(".mcpm/run"))?,
             "shim is unmanaged or this is a copied running record; Java's exit was not confirmed"
         );
     }
@@ -598,7 +645,7 @@ pub(crate) async fn subscribe_commands(
     }
     if let Some(server) = &server {
         ensure!(
-            instance_locked(&server.join(".mcpm/run"))?,
+            is_running(&server.join(".mcpm/run"))?,
             "command results require the original managed instance"
         );
     }
@@ -743,6 +790,14 @@ fn private_file(path: &Path) -> Result<File> {
         .with_context(|| format!("failed to open shim file {path:?}"))
 }
 fn lock(path: &Path) -> Result<File> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => ensure!(
+            metadata.is_file(),
+            "running lock path is not a regular file: {path:?}"
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).context("failed to inspect running lock"),
+    }
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
@@ -754,20 +809,6 @@ fn lock(path: &Path) -> Result<File> {
     file.try_lock()
         .context("server shim is already running or launching")?;
     Ok(file)
-}
-fn instance_locked(directory: &Path) -> Result<bool> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(directory.join("instance.lock"))
-        .context("running instance lock is missing or inaccessible")?;
-    match file.try_lock() {
-        Ok(()) => Ok(false),
-        Err(std::fs::TryLockError::WouldBlock) => Ok(true),
-        Err(std::fs::TryLockError::Error(error)) => {
-            Err(error).context("failed to inspect running instance lock")
-        }
-    }
 }
 fn read_optional<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
     match File::open(path) {
