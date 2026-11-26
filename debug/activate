@@ -3,5 +3,9 @@
 export MCPM_LOG_LEVEL=debug
 
 export PATH="$(pwd)/target/debug:$PATH"
+if [ -d "$(pwd)/target/debug" ]; then
+    python3 "$(pwd)/scripts/prepare_artifacts.py" "$(pwd)/target/debug" || \
+        printf 'warning: failed to stage pinned release artifacts into target/debug\n' >&2
+fi
 
 printf '%s\n' 'mcpm debug environment activated'

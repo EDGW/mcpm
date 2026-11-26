@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import zipfile
 
-from prepare_artifacts import load_artifacts, sha256
+from prepare_artifacts import load_artifacts, sha256, stage_artifact
 
 
 def package(binary_dir, output_dir, asset, target, tag=None):
@@ -42,14 +42,12 @@ def package(binary_dir, output_dir, asset, target, tag=None):
         (staging / 'bin').mkdir()
         files = []
         for artifact in artifacts:
-            source = binary_dir / artifact.name
-            if not source.is_file():
-                raise FileNotFoundError(f'{source}: build the suite with Cargo before packaging')
+            source = stage_artifact(binary_dir, artifact)
             file = staging / 'bin' / artifact.name
             shutil.copyfile(source, file)
             actual = sha256(file)
             if actual != artifact.sha256:
-                raise ValueError(f'{source}: expected SHA-256 {artifact.sha256}, got {actual}; rebuild with Cargo')
+                raise ValueError(f'{source}: expected SHA-256 {artifact.sha256}, got {actual}')
             files.append((file, actual))
         for name, filename in zip(names, filenames):
             binary = binary_dir / filename

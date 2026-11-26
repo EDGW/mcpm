@@ -115,12 +115,26 @@ def stage_artifact(output_dir, artifact):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('output_dir', type=Path)
-    output_dir = parser.parse_args().output_dir
-    for artifact in load_artifacts():
-        path = stage_artifact(output_dir, artifact)
-        print(f'cargo:rerun-if-changed={path}')
-        print(f'cargo:rustc-env={env_var_name(artifact.name)}={artifact.sha256}')
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        'output_dir',
+        nargs='?',
+        type=Path,
+        help='Directory where verified artifacts are staged beside executables.',
+    )
+    group.add_argument(
+        '--cargo-env',
+        action='store_true',
+        help='Emit cargo:rustc-env SHA-256 pins from artifacts.toml without staging files.',
+    )
+    args = parser.parse_args()
+    artifacts = load_artifacts()
+    if args.cargo_env:
+        for artifact in artifacts:
+            print(f'cargo:rustc-env={env_var_name(artifact.name)}={artifact.sha256}')
+        return
+    for artifact in artifacts:
+        stage_artifact(args.output_dir, artifact)
 
 
 if __name__ == '__main__':

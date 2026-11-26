@@ -5,8 +5,9 @@
 
 ## Pinned release artifacts
 
-- Cargo builds of `mcpm` and `mcpmd` require Python 3.11+ on the build host (`python3` on Unix, `python` on Windows). The build reads `artifacts.toml` and stages its files beside the executables (`target/debug/` or `target/release/` by default). Each file is checked against its SHA-256. On a miss or mismatch, the build reuses a verified copy from `target/artifacts/<sha256>/` or downloads from the pinned URL and verifies it before publishing.
-- `package.py` verifies every pinned artifact in `--binary-dir` and includes it alongside the executables in the platform ZIP.
+- Cargo builds of `mcpm` and `mcpmd` require Python 3.11+ on the build host (`python3` on Unix, `python` on Windows). `mcpm-backend/build.rs` calls `prepare_artifacts.py --cargo-env` to read `artifacts.toml` and inject compile-time SHA-256 pins without touching Cargo's `OUT_DIR` layout or performing network I/O.
+- `package.py` stages and verifies every pinned artifact into `--binary-dir` (reusing a verified copy from `target/artifacts/<sha256>/` or downloading from the pinned URL) and includes it alongside the executables in the platform ZIP.
+- When running locally built binaries directly (for example from `target/debug/` or `target/release/`), stage the artifacts beside them with `python3 scripts/prepare_artifacts.py target/debug` (also run automatically by `debug/activate`).
 - To update or add an artifact, edit `artifacts.toml`: the key is the distributed filename, and the entry supplies its HTTPS URL and lowercase SHA-256.
 
 ## GitHub URL-prefix proxy
