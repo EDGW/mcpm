@@ -146,7 +146,7 @@ impl Connection {
                         failure = Some(match failure {
                             None => error,
                             Some(previous) => {
-                                mcpm_exec::error::CombinedError::new(previous, error).into()
+                                crate::error::CombinedError::new(previous, error).into()
                             }
                         })
                     }

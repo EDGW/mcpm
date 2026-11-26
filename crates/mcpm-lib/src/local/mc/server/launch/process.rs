@@ -1,6 +1,6 @@
 //! Piped Java ownership, process-tree termination and argument-file lifetime for a shim.
 
-use super::{LaunchPlan, plan::attach_executable_tip};
+use super::LaunchPlan;
 use crate::local::java::process::{ManagedProcess, ProcessSpec};
 use anyhow::{Context, Result};
 use std::process::{ChildStderr, ChildStdin, ChildStdout};
@@ -35,8 +35,7 @@ impl JavaProcess {
             environment: &plan.environment,
             arguments: &arguments,
             argument_file: plan.argument_file,
-        })
-        .map_err(attach_executable_tip)?;
+        })?;
         Ok(Self { inner })
     }
 

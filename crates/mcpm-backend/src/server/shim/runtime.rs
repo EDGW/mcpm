@@ -94,7 +94,8 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         "rcon mode requires configured RCON credentials"
     );
     let history = history::History::create(&directory, &record.reference.run_id)?;
-    let mut java = JavaProcess::spawn(plan)?;
+    let mut java = JavaProcess::spawn(plan)
+        .map_err(crate::operations::server::shim::attach_executable_tip)?;
     let stdin = java.take_stdin().context("missing Java stdin")?;
     let stdout = java.take_stdout().context("missing Java stdout")?;
     let stderr = java.take_stderr().context("missing Java stderr")?;

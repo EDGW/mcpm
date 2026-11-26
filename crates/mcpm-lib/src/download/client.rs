@@ -18,7 +18,7 @@ use super::{
     Catalog, CatalogEndpoint, DownloadRequest, DownloadSource, Event, RequestKind,
     integrity::{Verifier, validate_url},
 };
-use mcpm_exec::error::CombinedError;
+use crate::error::CombinedError;
 
 /// HTTP downloader with explicit source order. No source is added implicitly.
 /// Dropping a request future cancels it; unfinished temporary files are discarded.

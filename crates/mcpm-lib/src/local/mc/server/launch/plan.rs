@@ -2,10 +2,7 @@
 
 use crate::download::Downloader;
 use crate::local::{
-    java::{
-        capabilities, command,
-        executable::{self, JavaExecutableNotFound},
-    },
+    java::{capabilities, command, executable},
     mc::server::{
         MinecraftServer, MinecraftServerError,
         authlib_injector::{self, JarPolicy},
@@ -13,7 +10,6 @@ use crate::local::{
     },
 };
 use anyhow::{Context, Result, ensure};
-use mcpm_exec::error::TippedError;
 use std::{
     collections::BTreeMap,
     ffi::OsString,
@@ -128,8 +124,7 @@ pub async fn prepare_with_progress(
         &root,
         conf.java.executable.as_deref().unwrap_or("java"),
         &environment,
-    )
-    .map_err(attach_executable_tip)?;
+    )?;
     let jvm = super::description::base_jvm(&mut launch, &conf)?;
     let managed = conf
         .authlib_injector
@@ -173,8 +168,7 @@ pub async fn prepare_with_progress(
             );
         }
         ensure!(
-            capabilities::argument_files(&executable, &directory, &environment)
-                .map_err(attach_executable_tip)?,
+            capabilities::argument_files(&executable, &directory, &environment)?,
             "long commands require Java 9+ argument-file support"
         );
     }
@@ -239,17 +233,6 @@ fn agent_location(path: &Path) -> PathBuf {
         }
     }
     result
-}
-
-pub(super) fn attach_executable_tip(error: anyhow::Error) -> anyhow::Error {
-    if let Some(not_found) = error
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<JavaExecutableNotFound>())
-    {
-        let tipped = TippedError::executable_not_found(&not_found.executable);
-        return TippedError::new(error, tipped.local().cloned(), tipped.remote().cloned()).into();
-    }
-    error
 }
 
 // Native values cross the transport only to return to their originating Host.

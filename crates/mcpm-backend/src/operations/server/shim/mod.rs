@@ -1,9 +1,13 @@
 //! Short Host operations composing launch preparation and independent shim control.
 
 use anyhow::Result;
-use mcpm_exec::operation::{Operation, StreamingOutput};
+use mcpm_exec::{
+    error::TippedError,
+    operation::{Operation, StreamingOutput},
+};
 use mcpm_lib::{
     download::{self, DownloadConfig, sources},
+    error::JavaExecutableNotFound,
     local::mc::server::{authlib_injector, launch},
 };
 
@@ -90,7 +94,7 @@ impl Operation for Prepare {
             tokio::pin!(prepare);
             let plan = loop {
                 tokio::select! {
-                    result = &mut prepare => break result?,
+                    result = &mut prepare => break result.map_err(attach_executable_tip)?,
                     changed = progress.changed() => {
                         changed?;
                         let event = progress.borrow_and_update().clone();
@@ -189,3 +193,15 @@ impl Operation for SubscribeCommands {
     }
 }
 forwarding_operation!(Kill, "server.shim.kill", ControlInput, KillResult, Kill);
+
+/// Attaches executable-not-found guidance when a launch failure originates from a missing Java binary.
+pub(crate) fn attach_executable_tip(error: anyhow::Error) -> anyhow::Error {
+    if let Some(not_found) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<JavaExecutableNotFound>())
+    {
+        let tipped = TippedError::executable_not_found(&not_found.executable);
+        return TippedError::new(error, tipped.local().cloned(), tipped.remote().cloned()).into();
+    }
+    error
+}
