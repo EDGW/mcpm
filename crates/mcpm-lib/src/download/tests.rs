@@ -873,8 +873,117 @@ fn forge_promotions_failure_and_missing_promoted_version_fall_back_to_latest() {
             .unwrap();
         assert_eq!(release.family(), loader::LoaderFamily::Forge);
         assert_eq!(release.loader_version(), "49.2.0");
+        assert!(release.has_checksum());
         server.join().unwrap();
     }
+}
+
+#[test]
+fn loader_resolve_continues_without_checksum_when_all_sources_miss_sha1() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+
+    let mirror = MappedSource::new(
+        "mirror",
+        vec![
+            UrlMapping::new(
+                "https://launcher-meta.modrinth.com/".parse().unwrap(),
+                format!("http://{address}/meta/").parse().unwrap(),
+            )
+            .unwrap(),
+            UrlMapping::new(
+                "https://maven.neoforged.net/releases/".parse().unwrap(),
+                format!("http://{address}/maven/").parse().unwrap(),
+            )
+            .unwrap(),
+        ],
+    )
+    .unwrap();
+    let downloader = Downloader::new(
+        vec![Arc::new(mirror) as Arc<dyn DownloadSource>],
+        DownloadOptions::default(),
+    )
+    .unwrap();
+
+    let manifest = br#"{"gameVersions":[{"id":"26.1","loaders":[{"id":"26.1.0.19-beta","stable":false}]}]}"#;
+    let installer_bytes = b"neoforge-installer-bytes";
+    let exchanges = vec![
+        (
+            "/meta/neo/v0/manifest.json".to_owned(),
+            "200 OK".to_owned(),
+            manifest.to_vec(),
+        ),
+        (
+            "/maven/net/neoforged/neoforge/26.1.0.19-beta/neoforge-26.1.0.19-beta-installer.jar.sha1"
+                .to_owned(),
+            "404 Not Found".to_owned(),
+            b"not found".to_vec(),
+        ),
+        (
+            "/maven/net/neoforged/neoforge/26.1.0.19-beta/neoforge-26.1.0.19-beta-installer.jar"
+                .to_owned(),
+            "200 OK".to_owned(),
+            installer_bytes.to_vec(),
+        ),
+    ];
+
+    let server = thread::spawn(move || {
+        for (expected_path, status, body) in exchanges {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "sha1 fallback fixture timed out");
+                        thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(error) => panic!("sha1 fallback fixture accept: {error}"),
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let count = stream.read(&mut buffer).unwrap();
+                assert_ne!(count, 0);
+                request.extend_from_slice(&buffer[..count]);
+            }
+            let head = String::from_utf8(request).unwrap();
+            let path = head.lines().next().unwrap().split_whitespace().nth(1).unwrap();
+            assert_eq!(path, expected_path);
+            write!(
+                stream,
+                "HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            let _ = stream.write_all(&body);
+        }
+    });
+
+    let release = runtime()
+        .block_on(loader::resolve(
+            &downloader,
+            loader::LoaderFamily::NeoForge,
+            "26.1",
+            None,
+        ))
+        .unwrap();
+    assert_eq!(release.loader_version(), "26.1.0.19-beta");
+    assert!(!release.has_checksum());
+
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("installer.jar");
+    let outcome = runtime()
+        .block_on(release.download_to(&downloader, &target))
+        .unwrap();
+    assert_eq!(std::fs::read(&target).unwrap(), installer_bytes);
+    assert_eq!(outcome.size, installer_bytes.len() as u64);
+    server.join().unwrap();
 }
 
 fn request() -> DownloadRequest {

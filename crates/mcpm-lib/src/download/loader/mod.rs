@@ -5,7 +5,11 @@
 //! and `.sha1` digest, and downloads through [`Downloader`] without reselecting
 //! across source fallbacks.
 
-use std::{fmt, path::Path};
+use std::{
+    fmt,
+    path::Path,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -73,6 +77,11 @@ impl InstallerRelease {
 
     pub fn loader_version(&self) -> &str {
         &self.loader_version
+    }
+
+    /// Returns whether an upstream checksum was obtained for verifying the installer download.
+    pub fn has_checksum(&self) -> bool {
+        !self.request.checksums().is_empty()
     }
 
     /// Downloads and verifies the installer JAR to an absent destination.
@@ -160,17 +169,55 @@ pub async fn resolve_with_progress(
     })
 }
 
-pub(super) async fn fetch_sha1(
+pub(super) async fn finalize_release(
     downloader: &Downloader,
+    family: LoaderFamily,
+    loader_version: String,
+    jar_url: Url,
+    progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
+) -> Result<InstallerRelease> {
+    let checksums = match fetch_sha1_optional(downloader, family, &loader_version, &jar_url, progress).await? {
+        Some(sha1) => vec![sha1],
+        None => Vec::new(),
+    };
+    let request = DownloadRequest::new(jar_url, None, checksums)?;
+    Ok(InstallerRelease::new(family, loader_version, request))
+}
+
+async fn fetch_sha1_optional(
+    downloader: &Downloader,
+    family: LoaderFamily,
+    loader_version: &str,
     jar_url: &Url,
     progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
-) -> Result<Checksum> {
+) -> Result<Option<Checksum>> {
     let sha1_url = Url::parse(&format!("{jar_url}.sha1"))
         .with_context(|| format!("failed to construct SHA-1 URL for {jar_url}"))?;
-    downloader
-        .metadata_with_progress(&sha1_url, parse_sha1_text, progress)
+    let observer_failed = AtomicBool::new(false);
+    let sha1_progress = |event: Event<'_>| {
+        let result = progress(event);
+        if result.is_err() {
+            observer_failed.store(true, Ordering::Relaxed);
+        }
+        result
+    };
+    match downloader
+        .metadata_with_progress(&sha1_url, parse_sha1_text, &sha1_progress)
         .await
-        .with_context(|| format!("failed to fetch SHA-1 checksum for {jar_url}"))
+    {
+        Ok(checksum) => Ok(Some(checksum)),
+        Err(error) if observer_failed.load(Ordering::Relaxed) => Err(error),
+        Err(error) => {
+            tracing::warn!(
+                %family,
+                loader_version,
+                url = %jar_url,
+                error = %error,
+                "failed to fetch installer SHA-1 checksum from all configured sources; continuing without checksum verification"
+            );
+            Ok(None)
+        }
+    }
 }
 
 pub(super) fn parse_sha1_text(bytes: &[u8]) -> Result<Checksum> {
@@ -260,6 +307,45 @@ mod tests {
                 "expected segment {bad:?} to be rejected"
             );
         }
+    }
+
+    #[test]
+    fn sha1_observer_failure_aborts_instead_of_continuing_unverified() {
+        use std::sync::Arc;
+
+        use crate::download::{DownloadOptions, DownloadSource, sources::OfficialSource};
+
+        #[derive(Debug, thiserror::Error)]
+        #[error("observer aborted sha1 fetch")]
+        struct ObserverAborted;
+
+        let downloader = Downloader::new(
+            vec![Arc::new(OfficialSource) as Arc<dyn DownloadSource>],
+            DownloadOptions::default(),
+        )
+        .unwrap();
+        let jar_url =
+            Url::parse("https://maven.neoforged.net/releases/net/neoforged/neoforge/26.1.0.19-beta/neoforge-26.1.0.19-beta-installer.jar")
+                .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let error = runtime
+            .block_on(finalize_release(
+                &downloader,
+                LoaderFamily::NeoForge,
+                "26.1.0.19-beta".into(),
+                jar_url,
+                &|event| {
+                    if matches!(event, Event::AttemptStarted { .. }) {
+                        return Err(ObserverAborted.into());
+                    }
+                    Ok(())
+                },
+            ))
+            .unwrap_err();
+        assert!(crate::error::contains::<ObserverAborted>(error.as_ref()));
     }
 
     #[test]

@@ -5,9 +5,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Context, Result};
 use url::Url;
 
-use super::{InstallerRelease, LoaderFamily, fetch_sha1, parse_numeric_segments};
+use super::{InstallerRelease, LoaderFamily, finalize_release, parse_numeric_segments};
 use crate::download::{
-    DownloadRequest, Downloader, Event, append_path_segments,
+    Downloader, Event, append_path_segments,
     catalog::{ForgePromotions, ForgeVersionEntry},
     sources::{FORGE_MAVEN_ROOT, OfficialCatalog},
 };
@@ -87,13 +87,14 @@ pub(super) async fn resolve(
         )
         .await?;
 
-    let sha1 = fetch_sha1(downloader, &jar_url, progress).await?;
-    let request = DownloadRequest::new(jar_url, None, vec![sha1])?;
-    Ok(InstallerRelease::new(
+    finalize_release(
+        downloader,
         LoaderFamily::Forge,
         entry.loader_version,
-        request,
-    ))
+        jar_url,
+        progress,
+    )
+    .await
 }
 
 fn resolve_for_mc(entry: &ForgeVersionEntry, mc: &str) -> Option<ResolvedForgeEntry> {

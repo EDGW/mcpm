@@ -7,9 +7,9 @@
 use anyhow::{Context, Result};
 use url::Url;
 
-use super::{InstallerRelease, LoaderFamily, fetch_sha1};
+use super::{InstallerRelease, LoaderFamily, finalize_release};
 use crate::download::{
-    DownloadRequest, Downloader, Event, append_path_segments,
+    Downloader, Event, append_path_segments,
     catalog::NeoForgeVersionEntry,
     sources::{
         NEOFORGE_LEGACY_MAVEN_ROOT, NEOFORGE_LEGACY_MC, NEOFORGE_MODERN_MAVEN_ROOT, OfficialCatalog,
@@ -39,13 +39,14 @@ pub(super) async fn resolve(
         )
         .await?;
 
-    let sha1 = fetch_sha1(downloader, &jar_url, progress).await?;
-    let request = DownloadRequest::new(jar_url, None, vec![sha1])?;
-    Ok(InstallerRelease::new(
+    finalize_release(
+        downloader,
         LoaderFamily::NeoForge,
         entry.loader_version,
-        request,
-    ))
+        jar_url,
+        progress,
+    )
+    .await
 }
 
 fn select_requested(
