@@ -8,6 +8,7 @@ use thiserror::Error;
 
 mod description;
 pub use description::{CommandDescription, describe};
+pub(crate) use description::compose_command;
 mod plan;
 pub use plan::{LaunchPlan, prepare, prepare_with_overrides, prepare_with_progress};
 mod progress;

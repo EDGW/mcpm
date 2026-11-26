@@ -17,6 +17,7 @@ pub mod authlib_injector;
 pub mod config;
 pub mod identify;
 pub mod launch;
+pub mod loader_install;
 pub mod properties;
 pub mod stash;
 pub mod upgrade;

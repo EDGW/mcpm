@@ -105,6 +105,13 @@ impl ManagedProcess {
         Ok(Some(status))
     }
 
+    /// Blocks until the Java child exits and marks it reaped.
+    pub fn wait(&mut self) -> Result<ExitStatus> {
+        let status = self.child.wait().context("failed to wait for Java")?;
+        self.reaped = true;
+        Ok(status)
+    }
+
     pub fn kill(&mut self) -> Result<()> {
         if self.reaped {
             return Ok(());
