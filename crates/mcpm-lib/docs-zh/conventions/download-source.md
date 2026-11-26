@@ -12,7 +12,7 @@
 
 - `download::DownloadSource` 负责地址翻译，并可选提供 `catalog() -> Option<&dyn Catalog>` 声明镜像专属目录协议；`sources::MappedSource` 支持自定义目录前缀映射与 `with_catalog(Arc<dyn Catalog>)` 组合，按域名、端口和路径边界匹配。仅在原地址唯一时还原镜像地址，不猜测共用 Maven 路径的上游。
 - `download::catalog::{Catalog, CatalogEndpoint}` 为纯描述型目录契约（目标 `Url` + 纯解码函数，不做 I/O），统一输出 Minecraft、authlib-injector、Forge、NeoForge 与 Fabric 的标准版本列表模型；原始上游 JSON/XML DTO 私有封装在各 `Catalog` 实现内。
-- `sources::OfficialCatalog` 实现全部官方目录协议与宽容解码器（`OfficialSource::catalog()` 返回它），是官方目录地址与解码逻辑的唯一真相；`sources::BmclapiCatalog` 仅覆写 Forge 专属 JSON 接口（`/forge/minecraft/{mc}` 与 `/forge/promos`），其余目录返回 `Ok(None)` 自动经 `bmclapi()` 前缀表翻译并复用官方解码器。
+- `sources::OfficialCatalog` 实现全部官方目录协议与宽容解码器（`OfficialSource::catalog()` 返回它），是官方目录地址与解码逻辑的唯一真相（其中 NeoForge 目录使用 Modrinth `neo/v0/manifest.json` 提供的显式 `MC -> NeoForge` 映射，不使用其 `url` 字段）；`sources::BmclapiCatalog` 覆写 Forge 与 NeoForge 专属 JSON 接口（`/forge/minecraft/{mc}`、`/forge/promos` 与 `/neoforge/list/{mc}`），其余目录返回 `Ok(None)` 自动经 `bmclapi()` 前缀表翻译并复用官方解码器。
 - `DownloadConfig` 通过现有 `Codec` 统一读写 TOML；`sources::downloader` 装配内置 `bmclapi`、`official`。默认顺序为 BMCLAPI、官方，显式列表完整替换默认值；空列表禁用网络下载，不暗中追加来源。
 - `Downloader` 按顺序请求并去重地址；网络、元数据解析或校验失败可切源，本地文件错误立即返回。`Downloader::query_catalog_with_progress` 在单次源尝试内依次执行目录覆写/翻译、解码与目标版本选择，镜像滞后找不到目标版本时自动切源。目标父目录须存在，校验通过后发布文件，不覆盖已有目标；取消可通过丢弃 future 实现。
 - `download::authlib_injector::{latest, build}` 返回固定的 `Release`；调用 `Release::download_to` 下载，切源不重新选择版本。原始响应和协议类型均不公开。

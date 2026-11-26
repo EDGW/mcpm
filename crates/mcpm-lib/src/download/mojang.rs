@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::{
-    Catalog, Checksum, ChecksumAlgorithm, DownloadOutcome, DownloadRequest, Downloader, Event,
+    Checksum, ChecksumAlgorithm, DownloadOutcome, DownloadRequest, Downloader, Event,
     catalog::{MinecraftVersionEntry, MinecraftVersionList},
     sources::OfficialCatalog,
 };
@@ -22,9 +22,7 @@ pub async fn resolve_server(
     progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
 ) -> Result<ServerRelease> {
     ensure!(!version.trim().is_empty(), "Minecraft version is empty");
-    let official = OfficialCatalog
-        .minecraft_versions()?
-        .expect("OfficialCatalog always provides minecraft_versions");
+    let official = OfficialCatalog::minecraft_versions_endpoint()?;
     let selected = downloader
         .query_catalog_with_progress(
             official,

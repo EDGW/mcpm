@@ -64,7 +64,7 @@ fn fallback_resets_bytes_and_completion_requires_a_verified_published_file() {
             result.unwrap();
             assert_eq!(events.last(), Some(&Recorded::Completed));
         } else {
-            assert!(result.unwrap_err().is::<mcpm_exec::error::CombinedError>());
+            assert!(result.unwrap_err().is::<crate::error::CombinedError>());
             assert!(!events.contains(&Recorded::Completed));
             assert!(!target.exists());
             assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
@@ -105,11 +105,9 @@ fn observer_failure_during_transfer_aborts_without_fallback_or_publication() {
                     }),
             )
             .unwrap_err();
-        assert!(mcpm_exec::error::contains::<ConsumerFailed>(error.as_ref()));
+        assert!(crate::error::contains::<ConsumerFailed>(error.as_ref()));
         if fail_on_notification {
-            assert!(mcpm_exec::error::contains::<ChecksumMismatch>(
-                error.as_ref()
-            ));
+            assert!(crate::error::contains::<ChecksumMismatch>(error.as_ref()));
         }
         assert!(
             !events
@@ -227,7 +225,7 @@ fn source_mapping_tables_and_bmclapi_creeperhost() {
 
 #[test]
 fn official_catalog_decodes_forge_metadata_and_promotions_tolerantly() {
-    let endpoint = OfficialCatalog.forge_versions("1.20.4").unwrap().unwrap();
+    let endpoint = OfficialCatalog::forge_versions_endpoint().unwrap();
     assert_eq!(
         endpoint.url.as_str(),
         "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml"
@@ -240,44 +238,35 @@ fn official_catalog_decodes_forge_metadata_and_promotions_tolerantly() {
               <version>1.7.10-10.13.4.1614-1.7.10</version>
               <version>1.7.10-10.13.2.1343-1.7.10ls</version>
               <version>1.20.4-49.2.0</version>
-              <version>weird-historical</version>
-              <version>1.20.4-notnumeric</version>
-              <version>-49.2.0</version>
-              <version>nohyphen</version>
-              <version>1.20.4-49.2.0-</version>
+              <version>1.20.4-asdfjk</version>
+              <version>1.16.5-rc1-36.2.0</version>
+              <version>bad/path</version>
+              <version>bad\path</version>
+              <version>   </version>
             </versions>
           </versioning>
         </metadata>
     "#;
     let parsed = (endpoint.decode)(xml).unwrap();
+    let raw = |coord: &str| ForgeVersionEntry {
+        maven_coord: coord.into(),
+        mc_version: None,
+        loader_version: None,
+    };
     assert_eq!(
         parsed,
         vec![
-            ForgeVersionEntry {
-                mc_version: "1.5.2".into(),
-                loader_version: "7.8.1.738".into(),
-                maven_coord: "1.5.2-7.8.1.738".into(),
-            },
-            ForgeVersionEntry {
-                mc_version: "1.7.10".into(),
-                loader_version: "10.13.4.1614".into(),
-                maven_coord: "1.7.10-10.13.4.1614-1.7.10".into(),
-            },
-            ForgeVersionEntry {
-                mc_version: "1.7.10".into(),
-                loader_version: "10.13.2.1343".into(),
-                maven_coord: "1.7.10-10.13.2.1343-1.7.10ls".into(),
-            },
-            ForgeVersionEntry {
-                mc_version: "1.20.4".into(),
-                loader_version: "49.2.0".into(),
-                maven_coord: "1.20.4-49.2.0".into(),
-            },
+            raw("1.5.2-7.8.1.738"),
+            raw("1.7.10-10.13.4.1614-1.7.10"),
+            raw("1.7.10-10.13.2.1343-1.7.10ls"),
+            raw("1.20.4-49.2.0"),
+            raw("1.20.4-asdfjk"),
+            raw("1.16.5-rc1-36.2.0"),
         ]
     );
     assert!((endpoint.decode)(b"<metadata></metadata>").is_err());
 
-    let promos_endpoint = OfficialCatalog.forge_promotions().unwrap().unwrap();
+    let promos_endpoint = OfficialCatalog::forge_promotions_endpoint().unwrap();
     assert_eq!(
         promos_endpoint.url.as_str(),
         "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
@@ -308,12 +297,12 @@ fn official_catalog_decodes_forge_metadata_and_promotions_tolerantly() {
 }
 
 #[test]
-fn bmclapi_catalog_overrides_only_forge_endpoints() {
+fn bmclapi_catalog_overrides_forge_and_neoforge_endpoints() {
     let bmcl = bmclapi().unwrap();
     let catalog = bmcl.catalog().expect("bmclapi attaches BmclapiCatalog");
     assert!(catalog.minecraft_versions().unwrap().is_none());
     assert!(catalog.authlib_latest().unwrap().is_none());
-    assert!(catalog.neoforge_versions("1.21.1").unwrap().is_none());
+    assert!(catalog.neoforge_versions("1.21.1").unwrap().is_some());
     assert!(catalog.fabric_loaders("1.21.1").unwrap().is_none());
     assert!(catalog.fabric_installers().unwrap().is_none());
 
@@ -335,19 +324,19 @@ fn bmclapi_catalog_overrides_only_forge_endpoints() {
         versions,
         vec![
             ForgeVersionEntry {
-                mc_version: "1.7.10".into(),
-                loader_version: "10.13.4.1614".into(),
                 maven_coord: "1.7.10-10.13.4.1614-1.7.10".into(),
+                mc_version: Some("1.7.10".into()),
+                loader_version: Some("10.13.4.1614".into()),
             },
             ForgeVersionEntry {
-                mc_version: "1.20.4".into(),
-                loader_version: "49.2.0".into(),
                 maven_coord: "1.20.4-49.2.0".into(),
+                mc_version: Some("1.20.4".into()),
+                loader_version: Some("49.2.0".into()),
             },
             ForgeVersionEntry {
-                mc_version: "1.20.4".into(),
-                loader_version: "49.1.0".into(),
                 maven_coord: "1.20.4-49.1.0".into(),
+                mc_version: Some("1.20.4".into()),
+                loader_version: Some("49.1.0".into()),
             },
         ]
     );
@@ -378,76 +367,155 @@ fn bmclapi_catalog_overrides_only_forge_endpoints() {
     );
     assert_eq!(promos.recommended.len(), 1);
     assert_eq!(promos.latest.len(), 1);
-}
 
-#[test]
-fn official_catalog_decodes_neoforge_legacy_and_modern_metadata() {
-    let legacy = OfficialCatalog.neoforge_versions("1.20.1").unwrap().unwrap();
+    // BMCLAPI NeoForge list endpoints (oldest-first upstream reversed to newest-first).
+    let neo_261 = BmclapiCatalog.neoforge_versions("26.1").unwrap().unwrap();
     assert_eq!(
-        legacy.url.as_str(),
-        "https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml"
+        neo_261.url.as_str(),
+        "https://bmclapi2.bangbang93.com/neoforge/list/26.1"
     );
-    let legacy_entries = (legacy.decode)(
-        br#"<metadata><versioning><versions>
-            <version>1.20.1-47.1.106</version>
-            <version>1.20.1-</version>
-            <version>1.20.2-48.0.0</version>
-        </versions></versioning></metadata>"#,
+    let decoded_261 = (neo_261.decode)(
+        br#"[
+            {"mcversion": "26.1", "version": "26.1.0.1-beta", "rawVersion": "neoforge-26.1.0.1-beta"},
+            {"mcversion": "26.1", "rawVersion": "neoforge-asdfjk"},
+            {"mcversion": "26.1", "version": "26.1.0.19-beta", "rawVersion": "neoforge-26.1.0.19-beta"},
+            {"mcversion": "", "version": "26.1.0.20-beta"},
+            {"mcversion": "26.1", "version": "bad/path"}
+        ]"#,
     )
     .unwrap();
     assert_eq!(
-        legacy_entries,
-        vec![NeoForgeVersionEntry {
-            mc_version: "1.20.1".into(),
-            loader_version: "47.1.106".into(),
-            maven_coord: "1.20.1-47.1.106".into(),
-        }]
-    );
-
-    let modern = OfficialCatalog.neoforge_versions("1.21.1").unwrap().unwrap();
-    assert_eq!(
-        modern.url.as_str(),
-        "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
-    );
-    let modern_entries = (modern.decode)(
-        br#"<metadata><versioning><versions>
-            <version>0.25w14craftmine</version>
-            <version>20.2.88</version>
-            <version>21.0.167</version>
-            <version>21.1.72-beta</version>
-            <version>26.1.0</version>
-            <version>26.1.1.0</version>
-            <version>not-a-version</version>
-        </versions></versioning></metadata>"#,
-    )
-    .unwrap();
-    assert_eq!(
-        modern_entries,
+        decoded_261,
         vec![
             NeoForgeVersionEntry {
-                mc_version: "1.20.2".into(),
-                loader_version: "20.2.88".into(),
-                maven_coord: "20.2.88".into(),
-            },
-            NeoForgeVersionEntry {
-                mc_version: "1.21".into(),
-                loader_version: "21.0.167".into(),
-                maven_coord: "21.0.167".into(),
-            },
-            NeoForgeVersionEntry {
-                mc_version: "1.21.1".into(),
-                loader_version: "21.1.72-beta".into(),
-                maven_coord: "21.1.72-beta".into(),
+                mc_version: "26.1".into(),
+                loader_version: "26.1.0.19-beta".into(),
+                maven_coord: "26.1.0.19-beta".into(),
+                stable: None,
             },
             NeoForgeVersionEntry {
                 mc_version: "26.1".into(),
-                loader_version: "26.1.0".into(),
-                maven_coord: "26.1.0".into(),
+                loader_version: "asdfjk".into(),
+                maven_coord: "asdfjk".into(),
+                stable: None,
             },
             NeoForgeVersionEntry {
-                mc_version: "26.1.1".into(),
-                loader_version: "26.1.1.0".into(),
-                maven_coord: "26.1.1.0".into(),
+                mc_version: "26.1".into(),
+                loader_version: "26.1.0.1-beta".into(),
+                maven_coord: "26.1.0.1-beta".into(),
+                stable: None,
+            },
+        ]
+    );
+
+    let neo_1201 = BmclapiCatalog.neoforge_versions("1.20.1").unwrap().unwrap();
+    let decoded_1201 = (neo_1201.decode)(
+        br#"[
+            {"mcversion": "1.20.1", "version": "47.1.5", "rawVersion": "1.20.1-47.1.5"},
+            {"mcversion": "1.20.1", "rawVersion": "1.20.1-forge-47.1.80"},
+            {"mcversion": "1.20.1", "version": "1.20.1-47.1.105", "rawVersion": "1.20.1-forge-47.1.105"}
+        ]"#,
+    )
+    .unwrap();
+    assert_eq!(
+        decoded_1201,
+        vec![
+            NeoForgeVersionEntry {
+                mc_version: "1.20.1".into(),
+                loader_version: "47.1.105".into(),
+                maven_coord: "1.20.1-47.1.105".into(),
+                stable: None,
+            },
+            NeoForgeVersionEntry {
+                mc_version: "1.20.1".into(),
+                loader_version: "47.1.80".into(),
+                maven_coord: "1.20.1-47.1.80".into(),
+                stable: None,
+            },
+            NeoForgeVersionEntry {
+                mc_version: "1.20.1".into(),
+                loader_version: "47.1.5".into(),
+                maven_coord: "1.20.1-47.1.5".into(),
+                stable: None,
+            },
+        ]
+    );
+    assert!(BmclapiCatalog.neoforge_versions("../26.1").is_err());
+}
+
+#[test]
+fn official_catalog_decodes_neoforge_modrinth_manifest() {
+    let ep = OfficialCatalog::neoforge_versions_endpoint().unwrap();
+    assert_eq!(
+        ep.url.as_str(),
+        "https://launcher-meta.modrinth.com/neo/v0/manifest.json"
+    );
+    let entries = (ep.decode)(
+        br#"{
+            "gameVersions": [
+                {
+                    "id": "1.20.1",
+                    "loaders": [
+                        {"id": "47.1.106", "url": "not-even-a-url-must-be-ignored", "stable": false},
+                        {"id": "1.20.1-47.1.105", "url": "https://ignored.invalid/1", "stable": true},
+                        {"id": "bad/path", "url": "https://ignored.invalid/2", "stable": false}
+                    ]
+                },
+                {
+                    "id": "26.1",
+                    "loaders": [
+                        {"id": "26.1.0.19-beta", "url": "https://ignored.invalid/3", "stable": false},
+                        {"id": "asdfjk", "stable": true}
+                    ]
+                },
+                {
+                    "id": "26.1.2",
+                    "loaders": [
+                        {"id": "26.1.2.130", "url": "https://ignored.invalid/4", "stable": false}
+                    ]
+                },
+                {
+                    "id": " ",
+                    "loaders": [
+                        {"id": "99.0.0", "stable": true}
+                    ]
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(
+        entries,
+        vec![
+            NeoForgeVersionEntry {
+                mc_version: "1.20.1".into(),
+                loader_version: "47.1.106".into(),
+                maven_coord: "1.20.1-47.1.106".into(),
+                stable: Some(false),
+            },
+            NeoForgeVersionEntry {
+                mc_version: "1.20.1".into(),
+                loader_version: "47.1.105".into(),
+                maven_coord: "1.20.1-47.1.105".into(),
+                stable: Some(true),
+            },
+            NeoForgeVersionEntry {
+                mc_version: "26.1".into(),
+                loader_version: "26.1.0.19-beta".into(),
+                maven_coord: "26.1.0.19-beta".into(),
+                stable: Some(false),
+            },
+            NeoForgeVersionEntry {
+                mc_version: "26.1".into(),
+                loader_version: "asdfjk".into(),
+                maven_coord: "asdfjk".into(),
+                stable: Some(true),
+            },
+            NeoForgeVersionEntry {
+                mc_version: "26.1.2".into(),
+                loader_version: "26.1.2.130".into(),
+                maven_coord: "26.1.2.130".into(),
+                stable: Some(false),
             },
         ]
     );
@@ -552,9 +620,9 @@ fn catalog_lag_falls_back_and_fixed_installer_download_never_requeries_catalog()
                     Ok(versions
                         .into_iter()
                         .map(|version| ForgeVersionEntry {
-                            mc_version: "1.20.4".into(),
                             maven_coord: format!("1.20.4-{version}"),
-                            loader_version: version,
+                            mc_version: Some("1.20.4".into()),
+                            loader_version: Some(version),
                         })
                         .collect())
                 },
@@ -696,6 +764,117 @@ fn catalog_lag_falls_back_and_fixed_installer_download_never_requeries_catalog()
 
     let visited = server.join().unwrap();
     assert_eq!(visited.len(), 5);
+}
+
+#[test]
+fn forge_promotions_failure_and_missing_promoted_version_fall_back_to_latest() {
+    let sha1_hex = "0123456789abcdef0123456789abcdef01234567";
+    let metadata_xml = br#"<metadata><versioning><versions>
+        <version>1.20.4-49.1.0</version>
+        <version>1.20.4-49.2.0</version>
+    </versions></versioning></metadata>"#;
+
+    for (promo_status, promo_body) in [
+        ("500 Internal Server Error", b"upstream error".as_slice()),
+        (
+            "200 OK",
+            br#"{"promos":{"1.20.4-recommended":"99.9.9"}}"#.as_slice(),
+        ),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+
+        let mirror = MappedSource::new(
+            "mirror",
+            vec![
+                UrlMapping::new(
+                    "https://files.minecraftforge.net/".parse().unwrap(),
+                    format!("http://{address}/files/").parse().unwrap(),
+                )
+                .unwrap(),
+                UrlMapping::new(
+                    "https://maven.minecraftforge.net/".parse().unwrap(),
+                    format!("http://{address}/maven/").parse().unwrap(),
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+        let downloader = Downloader::new(
+            vec![Arc::new(mirror) as Arc<dyn DownloadSource>],
+            DownloadOptions::default(),
+        )
+        .unwrap();
+
+        let exchanges = vec![
+            (
+                "/files/net/minecraftforge/forge/promotions_slim.json".to_owned(),
+                promo_status.to_owned(),
+                promo_body.to_vec(),
+            ),
+            (
+                "/maven/net/minecraftforge/forge/maven-metadata.xml".to_owned(),
+                "200 OK".to_owned(),
+                metadata_xml.to_vec(),
+            ),
+            (
+                "/maven/net/minecraftforge/forge/1.20.4-49.2.0/forge-1.20.4-49.2.0-installer.jar.sha1"
+                    .to_owned(),
+                "200 OK".to_owned(),
+                format!("{sha1_hex}\n").into_bytes(),
+            ),
+        ];
+
+        let server = thread::spawn(move || {
+            for (expected_path, status, body) in exchanges {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline, "promotions fixture timed out");
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(error) => panic!("promotions fixture accept: {error}"),
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    let count = stream.read(&mut buffer).unwrap();
+                    assert_ne!(count, 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let head = String::from_utf8(request).unwrap();
+                let path = head.lines().next().unwrap().split_whitespace().nth(1).unwrap();
+                assert_eq!(path, expected_path);
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                let _ = stream.write_all(&body);
+            }
+        });
+
+        let release = runtime()
+            .block_on(loader::resolve(
+                &downloader,
+                loader::LoaderFamily::Forge,
+                "1.20.4",
+                None,
+            ))
+            .unwrap();
+        assert_eq!(release.family(), loader::LoaderFamily::Forge);
+        assert_eq!(release.loader_version(), "49.2.0");
+        server.join().unwrap();
+    }
 }
 
 fn request() -> DownloadRequest {

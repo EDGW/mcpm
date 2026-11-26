@@ -103,9 +103,11 @@ pub struct AuthlibBuildInfo {
 /// One normalized Forge installer entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForgeVersionEntry {
-    pub mc_version: String,
-    pub loader_version: String,
     pub maven_coord: String,
+    /// Populated when mirror catalogs (e.g. BMCLAPI) supply structured fields;
+    /// `None` for raw Official Maven metadata, resolved against target `mc` by `loader::forge`.
+    pub mc_version: Option<String>,
+    pub loader_version: Option<String>,
 }
 
 /// Normalized Forge promoted versions keyed by Minecraft version.
@@ -116,11 +118,17 @@ pub struct ForgePromotions {
 }
 
 /// One normalized NeoForge installer entry.
+///
+/// Catalog decoders normalize entries into newest-first order per Minecraft version so
+/// selection logic never parses version numbers or depends on upstream ordering differences.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NeoForgeVersionEntry {
     pub mc_version: String,
     pub loader_version: String,
     pub maven_coord: String,
+    /// `Some(stable)` when supplied by the catalog (e.g. Modrinth launcher-meta),
+    /// or `None` when omitted (e.g. BMCLAPI).
+    pub stable: Option<bool>,
 }
 
 /// One normalized Fabric loader version entry compatible with a Minecraft version.

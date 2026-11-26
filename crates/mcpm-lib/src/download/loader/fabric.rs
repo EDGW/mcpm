@@ -3,14 +3,12 @@
 use anyhow::{Context, Result, bail, ensure};
 use url::Url;
 
-use super::{InstallerRelease, LoaderFamily, append_segments, fetch_sha1};
+use super::{InstallerRelease, LoaderFamily, fetch_sha1};
 use crate::download::{
-    Catalog, DownloadRequest, Downloader, Event,
+    DownloadRequest, Downloader, Event, append_path_segments,
     catalog::{FabricInstallerEntry, FabricLoaderEntry},
-    sources::OfficialCatalog,
+    sources::{FABRIC_MAVEN_ROOT, OfficialCatalog},
 };
-
-const FABRIC_MAVEN_ROOT: &str = "https://maven.fabricmc.net/";
 
 pub(super) async fn resolve(
     downloader: &Downloader,
@@ -18,9 +16,7 @@ pub(super) async fn resolve(
     requested: Option<&str>,
     progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
 ) -> Result<InstallerRelease> {
-    let loaders_official = OfficialCatalog
-        .fabric_loaders(mc)?
-        .expect("OfficialCatalog always provides fabric_loaders");
+    let loaders_official = OfficialCatalog::fabric_loaders_endpoint(mc)?;
     let loader = downloader
         .query_catalog_with_progress(
             loaders_official,
@@ -30,9 +26,7 @@ pub(super) async fn resolve(
         )
         .await?;
 
-    let installers_official = OfficialCatalog
-        .fabric_installers()?
-        .expect("OfficialCatalog always provides fabric_installers");
+    let installers_official = OfficialCatalog::fabric_installers_endpoint()?;
     let jar_url = downloader
         .query_catalog_with_progress(
             installers_official,
@@ -90,17 +84,37 @@ fn select_installer(entries: Vec<FabricInstallerEntry>) -> Result<FabricInstalle
 }
 
 fn installer_jar_url(maven_coord: &str) -> Result<Url> {
-    let mut parts = maven_coord.split(':');
-    let (Some(group), Some(artifact), Some(version), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
+    let (coord, ext) = match maven_coord.rsplit_once('@') {
+        Some((coord, ext)) => {
+            ensure!(
+                !ext.is_empty(),
+                "invalid Fabric installer Maven coordinate: {maven_coord:?}"
+            );
+            (coord, ext)
+        }
+        None => (maven_coord, "jar"),
+    };
+    let mut parts = coord.split(':');
+    let (Some(group), Some(artifact), Some(version), classifier, None) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
         bail!("invalid Fabric installer Maven coordinate: {maven_coord:?}");
     };
     ensure!(
-        !group.is_empty() && !artifact.is_empty() && !version.is_empty(),
+        !group.is_empty()
+            && !artifact.is_empty()
+            && !version.is_empty()
+            && classifier.is_none_or(|value| !value.is_empty()),
         "invalid Fabric installer Maven coordinate: {maven_coord:?}"
     );
-    let jar_name = format!("{artifact}-{version}.jar");
+    let file_name = match classifier {
+        Some(classifier) => format!("{artifact}-{version}-{classifier}.{ext}"),
+        None => format!("{artifact}-{version}.{ext}"),
+    };
     let mut segments: Vec<&str> = group.split('.').collect();
     ensure!(
         !segments.is_empty() && segments.iter().all(|segment| !segment.is_empty()),
@@ -108,8 +122,8 @@ fn installer_jar_url(maven_coord: &str) -> Result<Url> {
     );
     segments.push(artifact);
     segments.push(version);
-    segments.push(&jar_name);
-    append_segments(FABRIC_MAVEN_ROOT, &segments)
+    segments.push(&file_name);
+    append_path_segments(FABRIC_MAVEN_ROOT, &segments, "Fabric Maven coordinate")
         .with_context(|| format!("invalid Fabric installer Maven coordinate: {maven_coord:?}"))
 }
 
@@ -188,11 +202,31 @@ mod tests {
                 .as_str(),
             "https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.1.0/fabric-installer-1.1.0.jar"
         );
+        assert_eq!(
+            installer_jar_url("net.fabricmc:fabric-installer:1.1.0:universal")
+                .unwrap()
+                .as_str(),
+            "https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.1.0/fabric-installer-1.1.0-universal.jar"
+        );
+        assert_eq!(
+            installer_jar_url("net.fabricmc:fabric-installer:1.1.0@zip")
+                .unwrap()
+                .as_str(),
+            "https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.1.0/fabric-installer-1.1.0.zip"
+        );
+        assert_eq!(
+            installer_jar_url("net.fabricmc:fabric-installer:1.1.0:server@exe")
+                .unwrap()
+                .as_str(),
+            "https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.1.0/fabric-installer-1.1.0-server.exe"
+        );
 
         for bad in [
             "",
             "net.fabricmc:fabric-installer",
-            "net.fabricmc:fabric-installer:1.1.0:extra",
+            "net.fabricmc:fabric-installer:1.1.0:universal:extra",
+            "net.fabricmc:fabric-installer:1.1.0:",
+            "net.fabricmc:fabric-installer:1.1.0@",
             ":fabric-installer:1.1.0",
             "net..fabricmc:fabric-installer:1.1.0",
             ".net.fabricmc:fabric-installer:1.1.0",
@@ -201,6 +235,7 @@ mod tests {
             "net.fabricmc:../escape:1.1.0",
             "net.fabricmc:fabric-installer:..",
             "net.fabricmc:fabric-installer:1.1.0?foo=bar",
+            "net.fabricmc:fabric-installer:1.1.0@jar/evil",
         ] {
             assert!(
                 installer_jar_url(bad).is_err(),

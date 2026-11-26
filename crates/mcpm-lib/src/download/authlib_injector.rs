@@ -9,7 +9,7 @@ use std::path::Path;
 use anyhow::{Context, Result, ensure};
 
 use super::{
-    Catalog, Checksum, ChecksumAlgorithm, DownloadOutcome, DownloadRequest, Downloader, Event,
+    Checksum, ChecksumAlgorithm, DownloadOutcome, DownloadRequest, Downloader, Event,
     catalog::AuthlibBuildInfo,
     sources::OfficialCatalog,
 };
@@ -25,9 +25,7 @@ pub async fn latest_with_progress(
     downloader: &Downloader,
     progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
 ) -> Result<Release> {
-    let official = OfficialCatalog
-        .authlib_latest()?
-        .expect("OfficialCatalog always provides authlib_latest");
+    let official = OfficialCatalog::authlib_latest_endpoint()?;
     downloader
         .query_catalog_with_progress(
             official,
@@ -41,9 +39,7 @@ pub async fn latest_with_progress(
 /// Resolves one exact build. A response for a different build is rejected within
 /// the request attempt so another configured source can be tried.
 pub async fn build(downloader: &Downloader, build_number: u64) -> Result<Release> {
-    let official = OfficialCatalog
-        .authlib_build(build_number)?
-        .expect("OfficialCatalog always provides authlib_build");
+    let official = OfficialCatalog::authlib_build_endpoint(build_number)?;
     downloader
         .query_catalog(
             official,

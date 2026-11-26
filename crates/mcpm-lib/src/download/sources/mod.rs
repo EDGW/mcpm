@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Result, bail};
 use url::Url;
 
 use super::{Catalog, DownloadConfig, DownloadSource, Downloader, MappingTable};
@@ -13,6 +13,10 @@ pub use bmclapi::BmclapiCatalog;
 mod mapped;
 pub use mapped::MappedSource;
 mod official;
+pub(crate) use official::{
+    FABRIC_MAVEN_ROOT, FORGE_MAVEN_ROOT, NEOFORGE_LEGACY_MAVEN_ROOT, NEOFORGE_LEGACY_MC,
+    NEOFORGE_MODERN_MAVEN_ROOT,
+};
 pub use official::OfficialCatalog;
 
 /// Builds the configured built-in sources in exactly the requested order.
@@ -82,24 +86,4 @@ pub fn bmclapi() -> Result<MappedSource> {
     })
     .collect::<Result<_>>()?;
     Ok(MappedSource::new("bmclapi", mappings)?.with_catalog(Arc::new(BmclapiCatalog)))
-}
-
-pub(super) fn append_path_segment(base: &str, segment: &str, label: &str) -> Result<Url> {
-    ensure!(
-        !segment.is_empty()
-            && segment != "."
-            && segment != ".."
-            && !segment.bytes().any(|byte| {
-                byte.is_ascii_whitespace()
-                    || byte.is_ascii_control()
-                    || matches!(byte, b'/' | b'\\' | b'?' | b'#')
-            }),
-        "invalid {label}: {segment:?}"
-    );
-    let mut url = Url::parse(base)?;
-    url.path_segments_mut()
-        .map_err(|_| anyhow::anyhow!("cannot append path segment to {base}"))?
-        .pop_if_empty()
-        .push(segment);
-    Ok(url)
 }

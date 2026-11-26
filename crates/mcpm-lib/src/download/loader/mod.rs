@@ -7,7 +7,7 @@
 
 use std::{fmt, path::Path};
 
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -182,24 +182,6 @@ pub(super) fn parse_sha1_text(bytes: &[u8]) -> Result<Checksum> {
     Checksum::new(ChecksumAlgorithm::Sha1, token).context("invalid SHA-1 checksum file")
 }
 
-pub(super) fn append_segments(base: &str, segments: &[&str]) -> Result<Url> {
-    let mut url = Url::parse(base).with_context(|| format!("invalid base URL {base:?}"))?;
-    {
-        let mut path = url
-            .path_segments_mut()
-            .map_err(|_| anyhow!("cannot append path segments to {base}"))?;
-        path.pop_if_empty();
-        for segment in segments {
-            ensure!(
-                is_valid_segment(segment),
-                "invalid URL path segment: {segment:?}"
-            );
-            path.push(segment);
-        }
-    }
-    Ok(url)
-}
-
 pub(super) fn parse_numeric_segments(version: &str) -> Option<Vec<u64>> {
     if version.is_empty() {
         return None;
@@ -213,15 +195,6 @@ pub(super) fn parse_numeric_segments(version: &str) -> Option<Vec<u64>> {
             segment.parse::<u64>().ok()
         })
         .collect()
-}
-
-fn is_valid_segment(segment: &str) -> bool {
-    !segment.is_empty()
-        && segment != "."
-        && segment != ".."
-        && !segment
-            .chars()
-            .any(|ch| ch.is_whitespace() || ch.is_control() || matches!(ch, '/' | '\\' | '?' | '#'))
 }
 
 #[cfg(test)]
@@ -255,13 +228,35 @@ mod tests {
     }
 
     #[test]
-    fn append_segments_rejects_traversal_and_special_characters() {
-        let url = append_segments("https://maven.example.invalid/base", &["1.0", "a.jar"]).unwrap();
+    fn append_path_segments_rejects_traversal_and_special_characters() {
+        let url = crate::download::append_path_segments(
+            "https://maven.example.invalid/base",
+            &["1.0", "a.jar"],
+            "test segment",
+        )
+        .unwrap();
         assert_eq!(url.as_str(), "https://maven.example.invalid/base/1.0/a.jar");
 
-        for bad in ["", ".", "..", "a/b", "a\\b", "a?b", "a#b", "a b", "a\x00b"] {
+        for bad in [
+            "",
+            ".",
+            "..",
+            "a/b",
+            "a\\b",
+            "a?b",
+            "a#b",
+            "a b",
+            "a\u{00a0}b",
+            "a\x00b",
+            "a\u{0085}b",
+        ] {
             assert!(
-                append_segments("https://maven.example.invalid/", &[bad]).is_err(),
+                crate::download::append_path_segments(
+                    "https://maven.example.invalid/",
+                    &[bad],
+                    "test segment",
+                )
+                .is_err(),
                 "expected segment {bad:?} to be rejected"
             );
         }
