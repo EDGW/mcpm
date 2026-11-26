@@ -156,7 +156,6 @@ pub async fn serve() -> Result<()> {
 
 /// Verifies that no active or unmanaged shim is present without creating `.mcpm/run`
 /// or writing any files.
-#[allow(dead_code)] // Wired by server.loader.add in Phase 5.
 pub(crate) fn ensure_inactive_readonly(server: &Path) -> Result<()> {
     let server = std::fs::canonicalize(server).context("failed to resolve server root")?;
     let directory = server.join(".mcpm/run");

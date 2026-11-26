@@ -32,12 +32,7 @@ impl Operation for Info {
                 return Ok(info);
             }
             if input.full_command {
-                info.start = launch::describe(&registration.path)?.map(|command| StartCommand {
-                    directory: command.directory.display().to_string(),
-                    executable: command.executable,
-                    arguments: command.arguments,
-                    windows: command.windows,
-                });
+                info.start = launch::describe(&registration.path)?.map(StartCommand::from);
             }
             Ok(info)
         })
@@ -201,4 +196,15 @@ pub struct StartCommand {
     pub executable: String,
     pub arguments: Vec<String>,
     pub windows: bool,
+}
+
+impl From<launch::CommandDescription> for StartCommand {
+    fn from(command: launch::CommandDescription) -> Self {
+        Self {
+            directory: command.directory.display().to_string(),
+            executable: command.executable,
+            arguments: command.arguments,
+            windows: command.windows,
+        }
+    }
 }

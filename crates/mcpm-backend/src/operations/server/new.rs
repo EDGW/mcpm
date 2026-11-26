@@ -1,4 +1,5 @@
-//! Host-side vanilla creation followed by the same complete-data setup used by init.
+//! Host-side vanilla creation followed by the same complete-data setup used by init,
+//! with optional immediate mod loader installation via the shared `loader` pipeline.
 
 use std::{
     fs::{self, OpenOptions},
@@ -7,20 +8,27 @@ use std::{
 };
 
 use anyhow::{Context, Result, ensure};
-use mcpm_exec::operation::{Operation, StreamingOutput};
+use mcpm_exec::{
+    error::PortableError,
+    operation::{Operation, StreamSender, StreamingOutput},
+};
 use mcpm_lib::{
-    download::{self, DownloadConfig, Downloader, mojang, sources},
+    download::{self, DownloadConfig, Downloader, loader::LoaderFamily, mojang, sources},
     local::{
         codec::Codec,
         mc::server::{
             MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, VANILLA_SERVER_JAR,
-            config, properties,
+            config, launch, loader_install::InstallCancelled, properties,
         },
     },
 };
 use serde::{Deserialize, Serialize};
 
-use super::{info::ServerInfo, init::git};
+use super::{
+    info::{ServerInfo, StartCommand},
+    init::git,
+    loader::{self, AddLoaderEvent, AddLoaderStage, LoaderRequest, PreparedLoader},
+};
 use crate::workspace::initialize::{self, LocalConfiguration, LocalInitialization};
 
 type Update = (String, Option<(u64, Option<u64>)>);
@@ -48,69 +56,126 @@ impl Operation for New {
             target(path)?;
             let config = DownloadConfig::decode(config_bytes)?;
             let downloader = sources::downloader(&config)?;
-            let (updates, mut receiver) = tokio::sync::watch::channel::<Option<Update>>(None);
-            let progress = sender.clone();
-            let work = async {
-                let observe = move |update| {
-                    progress.checkpoint()?;
-                    updates.send_replace(Some(update));
-                    Ok(())
-                };
-                match input {
-                    NewInput::Prepare {
+
+            match input {
+                NewInput::Prepare {
+                    path,
+                    version,
+                    download_config,
+                    rcon_requested,
+                    loader,
+                } => {
+                    if loader.is_some() {
+                        loader::validate_installer_sources(&downloader)?;
+                    }
+                    let (path, release) = {
+                        let (updates, mut receiver) =
+                            tokio::sync::watch::channel::<Option<Update>>(None);
+                        let checkpoint = sender.clone();
+                        let observe = move |update| {
+                            checkpoint.checkpoint()?;
+                            updates.send_replace(Some(update));
+                            Ok(())
+                        };
+                        drive_vanilla_progress(
+                            &sender,
+                            &mut receiver,
+                            prepare_vanilla(path, &version, rcon_requested, &downloader, &observe),
+                        )
+                        .await?
+                    };
+                    let prepared_loader = match loader {
+                        Some(request) => Some(
+                            loader::prepare_for_new(
+                                &downloader,
+                                release.id(),
+                                &request,
+                                &sender,
+                                map_loader_event(request.family),
+                            )
+                            .await?,
+                        ),
+                        None => None,
+                    };
+                    let prepared = Prepared {
                         path,
-                        version,
+                        release: release.encode()?,
                         download_config,
-                        rcon_requested,
-                    } => {
-                        let prepared = prepare(
-                            path,
-                            &version,
-                            download_config,
-                            rcon_requested,
-                            &downloader,
-                            &observe,
-                        )
-                        .await?;
-                        Ok::<_, anyhow::Error>(NewEvent::Prepared(Box::new(prepared)))
-                    }
-                    NewInput::Install {
-                        prepared,
-                        accept_eula,
-                        no_git,
-                        git,
-                        rcon,
-                    } => {
-                        let installed = install(
-                            prepared,
-                            accept_eula,
-                            no_git,
-                            git,
-                            rcon,
-                            &downloader,
-                            observe,
-                        )
-                        .await?;
-                        Ok(NewEvent::Installed(Box::new(installed)))
-                    }
+                        loader: prepared_loader,
+                    };
+                    sender.send(NewEvent::Prepared(Box::new(prepared))).await?;
+                    Ok(())
                 }
-            };
-            tokio::pin!(work);
-            let installed = loop {
-                tokio::select! {
-                    result = &mut work => break result?,
-                    changed = receiver.changed() => {
-                        if changed.is_ok() {
-                            let update = receiver.borrow_and_update().clone();
-                            if let Some((message, bytes)) = update {
-                                sender.send(NewEvent::Progress { message, bytes }).await?;
+                NewInput::Install {
+                    prepared,
+                    accept_eula,
+                    no_git,
+                    git,
+                    rcon,
+                } => {
+                    let prepared_loader = prepared.loader.clone();
+                    if prepared_loader.is_some() {
+                        loader::validate_installer_sources(&downloader)?;
+                    }
+                    let (mut installed, server_root) = {
+                        let (updates, mut receiver) =
+                            tokio::sync::watch::channel::<Option<Update>>(None);
+                        let checkpoint = sender.clone();
+                        let observe = move |update| {
+                            checkpoint.checkpoint()?;
+                            updates.send_replace(Some(update));
+                            Ok(())
+                        };
+                        drive_vanilla_progress(
+                            &sender,
+                            &mut receiver,
+                            install_vanilla(
+                                prepared,
+                                accept_eula,
+                                no_git,
+                                git,
+                                rcon,
+                                &downloader,
+                                observe,
+                            ),
+                        )
+                        .await?
+                    };
+
+                    if let Some(prepared_loader) = prepared_loader {
+                        match loader::install_on_existing_server(
+                            server_root,
+                            prepared_loader.family,
+                            Some(prepared_loader.loader_version),
+                            false,
+                            &downloader,
+                            &sender,
+                            map_loader_event(prepared_loader.family),
+                        )
+                        .await
+                        {
+                            Ok(modded_server) => {
+                                installed.server = modded_server;
+                            }
+                            Err(error) => {
+                                if sender.checkpoint().is_err()
+                                    || error
+                                        .chain()
+                                        .any(|cause| cause.downcast_ref::<InstallCancelled>().is_some())
+                                {
+                                    return Err(error);
+                                }
+                                installed.loader_error = Some(PortableError::from(error));
                             }
                         }
                     }
+
+                    let _ = sender
+                        .send(NewEvent::Installed(Box::new(installed)))
+                        .await;
+                    Ok(())
                 }
-            };
-            sender.send(installed).await?;
-            Ok(())
+            }
         }))
     }
 }
@@ -118,15 +183,17 @@ impl Operation for New {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NewInput {
-    /// Validate the directory and resolve a fixed artifact without writing any files.
+    /// Validate the directory and resolve fixed artifacts without writing any files.
     Prepare {
         path: PathBuf,
         version: String,
         download_config: Vec<u8>,
         #[serde(default)]
         rcon_requested: bool,
+        #[serde(default)]
+        loader: Option<LoaderRequest>,
     },
-    /// Install precisely the artifact resolved before the frontend asked for consent.
+    /// Install precisely the artifact(s) resolved before the frontend asked for consent.
     Install {
         prepared: Prepared,
         accept_eula: bool,
@@ -143,6 +210,8 @@ pub struct Prepared {
     path: PathBuf,
     release: Vec<u8>,
     download_config: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    loader: Option<PreparedLoader>,
 }
 
 /// An explicit override or a request to generate a fresh GUID password on the Host.
@@ -168,6 +237,10 @@ pub enum NewEvent {
         message: String,
         bytes: Option<(u64, Option<u64>)>,
     },
+    Notice(String),
+    Publishing {
+        message: String,
+    },
     // Keep frequent progress events small; the final result is allocated only once.
     Installed(Box<Installed>),
     Prepared(Box<Prepared>),
@@ -179,6 +252,10 @@ pub struct Installed {
     pub git: Option<git::Outcome>,
     pub java_major: Option<u32>,
     pub rcon: RconStatus,
+    /// Present only when `--loader` was requested, vanilla creation succeeded,
+    /// and subsequent loader installation failed (leaving a clean v4 Vanilla server).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loader_error: Option<PortableError>,
 }
 
 /// Creation result for the requesting frontend; Debug deliberately hides the password.
@@ -204,14 +281,67 @@ impl std::fmt::Debug for RconStatus {
     }
 }
 
-async fn prepare(
+fn map_loader_event(family: LoaderFamily) -> impl Fn(AddLoaderEvent) -> Option<NewEvent> + Clone {
+    move |event| match event {
+        AddLoaderEvent::Stage {
+            stage: AddLoaderStage::Publish,
+            message,
+        } => Some(NewEvent::Publishing { message }),
+        AddLoaderEvent::Stage { message, .. } => Some(NewEvent::Progress {
+            message,
+            bytes: None,
+        }),
+        AddLoaderEvent::DownloadProgress {
+            message,
+            received,
+            total,
+        } => Some(NewEvent::Progress {
+            message,
+            bytes: Some((received, total)),
+        }),
+        AddLoaderEvent::InstallerAttempt { source, attempt } => Some(NewEvent::Progress {
+            message: format!("Running {family} installer (attempt {attempt} · {source})..."),
+            bytes: None,
+        }),
+        AddLoaderEvent::Notice(notice) => Some(NewEvent::Notice(notice)),
+        AddLoaderEvent::Completed(_) => None,
+    }
+}
+
+async fn drive_vanilla_progress<T, Fut>(
+    sender: &StreamSender<NewEvent>,
+    receiver: &mut tokio::sync::watch::Receiver<Option<Update>>,
+    work: Fut,
+) -> Result<T>
+where
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    tokio::pin!(work);
+    let mut watch_closed = false;
+    loop {
+        tokio::select! {
+            result = &mut work => return result,
+            changed = receiver.changed(), if !watch_closed => {
+                if changed.is_err() {
+                    watch_closed = true;
+                    continue;
+                }
+                let update = receiver.borrow_and_update().clone();
+                if let Some((message, bytes)) = update {
+                    sender.send(NewEvent::Progress { message, bytes }).await?;
+                }
+            }
+        }
+    }
+}
+
+async fn prepare_vanilla(
     path: PathBuf,
     version: &str,
-    download_config: Vec<u8>,
     rcon_requested: bool,
     downloader: &Downloader,
-    observe: &impl Fn(Update) -> Result<()>,
-) -> Result<Prepared> {
+    observe: &(impl Fn(Update) -> Result<()> + ?Sized),
+) -> Result<(PathBuf, mojang::ServerRelease)> {
     let (path, _) = target(&path)?;
     observe(("Resolving Minecraft version...".into(), None))?;
     let release = mojang::resolve_server(downloader, version, &|event| {
@@ -219,14 +349,10 @@ async fn prepare(
     })
     .await?;
     validate_rcon(&release, rcon_requested)?;
-    Ok(Prepared {
-        path,
-        release: release.encode()?,
-        download_config,
-    })
+    Ok((path, release))
 }
 
-async fn install(
+async fn install_vanilla(
     prepared: Prepared,
     accept_eula: bool,
     no_git: bool,
@@ -234,7 +360,7 @@ async fn install(
     rcon: Option<RconOptions>,
     downloader: &Downloader,
     observe: impl Fn(Update) -> Result<()> + Send + Sync + 'static,
-) -> Result<Installed> {
+) -> Result<(Installed, PathBuf)> {
     git::validate_options(git, no_git)?;
     observe(("Checking target directory...".into(), None))?;
     let (path, missing) = target(&prepared.path)?;
@@ -298,13 +424,18 @@ async fn install(
         |path| if no_git { Ok(None) } else { git::ensure_repository(path, git).map(Some) },
     )).await?
         .with_context(|| format!("server.jar and eula.txt were written to {final_path:?}, but workspace initialization failed; inspect completed files before retrying"))?;
-    let server = ServerInfo::from_server(&initialized.server)?;
-    Ok(Installed {
-        server,
-        git: initialized.git,
-        java_major,
-        rcon: rcon_status,
-    })
+    let mut server = ServerInfo::from_server(&initialized.server)?;
+    server.start = launch::describe(&final_path)?.map(StartCommand::from);
+    Ok((
+        Installed {
+            server,
+            git: initialized.git,
+            java_major,
+            rcon: rcon_status,
+            loader_error: None,
+        },
+        final_path,
+    ))
 }
 
 fn validate_rcon(release: &mojang::ServerRelease, explicitly_requested: bool) -> Result<()> {
@@ -379,5 +510,50 @@ fn download_update(event: download::Event<'_>) -> Update {
             (format!("Download attempt failed · {source}"), None)
         }
         download::Event::Completed { .. } => ("Download complete".into(), None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mcpm_lib::download::DownloadOptions;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn prepare_with_loader_rejects_mirror_only_source_before_writing_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let target_dir = dir.path().join("new-server");
+        let mirror_only =
+            DownloadConfig::new(vec!["bmclapi".into()], DownloadOptions::default()).unwrap();
+
+        let mut stream = New::run(NewInput::Prepare {
+            path: target_dir.clone(),
+            version: "1.21.1".into(),
+            download_config: mirror_only.encode().unwrap(),
+            rcon_requested: false,
+            loader: Some(LoaderRequest {
+                family: LoaderFamily::Fabric,
+                version: None,
+            }),
+        })
+        .await
+        .unwrap();
+
+        let mut err_text = None;
+        while let Some(item) = stream.next().await {
+            if let Err(error) = item {
+                err_text = Some(format!("{error:#}"));
+            }
+        }
+        assert!(
+            err_text
+                .as_deref()
+                .is_some_and(|msg| msg.contains("mirror-only")),
+            "expected mirror-only error, got: {err_text:?}"
+        );
+        assert!(
+            !target_dir.exists(),
+            "failed Prepare must not create target directory"
+        );
     }
 }

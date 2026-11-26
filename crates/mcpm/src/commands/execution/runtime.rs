@@ -16,6 +16,14 @@ impl Runtime {
             .map(|runtime| Self(Some(runtime)))
             .context("failed to create command runtime")
     }
+
+    /// Waits up to `timeout` for in-flight blocking work (such as cancelling a child
+    /// process tree and cleaning up temporary staging files) before exiting.
+    pub(in crate::commands) fn shutdown_timeout(mut self, timeout: std::time::Duration) {
+        if let Some(runtime) = self.0.take() {
+            runtime.shutdown_timeout(timeout);
+        }
+    }
 }
 
 impl Deref for Runtime {

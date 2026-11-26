@@ -2,6 +2,7 @@
 
 pub mod info;
 pub mod init;
+pub mod loader;
 pub mod new;
 pub mod shim;
 pub mod stash;
