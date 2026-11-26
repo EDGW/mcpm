@@ -61,6 +61,7 @@ pub(super) fn write_files(
             ReleaseType::Release => "release",
             ReleaseType::Beta => "beta",
             ReleaseType::Alpha => "alpha",
+            ReleaseType::Unknown => "unknown",
         };
         if columns.is_explicit() {
             use super::columns::Column;

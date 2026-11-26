@@ -88,6 +88,7 @@ fn channel(release: ReleaseType) -> &'static str {
         ReleaseType::Release => "release",
         ReleaseType::Beta => "beta",
         ReleaseType::Alpha => "alpha",
+        ReleaseType::Unknown => "unknown",
     }
 }
 

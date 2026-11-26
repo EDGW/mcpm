@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use super::{CurseForgeSource, api};
@@ -22,10 +22,10 @@ impl CurseForgeSource {
         let mut seen = HashSet::new();
         let mut result = Vec::new();
         for item in response.data {
-            ensure!(
-                !item.version_string.trim().is_empty(),
-                "empty CurseForge game version identifier"
-            );
+            if item.version_string.trim().is_empty() {
+                tracing::debug!("Skipping empty CurseForge game version identifier");
+                continue;
+            }
             if seen.insert(item.version_string.clone()) {
                 result.push(item.version_string);
             }

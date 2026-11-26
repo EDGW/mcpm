@@ -41,6 +41,7 @@ pub enum ReleaseType {
     Release,
     Beta,
     Alpha,
+    Unknown,
 }
 
 /// Hex-encoded checksums of the downloadable file, not provider fingerprints.
@@ -145,7 +146,7 @@ impl FileMatch {
     }
 
     /// Checks a provider match against the exact file summary used for the lookup.
-    /// A SHA-1 match and size are required; all supplied digest syntax is checked.
+    /// A matching SHA-1 digest and file size are required.
     pub fn validate(&self, summary: &super::FileSummary) -> anyhow::Result<()> {
         use anyhow::ensure;
         summary.validate()?;
@@ -158,19 +159,13 @@ impl FileMatch {
         );
         ensure!(self.size == summary.size, "source file match size mismatch");
         let mut sha1 = false;
-        let mut seen = std::collections::HashSet::new();
         for hash in &self.hashes {
-            let (algorithm, value, length) = match hash {
-                FileHash::Sha1(value) => ("sha1", value, 40),
-                FileHash::Sha512(value) => ("sha512", value, 128),
-                FileHash::Md5(value) => ("md5", value, 32),
-            };
-            ensure!(seen.insert(algorithm), "duplicate source file match hash");
-            ensure!(
-                value.len() == length && value.bytes().all(|b| b.is_ascii_hexdigit()),
-                "invalid source file match hash"
-            );
-            if algorithm == "sha1" {
+            if let FileHash::Sha1(value) = hash {
+                ensure!(!sha1, "duplicate source file match SHA-1");
+                ensure!(
+                    value.len() == 40 && value.bytes().all(|b| b.is_ascii_hexdigit()),
+                    "invalid source file match SHA-1"
+                );
                 ensure!(
                     value.eq_ignore_ascii_case(&summary.sha1),
                     "source file match SHA-1 mismatch"
@@ -188,4 +183,45 @@ impl FileMatch {
 pub enum MatchedFileRole {
     Primary,
     Additional,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::{FileSummary, ProjectId};
+
+    #[test]
+    fn file_match_validate_checks_only_sha1_and_ignores_other_hash_formats() {
+        let sha1 = "a9993e364706816aba3e25717850c26c9cd0d89d";
+        let summary = FileSummary {
+            size: 3,
+            sha1: sha1.into(),
+            murmur2: None,
+        };
+        let mut matched = FileMatch {
+            reference: FileRef {
+                project: ProjectRef {
+                    source: SourceId("modrinth".into()),
+                    id: ProjectId("proj".into()),
+                },
+                id: FileId("ver".into()),
+            },
+            filename: "mod.jar".into(),
+            size: 3,
+            hashes: vec![
+                FileHash::Md5("not-valid-md5".into()),
+                FileHash::Sha512("not-valid-sha512".into()),
+                FileHash::Md5("duplicate-md5".into()),
+                FileHash::Sha1(sha1.to_ascii_uppercase()),
+            ],
+            role: MatchedFileRole::Primary,
+        };
+        matched.validate(&summary).unwrap();
+
+        matched.hashes.push(FileHash::Sha1(sha1.into()));
+        assert!(matched.validate(&summary).is_err());
+
+        matched.hashes = vec![FileHash::Md5("d41d8cd98f00b204e9800998ecf8427e".into())];
+        assert!(matched.validate(&summary).is_err());
+    }
 }

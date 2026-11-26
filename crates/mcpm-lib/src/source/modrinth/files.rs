@@ -22,7 +22,7 @@ impl ModrinthSource {
     async fn version(&self, id: &str) -> Result<api::Version> {
         check_id(id)?;
         let version: api::Version = self
-            .request(&format!("version/{id}"))?
+            .request_segments(&["version", id])?
             .send()
             .await
             .context("Modrinth version request failed")?
@@ -41,11 +41,12 @@ impl ModrinthSource {
     ) -> Result<FilePage> {
         self.check_project(project)?;
         ensure!(query.limit > 0, "file limit must be positive");
-        for loader in &query.loaders {
-            super::check_loader(loader)?;
-        }
+        ensure!(
+            query.loaders.iter().all(|loader| !loader.trim().is_empty()),
+            "Modrinth loader filter cannot be empty"
+        );
         let mut versions: Vec<api::Version> = self
-            .request(&format!("project/{}/version", project.id.0))?
+            .request_segments(&["project", &project.id.0, "version"])?
             .send()
             .await
             .context("Modrinth versions request failed")?
@@ -53,14 +54,13 @@ impl ModrinthSource {
             .json()
             .await
             .context("invalid Modrinth versions response")?;
-        // Parse all release kinds before filtering, so unknown data is not silently discarded.
         let mut matching = Vec::new();
         for version in versions.drain(..) {
             ensure!(
                 version.project_id == project.id.0,
                 "Modrinth version belongs to a different project"
             );
-            let kind = release_type(&version.version_type)?;
+            let kind = release_type(&version.version_type);
             if (!query.game_versions.is_empty()
                 && !query
                     .game_versions
@@ -75,22 +75,25 @@ impl ModrinthSource {
             {
                 continue;
             }
-            matching.push(version);
+            matching.push((version, kind));
         }
         matching.sort_by(|a, b| {
-            b.date_published
-                .cmp(&a.date_published)
-                .then_with(|| a.id.cmp(&b.id))
+            b.0.date_published
+                .cmp(&a.0.date_published)
+                .then_with(|| a.0.id.cmp(&b.0.id))
         });
         let total = matching.len() as u64;
         let mut files = Vec::new();
         let mut resolved = HashMap::new();
-        for version in matching
+        for (version, kind) in matching
             .into_iter()
             .skip(usize::try_from(query.offset).unwrap_or(usize::MAX))
             .take(query.limit as usize)
         {
-            files.push(self.normalize_file(project, version, &mut resolved).await?);
+            files.push(
+                self.normalize_file(project, version, kind, &mut resolved)
+                    .await?,
+            );
         }
         Ok(FilePage {
             files,
@@ -102,7 +105,8 @@ impl ModrinthSource {
     pub(super) async fn fetch_project_file(&self, file: &FileRef) -> Result<ProjectFile> {
         self.check_project(&file.project)?;
         let version = self.version(&file.id.0).await?;
-        self.normalize_file(&file.project, version, &mut HashMap::new())
+        let kind = release_type(&version.version_type);
+        self.normalize_file(&file.project, version, kind, &mut HashMap::new())
             .await
     }
 
@@ -110,6 +114,7 @@ impl ModrinthSource {
         &self,
         project: &ProjectRef,
         version: api::Version,
+        release_type: ReleaseType,
         resolved: &mut HashMap<String, String>,
     ) -> Result<ProjectFile> {
         ensure!(
@@ -138,7 +143,15 @@ impl ModrinthSource {
                 "optional" => DependencyKind::Optional,
                 "incompatible" => DependencyKind::Incompatible,
                 "embedded" => DependencyKind::Embedded,
-                other => anyhow::bail!("unknown Modrinth dependency kind: {other}"),
+                other => {
+                    tracing::debug!(
+                        dependency_type = other,
+                        project_id = dependency.project_id.as_deref(),
+                        version_id = dependency.version_id.as_deref(),
+                        "Skipping unknown Modrinth dependency kind"
+                    );
+                    continue;
+                }
             };
             let target = if let Some(id) = dependency.version_id {
                 let owner = if let Some(owner) = dependency.project_id {
@@ -179,7 +192,7 @@ impl ModrinthSource {
             },
             name: version.name,
             version: Some(version.version_number),
-            release_type: release_type(&version.version_type)?,
+            release_type,
             game_versions: version.game_versions,
             loaders: version.loaders,
             filename: file.filename,
@@ -192,18 +205,103 @@ impl ModrinthSource {
 }
 
 fn check_id(id: &str) -> Result<()> {
-    ensure!(
-        !id.is_empty() && id.bytes().all(|c| c.is_ascii_alphanumeric()),
-        "invalid Modrinth ID"
-    );
-    Ok(())
+    super::check_path_segment(id, "Modrinth ID")
 }
 
-fn release_type(value: &str) -> Result<ReleaseType> {
+fn release_type(value: &str) -> ReleaseType {
     match value {
-        "release" => Ok(ReleaseType::Release),
-        "beta" => Ok(ReleaseType::Beta),
-        "alpha" => Ok(ReleaseType::Alpha),
-        other => anyhow::bail!("unknown Modrinth release type: {other}"),
+        "release" => ReleaseType::Release,
+        "beta" => ReleaseType::Beta,
+        "alpha" => ReleaseType::Alpha,
+        other => {
+            tracing::debug!(version_type = other, "Unknown Modrinth release type");
+            ReleaseType::Unknown
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::SourceId;
+
+    #[test]
+    fn check_id_enforces_url_path_segment_safety_without_alphanumeric_assumptions() {
+        for valid in ["abc123", "proj-1_v2.0", "opaque:id+1"] {
+            assert!(check_id(valid).is_ok(), "{valid:?}");
+        }
+        for invalid in [
+            "",
+            ".",
+            "..",
+            "a b",
+            "a\tb",
+            "a\nb",
+            "a\0b",
+            "a/b",
+            "a\\b",
+            "a?b",
+            "a#b",
+        ] {
+            assert!(check_id(invalid).is_err(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn normalize_file_tolerates_unknown_version_type_and_dependency_type() {
+        let source = ModrinthSource::with_endpoint(
+            SourceId("mr".into()),
+            reqwest::Client::new(),
+            "https://api.modrinth.com/v2/".parse().unwrap(),
+        )
+        .unwrap();
+        let project = ProjectRef {
+            source: SourceId("mr".into()),
+            id: ProjectId("proj-1".into()),
+        };
+        let version = api::Version {
+            id: "ver-1".into(),
+            project_id: "proj-1".into(),
+            name: "Demo".into(),
+            version_number: "1.0.0".into(),
+            version_type: "snapshot".into(),
+            date_published: chrono::DateTime::UNIX_EPOCH,
+            game_versions: vec!["1.21.1".into()],
+            loaders: vec!["fabric".into()],
+            files: vec![api::File {
+                filename: "demo.jar".into(),
+                size: 42,
+                url: "https://cdn.modrinth.com/demo.jar".parse().unwrap(),
+                primary: true,
+                hashes: api::Hashes {
+                    sha1: None,
+                    sha512: None,
+                },
+            }],
+            dependencies: vec![
+                api::Dependency {
+                    project_id: Some("dep-known".into()),
+                    version_id: None,
+                    file_name: None,
+                    dependency_type: "optional".into(),
+                },
+                api::Dependency {
+                    project_id: None,
+                    version_id: None,
+                    file_name: None,
+                    dependency_type: "future_relation".into(),
+                },
+            ],
+        };
+        let kind = release_type(&version.version_type);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let file = runtime
+            .block_on(source.normalize_file(&project, version, kind, &mut HashMap::new()))
+            .unwrap();
+        assert_eq!(file.release_type, ReleaseType::Unknown);
+        assert_eq!(file.dependencies.len(), 1);
+        assert_eq!(file.dependencies[0].kind, DependencyKind::Optional);
     }
 }

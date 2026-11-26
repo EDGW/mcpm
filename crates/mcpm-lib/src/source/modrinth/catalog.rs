@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use super::ModrinthSource;
@@ -22,10 +22,10 @@ impl ModrinthSource {
         let mut seen = HashSet::new();
         let mut result = Vec::new();
         for item in versions {
-            ensure!(
-                !item.version.trim().is_empty(),
-                "empty Modrinth game version identifier"
-            );
+            if item.version.trim().is_empty() {
+                tracing::debug!("Skipping empty Modrinth game version identifier");
+                continue;
+            }
             if seen.insert(item.version.clone()) {
                 result.push(item.version);
             }

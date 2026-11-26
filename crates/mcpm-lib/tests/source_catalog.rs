@@ -40,9 +40,12 @@ fn catalogs_use_configured_endpoints_and_preserve_order_without_duplicate_versio
             ("200 OK", wrap(json!([])).to_string()),
             (
                 "200 OK",
+                wrap(json!([{field: " "}, {field: "1.21.4"}, {field: ""}])).to_string(),
+            ),
+            (
+                "200 OK",
                 wrap(json!([{"wrong_field": "1.21.1"}])).to_string(),
             ),
-            ("200 OK", wrap(json!([{field: " "}])).to_string()),
             ("503 Service Unavailable", "{}".into()),
         ];
         let server = thread::spawn(move || {
@@ -121,8 +124,9 @@ fn catalogs_use_configured_endpoints_and_preserve_order_without_duplicate_versio
                 ["1.21.1", "1.20.1", "24w14a"]
             );
             assert!(source.game_versions().await.unwrap().is_empty());
+            assert_eq!(source.game_versions().await.unwrap(), ["1.21.4"]);
             let provider = if curseforge { "CurseForge" } else { "Modrinth" };
-            for expected in ["invalid", "empty", "HTTP error"] {
+            for expected in ["invalid", "HTTP error"] {
                 let error = source.game_versions().await.unwrap_err().to_string();
                 assert!(
                     error.contains(provider) && error.contains(expected),
