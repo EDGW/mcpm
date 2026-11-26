@@ -1,4 +1,4 @@
-//! Terminal-only consent after fetching the current official EULA with the selected sources.
+//! Terminal-only consent after fetching the current official EULA directly from Mojang.
 
 use anyhow::{Context, Result, ensure};
 use mcpm_lib::download::{DownloadConfig, eula, sources};
@@ -20,7 +20,8 @@ pub(super) async fn accept(config: &DownloadConfig) -> Result<bool> {
         "--eula requires an interactive terminal; omit --eula to install without accepting the EULA"
     );
     let progress = Progress::new("Fetching Minecraft EULA...", "Fetching EULA");
-    let preview = eula::fetch(&sources::downloader(config)?).await?;
+    let official = DownloadConfig::new(vec!["official".into()], config.options())?;
+    let preview = eula::fetch(&sources::downloader(&official)?).await?;
     drop(progress);
     let term = console::Term::stderr();
     let style = OutputStyle::stderr();
