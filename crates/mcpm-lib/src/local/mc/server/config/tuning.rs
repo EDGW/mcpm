@@ -87,15 +87,13 @@ pub(crate) fn validate(conf: &ServerConfig) -> Result<()> {
         }
     }
     validate_arguments(&conf.application.extra_arguments)?;
-    command::validate_jvm(&conf.jvm.memory.extra_arguments)?;
-    ensure!(
-        conf.jvm
-            .memory
-            .extra_arguments
-            .iter()
-            .all(|arg| managed(arg).is_some()),
-        "jvm.memory.extraArguments accepts only memory/GC flags"
-    );
+    for arg in &conf.jvm.memory.extra_arguments {
+        ensure!(!arg.contains('\0'), "NUL in JVM memory argument");
+        ensure!(
+            managed(arg).is_some(),
+            "jvm.memory.extraArguments accepts only memory/GC flags"
+        );
+    }
     command::validate_jvm(&conf.jvm.extra_arguments)?;
     ensure!(
         !contains_managed(&conf.jvm.extra_arguments),
@@ -109,7 +107,6 @@ pub(crate) fn generate(conf: &ServerConfig) -> Result<Vec<String>> {
     let mut result = Vec::new();
     for (value, flag) in size_fields(jvm) {
         if let Some(value) = value {
-            ensure!(!value.contains('\0'), "NUL in JVM setting {flag}");
             result.push(format!("{flag}{value}"));
         }
     }

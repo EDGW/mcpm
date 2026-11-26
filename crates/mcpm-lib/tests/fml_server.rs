@@ -66,20 +66,27 @@ fn expanded_maven_args_supply_versions_and_cannot_disagree_with_options() {
         assert!(error.contains(expected), "{error}");
     }
 
-    let relative = "libraries/net/minecraftforge/forge/1.20.1-47.3.0-1.20.1/unix_args.txt";
+    let relative = "libraries/net/minecraftforge/forge/unsplit/unix_args.txt";
     let file = root.path().join(relative);
     fs::create_dir_all(file.parent().unwrap()).unwrap();
     fs::write(&file, format!("-p {FORGE_COMPONENT}\n{BOOTSTRAP}\n")).unwrap();
-    fs::write(
-        &script,
-        format!("java @{relative} --fml.mcVersion=1.20.1-47.3.0\n"),
-    )
-    .unwrap();
+    fs::write(&script, format!("java @{relative}\n")).unwrap();
     let error = identify(root.path(), "run.sh", &BUILTIN_LOADERS).unwrap_err();
     assert!(
         format!("{error:#}").contains("invalid FML distribution version"),
         "{error:#}"
     );
+
+    let relative = "libraries/net/minecraftforge/forge/1.21-pre1-asdfjk/unix_args.txt";
+    let file = root.path().join(relative);
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(&file, format!("-p {FORGE_COMPONENT}\n{BOOTSTRAP}\n")).unwrap();
+    fs::write(
+        &script,
+        format!("java @{relative} --fml.mcVersion=1.21-pre1\n"),
+    )
+    .unwrap();
+    assert_identity(root.path(), "forge", "1.21-pre1", "asdfjk");
 
     fs::create_dir_all(root.path().join("net/neoforged/neoforge")).unwrap();
     let mut misleading_paths = vec!["net/neoforged/neoforge/../unix_args.txt"];

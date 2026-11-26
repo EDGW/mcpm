@@ -4,9 +4,8 @@ use anyhow::{Context, Result, ensure};
 use mcpm_macros::ConfigFields;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, path::Path};
-use toml::Value;
 
-use super::{ImportedSetting, ImportedValue, nonempty, overrides::ConfigFields};
+use super::{ImportedSetting, ImportedValue, nonempty};
 use crate::local::java::command;
 
 /// Explicit agent configuration; a missing or empty JAR path selects server-local management.
@@ -147,9 +146,9 @@ impl AuthlibInjector {
     }
 
     /// Extracts representable properties, retaining repeated or unsupported values as raw argv.
-    pub(super) fn import_properties(
+    fn import_properties(
         arguments: &[(usize, &str, Option<&str>)],
-    ) -> Result<(Vec<ImportedSetting>, HashSet<usize>)> {
+    ) -> (Vec<ImportedSetting>, HashSet<usize>) {
         let mut settings = Vec::new();
         let mut consumed = HashSet::new();
         for &(index, name, value) in arguments {
@@ -167,28 +166,13 @@ impl AuthlibInjector {
             let Some(value) = property_value(key, value) else {
                 continue;
             };
-            if Self::field(key).is_none_or(|field| field.check_value(&value).is_err()) {
-                continue;
-            }
-            let value = match value {
-                Value::String(value) => ImportedValue::String(value),
-                Value::Boolean(value) => ImportedValue::Boolean(value),
-                Value::Integer(value) => ImportedValue::Integer(value),
-                Value::Array(values) => ImportedValue::Arguments(
-                    values
-                        .into_iter()
-                        .map(|value| value.as_str().expect("string array").to_owned())
-                        .collect(),
-                ),
-                _ => unreachable!("property conversion produces scalar or array"),
-            };
             settings.push(ImportedSetting {
                 field: format!("authlib-injector.{key}"),
                 value,
             });
             consumed.insert(index);
         }
-        Ok((settings, consumed))
+        (settings, consumed)
     }
 }
 
@@ -226,7 +210,7 @@ pub(super) fn import(
     let Some((index, path, api_url)) = agent else {
         return Ok((Vec::new(), HashSet::new()));
     };
-    let (mut settings, mut consumed) = AuthlibInjector::import_properties(&options)?;
+    let (mut settings, mut consumed) = AuthlibInjector::import_properties(&options);
     consumed.insert(index);
     settings.extend([
         ImportedSetting {
@@ -258,28 +242,38 @@ impl FeatureOption {
             Self::Disabled => "disabled",
         }
     }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "default" => Some(Self::Default),
+            "enabled" => Some(Self::Enabled),
+            "disabled" => Some(Self::Disabled),
+            _ => None,
+        }
+    }
 }
 
-fn property_value(key: &str, value: Option<&str>) -> Option<Value> {
+fn property_value(key: &str, value: Option<&str>) -> Option<ImportedValue> {
     let value = value.unwrap_or("");
     Some(match key {
-        "jar" | "apiUrl" => return None,
-        "noLogFile" | "disableHttpd" | "noShowServerName" => Value::Boolean(true),
-        "httpdPort" => Value::Integer(value.parse::<u16>().ok()?.into()),
-        "debug" if value.is_empty() => Value::Array(vec![
-            Value::String("verbose".into()),
-            Value::String("authlib".into()),
-        ]),
+        "noLogFile" | "disableHttpd" | "noShowServerName" => ImportedValue::Boolean(true),
+        "httpdPort" => ImportedValue::Integer(value.parse::<u16>().ok()?.into()),
+        "mojangProxy" => ImportedValue::String(value.into()),
+        "mojangNamespace"
+        | "legacySkinPolyfill"
+        | "mojangAntiFeatures"
+        | "profileKey"
+        | "usernameCheck" => ImportedValue::String(FeatureOption::parse(value)?.as_str().into()),
+        "debug" if value.is_empty() => {
+            ImportedValue::Arguments(vec!["verbose".into(), "authlib".into()])
+        }
         "debug" | "ignoredPackages" => {
-            let values = value
-                .split(',')
-                .map(|value| Value::String(value.into()))
-                .collect::<Vec<_>>();
-            if values.iter().any(|value| value.as_str() == Some("")) {
+            let values: Vec<String> = value.split(',').map(str::to_owned).collect();
+            if values.iter().any(String::is_empty) {
                 return None;
             }
-            Value::Array(values)
+            ImportedValue::Arguments(values)
         }
-        _ => Value::String(value.into()),
+        _ => return None,
     })
 }

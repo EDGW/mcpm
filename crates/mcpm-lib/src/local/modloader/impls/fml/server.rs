@@ -114,9 +114,6 @@ fn identify_with(
             "{expected:?} launcher declares the {family:?} family from {source}"
         );
     }
-    if let Some(target) = view.option("--launchTarget")? {
-        ensure_server_target(target)?;
-    }
 
     let effective_mc = view.option("--fml.mcVersion")?;
     let mut minecraft = None;
@@ -148,7 +145,8 @@ fn identify_with(
         };
         if let Some(value) = matcher(path, group, "forge") {
             let source = path_source(path, position);
-            let (mc, version) = distribution_version(value).with_context(|| {
+            let known_mc = minecraft.as_ref().map(|(v, _)| v.as_str()).or(effective_mc);
+            let (mc, version) = distribution_version(value, known_mc).with_context(|| {
                 format!("invalid FML distribution version {value:?} in {source}")
             })?;
             version_evidence(&mut minecraft, mc, "Minecraft", &source)?;
@@ -215,51 +213,24 @@ fn version_evidence(
     Ok(())
 }
 
-/// Modern Forge and early NeoForge use an MC prefix followed by a three-part loader version.
-fn distribution_version(value: &str) -> Result<(&str, &str)> {
+/// Splits a Forge/NeoForge distribution version into `(minecraft_version, loader_version)`.
+fn distribution_version<'a>(
+    value: &'a str,
+    effective_mc: Option<&str>,
+) -> Result<(&'a str, &'a str)> {
+    if let Some(mc) = effective_mc.filter(|mc| !mc.trim().is_empty())
+        && let Some(rest) = value.strip_prefix(mc)
+        && let Some(loader) = rest.strip_prefix('-')
+        && !loader.trim().is_empty()
+    {
+        return Ok((&value[..mc.len()], loader));
+    }
     let (mc, loader) = value
         .rsplit_once('-')
         .context("expected Minecraft-loader version")?;
-    let numeric = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
     ensure!(
-        loader.split('.').count() == 3 && loader.split('.').all(numeric),
-        "malformed loader version"
+        !mc.trim().is_empty() && !loader.trim().is_empty(),
+        "expected non-empty Minecraft and loader versions"
     );
-    let (release, suffix) = mc
-        .split_once('-')
-        .map_or((mc, None), |(release, suffix)| (release, Some(suffix)));
-    ensure!(
-        (2..=3).contains(&release.split('.').count()) && release.split('.').all(numeric),
-        "malformed Minecraft version"
-    );
-    if let Some(suffix) = suffix {
-        ensure!(
-            suffix
-                .strip_prefix("pre")
-                .or_else(|| suffix.strip_prefix("rc"))
-                .or_else(|| suffix.strip_prefix("snapshot-"))
-                .is_some_and(numeric),
-            "ambiguous Minecraft prerelease version"
-        );
-    }
     Ok((mc, loader))
-}
-
-/// Client targets are evidence against server identity, rather than invalid commands.
-pub(in crate::local::modloader::impls::fml) fn ensure_server_target(target: &str) -> Result<()> {
-    ensure!(
-        !matches!(
-            target.to_ascii_lowercase().as_str(),
-            "forgeclient"
-                | "neoforgeclient"
-                | "forge_client"
-                | "neoforge_client"
-                | "fmlclient"
-                | "fml_client"
-                | "forgeclientuserdev"
-                | "neoforgeclientuserdev"
-        ),
-        "entry declares a client target, not a production server: {target:?}"
-    );
-    Ok(())
 }

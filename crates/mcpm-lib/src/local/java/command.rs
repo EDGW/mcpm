@@ -43,11 +43,11 @@ impl JavaEntry {
             Self::Jar { path } => no_nul(path)?,
             Self::Module { module, main_class } => {
                 no_nul(module)?;
-                ensure!(
-                    !module.contains('/'),
-                    "module entry contains a main-class separator"
-                );
                 if let Some(main_class) = main_class {
+                    ensure!(
+                        !module.contains('/'),
+                        "module entry contains a main-class separator"
+                    );
                     no_nul(main_class)?;
                 }
             }
@@ -423,6 +423,22 @@ mod tests {
             }
         );
         assert!(parsed.application.is_empty());
+        assert!(
+            JavaEntry::Module {
+                module: "a/b".into(),
+                main_class: None,
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            JavaEntry::Module {
+                module: "a/b".into(),
+                main_class: Some("Main".into()),
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]

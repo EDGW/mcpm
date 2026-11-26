@@ -93,9 +93,6 @@ pub(super) fn identify(launch: &ServerLaunch) -> Result<Option<ServerLoaderIdent
 }
 
 fn valid_mc(value: &str) -> Result<()> {
-    ensure!(
-        !value.is_empty() && !value.chars().any(char::is_whitespace),
-        "Minecraft version must be nonempty and contain no whitespace"
-    );
+    ensure!(!value.trim().is_empty(), "Minecraft version is empty");
     Ok(())
 }

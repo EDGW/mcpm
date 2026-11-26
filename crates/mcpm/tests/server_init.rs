@@ -210,7 +210,6 @@ fn invalid_fixtures_fail_without_writing_and_force_preserves_previous_configurat
         ("no-java", "run.sh", "no Java server launch"),
         ("delayed-batch", "run.bat", "delayed batch expansion"),
         ("duplicate-version", "run.sh", "conflicting game option"),
-        ("client-target", "run.sh", "not a production server"),
         (
             "fabric-auto-missing-version",
             "run.sh",
