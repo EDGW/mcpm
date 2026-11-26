@@ -44,7 +44,7 @@ function Assert-SupportedVersion {
     throw 'Supported versions start at v0.1.0-dev.26w43c; older releases cannot be installed by this script.'
 }
 
-# The sole interpreter of package and installation manifests on Windows.
+# Local ownership record. The package's manifest.json is validated by mcpm-tools.
 function Read-Manifest {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf) -or
@@ -58,8 +58,8 @@ function Read-Manifest {
         if ($pair.Count -ne 2) { throw 'Invalid manifest record.' }
         $key, $value = $pair
         if ($key -eq 'file') {
-            if ($value -cnotmatch '^(mcpm|mcpmc|mcpmd|mcpm-[a-zA-Z0-9-]+)\.exe$' -or $value -in $files) {
-                throw 'Invalid or duplicate manifest executable.'
+            if (-not (Test-ArtifactName $value) -or $value -in $files) {
+                throw 'Invalid or duplicate manifest filename.'
             }
             $files += $value
         } elseif ($key -in @('format', 'version', 'asset', 'path_user', 'path_process')) {
@@ -87,6 +87,13 @@ function Write-Manifest {
     $lines += @($Manifest.Files | ForEach-Object { "file=$_" })
     $lines += "path_user=$([int]$Manifest.UserPathAdded)", "path_process=$([int]$Manifest.ProcessPathAdded)"
     [IO.File]::WriteAllLines($Path, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
+}
+
+function Test-ArtifactName {
+    param([string]$Name)
+    return ($Name -cmatch '\A[A-Za-z0-9][A-Za-z0-9._-]*\z' -and
+        -not $Name.EndsWith('.') -and
+        $Name -notmatch '^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\.|$)')
 }
 
 function Assert-RegularDirectory {
@@ -145,6 +152,7 @@ function Invoke-Install {
     $installDir = Join-Path $env:LOCALAPPDATA 'Programs\mcpm'
     $binDir = Join-Path $installDir 'bin'
     $manifestPath = Join-Path $installDir 'manifest'
+    $releaseManifestPath = Join-Path $installDir 'manifest.json'
     $recordDir = Join-Path $env:LOCALAPPDATA 'mcpm'
     $recordPath = Join-Path $recordDir 'mcpmd.path'
     $daemonPath = Join-Path $binDir 'mcpmd.exe'
@@ -155,8 +163,7 @@ function Invoke-Install {
     $stage = $null
     $committed = $false
     $transaction = $false
-    $newBin = $false
-    $newManifest = $false
+    $publishing = $false
     $recordChanged = $false
     $recordTemp = $null
     $originalUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -166,7 +173,13 @@ function Invoke-Install {
         try { $lock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None') }
         catch { throw "Another installer is running, or installation lock cannot be opened: $lockPath" }
         $old = $null
-        if (Test-Path -LiteralPath $manifestPath) { $old = Read-Manifest $manifestPath }
+        if (Test-Path -LiteralPath $manifestPath) {
+            if ($Uninstall) { $old = Read-Manifest $manifestPath }
+            else {
+                try { $old = Read-Manifest $manifestPath }
+                catch { Write-Warning 'Old PATH ownership could not be read; preexisting entries will be kept.' }
+            }
+        }
         if ($Uninstall) {
             if (-not $old) {
                 Write-Output "No managed mcpm installation at $installDir. Legacy installations are not removed."
@@ -179,29 +192,37 @@ function Invoke-Install {
             }
             foreach ($name in $old.Files) {
                 $path = Join-Path $binDir $name
-                if (Test-Path -LiteralPath $path -PathType Container) { throw "Expected an executable file: $path" }
+                if (Test-Path -LiteralPath $path -PathType Container) { throw "Expected a file: $path" }
                 if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
             }
             if ($old.UserPathAdded) { Set-InstallPath User $binDir -Remove | Out-Null }
             if ($old.ProcessPathAdded) { Set-InstallPath Process $binDir -Remove | Out-Null }
             Remove-Item -LiteralPath $manifestPath
+            if (Test-Path -LiteralPath $releaseManifestPath -PathType Leaf) {
+                Remove-Item -LiteralPath $releaseManifestPath -Force
+            }
             if ((Test-Path -LiteralPath $binDir) -and @(Get-ChildItem -LiteralPath $binDir -Force).Count -eq 0) { Remove-Item -LiteralPath $binDir }
-            Write-Output 'Removed mcpm executables and owned PATH entries. Configuration, caches and logs were kept.'
+            Write-Output 'Removed mcpm files and owned PATH entries. Configuration, caches and logs were kept.'
             return
         }
         $architecture = $env:PROCESSOR_ARCHITEW6432
         if (-not $architecture) { $architecture = $env:PROCESSOR_ARCHITECTURE }
         if ($architecture -ine 'AMD64') { throw 'The Windows release requires an x64 system.' }
-        if (Test-Path -LiteralPath $binDir) {
-            if (-not $old) { throw 'Existing bin directory has no installation manifest.' }
-            foreach ($file in Get-ChildItem -LiteralPath $binDir -Force) {
-                if ($file.Name -notin $old.Files -or $file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                    throw "Unmanaged file in installation bin directory: $($file.FullName)"
-                }
+        $previous = @(Get-ChildItem -LiteralPath $installDir -Force | Where-Object { $_.Name -ne '.install-lock' })
+        if ($previous.Count -gt 0) {
+            $answer = Read-Host "Existing mcpm installation at $installDir. Replace and delete all previous contents? [y/N]"
+            if ($answer -notmatch '\A(?:y|yes)\z') {
+                Write-Output 'Installation cancelled; existing files were not changed.'
+                return
             }
         }
         $stage = Join-Path $installDir ('.stage-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $stage | Out-Null
+        $backup = Join-Path $stage 'old'
+        $package = Join-Path $stage 'package'
+        $packageBin = Join-Path $package 'bin'
+        New-Item -ItemType Directory -Path $backup | Out-Null
+        New-Item -ItemType Directory -Path $packageBin -Force | Out-Null
         $asset = 'mcpm-windows-x86_64'
         $url = "https://github.com/EDGW/mcpm/releases/download/$Version/$asset.zip"
         if ($Proxy) { $url = "$Proxy/$url" }
@@ -216,37 +237,44 @@ function Invoke-Install {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $archive = [IO.Compression.ZipFile]::OpenRead($archivePath)
         try {
-            $entries = @()
+            $names = @()
+            $hasManifest = $false
             foreach ($entry in $archive.Entries) {
-                if ($entry.FullName -cnotmatch '^(manifest|bin/(mcpm|mcpmc|mcpmd|mcpm-[a-zA-Z0-9-]+)\.exe)$' -or $entry.FullName -in $entries) {
-                    throw "Unexpected or duplicate archive entry: $($entry.FullName)"
-                }
-                $entries += $entry.FullName
+                if ($entry.FullName -ceq 'manifest.json' -and -not $hasManifest) {
+                    $hasManifest = $true
+                    $destination = Join-Path $package 'manifest.json'
+                } elseif ($entry.FullName.StartsWith('bin/', [StringComparison]::Ordinal) -and
+                    (Test-ArtifactName $entry.Name) -and $entry.FullName -ceq "bin/$($entry.Name)" -and
+                    $entry.Name -notin $names) {
+                    $names += $entry.Name
+                    $destination = Join-Path $packageBin $entry.Name
+                } else { throw "Unexpected or duplicate ZIP entry: $($entry.FullName)" }
+                # Write the selected entry's bytes as a regular file, not ZIP link metadata.
+                [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destination)
             }
         } finally { $archive.Dispose() }
-        $package = Join-Path $stage 'package'
-        [IO.Compression.ZipFile]::ExtractToDirectory($archivePath, $package)
-        $manifest = Read-Manifest (Join-Path $package 'manifest')
-        if ($manifest.Version -cne $Version -or $manifest.Asset -cne $asset) { throw 'Archive version or platform does not match request.' }
-        if ($entries.Count -ne $manifest.Files.Count + 1) { throw 'Archive files do not match manifest.' }
-        if ('mcpmd.exe' -cnotin $manifest.Files) { throw 'Package does not contain mcpmd.exe.' }
-        foreach ($name in $manifest.Files) {
-            $binary = Join-Path (Join-Path $package 'bin') $name
-            if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Missing executable: $name" }
-            $actual = & $binary -V
-            if ($LASTEXITCODE -ne 0 -or $actual -cne "$([IO.Path]::GetFileNameWithoutExtension($name)) $($Version.Substring(1))") { throw "Executable version mismatch: $name" }
-            & $binary --help | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "Executable cannot run: $name" }
+        if (-not $hasManifest) { throw 'Package does not contain manifest.json.' }
+        foreach ($required in @('mcpm.exe', 'mcpm-tools.exe', 'mcpmd.exe')) {
+            if ($required -cnotin $names) { throw "Package does not contain $required." }
         }
-        # Legacy layouts have no ownership record: preserve their executable and PATH.
-        $legacy = Join-Path $installDir 'mcpm.exe'
-        if (Test-Path -LiteralPath $legacy) {
-            Write-Warning "Legacy executable kept at $legacy. Remove it explicitly after checking the new installation."
+        & (Join-Path $packageBin 'mcpm-tools.exe') debug validate --exact
+        if ($LASTEXITCODE -ne 0) { throw 'Installation validation failed.' }
+        foreach ($name in $names) {
+            if ($name -cnotmatch '^(mcpm|mcpmc|mcpmd|mcpm-[a-zA-Z0-9-]+)\.exe$') { continue }
+            $actual = & (Join-Path $packageBin $name) -V
+            if ($LASTEXITCODE -ne 0 -or $actual -cne "$([IO.Path]::GetFileNameWithoutExtension($name)) $($Version.Substring(1))") {
+                throw "Executable version mismatch: $name"
+            }
         }
         $userHasBin = @((Get-PathEntries $originalUserPath) | Where-Object { Test-PathEntry $_ $binDir }).Count -gt 0
         $processHasBin = @((Get-PathEntries $originalProcessPath) | Where-Object { Test-PathEntry $_ $binDir }).Count -gt 0
-        $manifest.UserPathAdded = (-not $userHasBin) -or ($old -and $old.UserPathAdded)
-        $manifest.ProcessPathAdded = (-not $processHasBin) -or ($old -and $old.ProcessPathAdded)
+        $manifest = [pscustomobject]@{
+            Version = $Version
+            Asset = $asset
+            Files = $names
+            UserPathAdded = (-not $userHasBin) -or ($old -and $old.UserPathAdded)
+            ProcessPathAdded = (-not $processHasBin) -or ($old -and $old.ProcessPathAdded)
+        }
         Write-Manifest (Join-Path $stage 'new-manifest') $manifest
         Assert-RegularDirectory $recordDir
         New-Item -ItemType Directory -Path $recordDir -Force | Out-Null
@@ -260,18 +288,21 @@ function Invoke-Install {
         $recordTemp = Join-Path $recordDir ('.mcpmd-path-' + [guid]::NewGuid().ToString('N'))
         [IO.File]::WriteAllText($recordTemp, "$daemonPath`n", (New-Object Text.UTF8Encoding($false)))
         $transaction = $true
-        if (Test-Path -LiteralPath $binDir) { Move-Item -LiteralPath $binDir -Destination (Join-Path $stage 'old-bin') }
-        if ($old) { Move-Item -LiteralPath $manifestPath -Destination (Join-Path $stage 'old-manifest') }
-        $newBin = $true
-        Move-Item -LiteralPath (Join-Path $package 'bin') -Destination $binDir
+        foreach ($entry in $previous) { Move-Item -LiteralPath $entry.FullName -Destination $backup }
+        $publishing = $true
+        Move-Item -LiteralPath $packageBin -Destination $binDir
+        Move-Item -LiteralPath (Join-Path $package 'manifest.json') -Destination $releaseManifestPath
         Set-InstallPath User $binDir | Out-Null
         Set-InstallPath Process $binDir | Out-Null
         $recordChanged = $true
         Publish-DaemonRecord $recordTemp $recordPath
-        $newManifest = $true
         Move-Item -LiteralPath (Join-Path $stage 'new-manifest') -Destination $manifestPath
         $committed = $true
-        Write-Output "Installed $Version to $binDir. Run: mcpm --help"
+        Write-Output "Installed $Version to $binDir."
+        try {
+            & (Join-Path $binDir 'mcpm-tools.exe') debug hello
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'Installed, but could not display the welcome guide.' }
+        } catch { Write-Warning "Installed, but could not display the welcome guide: $_" }
         $resolved = Get-Command mcpm -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($resolved -and $resolved.Source -ine (Join-Path $binDir 'mcpm.exe')) {
             Write-Warning "An existing command takes precedence: $($resolved.Source). Review PATH or remove the old installation explicitly."
@@ -290,10 +321,14 @@ function Invoke-Install {
                         Remove-Item -LiteralPath $oldRecord
                     } elseif (Test-Path -LiteralPath $recordPath) { Remove-Item -LiteralPath $recordPath }
                 }
-                if ($newBin -and (Test-Path -LiteralPath $binDir)) { Remove-Item -LiteralPath $binDir -Recurse -Force }
-                if ($newManifest -and (Test-Path -LiteralPath $manifestPath)) { Remove-Item -LiteralPath $manifestPath -Force }
-                if (Test-Path -LiteralPath (Join-Path $stage 'old-bin')) { Move-Item -LiteralPath (Join-Path $stage 'old-bin') -Destination $binDir }
-                if (Test-Path -LiteralPath (Join-Path $stage 'old-manifest')) { Move-Item -LiteralPath (Join-Path $stage 'old-manifest') -Destination $manifestPath }
+                if ($publishing) {
+                    foreach ($path in @($binDir, $manifestPath, $releaseManifestPath)) {
+                        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+                    }
+                }
+                foreach ($entry in Get-ChildItem -LiteralPath $backup -Force) {
+                    Move-Item -LiteralPath $entry.FullName -Destination $installDir
+                }
             } catch { Write-Warning "Rollback incomplete; backup retained at $stage. Close running mcpm processes before retrying. $_" }
         }
         throw $failure
@@ -301,9 +336,8 @@ function Invoke-Install {
         try {
             if ($recordTemp -and (Test-Path -LiteralPath $recordTemp)) { Remove-Item -LiteralPath $recordTemp -Force }
             if ($stage -and (Test-Path -LiteralPath $stage)) {
-                $hasBackup = (Test-Path -LiteralPath (Join-Path $stage 'old-bin')) -or
-                    (Test-Path -LiteralPath (Join-Path $stage 'old-manifest')) -or
-                    (Test-Path -LiteralPath (Join-Path $stage 'old-record'))
+                $hasBackup = (Test-Path -LiteralPath (Join-Path $stage 'old-record')) -or
+                    @(Get-ChildItem -LiteralPath (Join-Path $stage 'old') -Force -ErrorAction SilentlyContinue).Count -gt 0
                 if ($committed -or -not $hasBackup) { Remove-Item -LiteralPath $stage -Recurse -Force }
             }
         } finally {

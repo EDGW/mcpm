@@ -34,7 +34,7 @@ validate_version() {
     }' || fail 'supported versions start at v0.1.0-dev.26w43c; specify that release or a newer SemVer tag'
 }
 
-# The sole interpreter of both package and installation manifests on Unix.
+# Local ownership record. The package's manifest.json is validated by mcpm-tools.
 read_manifest() {
     manifest_format='' manifest_version='' manifest_asset='' manifest_files=''
     [ -f "$1" ] && [ ! -L "$1" ] || fail "missing regular installation manifest: $1"
@@ -44,8 +44,7 @@ read_manifest() {
             version) [ -z "$manifest_version" ] && [ -n "$value" ] || fail 'empty or duplicate manifest version'; manifest_version=$value ;;
             asset) [ -z "$manifest_asset" ] && [ -n "$value" ] || fail 'empty or duplicate manifest asset'; manifest_asset=$value ;;
             file)
-                case "$value" in mcpm|mcpmc|mcpmd|mcpm-*) ;; *) fail 'invalid manifest executable' ;; esac
-                case "$value" in *[!a-zA-Z0-9-]*|*..*) fail 'invalid manifest executable' ;; esac
+                valid_filename "$value" || fail 'invalid manifest filename'
                 case " $manifest_files " in *" $value "*) fail 'duplicate manifest executable' ;; esac
                 manifest_files="${manifest_files:+$manifest_files }$value"
                 ;;
@@ -58,7 +57,36 @@ read_manifest() {
 
 write_manifest() {
     printf 'format=1\nversion=%s\nasset=%s\n' "$manifest_version" "$manifest_asset"
-    for executable_name in $manifest_files; do printf 'file=%s\n' "$executable_name"; done
+    for name in $manifest_files; do printf 'file=%s\n' "$name"; done
+}
+
+valid_filename() {
+    case "$1" in
+        ''|[!a-zA-Z0-9]*|*[!a-zA-Z0-9._-]*|*.) return 1 ;;
+    esac
+}
+
+executable_name() {
+    case "$1" in
+        mcpm|mcpmc|mcpmd|mcpm-?*)
+            case "$1" in *[!a-zA-Z0-9-]*) return 1 ;; esac ;;
+        *) return 1 ;;
+    esac
+}
+
+confirm_replacement() {
+    printf 'Existing mcpm installation at %s. Replace and delete all previous contents? [y/N] ' "$install_dir" >&2
+    answer=''
+    if [ -t 0 ]; then
+        IFS= read -r answer || :
+    elif ( : </dev/tty ) 2>/dev/null; then
+        IFS= read -r answer </dev/tty || :
+    else
+        IFS= read -r answer || :
+    fi
+    case "$answer" in [yY]|[yY][eE][sS]) return 0 ;; esac
+    printf 'Installation cancelled; existing files were not changed.\n'
+    return 1
 }
 
 owned_link() {
@@ -71,8 +99,10 @@ cleanup() {
     set +e
     if [ "$committed" = no ] && [ "$transaction" = yes ]; then
         printf 'Restoring previous installation...\n' >&2
-        if [ "$new_bin" = yes ]; then rm -rf "${install_dir:?}/bin" || result=1; fi
-        if [ "$new_manifest" = yes ]; then rm -f "$install_dir/manifest"; fi
+        if [ "$publishing" = yes ]; then
+            rm -rf "${install_dir:?}/bin" || result=1
+            rm -f "$install_dir/manifest" "$install_dir/manifest.json" || result=1
+        fi
         if [ "$record_changed" = yes ]; then
             if [ -f "$stage/old-record" ]; then
                 if cp -p "$stage/old-record" "$record_temp" && mv -f "$record_temp" "$record_path"; then
@@ -80,19 +110,26 @@ cleanup() {
                 else result=1; fi
             else rm -f "$record_path" || result=1; fi
         fi
-        if [ -d "$stage/old-bin" ]; then
-            if [ ! -e "$install_dir/bin" ]; then mv "$stage/old-bin" "$install_dir/bin" || result=1; else result=1; fi
-        fi
-        if [ -f "$stage/old-manifest" ]; then mv "$stage/old-manifest" "$install_dir/manifest" || result=1; fi
+        for saved in "$stage/old/"* "$stage/old/".[!.]* "$stage/old/"..?*; do
+            [ -e "$saved" ] || [ -L "$saved" ] || continue
+            destination=$install_dir/${saved##*/}
+            if [ -e "$destination" ] || [ -L "$destination" ] || ! mv "$saved" "$destination"; then
+                result=1
+            fi
+        done
         for executable_name in $created_links; do
             if owned_link "$executable_name"; then rm -f "$link_dir/$executable_name"; fi
         done
     fi
     if [ -n "$stage" ]; then
         # Preserve a backup if restoring it failed.
-        if [ -e "$stage/old-bin" ] || [ -e "$stage/old-manifest" ] || [ -e "$stage/old-record" ]; then
-            if [ "$committed" = yes ]; then rm -rf "$stage"; else printf 'Backup retained at %s\n' "$stage" >&2; fi
-        else rm -rf "$stage"; fi
+        backup=no
+        for saved in "$stage/old-record" "$stage/old/"* "$stage/old/".[!.]* "$stage/old/"..?*; do
+            if [ -e "$saved" ] || [ -L "$saved" ]; then backup=yes; break; fi
+        done
+        if [ "$committed" = no ] && [ "$backup" = yes ]; then
+            printf 'Backup retained at %s\n' "$stage" >&2
+        else rm -rf "$stage" || result=1; fi
     fi
     if [ -n "$record_temp" ]; then rm -f "$record_temp"; fi
     rmdir "$install_dir/.install-lock" 2>/dev/null || :
@@ -110,14 +147,14 @@ uninstall() {
         printf '%s\n' "$install_dir/bin/mcpmd" | cmp -s - "$record_path"; then
         rm -f "$record_path"
     fi
-    for executable_name in $manifest_files; do
-        if owned_link "$executable_name"; then rm -f "$link_dir/$executable_name"; fi
-        [ ! -d "$install_dir/bin/$executable_name" ] || fail "expected a file: $executable_name"
-        rm -f "$install_dir/bin/$executable_name"
+    for name in $manifest_files; do
+        if executable_name "$name" && owned_link "$name"; then rm -f "$link_dir/$name"; fi
+        [ ! -d "$install_dir/bin/$name" ] || fail "expected a file: $name"
+        rm -f "$install_dir/bin/$name"
     done
-    rm -f "$install_dir/manifest"
+    rm -f "$install_dir/manifest" "$install_dir/manifest.json"
     rmdir "$install_dir/bin" 2>/dev/null || :
-    printf 'Removed mcpm executables and owned links. Configuration, caches and logs were kept.\n'
+    printf 'Removed mcpm files and owned links. Configuration, caches and logs were kept.\n'
 }
 
 main() {
@@ -154,7 +191,7 @@ main() {
     link_dir=$HOME/.local/bin
     record_dir=$HOME/.mcpm
     record_path=$record_dir/mcpmd.path
-    stage='' transaction=no committed=no new_bin=no new_manifest=no created_links=''
+    stage='' transaction=no committed=no publishing=no created_links=''
     record_temp='' record_changed=no
     if [ "$requested" != --uninstall ]; then validate_version "$requested"; fi
     mkdir -p "$install_dir"
@@ -168,58 +205,60 @@ main() {
     case "$(uname -m)" in x86_64|amd64) architecture=x86_64 ;; arm64|aarch64) architecture=arm64 ;; *) fail 'supported architectures: x86_64 and ARM64' ;; esac
     asset=mcpm-$platform-$architecture
     if [ "$platform" = linux ]; then asset=$asset-musl; fi
-    old_files=
-    if [ -e "$install_dir/manifest" ]; then
-        read_manifest "$install_dir/manifest"
-        old_files=$manifest_files
-    elif [ -e "$install_dir/bin" ]; then fail 'existing bin directory has no installation manifest'; fi
-    if [ -d "$install_dir/bin" ]; then
-        for installed_file in "$install_dir/bin/"* "$install_dir/bin/".[!.]* "$install_dir/bin/"..?*; do
-            [ -e "$installed_file" ] || [ -L "$installed_file" ] || continue
-            case " $old_files " in *" ${installed_file##*/} "*) ;; *) fail "unmanaged file in installation bin directory: $installed_file" ;; esac
-            [ -f "$installed_file" ] && [ ! -L "$installed_file" ] || fail "expected a regular installed executable: $installed_file"
-        done
-    fi
+    for entry in "$install_dir/"* "$install_dir/".[!.]* "$install_dir/"..?*; do
+        [ "$entry" != "$install_dir/.install-lock" ] || continue
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        confirm_replacement || return 0
+        break
+    done
+    command -v unzip >/dev/null 2>&1 || fail 'unzip is required'
     stage=$(mktemp -d "$install_dir/.stage.XXXXXXXX")
-    url=https://github.com/EDGW/mcpm/releases/download/$version/$asset.tar.gz
+    mkdir "$stage/old" "$stage/package" "$stage/package/bin"
+    archive=$stage/package.zip
+    url=https://github.com/EDGW/mcpm/releases/download/$version/$asset.zip
     if [ -n "$proxy" ]; then url=$proxy/$url; fi
     printf 'Downloading %s...\n' "$url"
-    curl --fail --silent --show-error --location "$url" --output "$stage/package.tar.gz"
+    curl --fail --silent --show-error --location "$url" --output "$archive"
     curl --fail --silent --show-error --location "$url.sha256" --output "$stage/checksum"
     expected=$(awk 'NR == 1 {print $1}' "$stage/checksum")
     [ "${#expected}" -eq 64 ] || fail 'invalid SHA-256 checksum'
     case "$expected" in *[!0-9a-fA-F]*) fail 'invalid SHA-256 checksum' ;; esac
-    if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$stage/package.tar.gz"); else actual=$(shasum -a 256 "$stage/package.tar.gz"); fi
+    if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$archive"); else actual=$(shasum -a 256 "$archive"); fi
     [ "${actual%% *}" = "$expected" ] || fail 'archive SHA-256 mismatch'
-    tar -tzf "$stage/package.tar.gz" > "$stage/entries"
+    LC_ALL=C unzip -Z1 "$archive" > "$stage/entries"
+    [ -z "$(LC_ALL=C sort -f "$stage/entries" | LC_ALL=C uniq -di)" ] || fail 'duplicate ZIP entries'
+    manifest_files='' executables='' has_manifest=no
     while IFS= read -r entry; do
-        case "$entry" in manifest|bin/mcpm|bin/mcpmc|bin/mcpmd|bin/mcpm-*) ;; *) fail "unexpected archive entry: $entry" ;; esac
-        entry_name=${entry#bin/}
-        case "$entry_name" in */*|*..*|*[!a-zA-Z0-9-]*) fail 'invalid archive entry' ;; esac
+        case "$entry" in
+            manifest.json) has_manifest=yes ;;
+            bin/*)
+                name=${entry#bin/}
+                valid_filename "$name" || fail "invalid archive entry: $entry"
+                manifest_files="${manifest_files:+$manifest_files }$name"
+                if executable_name "$name"; then
+                    executables="${executables:+$executables }$name"
+                fi ;;
+            *) fail "unexpected archive entry: $entry" ;;
+        esac
     done < "$stage/entries"
-    [ -z "$(sort "$stage/entries" | uniq -d)" ] || fail 'duplicate archive entries'
-    tar -tvzf "$stage/package.tar.gz" > "$stage/types"
-    awk 'substr($0, 1, 1) != "-" {exit 1}' "$stage/types" || fail 'archive must contain only regular files'
-    mkdir "$stage/package"
-    tar -xzf "$stage/package.tar.gz" -C "$stage/package"
-    read_manifest "$stage/package/manifest"
-    [ "$manifest_version" = "$version" ] && [ "$manifest_asset" = "$asset" ] || fail 'archive version or platform does not match request'
-    case " $manifest_files " in *" mcpmd "*) ;; *) fail 'package does not contain mcpmd' ;; esac
-    [ ! -L "$stage/package/bin" ] || fail 'archive bin must be a directory'
-    for executable_name in $manifest_files; do
-        executable=$stage/package/bin/$executable_name
-        [ -f "$executable" ] && [ ! -L "$executable" ] || fail "missing regular executable: $executable_name"
-        chmod 755 "$executable"
-        [ "$("$executable" -V)" = "$executable_name ${version#v}" ] || fail "executable version mismatch: $executable_name"
-        "$executable" --help >/dev/null
-        if [ -e "$link_dir/$executable_name" ] || [ -L "$link_dir/$executable_name" ]; then
-            owned_link "$executable_name" || fail "command already belongs to another installation: $link_dir/$executable_name"
+    [ "$has_manifest" = yes ] || fail 'package does not contain manifest.json'
+    for name in mcpm mcpm-tools mcpmd; do
+        case " $executables " in *" $name "*) ;; *) fail "package does not contain $name" ;; esac
+    done
+    # Write only the checked paths as regular files; never extract ZIP links or permissions.
+    while IFS= read -r entry; do
+        LC_ALL=C unzip -p "$archive" "$entry" > "$stage/package/$entry"
+    done < "$stage/entries"
+    for name in $executables; do chmod 755 "$stage/package/bin/$name"; done
+    "$stage/package/bin/mcpm-tools" debug validate --exact
+    for name in $executables; do
+        executable=$stage/package/bin/$name
+        [ "$("$executable" -V)" = "$name ${version#v}" ] || fail "executable version mismatch: $name"
+        if [ -e "$link_dir/$name" ] || [ -L "$link_dir/$name" ]; then
+            owned_link "$name" || fail "command already belongs to another installation: $link_dir/$name"
         fi
     done
-    # Every archive file must be declared; preserve a narrowly owned bin directory.
-    for packaged_file in "$stage/package/bin/"*; do
-        case " $manifest_files " in *" ${packaged_file##*/} "*) ;; *) fail 'undeclared package executable' ;; esac
-    done
+    manifest_version=$version manifest_asset=$asset
     write_manifest > "$stage/new-manifest"
     mkdir -p "$link_dir"
     mkdir -p "$record_dir"
@@ -231,11 +270,15 @@ main() {
     record_temp=$(mktemp "$record_dir/.mcpmd-path.XXXXXXXX")
     printf '%s\n' "$install_dir/bin/mcpmd" > "$record_temp"
     transaction=yes
-    if [ -d "$install_dir/bin" ]; then mv "$install_dir/bin" "$stage/old-bin"; fi
-    if [ -f "$install_dir/manifest" ]; then mv "$install_dir/manifest" "$stage/old-manifest"; fi
-    new_bin=yes
+    for entry in "$install_dir/"* "$install_dir/".[!.]* "$install_dir/"..?*; do
+        case "$entry" in "$stage"|"$install_dir/.install-lock") continue ;; esac
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        mv "$entry" "$stage/old"
+    done
+    publishing=yes
     mv "$stage/package/bin" "$install_dir/bin"
-    for executable_name in $manifest_files; do
+    mv "$stage/package/manifest.json" "$install_dir/manifest.json"
+    for executable_name in $executables; do
         if ! owned_link "$executable_name"; then
             ln -s "$install_dir/bin/$executable_name" "$link_dir/$executable_name"
             created_links="${created_links:+$created_links }$executable_name"
@@ -243,13 +286,15 @@ main() {
     done
     record_changed=yes
     mv -f "$record_temp" "$record_path"
-    new_manifest=yes
     mv "$stage/new-manifest" "$install_dir/manifest"
     committed=yes
-    for executable_name in $old_files; do
-        case " $manifest_files " in *" $executable_name "*) ;; *) if owned_link "$executable_name"; then rm -f "$link_dir/$executable_name"; fi ;; esac
+    for link in "$link_dir/"*; do
+        name=${link##*/}
+        executable_name "$name" || continue
+        case " $executables " in *" $name "*) ;; *) if owned_link "$name"; then rm -f "$link"; fi ;; esac
     done
-    printf 'Installed %s to %s. Run: mcpm --help\n' "$version" "$install_dir/bin"
+    printf 'Installed %s to %s.\n' "$version" "$install_dir/bin"
+    "$install_dir/bin/mcpm-tools" debug hello || printf 'Installed, but could not display the welcome guide.\n' >&2
     # Keep shell variables literal in the command printed for the user.
     # shellcheck disable=SC2016
     case ":${PATH-}:" in *":$link_dir:"*) ;; *) printf 'Add ~/.local/bin to your shell PATH, for example in ~/.zshrc or ~/.bashrc:\n  export PATH="$HOME/.local/bin:$PATH"\n' ;; esac

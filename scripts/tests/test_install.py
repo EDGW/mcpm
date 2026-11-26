@@ -3,17 +3,16 @@
 
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import io
 import json
 import os
 from pathlib import Path
 import shlex
 import shutil
 import subprocess
-import tarfile
 import tempfile
 import threading
 import unittest
+import zipfile
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -24,6 +23,20 @@ METADATA = json.loads(subprocess.check_output([
 ]))
 NAMES = sorted(t['name'] for p in METADATA['packages'] if p['name'] in {'mcpm', 'mcpmd'}
                for t in p['targets'] if t['kind'] == ['bin'])
+AGENT = 'mcloader-injector-agent.jar'
+VALIDATOR = '''if [ "$*" = 'debug validate --exact' ]; then
+ exec python3 - "$0" <<'PYTHON'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1]).resolve().parents[1]
+files = json.loads((root / 'manifest.json').read_text())['files']
+assert {file['path'] for file in files} == {f'bin/{p.name}' for p in (root / 'bin').iterdir()}
+for file in files:
+    assert hashlib.sha256((root / file['path']).read_bytes()).hexdigest() == file['sha256']
+print('Validated fixture')
+PYTHON
+fi
+if [ "$*" = 'debug hello' ]; then echo 'Welcome fixture'; fi
+'''
 
 
 class InstallerLifecycle(unittest.TestCase):
@@ -70,30 +83,30 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
     def archive(self, version, missing=None, incorrect=None):
         folder = self.releases / version
         folder.mkdir(exist_ok=True)
-        archive = folder / f'{self.asset}.tar.gz'
-        manifest = '\n'.join(['format=1', f'version={version}', f'asset={self.asset}',
-                              *(f'file={name}' for name in NAMES)]) + '\n'
-        with tarfile.open(archive, 'w:gz') as packed:
-            for name in ['manifest', *NAMES]:
-                if name == missing:
-                    continue
-                filename = name if name == 'manifest' else f'bin/{name}'
-                content = manifest if name == 'manifest' else (
-                    f'#!/bin/sh\nif [ "$1" = -V ]; then echo "{name} '
-                    f'{"broken" if name == incorrect else version[1:]}"; fi\n'
-                )
-                info = tarfile.TarInfo(filename)
-                data = content.encode()
-                info.size = len(data)
-                info.mode = 0o644 if name == 'manifest' else 0o755
-                packed.addfile(info, io.BytesIO(data))
+        archive = folder / f'{self.asset}.zip'
+        files = {f'bin/{name}': (
+            f'#!/bin/sh\nif [ "$1" = -V ]; then echo "{name} '
+            f'{"broken" if name == incorrect else version[1:]}"; exit; fi\n'
+            + (VALIDATOR if name == 'mcpm-tools' else '')
+        ).encode() for name in NAMES}
+        files[f'bin/{AGENT}'] = b'shipped loader agent'
+        manifest = {'format': 1, 'version': version, 'asset': self.asset,
+                    'files': [{'path': path, 'sha256': hashlib.sha256(data).hexdigest()}
+                              for path, data in files.items()]}
+        if missing is not None:
+            del files[f'bin/{missing}']
+        with zipfile.ZipFile(archive, 'w') as packed:
+            packed.writestr('manifest.json', json.dumps(manifest))
+            for path, data in files.items():
+                packed.writestr(path, data)
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         archive.with_name(archive.name + '.sha256').write_text(f'{digest}  {archive.name}\n')
         return archive
 
-    def run_installer(self, version, *options, success=True):
+    def run_installer(self, version, *options, success=True, answer='yes\n'):
         result = subprocess.run(['sh', str(REPO / 'scripts/install.sh'), version, *options],
-                                env=self.env, capture_output=True, text=True, timeout=30)
+                                env=self.env, input=answer, capture_output=True, text=True,
+                                start_new_session=True, timeout=30)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
@@ -101,13 +114,18 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
         return result
 
     def snapshot(self):
-        return {p.name: p.read_bytes() for p in (self.install / 'bin').iterdir()}, (self.install / 'manifest').read_bytes()
+        return {p.name: p.read_bytes() for p in (self.install / 'bin').iterdir()}, tuple(
+            (self.install / name).read_bytes() for name in ('manifest', 'manifest.json')
+        )
 
     def test_install_upgrade_downgrade_repair_and_owned_uninstall(self):
         data = self.home / '.mcpm'
         data.mkdir()
         (data / 'config').write_text('keep me')
-        self.run_installer('v0.1.0-dev.26w43c')
+        result = self.run_installer('v0.1.0-dev.26w43c')
+        self.assertLess(result.stdout.index('Validated fixture'), result.stdout.index('Installed '))
+        self.assertLess(result.stdout.index('Installed '), result.stdout.index('Welcome fixture'))
+        self.assertFalse((self.links / AGENT).exists())
         self.assertEqual(self.record.read_text(), str(self.install / 'bin/mcpmd') + '\n')
         for name in NAMES:
             self.assertEqual((self.links / name).resolve(), (self.install / 'bin' / name).resolve())
@@ -125,6 +143,8 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
         self.assertEqual((self.install / 'bin' / 'personal-file').read_text(), 'keep')
         self.assertEqual((data / 'config').read_text(), 'keep me')
         self.assertFalse((self.install / 'manifest').exists())
+        self.assertFalse((self.install / 'manifest.json').exists())
+        self.assertFalse((self.install / 'bin' / AGENT).exists())
         self.assertFalse((self.links / NAMES[1]).exists())
         self.assertFalse(self.record.exists())
 
@@ -144,9 +164,10 @@ cp "$MCPM_TEST_RELEASES/$relative" "$destination"
         archive.write_bytes(b'corrupt')
         self.run_installer('v0.1.0-dev.26w43d', success=False)
         self.assertEqual(self.snapshot(), original)
-        for kwargs in [dict(missing=NAMES[0]), dict(incorrect=NAMES[0])]:
+        for kwargs in [dict(missing=AGENT), dict(incorrect=NAMES[0])]:
             self.archive('v0.1.0-dev.26w43d', **kwargs)
-            self.run_installer('v0.1.0-dev.26w43d', success=False)
+            result = self.run_installer('v0.1.0-dev.26w43d', success=False)
+            self.assertNotIn('Welcome fixture', result.stdout)
             self.assertEqual(self.snapshot(), original)
         self.archive('v0.1.0-dev.26w43d')
         link = self.links / NAMES[0]
@@ -196,13 +217,23 @@ exec {real_mv} "$@"
         self.assertFalse(self.record.exists())
         self.assertFalse((self.install / 'bin').exists())
 
-    def test_unmanaged_installation_is_never_adopted_or_removed(self):
+    def test_replacement_requires_consent_and_removes_all_old_contents(self):
         (self.install / 'bin').mkdir(parents=True)
         foreign = self.install / 'bin/mcpm'
         foreign.write_text('manual install')
-        self.run_installer('v0.1.0-dev.26w43c', success=False)
+        hidden = self.install / '.old-settings'
+        hidden.write_text('old installation file')
+        for answer in ('no\n', ''):
+            result = self.run_installer('v0.1.0-dev.26w43c', answer=answer)
+            self.assertIn('Installation cancelled', result.stdout)
+            self.assertNotIn('Downloading', result.stdout)
+            self.assertEqual(foreign.read_text(), 'manual install')
+            self.assertTrue(hidden.exists())
         self.run_installer('--uninstall')
         self.assertEqual(foreign.read_text(), 'manual install')
+        self.run_installer('v0.1.0-dev.26w43c')
+        self.assertFalse(hidden.exists())
+        self.assertEqual((self.install / 'bin' / AGENT).read_bytes(), b'shipped loader agent')
 
     def test_proxy_install_and_corrupt_proxied_upgrade_preserve_integrity(self):
         releases = self.releases
@@ -240,7 +271,7 @@ exec {real_mv} "$@"
             self.assertEqual(
                 subprocess.check_output([self.install / 'bin/mcpm', '-V'], text=True).strip(),
                 'mcpm 0.1.0-dev.26w43c')
-            checksum = self.releases / 'v0.1.0-dev.26w43d' / f'{self.asset}.tar.gz.sha256'
+            checksum = self.releases / 'v0.1.0-dev.26w43d' / f'{self.asset}.zip.sha256'
             checksum.write_text('0' * 64 + '\n')
             self.run_installer('v0.1.0-dev.26w43d', '--proxy', prefix, success=False)
             self.assertEqual(self.snapshot(), original)
