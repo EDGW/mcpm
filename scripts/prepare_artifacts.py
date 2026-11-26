@@ -3,6 +3,7 @@
 import argparse
 from dataclasses import dataclass
 import hashlib
+import os
 from pathlib import Path
 import re
 import shutil
@@ -13,7 +14,12 @@ from urllib.request import urlopen
 
 
 LOCK_PATH = Path(__file__).with_name('artifacts.toml')
-ARTIFACT_CACHE = Path(__file__).resolve().parents[1] / 'target' / 'artifacts'
+TARGET_DIR = (
+    Path(os.environ['CARGO_TARGET_DIR'])
+    if os.environ.get('CARGO_TARGET_DIR')
+    else Path(__file__).resolve().parents[1] / 'target'
+)
+ARTIFACT_CACHE = TARGET_DIR / 'artifacts'
 
 
 @dataclass(frozen=True)
@@ -21,6 +27,14 @@ class Artifact:
     name: str
     url: str
     sha256: str
+
+
+def env_var_name(artifact_name):
+    return (
+        'MCPM_ARTIFACT_'
+        + re.sub(r'[^A-Za-z0-9]+', '_', artifact_name).upper()
+        + '_SHA256'
+    )
 
 
 def load_artifacts():
@@ -32,11 +46,16 @@ def load_artifacts():
 
     artifacts = []
     names = set()
+    env_names = set()
     for name, entry in entries.items():
         if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', name)
                 or name.endswith('.') or name.casefold() in names):
             raise ValueError(f'{LOCK_PATH}: invalid or duplicate artifact filename {name!r}')
         names.add(name.casefold())
+        env_key = env_var_name(name)
+        if env_key in env_names:
+            raise ValueError(f'{LOCK_PATH}: colliding Cargo env name {env_key!r} for {name!r}')
+        env_names.add(env_key)
         if not isinstance(entry, dict) or set(entry) != {'url', 'sha256'}:
             raise ValueError(f'{LOCK_PATH}: {name}: expected url and sha256')
         url, digest = entry['url'], entry['sha256']
@@ -58,6 +77,8 @@ def sha256(path):
 
 def matches_pin(path, digest):
     try:
+        if path.is_symlink() or not path.is_file():
+            return False
         return sha256(path) == digest
     except FileNotFoundError:
         return False
@@ -81,6 +102,7 @@ def cached_artifact(artifact):
 
 
 def stage_artifact(output_dir, artifact):
+    output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / artifact.name
     if not matches_pin(path, artifact.sha256):
         cached = cached_artifact(artifact)
@@ -98,6 +120,7 @@ def main():
     for artifact in load_artifacts():
         path = stage_artifact(output_dir, artifact)
         print(f'cargo:rerun-if-changed={path}')
+        print(f'cargo:rustc-env={env_var_name(artifact.name)}={artifact.sha256}')
 
 
 if __name__ == '__main__':

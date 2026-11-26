@@ -66,7 +66,7 @@ impl Operation for New {
                     loader,
                 } => {
                     if loader.is_some() {
-                        loader::validate_installer_sources(&downloader)?;
+                        loader::prepare_installer_plan(&downloader).await?;
                     }
                     let (path, release) = {
                         let (updates, mut receiver) =
@@ -114,9 +114,11 @@ impl Operation for New {
                     rcon,
                 } => {
                     let prepared_loader = prepared.loader.clone();
-                    if prepared_loader.is_some() {
-                        loader::validate_installer_sources(&downloader)?;
-                    }
+                    let prepared_plan = if prepared_loader.is_some() {
+                        Some(loader::prepare_installer_plan(&downloader).await?)
+                    } else {
+                        None
+                    };
                     let (mut installed, server_root) = {
                         let (updates, mut receiver) =
                             tokio::sync::watch::channel::<Option<Update>>(None);
@@ -149,6 +151,7 @@ impl Operation for New {
                             Some(prepared_loader.loader_version),
                             false,
                             &downloader,
+                            prepared_plan,
                             &sender,
                             map_loader_event(prepared_loader.family),
                         )
@@ -510,50 +513,5 @@ fn download_update(event: download::Event<'_>) -> Update {
             (format!("Download attempt failed · {source}"), None)
         }
         download::Event::Completed { .. } => ("Download complete".into(), None),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use mcpm_lib::download::DownloadOptions;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn prepare_with_loader_rejects_mirror_only_source_before_writing_disk() {
-        let dir = tempfile::tempdir().unwrap();
-        let target_dir = dir.path().join("new-server");
-        let mirror_only =
-            DownloadConfig::new(vec!["bmclapi".into()], DownloadOptions::default()).unwrap();
-
-        let mut stream = New::run(NewInput::Prepare {
-            path: target_dir.clone(),
-            version: "1.21.1".into(),
-            download_config: mirror_only.encode().unwrap(),
-            rcon_requested: false,
-            loader: Some(LoaderRequest {
-                family: LoaderFamily::Fabric,
-                version: None,
-            }),
-        })
-        .await
-        .unwrap();
-
-        let mut err_text = None;
-        while let Some(item) = stream.next().await {
-            if let Err(error) = item {
-                err_text = Some(format!("{error:#}"));
-            }
-        }
-        assert!(
-            err_text
-                .as_deref()
-                .is_some_and(|msg| msg.contains("mirror-only")),
-            "expected mirror-only error, got: {err_text:?}"
-        );
-        assert!(
-            !target_dir.exists(),
-            "failed Prepare must not create target directory"
-        );
     }
 }

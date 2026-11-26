@@ -11,9 +11,13 @@
 //!    writes allowlisted files after full pre-write safety checks, and commits `.mcpm/server.json`
 //!    and `launch.toml` atomically while preserving `conf.toml`.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    process::ExitStatus,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
-use anyhow::{Result, ensure};
+use anyhow::Result;
+use thiserror::Error;
 
 use crate::download::loader::LoaderFamily;
 
@@ -89,14 +93,15 @@ pub fn stage_and_verify_with_hook(
         request.cancel,
     )?;
 
-    ensure!(
-        execution.status.success(),
-        "{} installer exited with {}{}{}",
-        request.family.as_str(),
-        execution.status,
-        format_log_tail("stderr", &execution.stderr_tail),
-        format_log_tail("stdout", &execution.stdout_tail),
-    );
+    if !execution.status.success() {
+        return Err(InstallerFailed {
+            family: request.family,
+            status: execution.status,
+            stderr_tail: format_log_tail("stderr", &execution.stderr_tail),
+            stdout_tail: format_log_tail("stdout", &execution.stdout_tail),
+        }
+        .into());
+    }
 
     if request
         .cancel
@@ -120,6 +125,16 @@ pub fn stage_and_verify_with_hook(
         execution,
         verified,
     })
+}
+
+/// Returned when the loader installer subprocess exits with a non-zero status.
+#[derive(Debug, Error)]
+#[error("{family} installer exited with {status}{stderr_tail}{stdout_tail}")]
+pub struct InstallerFailed {
+    pub family: LoaderFamily,
+    pub status: ExitStatus,
+    stderr_tail: String,
+    stdout_tail: String,
 }
 
 fn format_log_tail(stream: &str, tail: &str) -> String {

@@ -19,7 +19,7 @@ use anyhow::{Context, Result, bail};
 use mcpm_exec::operation::{Operation, StreamSender, StreamingOutput};
 use mcpm_lib::{
     download::{
-        self, DownloadConfig, Downloader,
+        self, DownloadConfig, Downloader, MappingTable,
         loader::{self, LoaderFamily},
         sources,
     },
@@ -28,7 +28,8 @@ use mcpm_lib::{
         mc::server::{
             MinecraftServer, MinecraftServerError, config, launch,
             loader_install::{
-                self, InstallRequest, PendingPublication, PreflightSnapshot, StagingDir,
+                self, InstallRequest, InstallerFailed, MirrorAgentSpec, PendingPublication,
+                PreflightSnapshot, StagingDir,
             },
         },
     },
@@ -56,6 +57,7 @@ impl Operation for AddLoader {
                 input.loader_version,
                 input.force,
                 &downloader,
+                None,
                 &sender,
                 Some,
             )
@@ -98,7 +100,7 @@ pub(super) struct PreparedLoader {
     pub loader_version: String,
 }
 
-/// Stable streaming event contract shared by Phase 5a direct execution and Phase 4/5b mirror injection.
+/// Stable streaming event contract for direct and mirror-injected installer execution.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AddLoaderEvent {
     Stage {
@@ -131,9 +133,16 @@ pub enum AddLoaderStage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct DirectInstallerSelection {
+struct InstallerSourcePlan {
     source_id: String,
+    table: MappingTable,
     notice: Option<String>,
+}
+
+impl InstallerSourcePlan {
+    fn uses_mirror_agent(&self) -> bool {
+        !self.table.is_empty()
+    }
 }
 
 /// Ensures the blocking installer cancellation flag is flipped synchronously if the async
@@ -158,13 +167,31 @@ impl Drop for CancelOnDrop {
     }
 }
 
-/// Validates Phase 5a source compatibility before doing any network work for `server.new`.
-pub(super) fn validate_installer_sources(downloader: &Downloader) -> Result<()> {
-    select_direct_installer_source(downloader).map(|_| ())
+/// Validated installer source selection and optional verified Host mirror agent path.
+pub(super) struct PreparedInstallerPlan {
+    source_plan: InstallerSourcePlan,
+    host_agent_jar: Option<PathBuf>,
 }
 
-/// Validates Phase 5a source compatibility and resolves a fixed canonical loader version
-/// for `minecraft_version` without writing to disk (reused by `server.new` preparation).
+/// Validates installer source compatibility and bundled mirror-agent integrity (when needed)
+/// on a blocking thread before doing any network or disk work.
+pub(super) async fn prepare_installer_plan(
+    downloader: &Downloader,
+) -> Result<PreparedInstallerPlan> {
+    let source_plan = select_installer_source(downloader)?;
+    let host_agent_jar = if source_plan.uses_mirror_agent() {
+        Some(tokio::task::spawn_blocking(crate::artifacts::loader_injector_agent).await??)
+    } else {
+        None
+    };
+    Ok(PreparedInstallerPlan {
+        source_plan,
+        host_agent_jar,
+    })
+}
+
+/// Resolves a fixed canonical loader version for `minecraft_version` without writing to disk
+/// (reused by `server.new` preparation after [`prepare_installer_plan`] succeeds).
 pub(super) async fn prepare_for_new<E, F>(
     downloader: &Downloader,
     minecraft_version: &str,
@@ -176,7 +203,6 @@ where
     E: Send + 'static,
     F: Fn(AddLoaderEvent) -> Option<E> + Send + Sync + Clone + 'static,
 {
-    select_direct_installer_source(downloader)?;
     send_mapped(
         sender,
         &map_event,
@@ -223,12 +249,14 @@ where
 
 /// Executes the complete 6-stage loader installation pipeline onto an existing v4 Vanilla
 /// server directory, forwarding progress and notices through `map_event`.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn install_on_existing_server<E, F>(
     path: PathBuf,
     family: LoaderFamily,
     loader_version: Option<String>,
     force: bool,
     downloader: &Downloader,
+    prepared_plan: Option<PreparedInstallerPlan>,
     sender: &StreamSender<E>,
     map_event: F,
 ) -> Result<ServerInfo>
@@ -247,8 +275,28 @@ where
     )
     .await?;
 
-    let direct_source = select_direct_installer_source(downloader)?;
-    let snapshot = tokio::task::spawn_blocking(move || preflight_host(&path)).await??;
+    let (source_plan, host_agent_jar, snapshot) = match prepared_plan {
+        Some(plan) => {
+            let snapshot = tokio::task::spawn_blocking(move || preflight_host(&path)).await??;
+            (plan.source_plan, plan.host_agent_jar, snapshot)
+        }
+        None => {
+            let source_plan = select_installer_source(downloader)?;
+            let needs_agent = source_plan.uses_mirror_agent();
+            let (host_agent_jar, snapshot) =
+                tokio::task::spawn_blocking(move || -> Result<(Option<PathBuf>, PreflightSnapshot)> {
+                    let agent = if needs_agent {
+                        Some(crate::artifacts::loader_injector_agent()?)
+                    } else {
+                        None
+                    };
+                    let snapshot = preflight_host(&path)?;
+                    Ok((agent, snapshot))
+                })
+                .await??;
+            (source_plan, host_agent_jar, snapshot)
+        }
+    };
 
     // Stage 2: resolve fixed InstallerRelease upstream (still zero disk writes).
     send_mapped(
@@ -293,12 +341,21 @@ where
 
     // Stage 3: incremental .mcpm/.gitignore + isolated staging + installer download + execution.
     sender.checkpoint()?;
-    let staging = {
+    let (staging, mirror_agent) = {
         let root = snapshot.root.clone();
         let wd_rel = snapshot.working_directory_rel.clone();
-        tokio::task::spawn_blocking(move || -> Result<StagingDir> {
+        let table = source_plan.table;
+        tokio::task::spawn_blocking(move || -> Result<(StagingDir, Option<MirrorAgentSpec>)> {
             workspace::ensure_gitignore(&root)?;
-            StagingDir::create(&root, &wd_rel)
+            let staging = StagingDir::create(&root, &wd_rel)?;
+            let mirror_agent = match host_agent_jar {
+                Some(agent_source) => {
+                    let agent_jar = staging.stage_agent_jar(&agent_source)?;
+                    Some(MirrorAgentSpec { agent_jar, table })
+                }
+                None => None,
+            };
+            Ok((staging, mirror_agent))
         })
         .await??
     };
@@ -308,6 +365,16 @@ where
         release.family(),
         release.loader_version()
     );
+    if !release.has_checksum() {
+        send_mapped(
+            sender,
+            &map_event,
+            AddLoaderEvent::Notice(format!(
+                "Could not fetch SHA-1 checksum for {installer_label} from the configured download sources; continuing without checksum verification."
+            )),
+        )
+        .await?;
+    }
     send_mapped(
         sender,
         &map_event,
@@ -338,25 +405,26 @@ where
         .await?;
     }
 
-    if let Some(notice) = direct_source.notice {
+    if let Some(notice) = source_plan.notice {
         send_mapped(sender, &map_event, AddLoaderEvent::Notice(notice)).await?;
     }
 
+    let source_id = source_plan.source_id;
     send_mapped(
         sender,
         &map_event,
-        AddLoaderEvent::Stage {
-            stage: AddLoaderStage::Install,
-            message: format!("Running {installer_label}..."),
+        AddLoaderEvent::InstallerAttempt {
+            source: source_id.clone(),
+            attempt: 1,
         },
     )
     .await?;
     send_mapped(
         sender,
         &map_event,
-        AddLoaderEvent::InstallerAttempt {
-            source: direct_source.source_id,
-            attempt: 1,
+        AddLoaderEvent::Stage {
+            stage: AddLoaderStage::Install,
+            message: format!("Running {installer_label} · {source_id}..."),
         },
     )
     .await?;
@@ -405,7 +473,7 @@ where
                 family,
                 loader_version: &loader_version,
                 force,
-                agent: None,
+                agent: mirror_agent.as_ref(),
                 round: 1,
                 cancel: Some(cancel.as_ref()),
             },
@@ -421,7 +489,20 @@ where
     cancel_watcher.abort();
     let _ = verify_forwarder.await;
     let (snapshot, staging, staged_result) = stage_result;
-    let staged = staged_result.map_err(super::shim::attach_executable_tip)?;
+    let staged = staged_result
+        .map_err(|error| {
+            if error
+                .chain()
+                .any(|cause| cause.downcast_ref::<InstallerFailed>().is_some())
+            {
+                error.context(format!(
+                    "loader installer failed using download source '{source_id}'"
+                ))
+            } else {
+                error
+            }
+        })
+        .map_err(super::shim::attach_executable_tip)?;
 
     // Last cancellation check before entering the non-interruptible publication commit window.
     sender.checkpoint()?;
@@ -511,36 +592,35 @@ fn preflight_host(path: &Path) -> Result<PreflightSnapshot> {
     }
 }
 
-/// Phase 5a source policy for installer internal downloads (prior to Phase 4 `mcloader-injector`):
-/// - Direct source first (e.g. `--source official`): run directly with no extra notice.
-/// - Mixed list containing a direct source (e.g. default `bmclapi,official`): skip mirror sources
-///   for installer internal downloads, emit a clear [`AddLoaderEvent::Notice`], and run directly.
-/// - Mirror-only list (e.g. `--source bmclapi`): fail explicitly without silently falling back.
-fn select_direct_installer_source(downloader: &Downloader) -> Result<DirectInstallerSelection> {
-    let mut skipped_mirrors = Vec::new();
-    for (index, source) in downloader.sources().iter().enumerate() {
-        let is_direct = source
-            .mapping_table()?
-            .is_some_and(|table| table.is_empty());
-        if is_direct {
-            let notice = (index > 0).then(|| {
+/// Selects the first configured source exporting a static [`MappingTable`] (non-empty for
+/// mirror injection, empty for direct execution). Sources returning `None` are skipped with a
+/// notice; if no configured source supports static mapping or direct execution, fails explicitly.
+fn select_installer_source(downloader: &Downloader) -> Result<InstallerSourcePlan> {
+    if downloader.sources().is_empty() {
+        bail!("no download sources are configured for loader installation");
+    }
+    let mut skipped_dynamic = Vec::new();
+    for source in downloader.sources() {
+        if let Some(table) = source.mapping_table()? {
+            let notice = (!skipped_dynamic.is_empty()).then(|| {
                 format!(
-                    "Installer mirror injection is not yet enabled; skipping mirror source(s) ({}) for installer internal downloads and using direct source '{}'.",
-                    skipped_mirrors.join(", "),
+                    "Skipping dynamic download source(s) ({}) without a static prefix mapping table for installer internal downloads; using '{}'.",
+                    skipped_dynamic.join(", "),
                     source.id(),
                 )
             });
-            return Ok(DirectInstallerSelection {
+            return Ok(InstallerSourcePlan {
                 source_id: source.id().to_owned(),
+                table,
                 notice,
             });
         }
-        skipped_mirrors.push(source.id().to_owned());
+        skipped_dynamic.push(source.id().to_owned());
     }
 
     bail!(
-        "mirror-only download source configuration ({}) cannot run loader installers yet because mirror agent injection is not enabled; use --source official or include a direct source (such as the default bmclapi,official)",
-        skipped_mirrors.join(", ")
+        "none of the configured download sources ({}) can provide a static prefix mapping table or direct connection for loader installers",
+        skipped_dynamic.join(", ")
     );
 }
 
@@ -659,33 +739,32 @@ mod tests {
     }
 
     #[test]
-    fn phase5a_source_policy_handles_direct_mixed_and_rejects_mirror_only() {
+    fn installer_source_selection_supports_direct_mirror_and_mixed_lists() {
         let official_only =
             DownloadConfig::new(vec!["official".into()], DownloadOptions::default()).unwrap();
-        let sel =
-            select_direct_installer_source(&sources::downloader(&official_only).unwrap()).unwrap();
-        assert_eq!(sel.source_id, "official");
-        assert!(sel.notice.is_none());
+        let plan =
+            select_installer_source(&sources::downloader(&official_only).unwrap()).unwrap();
+        assert_eq!(plan.source_id, "official");
+        assert!(!plan.uses_mirror_agent());
+        assert!(plan.notice.is_none());
 
         let default_mixed = DownloadConfig::default();
-        let sel =
-            select_direct_installer_source(&sources::downloader(&default_mixed).unwrap()).unwrap();
-        assert_eq!(sel.source_id, "official");
-        assert!(
-            sel.notice
-                .as_deref()
-                .is_some_and(|msg| msg.contains("bmclapi") && msg.contains("official"))
-        );
+        let plan =
+            select_installer_source(&sources::downloader(&default_mixed).unwrap()).unwrap();
+        assert_eq!(plan.source_id, "bmclapi");
+        assert!(plan.uses_mirror_agent());
+        assert!(plan.notice.is_none());
 
         let mirror_only =
             DownloadConfig::new(vec!["bmclapi".into()], DownloadOptions::default()).unwrap();
-        assert!(
-            select_direct_installer_source(&sources::downloader(&mirror_only).unwrap()).is_err()
-        );
+        let plan = select_installer_source(&sources::downloader(&mirror_only).unwrap()).unwrap();
+        assert_eq!(plan.source_id, "bmclapi");
+        assert!(plan.uses_mirror_agent());
+        assert!(plan.notice.is_none());
     }
 
     #[tokio::test]
-    async fn add_loader_rejects_ineligible_mirror_only_running_and_pending_with_expected_disk_state() {
+    async fn add_loader_rejects_ineligible_running_and_pending_with_expected_disk_state() {
         // 1. Modded server rejected with zero writes (no .gitignore, no loader-install/, no run/).
         let modded = tempfile::tempdir().unwrap();
         write_vanilla_server(
@@ -717,37 +796,7 @@ mod tests {
         assert!(!modded.path().join(".mcpm/loader-install").exists());
         assert!(!modded.path().join(".mcpm/run").exists());
 
-        // 2. Mirror-only --source bmclapi rejected before any disk writes.
-        let vanilla = tempfile::tempdir().unwrap();
-        write_vanilla_server(vanilla.path(), ServerLoader::Vanilla);
-        fs::remove_file(vanilla.path().join(".mcpm/server.lock")).unwrap();
-        let mirror_only =
-            DownloadConfig::new(vec!["bmclapi".into()], DownloadOptions::default()).unwrap();
-        let mut stream = AddLoader::run(AddLoaderInput {
-            path: vanilla.path().to_path_buf(),
-            family: LoaderFamily::Fabric,
-            loader_version: None,
-            download_config: mirror_only.encode().unwrap(),
-            force: false,
-        })
-        .await
-        .unwrap();
-        let mut err_text = None;
-        while let Some(item) = stream.next().await {
-            if let Err(err) = item {
-                err_text = Some(format!("{err:#}"));
-            }
-        }
-        assert!(
-            err_text
-                .as_deref()
-                .is_some_and(|msg| msg.contains("mirror-only"))
-        );
-        assert!(!vanilla.path().join(".mcpm/server.lock").exists());
-        assert!(!vanilla.path().join(".mcpm/.gitignore").exists());
-        assert!(!vanilla.path().join(".mcpm/loader-install").exists());
-
-        // 3. Active running.lock rejected with zero loader-install writes.
+        // 2. Active running.lock rejected with zero loader-install writes.
         let running = tempfile::tempdir().unwrap();
         write_vanilla_server(running.path(), ServerLoader::Vanilla);
         let run_lock = shim::acquire_running_lock(running.path(), true).unwrap();
@@ -755,7 +804,7 @@ mod tests {
         drop(run_lock);
         assert!(!running.path().join(".mcpm/loader-install").exists());
 
-        // 4. Pending publication journal is recovered and immediately rejected.
+        // 3. Pending publication journal is recovered and immediately rejected.
         let pending = tempfile::tempdir().unwrap();
         write_vanilla_server(pending.path(), ServerLoader::Vanilla);
         let old_meta = fs::read(pending.path().join(".mcpm/server.json")).unwrap();

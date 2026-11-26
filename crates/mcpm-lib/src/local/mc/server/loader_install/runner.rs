@@ -6,6 +6,7 @@
 //! the staging workspace on completion or drop.
 
 use std::{
+    borrow::Cow,
     fs::{self, File},
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
@@ -39,14 +40,13 @@ const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 #[error("loader installation cancelled")]
 pub struct InstallCancelled;
 
-/// Phase 4 mirror-agent hook reserved for installer HTTP rewriting.
+/// Mirror agent configuration for rewriting installer HTTP(S) requests.
 ///
 /// When `table.is_empty()` (e.g. `OfficialSource`), no `-javaagent` is attached.
 #[derive(Debug, Clone)]
 pub struct MirrorAgentSpec {
     pub agent_jar: PathBuf,
     pub table: MappingTable,
-    pub report_path: PathBuf,
 }
 
 /// Owned temporary workspace under `<server>/.mcpm/loader-install/<id>/`.
@@ -59,6 +59,7 @@ pub struct StagingDir {
     reports_dir: PathBuf,
     stage_root: PathBuf,
     stage_cwd: PathBuf,
+    cwd_depth: usize,
     cleaned: bool,
 }
 
@@ -82,11 +83,15 @@ impl StagingDir {
         let base_dir = staging_parent.join(&id);
         let reports_dir = base_dir.join("reports");
         let stage_root = base_dir.join("stage");
-        let stage_cwd = if working_directory_rel.as_os_str().is_empty() {
-            stage_root.clone()
+        let (stage_cwd, cwd_depth) = if working_directory_rel.as_os_str().is_empty() {
+            (stage_root.clone(), 0)
         } else {
             ensure_clean_relative(working_directory_rel, "working directory")?;
-            stage_root.join(working_directory_rel)
+            let depth = working_directory_rel
+                .components()
+                .filter(|component| matches!(component, Component::Normal(_)))
+                .count();
+            (stage_root.join(working_directory_rel), depth)
         };
 
         fs::create_dir(&base_dir)
@@ -110,6 +115,7 @@ impl StagingDir {
             reports_dir,
             stage_root,
             stage_cwd,
+            cwd_depth,
             cleaned: false,
         })
     }
@@ -161,6 +167,27 @@ impl StagingDir {
         fs::write(&destination, bytes)
             .with_context(|| format!("failed to write staged file {destination:?}"))?;
         Ok(destination)
+    }
+
+    /// Copies a verified mirror agent JAR into `<staging>/injector-agent.jar`.
+    pub fn stage_agent_jar(&self, source: &Path) -> Result<PathBuf> {
+        let destination = self.base_dir.join("injector-agent.jar");
+        copy_file_checked(source, &destination)?;
+        Ok(destination)
+    }
+
+    /// Computes a clean relative path from `stage_cwd()` to a file staged inside `base_dir()`.
+    ///
+    /// Keeps Java `-jar` and `-javaagent:` free of ancestor `=` characters, spaces,
+    /// non-UTF-8 ancestor paths, and Windows `\\?\` verbatim prefixes.
+    fn relative_from_cwd(&self, path: &Path) -> Option<PathBuf> {
+        let rel_in_base = path.strip_prefix(&self.base_dir).ok()?;
+        let mut relative = PathBuf::new();
+        for _ in 0..=self.cwd_depth {
+            relative.push("..");
+        }
+        relative.push(rel_in_base);
+        Some(relative)
     }
 
     /// Removes the staging workspace immediately.
@@ -220,34 +247,33 @@ pub fn run_installer(
     )?;
 
     let mut arguments = Vec::new();
-    if let Some(spec) = agent
-        && !spec.table.is_empty()
-    {
-        bail!(
-            "mirror agent injection ({:?}) requires Phase 4 mcloader-injector integration",
-            spec.agent_jar
-        );
+    if let Some(spec) = agent {
+        arguments.extend(build_mirror_agent_args(staging, spec)?);
     }
 
-    let installer_jar = staging
-        .installer_jar_path()
+    let installer_jar_path = staging
+        .relative_from_cwd(staging.installer_jar_path())
+        .map(Cow::Owned)
+        .unwrap_or_else(|| strip_windows_verbatim(staging.installer_jar_path()));
+    let installer_jar = installer_jar_path
         .to_str()
         .context("installer JAR path is not valid UTF-8")?;
     arguments.push("-jar".to_owned());
     arguments.push(installer_jar.to_owned());
     arguments.extend(installer_args.iter().cloned());
 
+    let spawn_cwd = strip_windows_verbatim(staging.stage_cwd());
     tracing::debug!(
         round,
         executable = %java.display(),
-        cwd = %staging.stage_cwd().display(),
+        cwd = %spawn_cwd.display(),
         ?arguments,
         "starting loader installer"
     );
 
     let mut process = ManagedProcess::spawn(ProcessSpec {
         executable: &java,
-        directory: staging.stage_cwd(),
+        directory: &spawn_cwd,
         environment: &environment,
         arguments: &arguments,
         argument_file: false,
@@ -299,6 +325,65 @@ pub fn run_installer(
         stdout_tail,
         stderr_tail,
     })
+}
+
+fn build_mirror_agent_args(staging: &StagingDir, spec: &MirrorAgentSpec) -> Result<Vec<String>> {
+    if spec.table.is_empty() {
+        return Ok(Vec::new());
+    }
+    let meta = fs::symlink_metadata(&spec.agent_jar).with_context(|| {
+        format!(
+            "mirror agent JAR is missing or inaccessible: {:?}",
+            spec.agent_jar
+        )
+    })?;
+    ensure!(
+        meta.is_file(),
+        "mirror agent JAR must be a regular file: {:?}",
+        spec.agent_jar
+    );
+    let agent_jar_path = staging
+        .relative_from_cwd(&spec.agent_jar)
+        .map(Cow::Owned)
+        .unwrap_or_else(|| strip_windows_verbatim(&spec.agent_jar));
+    let agent_jar = agent_jar_path
+        .to_str()
+        .context("mirror agent JAR path is not valid UTF-8")?;
+    ensure!(
+        !agent_jar.contains('\0') && !agent_jar.contains('='),
+        "mirror agent JAR path cannot contain NUL or '=': {:?}",
+        spec.agent_jar
+    );
+
+    let mut rules = Vec::with_capacity(spec.table.entries().len());
+    for entry in spec.table.entries() {
+        let original = entry.original().as_str();
+        let mirror = entry.mirror().as_str();
+        ensure!(
+            !original.contains(['\0', '|'])
+                && !mirror.contains(['\0', '|'])
+                && !original.contains("=>")
+                && !mirror.contains("=>"),
+            "mirror rule contains reserved separator characters: {original} => {mirror}"
+        );
+        rules.push(format!("{original}=>{mirror}"));
+    }
+
+    Ok(vec![
+        format!("-javaagent:{agent_jar}"),
+        format!("-Dmcloader.injector.table={}", rules.join("|")),
+    ])
+}
+
+fn strip_windows_verbatim(path: &Path) -> Cow<'_, Path> {
+    #[cfg(windows)]
+    if let Some(raw) = path.to_str()
+        && let Some(stripped) = raw.strip_prefix(r"\\?\")
+        && !stripped.starts_with(r"UNC\")
+    {
+        return Cow::Owned(PathBuf::from(stripped));
+    }
+    Cow::Borrowed(path)
 }
 
 fn wait_with_cancel(

@@ -50,6 +50,14 @@ fn after_help() -> clap::builder::StyledStr {
         bold("--force")
     ));
     help.blank();
+    help.heading("Sources");
+    help.blank();
+    help.line("  Metadata and installer JAR downloads follow --source in order.");
+    help.line(&format!(
+        "  Installer internal downloads use the first compatible source (mirror acceleration enabled); retry with {} if a mirror is missing files.",
+        bold("--source official")
+    ));
+    help.blank();
     help.heading("Modes");
     help.blank();
     help.line(&format!(

@@ -8,3 +8,5 @@
 pub mod operations;
 pub mod server;
 pub mod workspace;
+
+mod artifacts;
