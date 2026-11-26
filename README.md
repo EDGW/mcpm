@@ -28,6 +28,8 @@ Installation does not require administrator privileges. Configuration, caches, a
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.ps1))) -Version v0.1.0-dev.26w45a
 ```
 
+For a ZIP release, run `.\scripts\install.ps1 -Version VERSION` from a checkout that supports this layout.
+
 Uninstall:
 
 ```powershell
@@ -38,7 +40,7 @@ PATH changes apply to the current PowerShell session and newly opened terminals.
 
 ### macOS and Linux (sh)
 
-Requires `curl`, `tar`, and either `sha256sum` or `shasum`.
+The ZIP installer requires `curl`, `unzip`, and either `sha256sum` or `shasum`. The pinned examples below use the matching scripts for an older release; from this checkout, use `sh scripts/install.sh VERSION` for a ZIP release.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-dev.26w45a/scripts/install.sh | sh -s -- v0.1.0-dev.26w45a
@@ -62,27 +64,25 @@ To use a GitHub URL-prefix proxy with an updated checkout's installer, see [prox
 
 ### Upgrade, repair and uninstall behavior
 
-- Run the installation command with a supported tag to upgrade or downgrade the complete suite. Repeat the same version to repair missing executables.
-- The installer verifies the archive's SHA-256, manifest, and every executable's version before changing the installation.
+- Reinstall to upgrade, downgrade, or repair. If the installation directory already contains files, confirm replacing and deleting all its previous contents. Declining does not download or replace anything.
+- The installer verifies the ZIP's SHA-256, runs `mcpm-tools debug validate --exact` on the extracted suite, and checks executable versions. It runs `mcpm-tools debug hello` after setup succeeds.
 - File replacement is staged, with backup and rollback on failure. If rollback cannot finish, the installer retains the backup and reports its location. Do not delete it before recovering the installation.
 - Concurrent installers are refused. After an interrupted Unix installer, remove the reported `.install-lock` directory only after checking that no installer is running; retained `.stage.*` directories may contain a recovery backup.
-- Installation records identify managed files. Uninstall removes those executables, their owned Unix links, and Windows PATH entries added by the installer. Other files and preexisting PATH entries are retained.
+- Uninstall removes recorded executables and artifacts, owned Unix links, and Windows PATH entries added by the installer. Other files and preexisting PATH entries are retained.
 - Uninstall preserves configuration, caches, logs, and project data.
 
 ### Existing installations and SSH
 
 - Previous Unix installations in `/usr/local/bin/mcpm` are kept. If one shadows the new command, review PATH or remove that old executable explicitly after confirming its origin.
-- Previous Windows installations at `%LOCALAPPDATA%\Programs\mcpm\mcpm.exe` and their PATH entries are kept. The installer warns when this executable still takes precedence; remove the old executable and old PATH entry explicitly after checking the new suite.
-- An untracked `bin` directory is never silently adopted or replaced. Resolve a reported conflict before installing.
-- These scripts manage the new layout only; they do not uninstall the old single-file layout.
+- A previous Windows executable inside `%LOCALAPPDATA%\Programs\mcpm` is removed on approved replacement. Preexisting PATH entries and executables outside the installation directory are preserved.
 - Noninteractive SSH sessions may not load your shell configuration. Installers record `mcpmd` in `~/.mcpm/mcpmd.path` on Unix or `%LOCALAPPDATA%\mcpm\mcpmd.path` on Windows. Without an explicit `--ssh-mcpmd`, SSH reads the remote host's record; a missing file warns and falls back to remote PATH. If that fallback also fails, the command reports an error. See [remote discovery](crates/mcpmd/docs/README.md#remote-executable-discovery). Unmigrated mods/cache commands still require remote `mcpm-tools`.
 
 ### Manual installation
 
-[Release assets](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-dev.26w45a) contain a complete `bin/` directory and a `manifest`:
+[Release assets](https://github.com/EDGW/mcpm/releases) for the ZIP layout include `bin/` and `manifest.json`:
 
-- macOS/Linux: `mcpm-PLATFORM-ARCH[-LIBC].tar.gz`.
+- macOS/Linux: `mcpm-PLATFORM-ARCH[-LIBC].zip`.
 - Windows: `mcpm-windows-x86_64.zip`.
 - Each archive has a matching `.sha256` file. Linux provides glibc and musl variants; the install script selects musl.
 
-Extract the suite to a directory of your choice and add its `bin` directory to PATH. Manually installed copies remain your responsibility; the installer does not manage them automatically.
+Extract the suite and add its `bin` directory to PATH. Run `mcpm-tools debug validate` to check the extracted files.
