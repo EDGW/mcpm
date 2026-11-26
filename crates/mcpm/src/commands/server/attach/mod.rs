@@ -2,7 +2,7 @@
 
 use crate::{
     commands::{CommandOutcome as Exit, execution::Runtime},
-    display::server::attach::Display,
+    display::server::attach::{Display, help_page_count},
     ssh::SshArgs,
 };
 use anyhow::{Context, Result, ensure};
@@ -21,6 +21,7 @@ mod command_history;
 mod history;
 mod input;
 pub(super) const DEFAULT_INPUT_HEIGHT: u16 = 4;
+const MAX_HELP_PAGES: usize = 99;
 use input::Input;
 
 /// Builds the `attach` after-help text.
@@ -318,21 +319,17 @@ pub(super) async fn flow(
         display.draw(executor.traffic_stats())?;
     }
     loop {
-        if !help_requested && !detaching && display.server_status == ServerStatus::RconConnected {
+        if !help_requested
+            && !detaching
+            && display.is_tui()
+            && display.server_status == ServerStatus::RconConnected
+        {
             help_requested = true;
             let executor = executor.clone();
             let reference = reference.clone();
             let listener_id = listener_id.clone();
             help.spawn(async move {
-                send_command(
-                    &executor,
-                    &reference,
-                    &listener_id,
-                    uuid::Uuid::new_v4().to_string(),
-                    "help".into(),
-                    CommandVisibility::Internal,
-                )
-                .await
+                fetch_help_pages(&executor, &reference, &listener_id).await
             });
         }
         if commands.is_empty()
@@ -355,6 +352,9 @@ pub(super) async fn flow(
                 .await;
                 (id, result)
             });
+        }
+        if detaching {
+            help.abort_all();
         }
         if detaching
             && actions.is_empty()
@@ -386,11 +386,9 @@ pub(super) async fn flow(
             }
             result = help.join_next(), if !help.is_empty() => {
                 match result.context("help task disappeared")? {
-                    Ok(Ok(result)) if result.status == CommandStatus::Accepted
-                        && result.result == shim::CommandOutcome::Completed && result.channel == Channel::Rcon => {
-                        display.help_result(result.output.as_deref());
-                    }
-                    _ => display.help_result(None),
+                    Ok(pages) => display.help_result(pages.as_deref()),
+                    Err(error) if error.is_cancelled() => {}
+                    Err(_) => display.help_result(None),
                 }
             }
             command = commands.join_next(), if !commands.is_empty() => {
@@ -633,6 +631,47 @@ async fn follow_status(
         }
     }
 }
+async fn fetch_help_pages(
+    executor: &Executor,
+    reference: &ShimRef,
+    listener_id: &str,
+) -> Option<Vec<String>> {
+    let first = send_help_page(executor, reference, listener_id, "help".into()).await?;
+    let last_page = help_page_count(&first).unwrap_or(1).min(MAX_HELP_PAGES);
+    let mut pages = Vec::with_capacity(last_page);
+    pages.push(first);
+    for page in 2..=last_page {
+        match send_help_page(executor, reference, listener_id, format!("help {page}")).await {
+            Some(output) if !output.trim().is_empty() => pages.push(output),
+            _ => break,
+        }
+    }
+    Some(pages)
+}
+
+async fn send_help_page(
+    executor: &Executor,
+    reference: &ShimRef,
+    listener_id: &str,
+    command: String,
+) -> Option<String> {
+    let result = send_command(
+        executor,
+        reference,
+        listener_id,
+        uuid::Uuid::new_v4().to_string(),
+        command,
+        CommandVisibility::Internal,
+    )
+    .await
+    .ok()?;
+    (result.status == CommandStatus::Accepted
+        && result.result == shim::CommandOutcome::Completed
+        && result.channel == Channel::Rcon)
+        .then_some(result.output)
+        .flatten()
+}
+
 async fn send_command(
     executor: &Executor,
     reference: &ShimRef,

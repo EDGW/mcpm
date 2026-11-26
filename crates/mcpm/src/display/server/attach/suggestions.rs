@@ -10,6 +10,13 @@ use ratatui::{
 use std::{borrow::Cow, ops::Range};
 
 const LIMIT: usize = 5;
+const HELP_TIP: &str =
+    "Tip: Use the <tab> key while typing a command to auto-complete the command or its arguments";
+
+/// Extracts the total page count from the first line of a paginated `help` response.
+pub(crate) fn help_page_count(output: &str) -> Option<usize> {
+    strip_help_header(output).1
+}
 
 #[derive(Default)]
 pub(super) struct Suggestions {
@@ -32,8 +39,8 @@ impl Suggestions {
             }));
         self.builtin_count = self.catalog.len();
     }
-    pub fn help_result(&mut self, output: Option<&str>) {
-        let mut commands = output.map(parse).unwrap_or_default();
+    pub fn help_result(&mut self, pages: Option<&[String]>) {
+        let mut commands = pages.map(parse_pages).unwrap_or_default();
         self.failed = commands.is_empty();
         self.catalog.truncate(self.builtin_count);
         for command in &mut commands {
@@ -333,33 +340,10 @@ fn input(draft: &str) -> &str {
     &draft[..end]
 }
 
-fn parse(output: &str) -> Vec<Command> {
+fn parse_pages(pages: &[String]) -> Vec<Command> {
     let mut commands: Vec<Command> = Vec::new();
-    for line in output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        if let Some(entry) = line.strip_prefix('/') {
-            let end = entry.find(char::is_whitespace).unwrap_or(entry.len());
-            let name = &entry[..end];
-            if name.is_empty() || name.chars().any(char::is_control) {
-                continue;
-            }
-            if !commands.iter().any(|command| command.name == name) {
-                commands.push(Command {
-                    name: Cow::Owned(name.to_owned()),
-                    arguments: Cow::Owned(entry[end..].trim().to_owned()),
-                    alias: None,
-                    handler: None,
-                });
-            }
-        } else if let Some(command) = commands.last_mut() {
-            if !command.arguments.is_empty() {
-                command.arguments.to_mut().push(' ');
-            }
-            command.arguments.to_mut().push_str(line);
-        }
+    for page in pages {
+        parse_page(page, &mut commands);
     }
     for index in 0..commands.len() {
         let command = &mut commands[index];
@@ -374,16 +358,176 @@ fn parse(output: &str) -> Vec<Command> {
     commands
 }
 
+fn parse_page(page: &str, commands: &mut Vec<Command>) {
+    let (body, page_count) = strip_help_header(page);
+    let body = if page_count.is_some() {
+        strip_paginated_tip(body)
+    } else {
+        body
+    };
+    let page_start = commands.len();
+    for line in body.lines() {
+        for segment in split_help_segments(line) {
+            if let Some(entry) = segment.strip_prefix('/') {
+                let end = entry.find(char::is_whitespace).unwrap_or(entry.len());
+                let name = &entry[..end];
+                if name.is_empty() || name.chars().any(char::is_control) {
+                    continue;
+                }
+                if let Some(previous) = commands[page_start..].last_mut()
+                    && previous.name == name
+                    && (previous.arguments == "OR" || previous.arguments.ends_with(" OR"))
+                {
+                    previous.arguments.to_mut().push_str(" /");
+                    previous.arguments.to_mut().push_str(entry);
+                } else if !commands.iter().any(|command| command.name == name) {
+                    commands.push(Command {
+                        name: Cow::Owned(name.to_owned()),
+                        arguments: Cow::Owned(entry[end..].trim().to_owned()),
+                        alias: None,
+                        handler: None,
+                    });
+                }
+            } else if let Some(command) = commands[page_start..].last_mut() {
+                if !command.arguments.is_empty() {
+                    command.arguments.to_mut().push(' ');
+                }
+                command.arguments.to_mut().push_str(segment);
+            }
+        }
+    }
+}
+
+fn strip_help_header(page: &str) -> (&str, Option<usize>) {
+    let first_line_len = page.find(['\r', '\n']).unwrap_or(page.len());
+    let first_line = &page[..first_line_len];
+    let trimmed = first_line.trim_start();
+    let leading_ws = first_line.len() - trimmed.len();
+    let open = trimmed.bytes().take_while(|&byte| byte == b'-').count();
+    if open < 3 {
+        return (page, None);
+    }
+    let after_open = &trimmed[open..];
+    let Some(close) = after_open.find("---") else {
+        return (page, None);
+    };
+    let Some(total) = parse_header_total_pages(&after_open[..close]) else {
+        return (page, None);
+    };
+    let close_dashes = after_open[close..]
+        .bytes()
+        .take_while(|&byte| byte == b'-')
+        .count();
+    let end = leading_ws + open + close + close_dashes;
+    (&page[end..], Some(total))
+}
+
+fn parse_header_total_pages(header: &str) -> Option<usize> {
+    let tokens: Vec<&str> = header.split_whitespace().collect();
+    for window in tokens.windows(3) {
+        if window[1].eq_ignore_ascii_case("of")
+            && let Ok(current) = window[0].parse::<usize>()
+            && let Ok(total) = window[2].parse::<usize>()
+            && current > 0
+            && total > 0
+        {
+            return Some(total);
+        }
+    }
+    for token in tokens {
+        let inner = token.trim_matches(|ch| matches!(ch, '(' | ')' | '[' | ']'));
+        if let Some((current, total)) = inner.split_once('/')
+            && let Ok(current) = current.parse::<usize>()
+            && let Ok(total) = total.parse::<usize>()
+            && current > 0
+            && total > 0
+        {
+            return Some(total);
+        }
+    }
+    None
+}
+
+fn strip_paginated_tip(text: &str) -> &str {
+    text.trim_end()
+        .strip_suffix(HELP_TIP)
+        .map(str::trim_end)
+        .unwrap_or(text)
+}
+
+fn split_help_segments(line: &str) -> Vec<&str> {
+    let mut segments = Vec::new();
+    let mut stack = Vec::new();
+    let mut start = 0;
+    let mut has_content = false;
+    let mut consecutive_slash = false;
+
+    for (index, ch) in line.char_indices() {
+        match ch {
+            '(' | '[' | '<' | '{' => {
+                stack.push(ch);
+                has_content = true;
+                consecutive_slash = false;
+            }
+            ')' | ']' | '>' | '}' => {
+                let expected = match ch {
+                    ')' => '(',
+                    ']' => '[',
+                    '>' => '<',
+                    '}' => '{',
+                    _ => unreachable!(),
+                };
+                if let Some(pos) = stack.iter().rposition(|&open| open == expected) {
+                    stack.truncate(pos);
+                }
+                has_content = true;
+                consecutive_slash = false;
+            }
+            '/' if stack.is_empty() && has_content && !consecutive_slash => {
+                let segment = line[start..index].trim();
+                if !segment.is_empty() {
+                    segments.push(segment);
+                }
+                start = index;
+                consecutive_slash = true;
+            }
+            '/' => {
+                has_content = true;
+                consecutive_slash = stack.is_empty();
+            }
+            ch if ch.is_whitespace() => {
+                consecutive_slash = false;
+            }
+            _ => {
+                has_content = true;
+                consecutive_slash = false;
+            }
+        }
+    }
+
+    let tail = line[start..].trim();
+    if !tail.is_empty() {
+        segments.push(tail);
+    }
+    segments
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn set_help(suggestions: &mut Suggestions, pages: &[&str]) {
+        let pages: Vec<String> = pages.iter().map(|page| (*page).to_owned()).collect();
+        suggestions.help_result(Some(&pages));
+    }
+
     #[test]
     fn argument_completion_preserves_surrounding_input_and_stops_at_value() {
         let mut suggestions = Suggestions::default();
-        suggestions.help_result(Some(
-            "/gamerule\n(keepInventory | randomTickSpeed | 規則) <value>",
-        ));
+        set_help(
+            &mut suggestions,
+            &["/gamerule\n(keepInventory | randomTickSpeed | 規則) <value>"],
+        );
         let mut draft = "/gamerul".to_owned();
         suggestions.accept(&mut draft).unwrap();
         assert_eq!(draft, "/gamerule ");
@@ -407,12 +551,12 @@ mod tests {
     #[test]
     fn argument_navigation_uses_all_server_choices_and_help_replacement_clears_handlers() {
         let mut suggestions = Suggestions::default();
-        suggestions.help_result(Some("/gamerule (a | b | c | d | e | f | g)"));
+        set_help(&mut suggestions, &["/gamerule (a | b | c | d | e | f | g)"]);
         let mut draft = "/gamerule".to_owned();
         suggestions.navigate(&draft, false);
         suggestions.accept(&mut draft).unwrap();
         assert_eq!(draft, "/gamerule g ");
-        suggestions.help_result(Some("/gamerule <rule> [value]"));
+        set_help(&mut suggestions, &["/gamerule <rule> [value]"]);
         assert!(suggestions.argument_query("/gamerule bad true").is_none());
         assert!(suggestions.view("/gamerule bad true").diagnostic.is_none());
         suggestions.help_result(None);
@@ -422,9 +566,12 @@ mod tests {
     #[test]
     fn selection_traverses_all_matches_and_completion_preserves_arguments_and_unicode() {
         let mut suggestions = Suggestions::default();
-        suggestions.help_result(Some(
-            "/sélection <cible>\n/selective [arg]\n/selecta\n/selectb\n/selectc\n/selectd\n/selecte\n/selectf",
-        ));
+        set_help(
+            &mut suggestions,
+            &[
+                "/sélection <cible>\n/selective [arg]\n/selecta\n/selectb\n/selectc\n/selectd\n/selecte\n/selectf",
+            ],
+        );
         assert_eq!(suggestions.matches("/se").count(), 7);
         let mut draft = "/sé".to_owned();
         suggestions.navigate(&draft, true);
@@ -448,7 +595,10 @@ mod tests {
     #[test]
     fn aliases_retain_names_and_resolve_chains_without_following_cycles() {
         let mut suggestions = Suggestions::default();
-        suggestions.help_result(Some("/waypoint (create|delete)\n/wp -> waypoint\n/w -> wp\n/missing -> absent\n/a -> b\n/b -> a"));
+        set_help(
+            &mut suggestions,
+            &["/waypoint (create|delete)\n/wp -> waypoint\n/w -> wp\n/missing -> absent\n/a -> b\n/b -> a"],
+        );
         assert_eq!(
             suggestions.alias_arguments(&suggestions.catalog[1]),
             Some("(create|delete)")
@@ -473,7 +623,7 @@ mod tests {
         let mut draft = "@ki".to_owned();
         suggestions.accept(&mut draft).unwrap();
         assert_eq!(draft, "@kill");
-        suggestions.help_result(Some("/waypoint <name>\n/wp -> waypoint"));
+        set_help(&mut suggestions, &["/waypoint <name>\n/wp -> waypoint"]);
         assert_eq!(
             suggestions.alias_arguments(&suggestions.catalog[3]),
             Some("<name>")
@@ -482,5 +632,102 @@ mod tests {
         let mut empty = "   ".to_owned();
         assert!(suggestions.accept(&mut empty).is_none());
         assert_eq!(empty, "   ");
+    }
+
+    #[test]
+    fn splits_glued_rcon_help_with_bracket_stack_without_validation() {
+        let mut suggestions = Suggestions::default();
+        set_help(
+            &mut suggestions,
+            &[concat!(
+                "/advancement (grant|revoke)",
+                "/custom <player/uuid> [on/off] {a/b} ★ (<unclosed/path)",
+                "/gamerule (keepInventory|randomTickSpeed)",
+                "/experience (add|set|query)",
+                "/xp -> experience",
+                "//wand",
+                "//set <pattern>",
+                "/stop",
+            )],
+        );
+        let entries: Vec<(&str, &str)> = suggestions
+            .catalog
+            .iter()
+            .map(|command| (command.name.as_ref(), command.arguments.as_ref()))
+            .collect();
+        assert_eq!(
+            entries,
+            vec![
+                ("advancement", "(grant|revoke)"),
+                (
+                    "custom",
+                    "<player/uuid> [on/off] {a/b} ★ (<unclosed/path)",
+                ),
+                ("gamerule", "<type> <value>"),
+                ("experience", "(add|set|query)"),
+                ("xp", "-> experience"),
+                ("/wand", ""),
+                ("/set", "<pattern>"),
+                ("stop", ""),
+            ]
+        );
+        assert!(suggestions.argument_query("/gamerule keep").is_some());
+        assert_eq!(
+            suggestions.alias_arguments(&suggestions.catalog[4]),
+            Some("(add|set|query)")
+        );
+    }
+
+    #[test]
+    fn parses_paginated_help_headers_tips_and_or_usages() {
+        let page1 = concat!(
+            "--- Showing help page 1 of 10 (/help <page>) ---",
+            "/effect <player> <effect> [seconds] [amplifier] [hideParticles] OR /effect <player> clear",
+            "/clone <x1> <y1> <z1> <x2> <y2> <z2> <x> <y> <z> [maskMode] [cloneMode]",
+            "Tip: Use the <tab> key while typing a command to auto-complete the command or its arguments",
+        );
+        let page2 = concat!(
+            "--- Showing help page 2 of 10 (/help <page>) ---",
+            "/list",
+            "/spawnpoint OR /spawnpoint <player> OR /spawnpoint <player> <x> <y> <z>",
+            "/list",
+            "/gamerule <rule name> <value> OR /gamerule <rule name>",
+        );
+        assert_eq!(help_page_count(page1), Some(10));
+        assert_eq!(
+            help_page_count("--------- Help: Index (1/120) ---------------------------\n/stop"),
+            Some(120)
+        );
+        assert_eq!(help_page_count("/advancement (grant|revoke)/stop"), None);
+
+        let mut suggestions = Suggestions::default();
+        set_help(&mut suggestions, &[page1, page2]);
+        let entries: Vec<(&str, &str)> = suggestions
+            .catalog
+            .iter()
+            .map(|command| (command.name.as_ref(), command.arguments.as_ref()))
+            .collect();
+        assert_eq!(
+            entries,
+            vec![
+                (
+                    "effect",
+                    "<player> <effect> [seconds] [amplifier] [hideParticles] OR /effect <player> clear",
+                ),
+                (
+                    "clone",
+                    "<x1> <y1> <z1> <x2> <y2> <z2> <x> <y> <z> [maskMode] [cloneMode]",
+                ),
+                ("list", ""),
+                (
+                    "spawnpoint",
+                    "OR /spawnpoint <player> OR /spawnpoint <player> <x> <y> <z>",
+                ),
+                (
+                    "gamerule",
+                    "<rule name> <value> OR /gamerule <rule name>",
+                ),
+            ]
+        );
     }
 }
