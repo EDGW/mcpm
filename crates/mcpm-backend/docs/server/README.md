@@ -7,7 +7,8 @@ result; an operation neither formats output nor reads terminal state.
 | Page | Content |
 | --- | --- |
 | [Basics](basics.md) | Identity, recognition, initialization, and Remote preparation |
-| [Create a server](new.md) | `server.new`; read-only version preparation, vanilla download, and initialization |
+| [Create a server](new.md) | `server.new`; read-only version preparation, vanilla download, initialization, and optional loader setup |
+| [Add a mod loader](loader.md) | `server.loader.add`; in-place mod loader installation with mirror injection and atomic publication |
 | [Stash](stash.md) | Mod snapshot creation, switching, comparison, inventory, and verification |
 
 ## Execution
@@ -33,7 +34,7 @@ at its next send; work already inside the library is not interrupted.
 
 Item failures travel with the item, for example one inventory record or one batch selection, so a
 caller keeps successful results and still reports every failure individually. Whole-operation
-failures use the automatic transport; see the [mcpm-exec error model](../../../mcpm-exec/src/docs/error.md).
+failures use the automatic transport; see the [mcpm-exec error model](../../../mcpm-exec/docs/error.md).
 
 Committed files are not rolled back by a lost connection. After a publication or transport
 failure, the server files describe what actually happened.

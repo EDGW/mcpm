@@ -47,7 +47,7 @@ Operation 分为两类：
 
 | 命令或功能 | 状态 |
 | --- | --- |
-| `server new`、`server info`、`server init` | 已迁移到 operation + Executor + mcpmd |
+| `server new`、`server add-loader`、`server info`、`server init` | 已迁移到 operation + Executor + mcpmd |
 | `workspace.inspect`、`workspace.register_remote` | 已迁移，Shallow operation |
 | `server stash.*` | 已迁移，Host operation |
 | `server launch` | 未迁移 |
@@ -77,7 +77,7 @@ Operation 分为两类：
 | 选项 | 说明 |
 | --- | --- |
 | `--ssh <COMMAND>` | SSH 连接命令，例如 `ssh -i key user@host`。指定后，位置参数 PATH 按该主机解释。 |
-| `--ssh-mcpmd <PATH>` | 远端可执行文件；要求 `--ssh`。迁移后的 `new`、`info`、`init`、`stash` 使用远端 mcpmd；未迁移命令使用其原有远端程序。省略时按对应默认值查找。 |
+| `--ssh-mcpmd <PATH>` | 远端可执行文件；要求 `--ssh`。迁移后的 `new`、`add-loader`、`info`、`init`、`stash` 使用远端 mcpmd；未迁移命令使用其原有远端程序。省略时按对应默认值查找。 |
 | `--log-level <LEVEL>` | stderr 诊断级别：`off`、`error`、`warn`、`info`、`debug`、`trace`。省略时读取 `MCPM_LOG_LEVEL`，未设置则用 `warn`；非法值报错。 |
 | `--remote-logs` | 在本机 stderr 显示远端日志，级别由 `--log-level` 过滤。 |
 | `--raw` | 使用 Raw 模式。 |
@@ -99,10 +99,12 @@ Console 确认使用当前主题区分证据、选项、默认选择、重试提
 
 ## 命令文档
 
-- [创建原版服务端：new](server/new.md)
+- [创建服务端：new](server/new.md)
+- [安装 Mod 加载器：add-loader](server/add-loader.md)
 - [Server 基础：info、init](server/basics.md)
 - [Server 启动与连接：launch、attach](server/launch.md)
 - [Server stash](server/stash.md)
+- 服务端创建、迁移与启动速览：`mcpm-tools debug hello`
 - [递归命令帮助：debug all-help](debug/all-help.md)
 - [mcpmd：serve、link](../../mcpmd/docs-zh/README.md)
 - [Legacy：尚未迁移（client、mods、cache 等）](legacy/README.md)
