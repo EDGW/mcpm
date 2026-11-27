@@ -1,11 +1,14 @@
 //! Java-owning shim runtime: independent control, bounded logs and serialized command outcomes.
 
 use super::*;
-use mcpm_lib::local::mc::server::{
-    launch::{JavaProcess, rcon},
-    restart::{
-        CompiledRestartPolicy, ExitObservation, ObservedCrashReport, RestartDecision,
-        RestartHistory, current_local_timestamp,
+use mcpm_lib::local::mc::{
+    log::{ServerStatusEvent, ServerStatusScanner},
+    server::{
+        launch::{JavaProcess, rcon},
+        restart::{
+            CompiledRestartPolicy, ExitObservation, ObservedCrashReport, RestartDecision,
+            RestartHistory, current_local_timestamp,
+        },
     },
 };
 use std::{
@@ -19,6 +22,7 @@ use std::{
 use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore, watch};
 
 struct Data {
+    generation: u64,
     state: State,
     reaped: bool,
     kill_requested: bool,
@@ -33,7 +37,6 @@ struct Data {
 }
 struct Commands {
     stdin: Option<std::process::ChildStdin>,
-    settings: Option<rcon::Settings>,
     history: Option<history::History>,
     configuration_error: Option<String>,
     java_pid: u32,
@@ -51,6 +54,7 @@ impl Commands {
 struct Runtime {
     reference: ShimRef,
     communication: Communication,
+    rcon_settings: Option<rcon::Settings>,
     launch_request_id: String,
     data: Mutex<Data>,
     commands: AsyncMutex<Commands>,
@@ -125,7 +129,11 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         input.communication != Communication::Rcon || settings.is_some(),
         "rcon mode requires configured RCON credentials"
     );
-    let has_rcon_settings = settings.is_some();
+    let initial_rcon_status = if settings.is_some() {
+        RconStatus::Unknown
+    } else {
+        RconStatus::Unavailable
+    };
     let has_restart_policy = !restart_policy.is_empty();
     let history = history::History::create(&directory, &record.reference.run_id)?;
     let java_directory = plan.directory().to_path_buf();
@@ -144,10 +152,13 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
             run_id: record.reference.run_id.clone(),
         },
         communication: input.communication,
+        rcon_settings: settings,
         launch_request_id: record.launch_request_id.clone(),
         data: Mutex::new(Data {
+            generation: 0,
             state: State::Running {
-                server_status: ServerStatus::Unknown,
+                server_status: ServerStatus::StartingOrUnknown,
+                rcon_status: initial_rcon_status,
             },
             reaped: false,
             kill_requested: false,
@@ -163,7 +174,6 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         commands: AsyncMutex::new(Commands {
             stdin: Some(stdin),
             java_pid: java.id(),
-            settings,
             configuration_error,
             history: Some(history),
             connection: None,
@@ -179,8 +189,23 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     });
     let stdout_drained = Arc::new(AtomicBool::new(false));
     let stderr_drained = Arc::new(AtomicBool::new(false));
-    drain(stdout, Source::Stdout, runtime.clone(), stdout_drained.clone());
-    drain(stderr, Source::Stderr, runtime.clone(), stderr_drained.clone());
+    let startup_done = Arc::new(AtomicBool::new(false));
+    drain(
+        stdout,
+        Source::Stdout,
+        0,
+        runtime.clone(),
+        stdout_drained.clone(),
+        startup_done.clone(),
+    );
+    drain(
+        stderr,
+        Source::Stderr,
+        0,
+        runtime.clone(),
+        stderr_drained.clone(),
+        startup_done,
+    );
     publish(&directory.join("instance.json"), &record)?;
     let launched = runtime.launched();
     let reply: std::result::Result<Launched, ErrorReport> = Ok(launched);
@@ -190,10 +215,11 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     let capacity = Arc::new(Semaphore::new(64));
     let mut tick = tokio::time::interval(Duration::from_millis(20));
     let mut requests = tokio::task::JoinSet::new();
-    let mut rcon_probe: Option<tokio::task::JoinHandle<()>> = has_rcon_settings.then(|| {
-        let runtime = runtime.clone();
-        tokio::spawn(async move { runtime.probe_rcon().await })
-    });
+    let mut rcon_probe: Option<tokio::task::JoinHandle<()>> =
+        runtime.rcon_settings.is_some().then(|| {
+            let runtime = runtime.clone();
+            tokio::spawn(async move { runtime.probe_rcon().await })
+        });
     let mut restart_history = RestartHistory::new();
     let mut phase = SupervisionPhase::Running {
         java,
@@ -446,7 +472,8 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                         Ok((mut next_java, stdout, stderr)) => {
                             let stdout_drained = Arc::new(AtomicBool::new(false));
                             let stderr_drained = Arc::new(AtomicBool::new(false));
-                            let logs_since = {
+                            let startup_done = Arc::new(AtomicBool::new(false));
+                            let respawned = {
                                 let mut data = runtime.data.lock().unwrap();
                                 if data.restart_cancelled {
                                     data.restart_deadline = None;
@@ -457,19 +484,22 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                                     None
                                 } else {
                                     let logs_since = data.logs.range().latest;
+                                    data.generation = data.generation.saturating_add(1);
+                                    let generation = data.generation;
                                     data.reaped = false;
                                     data.kill_requested = false;
                                     data.restart_cancelled = false;
                                     data.restart_deadline = None;
                                     data.channel = Channel::Stdin;
                                     data.state = State::Running {
-                                        server_status: ServerStatus::Unknown,
+                                        server_status: ServerStatus::StartingOrUnknown,
+                                        rcon_status: runtime.disconnected_rcon_status(),
                                     };
                                     runtime.status.send_replace(());
-                                    Some(logs_since)
+                                    Some((logs_since, generation))
                                 }
                             };
-                            let Some(logs_since) = logs_since else {
+                            let Some((logs_since, generation)) = respawned else {
                                 let _ = next_java.kill();
                                 let mut lane = runtime.commands.lock().await;
                                 lane.stdin = None;
@@ -479,16 +509,20 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                             drain(
                                 stdout,
                                 Source::Stdout,
+                                generation,
                                 runtime.clone(),
                                 stdout_drained.clone(),
+                                startup_done.clone(),
                             );
                             drain(
                                 stderr,
                                 Source::Stderr,
+                                generation,
                                 runtime.clone(),
                                 stderr_drained.clone(),
+                                startup_done,
                             );
-                            if has_rcon_settings {
+                            if runtime.rcon_settings.is_some() {
                                 let runtime = runtime.clone();
                                 rcon_probe =
                                     Some(tokio::spawn(async move { runtime.probe_rcon().await }));
@@ -592,9 +626,10 @@ fn remove_obsolete_command_databases(directory: &Path) -> Result<()> {
 fn mark_reaped(runtime: &Runtime, exit: LaunchExit, killed: bool) -> (LaunchExit, bool, Instant) {
     let mut data = runtime.data.lock().unwrap();
     data.reaped = true;
+    let disconnected = runtime.disconnected_rcon_status();
     match &mut data.state {
-        State::Running { server_status } | State::Stopping { server_status } => {
-            *server_status = ServerStatus::Unknown;
+        State::Running { rcon_status, .. } | State::Stopping { rcon_status, .. } => {
+            *rcon_status = disconnected;
         }
         State::Killing | State::Restarting { .. } | State::Exited { .. } => {}
     }
@@ -687,19 +722,58 @@ fn accept_connection<R, W>(
 fn drain(
     mut source: impl Read + Send + 'static,
     kind: Source,
+    generation: u64,
     runtime: Arc<Runtime>,
     drained: Arc<AtomicBool>,
+    startup_done: Arc<AtomicBool>,
 ) {
     std::thread::spawn(move || {
         let mut bytes = vec![0; MAX_LOG_BLOCK_BYTES];
+        let mut scanner = ServerStatusScanner::default();
         loop {
             match source.read(&mut bytes) {
                 Ok(0) => break,
                 Ok(length) => {
-                    let mut data = runtime.data.lock().unwrap();
-                    data.logs.push(kind, bytes[..length].to_vec());
-                    if let Some(sender) = &data.output {
-                        sender.send_replace(());
+                    let event = if !startup_done.load(Ordering::Acquire) {
+                        scanner.feed(&bytes[..length])
+                    } else {
+                        None
+                    };
+                    if event == Some(ServerStatusEvent::Done) {
+                        startup_done.store(true, Ordering::Release);
+                    }
+                    let mut status_changed = false;
+                    {
+                        let mut data = runtime.data.lock().unwrap();
+                        data.logs.push(kind, bytes[..length].to_vec());
+                        if let Some(sender) = &data.output {
+                            sender.send_replace(());
+                        }
+                        if let Some(event) = event
+                            && data.generation == generation
+                            && !data.reaped
+                        {
+                            let next = match event {
+                                ServerStatusEvent::GeneratingChunks(progress) => {
+                                    ServerStatus::GeneratingChunks(progress)
+                                }
+                                ServerStatusEvent::Done => ServerStatus::Done,
+                            };
+                            match &mut data.state {
+                                State::Running { server_status, .. }
+                                | State::Stopping { server_status, .. }
+                                    if *server_status != ServerStatus::Done
+                                        && *server_status != next =>
+                                {
+                                    *server_status = next;
+                                    status_changed = true;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    if status_changed {
+                        runtime.status.send_replace(());
                     }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -876,18 +950,26 @@ impl Runtime {
             logs: data.logs.range(),
         }
     }
+    fn disconnected_rcon_status(&self) -> RconStatus {
+        if self.rcon_settings.is_some() {
+            RconStatus::Unknown
+        } else {
+            RconStatus::Unavailable
+        }
+    }
+
     fn connected(&self, connected: bool) {
         let mut data = self.data.lock().unwrap();
-        let target = if connected && !data.reaped {
-            ServerStatus::RconConnected
+        let target = if connected && !data.reaped && self.rcon_settings.is_some() {
+            RconStatus::Connected
         } else {
-            ServerStatus::Unknown
+            self.disconnected_rcon_status()
         };
         match &mut data.state {
-            State::Running { server_status } | State::Stopping { server_status }
-                if *server_status != target =>
+            State::Running { rcon_status, .. } | State::Stopping { rcon_status, .. }
+                if *rcon_status != target =>
             {
-                *server_status = target;
+                *rcon_status = target;
                 self.status.send_replace(());
             }
             _ => {}
@@ -919,7 +1001,7 @@ impl Runtime {
                         let data = self.data.lock().unwrap();
                         matches!(data.state, State::Running { .. }) && !data.reaped
                     }
-                    && let Some(settings) = &lane.settings
+                    && let Some(settings) = &self.rcon_settings
                     && let Ok(connection) =
                         rcon::Connection::connect_owned(settings, lane.java_pid).await
                 {
@@ -1096,8 +1178,15 @@ impl Runtime {
             lane.stop_attempted = true;
             self.connected(false);
             let mut data = self.data.lock().unwrap();
-            if let State::Running { server_status } = data.state {
-                data.state = State::Stopping { server_status };
+            if let State::Running {
+                server_status,
+                rcon_status,
+            } = data.state
+            {
+                data.state = State::Stopping {
+                    server_status,
+                    rcon_status,
+                };
                 self.status.send_replace(());
             }
         }
@@ -1107,7 +1196,7 @@ impl Runtime {
             .filter(rcon::Connection::is_connected)
         {
             Some(connection) => Some(Ok(connection)),
-            None => match &lane.settings {
+            None => match &self.rcon_settings {
                 Some(settings) => {
                     Some(rcon::Connection::connect_owned(settings, lane.java_pid).await)
                 }

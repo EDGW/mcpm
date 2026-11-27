@@ -339,7 +339,7 @@ pub(super) async fn flow(
         if !help_requested
             && !detaching
             && display.is_tui()
-            && display.state.server_status() == ServerStatus::RconConnected
+            && display.state.rcon_status() == RconStatus::Connected
         {
             help_requested = true;
             let executor = executor.clone();

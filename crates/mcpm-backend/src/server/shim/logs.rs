@@ -5,7 +5,7 @@ use crate::operations::server::shim::{
     CursorRange, Gap, LogBatch, LogChunk, LogsInput, MAX_LOG_BLOCK_BYTES, Source,
 };
 use anyhow::{Context, Result, bail, ensure};
-use mcpm_lib::local::mc::log::{parse_header, strip_ansi};
+use mcpm_lib::local::mc::log::{clean_console_line, parse_header};
 use std::{
     collections::VecDeque,
     io::{Read, Write},
@@ -284,7 +284,7 @@ impl Buffer {
         let working_directory = normalize_lexical(&strip_windows_verbatim(working_directory));
         let text = String::from_utf8_lossy(&tail);
         for line in text.lines().rev() {
-            let clean = strip_ansi(line);
+            let clean = clean_console_line(line);
             let Some(header) = parse_header(&clean) else {
                 continue;
             };
@@ -566,12 +566,12 @@ mod tests {
             )]
         );
 
-        // Modern 1.21+ relative path with ANSI reset codes and split across chunks,
-        // followed by spoofed player chat, prefixed error lines, and bare lines.
+        // Modern 1.21+ relative path with JLine prompt overwrite + ANSI reset codes split across
+        // chunks, followed by spoofed player chat, prefixed error lines, and bare lines.
         let mut logs = Buffer::default();
         logs.push(
             Source::Stdout,
-            b"\x1b[31m[12:00:00] [Server thread/ERROR]: This crash report has been ".to_vec(),
+            b"\x1b[m> \r  \r\x1b[31m[12:00:00] [Server thread/ERROR] [minecraft/MinecraftServer]: This crash report has been ".to_vec(),
         );
         logs.push(
             Source::Stdout,

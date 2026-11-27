@@ -216,7 +216,7 @@ impl Screen {
         &mut self,
         draft: &str,
         cursor: usize,
-        status: &str,
+        status: Line<'_>,
         partial: &str,
         restart: Option<RestartView<'_>>,
         suggestions: super::suggestions::View<'_>,
@@ -380,11 +380,12 @@ impl Screen {
                     .scroll((0, horizontal.min(u16::MAX as usize) as u16)),
                 input,
             );
-            frame.render_widget(
-                Paragraph::new(if partial.is_empty() { status } else { partial })
-                    .style(style(Role::Muted)),
-                footer,
-            );
+            let footer_widget = if partial.is_empty() {
+                Paragraph::new(status)
+            } else {
+                Paragraph::new(partial).style(style(Role::Muted))
+            };
+            frame.render_widget(footer_widget, footer);
             frame.render_widget(speed, traffic);
             if input.width > 4 && input.height > 1 {
                 frame.set_cursor_position((

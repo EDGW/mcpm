@@ -145,10 +145,12 @@ impl From<RunSnapshotWire> for RunSnapshot {
         let state = match value.state {
             WireState::Structured(state) => state,
             WireState::Legacy(LegacyState::Running) => State::Running {
-                server_status: ServerStatus::Unknown,
+                server_status: ServerStatus::StartingOrUnknown,
+                rcon_status: RconStatus::Unknown,
             },
             WireState::Legacy(LegacyState::Stopping) => State::Stopping {
-                server_status: ServerStatus::Unknown,
+                server_status: ServerStatus::StartingOrUnknown,
+                rcon_status: RconStatus::Unknown,
             },
             WireState::Legacy(LegacyState::Killing) => State::Killing,
             WireState::Legacy(LegacyState::Exited) => State::Exited {

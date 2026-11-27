@@ -86,10 +86,16 @@ pub struct Snapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum State {
-    /// Java is running; `server_status` reports independent RCON communication evidence.
-    Running { server_status: ServerStatus },
+    /// Java is running; `server_status` tracks log-observed startup progress and `rcon_status` tracks RCON connectivity.
+    Running {
+        server_status: ServerStatus,
+        rcon_status: RconStatus,
+    },
     /// Graceful `stop` was requested; Java is shutting down.
-    Stopping { server_status: ServerStatus },
+    Stopping {
+        server_status: ServerStatus,
+        rcon_status: RconStatus,
+    },
     /// Force-kill was requested (`@kill` / second Ctrl+C).
     Killing,
     /// Java exited and matched a restart rule; waiting for the configured delay before respawning.
@@ -119,8 +125,19 @@ impl State {
 
     pub fn server_status(&self) -> ServerStatus {
         match self {
-            Self::Running { server_status } | Self::Stopping { server_status } => *server_status,
-            Self::Killing | Self::Restarting { .. } | Self::Exited { .. } => ServerStatus::Unknown,
+            Self::Running { server_status, .. } | Self::Stopping { server_status, .. } => {
+                *server_status
+            }
+            Self::Killing | Self::Restarting { .. } | Self::Exited { .. } => {
+                ServerStatus::StartingOrUnknown
+            }
+        }
+    }
+
+    pub fn rcon_status(&self) -> RconStatus {
+        match self {
+            Self::Running { rcon_status, .. } | Self::Stopping { rcon_status, .. } => *rcon_status,
+            Self::Killing | Self::Restarting { .. } | Self::Exited { .. } => RconStatus::Unknown,
         }
     }
 
@@ -338,12 +355,22 @@ pub enum Source {
     Stderr,
 }
 
-/// Communication evidence from configured RCON, independent of the launch policy label.
+/// Best-effort Minecraft startup lifecycle parsed from server console logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ServerStatus {
+    StartingOrUnknown,
+    GeneratingChunks(u8),
+    Done,
+}
+
+/// RCON availability and live connection evidence, independent of the launch policy label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RconStatus {
+    Unavailable,
     Unknown,
-    RconConnected,
+    Connected,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
