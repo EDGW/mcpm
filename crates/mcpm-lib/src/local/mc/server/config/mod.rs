@@ -20,6 +20,7 @@ mod import;
 pub use import::{
     ConfigurationDraft, ImportedSetting, ImportedValue, OverwritePolicy, commit_import, draft,
 };
+mod template;
 mod generate;
 pub use generate::vanilla_server;
 mod overrides;

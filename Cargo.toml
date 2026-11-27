@@ -51,6 +51,7 @@ textwrap = { version = "0.16" }
 thiserror = { version = "2.0.21" }
 tokio = { version = "1" }
 toml = { version = "1.1.8" }
+toml_edit = { version = "0.25.18" }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", default-features = false }
 unicode-segmentation = { version = "1" }

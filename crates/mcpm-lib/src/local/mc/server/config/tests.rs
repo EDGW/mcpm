@@ -112,10 +112,26 @@ fn imported_values_are_active_and_absent_values_remain_comments() {
         candidate.configuration.launch.jvm.extra_arguments,
         ["-Dloader.fixed=yes", "-cp", "-Xmx2G"]
     );
-    let empty = decode_conf(&import::default_template()).unwrap();
+    let empty = decode_conf(&template::default_template()).unwrap();
     assert!(empty.jvm_arguments().unwrap().is_empty());
     assert!(empty.server_arguments().is_empty());
     assert!(empty.java.executable.is_none());
+    assert!(empty.restart_on.is_empty());
+
+    // The uncommented conf.template.toml itself must stay a complete, valid ServerConfig.
+    let full = decode_conf(template::CONF_TEMPLATE).unwrap();
+    assert_eq!(full.restart_on.rules.len(), 3);
+
+    // Vanilla `new` draft activates only [java] and [server].nogui while keeping [[restart_on]]
+    // commented right below [server].
+    let vanilla = vanilla_server().unwrap().template().unwrap();
+    let vanilla_conf = decode_conf(&vanilla).unwrap();
+    assert_eq!(vanilla_conf.server.nogui, Some(true));
+    assert!(vanilla_conf.restart_on.is_empty());
+    let server_pos = vanilla.find("[server]").unwrap();
+    let restart_pos = vanilla.find("# [[restart_on]]").unwrap();
+    let app_pos = vanilla.find("# [application]").unwrap();
+    assert!(server_pos < restart_pos && restart_pos < app_pos);
 }
 
 #[test]

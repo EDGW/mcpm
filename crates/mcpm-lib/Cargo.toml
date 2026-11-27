@@ -37,6 +37,7 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 tokio = { workspace = true, features = ["rt", "fs", "io-util", "time", "net"] }
 url = { workspace = true, features = ["serde"] }
 toml = { workspace = true }
+toml_edit = { workspace = true }
 zip = { workspace = true, features = ["deflate"] }
 
 tempfile = { workspace = true }

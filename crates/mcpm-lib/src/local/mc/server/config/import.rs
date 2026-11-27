@@ -5,10 +5,7 @@ use super::*;
 use crate::local::mc::server::{MinecraftServerMetadata, ServerLaunch};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashSet},
-    path::Path,
-};
+use std::{collections::HashSet, path::Path};
 
 /// Separate overwrite intents; replacing conf additionally requires replacing registration.
 #[derive(Debug, Clone, Copy, Default)]
@@ -69,12 +66,12 @@ pub fn commit_import(
         .context("preserved conf.toml is invalid; fix it or explicitly override it")?;
         (None, conf)
     } else if !conf_overrides.is_empty() {
-        let (text, conf) = manual_template(conf_overrides)?;
+        let (text, conf) = template::manual_template(conf_overrides)?;
         (Some(text), conf)
     } else {
         let text = match draft {
             Some(draft) => draft.template()?,
-            None => default_template(),
+            None => template::default_template(),
         };
         let conf = decode_conf(&text)?;
         (Some(text), conf)
@@ -116,7 +113,7 @@ pub struct ConfigurationDraft {
 
 impl ConfigurationDraft {
     pub(crate) fn template(&self) -> Result<String> {
-        template(
+        template::render_suggestions(
             self.imported
                 .iter()
                 .map(|setting| (setting.field.as_str(), &setting.value)),
@@ -135,7 +132,7 @@ pub struct ImportedSetting {
 impl ImportedSetting {
     /// A lossless assignment for the configuration override parser, replacing list values.
     pub fn override_argument(&self) -> Result<String> {
-        let value = encode_setting(&self.value)?;
+        let value = template::encode_setting(&self.value)?;
         let operator = if matches!(self.value, ImportedValue::Arguments(_)) {
             ":="
         } else {
@@ -153,19 +150,6 @@ pub enum ImportedValue {
     Boolean(bool),
     Integer(i64),
     Arguments(Vec<String>),
-}
-
-fn encode_setting(value: &impl Serialize) -> Result<String> {
-    #[derive(Serialize)]
-    struct Value<'a, T> {
-        value: &'a T,
-    }
-    let text = toml::to_string(&Value { value })?;
-    Ok(text
-        .strip_prefix("value = ")
-        .context("unexpected TOML value encoding")?
-        .trim_end()
-        .to_owned())
 }
 
 /// Consumes parsed command evidence and agent metadata; never rereads scripts, writes files or runs Java.
@@ -393,105 +377,4 @@ fn suggestion(argument: &str) -> Option<(&'static str, ImportedValue)> {
         }
     }
     None
-}
-
-const CONF_TEMPLATE: &str = include_str!("conf.template.toml");
-
-pub(super) fn default_template() -> String {
-    CONF_TEMPLATE.to_owned()
-}
-
-/// Render the final values of explicit assignments into the default template.
-fn manual_template(overrides: &ConfigurationOverrides) -> Result<(String, ServerConfig)> {
-    let conf = decode_conf_with_overrides(CONF_TEMPLATE, overrides)?;
-    let schema = toml::Value::try_from(&conf)?;
-    // A list may be modified more than once; only its final value is emitted.
-    let mut settings = BTreeMap::new();
-    for key in overrides.keys() {
-        if let std::collections::btree_map::Entry::Vacant(entry) = settings.entry(key) {
-            let value = key
-                .split('.')
-                .try_fold(&schema, |table, part| table.get(part))
-                .with_context(|| format!("cannot encode configured field {key}"))?;
-            entry.insert(value);
-        }
-    }
-    Ok((render_template(settings)?, conf))
-}
-
-fn template<'a, T: Serialize>(
-    suggestions: impl IntoIterator<Item = (&'a str, T)>,
-) -> Result<String> {
-    let mut settings = BTreeMap::new();
-    for (key, value) in suggestions {
-        ensure!(
-            settings.insert(key, value).is_none(),
-            "repeated imported setting {key} cannot be represented as one setting"
-        );
-    }
-    render_template(settings)
-}
-
-fn render_template<T: Serialize>(mut remaining: BTreeMap<&str, T>) -> Result<String> {
-    let mut table = String::new();
-    let mut result = String::new();
-    let mut skip_array = false;
-    for line in CONF_TEMPLATE.lines() {
-        if skip_array {
-            if line.trim_start().starts_with("# ]") {
-                skip_array = false;
-            }
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("# [") {
-            table = rest.split(']').next().unwrap_or("").into();
-            if remaining.keys().any(|key| {
-                key.rsplit_once('.')
-                    .is_some_and(|(parent, _)| parent == table)
-            }) {
-                result.push_str(&line[2..]);
-                result.push('\n');
-                continue;
-            }
-        } else if line.starts_with("[java]") {
-            table = "java".into();
-        }
-        if let Some((key, rest)) = line
-            .strip_prefix("# ")
-            .and_then(|line| line.split_once(" = "))
-        {
-            let path = if table.is_empty() {
-                key.to_owned()
-            } else {
-                format!("{table}.{key}")
-            };
-            if let Some(value) = remaining.remove(path.as_str()) {
-                let description = rest
-                    .split_once('#')
-                    .map(|(_, description)| description.trim())
-                    .unwrap_or("");
-                let encoded = format!("{key} = {}", encode_setting(&value)?);
-                for line in encoded.lines() {
-                    result.push_str(line);
-                    result.push('\n');
-                }
-                if !description.is_empty() {
-                    result.push_str("# ");
-                    result.push_str(description);
-                    result.push('\n');
-                }
-                skip_array =
-                    rest.trim_start().starts_with('[') && !rest.trim_start().starts_with("[]");
-                continue;
-            }
-        }
-        result.push_str(line);
-        result.push('\n');
-    }
-    ensure!(
-        remaining.is_empty(),
-        "unsupported template fields: {:?}",
-        remaining.keys()
-    );
-    Ok(result)
 }
