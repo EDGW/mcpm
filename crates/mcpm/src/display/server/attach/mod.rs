@@ -17,6 +17,7 @@ mod speed;
 mod suggestions;
 mod text;
 pub(crate) use inline::modifier_name;
+pub(crate) use suggestions::help_page_count;
 
 /// One inline terminal owner; all asynchronous terminal diagnostics are routed through its Channel.
 pub(crate) struct Display {
@@ -92,9 +93,9 @@ impl Display {
             self.suggestions.builtin_hints(definitions);
         }
     }
-    pub fn help_result(&mut self, output: Option<&str>) {
+    pub fn help_result(&mut self, pages: Option<&[String]>) {
         if self.is_tui() {
-            self.suggestions.help_result(output);
+            self.suggestions.help_result(pages);
         }
     }
     pub fn move_suggestion(&mut self, down: bool) {
