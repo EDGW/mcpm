@@ -12,6 +12,7 @@ arboard = { version = "3", default-features = false }
 async-trait = { version = "0.1" }
 blake3 = { version = "1" }
 cafebabe = { version = "0.9" }
+cel = { version = "0.16", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false }
 clap = { version = "4" }
 console = { version = "0.16" }

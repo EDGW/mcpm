@@ -364,3 +364,68 @@ fn wait_until_exited(root: &Path) {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
+
+#[test]
+fn conditional_auto_restart_restarts_within_budget_and_supports_cancel_during_delay() {
+    // Part 1: CEL rule restarts twice on crash with 100ms delay, streaming all 3 generations
+    // over one attach session, then stops cleanly with the final exit code.
+    let root = tempfile::tempdir().unwrap();
+    initialize(
+        root.path(),
+        "count=0\n[ -f runs ] && count=$(cat runs)\ncount=$((count + 1))\nprintf '%s' \"$count\" > runs\nprintf 'gen:%s\\n' \"$count\"\nexit 42",
+    );
+    let mut conf = fs::read_to_string(root.path().join("conf.toml")).unwrap();
+    conf.push_str(
+        r#"
+[[restart_on]]
+name = "crash-cap"
+type = "custom"
+condition = "exit.type == 'crash' && exit.code == 42 && executed(['crash-cap'], '10m') < 2"
+delay = "100ms"
+"#,
+    );
+    fs::write(root.path().join("conf.toml"), &conf).unwrap();
+
+    let (child, _stdin) = attached(env!("CARGO_BIN_EXE_mcpm"), root.path(), &[]);
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout, "gen:1\ngen:2\ngen:3\n");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("attempt #2") && stderr.contains("attempt #3"),
+        "expected restart notices in stderr: {stderr}"
+    );
+    assert_eq!(fs::read_to_string(root.path().join("work/runs")).unwrap(), "3");
+
+    // Part 2: Sending @stop during a long restart delay cancels the pending restart immediately.
+    let cancel_root = tempfile::tempdir().unwrap();
+    initialize(
+        cancel_root.path(),
+        "printf 'started\\n' > started\nprintf 'crash-once\\n'\nexit 19",
+    );
+    let mut cancel_conf = fs::read_to_string(cancel_root.path().join("conf.toml")).unwrap();
+    cancel_conf.push_str(
+        r#"
+[[restart_on]]
+name = "slow-restart"
+exit_type = "crash"
+delay = "30s"
+"#,
+    );
+    fs::write(cancel_root.path().join("conf.toml"), &cancel_conf).unwrap();
+
+    let started = Instant::now();
+    let (child, mut stdin) = attached(env!("CARGO_BIN_EXE_mcpm"), cancel_root.path(), &[]);
+    wait_for(&cancel_root.path().join("work/started"));
+    // Give the shim a brief moment to enter State::Restarting, then cancel with @stop.
+    std::thread::sleep(Duration::from_millis(300));
+    writeln!(stdin, "@stop").unwrap();
+    let output = child.wait_with_output().unwrap();
+    drop(stdin);
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "cancel during 30s delay should exit promptly"
+    );
+    assert_eq!(output.status.code(), Some(19), "{output:?}");
+}

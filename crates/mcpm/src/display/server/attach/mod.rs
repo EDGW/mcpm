@@ -31,6 +31,7 @@ pub(crate) struct Display {
     pub cursor: usize,
     pub state: State,
     pub channel: Channel,
+    restart_anchor: Option<(std::time::Instant, u64)>,
     suggestions: suggestions::Suggestions,
     speed_full: bool,
     pub diagnostics: tokio::sync::mpsc::Receiver<(Vec<u8>, usize)>,
@@ -66,6 +67,12 @@ impl Display {
             stderr_start: true,
             draft: String::new(),
             cursor: 0,
+            restart_anchor: match &state {
+                State::Restarting { remaining_ms, .. } => {
+                    Some((std::time::Instant::now(), *remaining_ms))
+                }
+                _ => None,
+            },
             state,
             channel,
             suggestions: suggestions::Suggestions::default(),
@@ -73,6 +80,15 @@ impl Display {
             diagnostics,
             _console: guard,
         })
+    }
+    pub fn set_state(&mut self, state: State) {
+        self.restart_anchor = match &state {
+            State::Restarting { remaining_ms, .. } => {
+                Some((std::time::Instant::now(), *remaining_ms))
+            }
+            _ => None,
+        };
+        self.state = state;
     }
     pub fn is_tui(&self) -> bool {
         self.screen.is_some()
@@ -184,6 +200,16 @@ impl Display {
             }
         }
         Ok(())
+    }
+    pub fn restarting(&mut self, rule: &str, attempt: u32, delay_ms: u64) -> Result<()> {
+        let rule = sanitize_field(rule);
+        let delay = format_delay_ms(delay_ms);
+        self.notice(
+            "restart",
+            &format!(
+                "Restarting in {delay} (rule: {rule}, attempt #{attempt}); @stop / @kill / Ctrl+C to cancel"
+            ),
+        )
     }
     pub fn exited(&mut self, exit: &ExitReason) -> Result<()> {
         if self.raw {
@@ -313,16 +339,40 @@ impl Display {
         let Some(screen) = &mut self.screen else {
             return Ok(());
         };
-        let server_status = match self.state.server_status() {
-            ServerStatus::Unknown => "Unknown",
-            ServerStatus::RconConnected => "RCON Connected",
+        let status = match &self.state {
+            State::Restarting {
+                rule,
+                attempt,
+                remaining_ms,
+                ..
+            } => {
+                let effective_remaining_ms = match self.restart_anchor {
+                    Some((anchored_at, base_ms)) => {
+                        let elapsed =
+                            u64::try_from(anchored_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        base_ms.saturating_sub(elapsed)
+                    }
+                    None => *remaining_ms,
+                };
+                let remaining = format_countdown_ms(effective_remaining_ms);
+                let rule = sanitize_field(rule);
+                format!(
+                    "Java Restarting in {remaining} (rule: {rule} · attempt #{attempt}) · @stop / @kill / Ctrl+C: cancel · @detach / Ctrl+D: detach"
+                )
+            }
+            _ => {
+                let server_status = match self.state.server_status() {
+                    ServerStatus::Unknown => "Unknown",
+                    ServerStatus::RconConnected => "RCON Connected",
+                };
+                format!(
+                    "Java {} · Server {} · {:?} · @detach / Ctrl+D: detach · Ctrl+C: stop / kill",
+                    self.state.label(),
+                    server_status,
+                    self.channel
+                )
+            }
         };
-        let status = format!(
-            "Java {} · Server {} · {:?} · @detach / Ctrl+D: detach · Ctrl+C: stop / kill",
-            self.state.label(),
-            server_status,
-            self.channel
-        );
         let partial = self
             .streams
             .iter()
@@ -387,6 +437,53 @@ fn sanitize_field(value: &str) -> String {
         .chars()
         .filter(|ch| !ch.is_control())
         .collect()
+}
+
+fn format_delay_ms(delay_ms: u64) -> String {
+    if delay_ms == 0 {
+        return "0s".into();
+    }
+    if delay_ms < 1_000 {
+        return format!("{delay_ms}ms");
+    }
+    let secs = delay_ms / 1_000;
+    let rem_ms = delay_ms % 1_000;
+    if rem_ms == 0 {
+        format_seconds(secs)
+    } else {
+        format!("{secs}.{:03}s", rem_ms)
+    }
+}
+
+fn format_countdown_ms(remaining_ms: u64) -> String {
+    if remaining_ms == 0 {
+        return "0s".into();
+    }
+    format_seconds(remaining_ms.div_ceil(1_000))
+}
+
+fn format_seconds(total_secs: u64) -> String {
+    if total_secs < 60 {
+        return format!("{total_secs}s");
+    }
+    let mins = total_secs / 60;
+    let secs = total_secs % 60;
+    if mins < 60 {
+        return if secs == 0 {
+            format!("{mins}m")
+        } else {
+            format!("{mins}m{secs}s")
+        };
+    }
+    let hours = mins / 60;
+    let rem_mins = mins % 60;
+    if rem_mins == 0 && secs == 0 {
+        format!("{hours}h")
+    } else if secs == 0 {
+        format!("{hours}h{rem_mins}m")
+    } else {
+        format!("{hours}h{rem_mins}m{secs}s")
+    }
 }
 
 fn exit_report(exit: &ExitReason) -> (&'static str, Role, Vec<Line<'static>>) {

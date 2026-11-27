@@ -84,7 +84,7 @@ impl Operation for Prepare {
                 updates.send_replace(Some((message, bytes)));
                 Ok(())
             };
-            let prepare = launch::prepare_with_progress(
+            let prepare = launch::prepare_launch_with_progress(
                 &server,
                 &input.overrides,
                 input.auth_jar_policy,
@@ -92,7 +92,7 @@ impl Operation for Prepare {
                 &observe,
             );
             tokio::pin!(prepare);
-            let plan = loop {
+            let prepared = loop {
                 tokio::select! {
                     result = &mut prepare => break result.map_err(attach_executable_tip)?,
                     changed = progress.changed() => {
@@ -105,7 +105,8 @@ impl Operation for Prepare {
             sender
                 .send(PrepareEvent::Prepared(Prepared {
                     server: server.clone(),
-                    plan: EncodedPlan::encode(&plan)?,
+                    plan: EncodedPlan::encode(&prepared.plan)?,
+                    restart: prepared.restart,
                 }))
                 .await?;
             Ok(())

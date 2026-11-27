@@ -14,16 +14,19 @@ const CAPACITY: usize = MAX_LOG_BLOCK_BYTES;
 const CRASH_REPORT_MARKER: &str = "This crash report has been saved to:";
 const CRASH_REPORT_SCAN_LINES: usize = 200;
 
-/// Scans the last 200 logical lines of stdout and stderr for Minecraft's crash report notice,
-/// resolving relative paths against Java's working directory.
+/// Scans at most the last 200 logical lines of stdout and stderr written at or after each
+/// stream's generation cursor for Minecraft's crash report notice, resolving relative paths
+/// against Java's working directory.
 pub(super) fn detect_crash_report(
     stdout: &Buffer,
     stderr: &Buffer,
     working_directory: &Path,
+    stdout_since: u64,
+    stderr_since: u64,
 ) -> Option<String> {
     stdout
-        .detect_crash_report(working_directory)
-        .or_else(|| stderr.detect_crash_report(working_directory))
+        .detect_crash_report(working_directory, stdout_since)
+        .or_else(|| stderr.detect_crash_report(working_directory, stderr_since))
 }
 
 #[derive(Default)]
@@ -147,8 +150,8 @@ impl Buffer {
         })
     }
 
-    fn detect_crash_report(&self, working_directory: &Path) -> Option<String> {
-        let tail = self.tail_lines_bytes(CRASH_REPORT_SCAN_LINES);
+    fn detect_crash_report(&self, working_directory: &Path, since_cursor: u64) -> Option<String> {
+        let tail = self.tail_lines_bytes(CRASH_REPORT_SCAN_LINES, since_cursor);
         if tail.is_empty() {
             return None;
         }
@@ -174,16 +177,22 @@ impl Buffer {
         None
     }
 
-    /// Collects bytes covering at most the last `max_lines` logical lines across chunk boundaries.
-    fn tail_lines_bytes(&self, max_lines: usize) -> Vec<u8> {
-        if max_lines == 0 || self.chunks.is_empty() {
+    /// Collects bytes covering at most the last `max_lines` logical lines across chunk boundaries,
+    /// restricted to bytes at sequence offset `>= since_cursor`.
+    fn tail_lines_bytes(&self, max_lines: usize, since_cursor: u64) -> Vec<u8> {
+        if max_lines == 0 || self.chunks.is_empty() || self.latest <= since_cursor {
             return Vec::new();
         }
         let mut reversed = Vec::new();
         let mut newlines = 0usize;
         let mut seen_any = false;
         'outer: for chunk in self.chunks.iter().rev() {
-            for &byte in chunk.bytes.iter().rev() {
+            let chunk_end = chunk.seq + chunk.bytes.len() as u64;
+            if chunk_end <= since_cursor {
+                break;
+            }
+            let slice_start = since_cursor.saturating_sub(chunk.seq) as usize;
+            for &byte in chunk.bytes[slice_start..].iter().rev() {
                 if byte == b'\n' {
                     if seen_any {
                         newlines += 1;
@@ -393,7 +402,7 @@ mod tests {
                 .to_vec(),
         );
         assert_eq!(
-            detect_crash_report(&stdout, &stderr, wd),
+            detect_crash_report(&stdout, &stderr, wd, 0, 0),
             Some("/srv/minecraft/crash-reports/crash-2013-10-15_16.20.00-server.txt".to_owned())
         );
 
@@ -403,9 +412,13 @@ mod tests {
         stdout.push(b"\x1b[31m[12:00:00] [Server thread/ERROR]: This crash report has been ".to_vec());
         stdout.push(b"saved to: crash-reports/crash-2026-05-01_12.00.00-server.txt\x1b[m\n".to_vec());
         assert_eq!(
-            detect_crash_report(&stdout, &stderr, wd),
+            detect_crash_report(&stdout, &stderr, wd, 0, 0),
             Some("/srv/minecraft/crash-reports/crash-2026-05-01_12.00.00-server.txt".to_owned())
         );
+        // Generation boundary excludes crash reports from earlier generations.
+        let next_gen = stdout.range().latest;
+        stdout.push(b"[12:01:00] [Server thread/INFO]: Clean restart\n".to_vec());
+        assert_eq!(detect_crash_report(&stdout, &stderr, wd, next_gen, 0), None);
 
         // Enforce the 200-line tail window: 199 trailing lines still match, 200 trailing lines evict it.
         let mut stdout = Buffer::default();
@@ -417,10 +430,10 @@ mod tests {
             stdout.push(b"noise line\n".to_vec());
         }
         assert_eq!(
-            detect_crash_report(&stdout, &stderr, wd),
+            detect_crash_report(&stdout, &stderr, wd, 0, 0),
             Some("/srv/minecraft/crash-reports/old.txt".to_owned())
         );
         stdout.push(b"one more noise line\n".to_vec());
-        assert_eq!(detect_crash_report(&stdout, &stderr, wd), None);
+        assert_eq!(detect_crash_report(&stdout, &stderr, wd, 0, 0), None);
     }
 }

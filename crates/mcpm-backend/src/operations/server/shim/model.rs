@@ -6,7 +6,10 @@ pub use mcpm_lib::local::mc::{
     server::launch::LaunchExit,
 };
 use mcpm_lib::local::mc::server::{
-    authlib_injector::JarPolicy, config::ConfigurationOverrides, launch::LaunchPlan,
+    authlib_injector::JarPolicy,
+    config::ConfigurationOverrides,
+    launch::LaunchPlan,
+    restart::{ExitKind, RestartPolicy},
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -34,6 +37,8 @@ pub struct PrepareInput {
 pub struct Prepared {
     pub server: PathBuf,
     pub plan: EncodedPlan,
+    #[serde(default, skip_serializing_if = "RestartPolicy::is_empty")]
+    pub restart: RestartPolicy,
 }
 #[derive(Serialize, Deserialize)]
 pub enum PrepareEvent {
@@ -47,6 +52,8 @@ pub enum PrepareEvent {
 pub struct LaunchInput {
     pub server: PathBuf,
     pub plan: EncodedPlan,
+    #[serde(default, skip_serializing_if = "RestartPolicy::is_empty")]
+    pub restart: RestartPolicy,
     pub communication: Communication,
     pub launch_request_id: String,
 }
@@ -86,6 +93,15 @@ pub enum State {
     Stopping { server_status: ServerStatus },
     /// Force-kill was requested (`@kill` / second Ctrl+C).
     Killing,
+    /// Java exited and matched a restart rule; waiting for the configured delay before respawning.
+    Restarting {
+        previous_exit: ExitReason,
+        rule: String,
+        attempt: u32,
+        delay_ms: u64,
+        /// Monotonic remaining delay measured on the Host at snapshot time (immune to clock skew).
+        remaining_ms: u64,
+    },
     /// Java has exited with an authoritative exit classification.
     Exited { reason: ExitReason },
 }
@@ -105,7 +121,7 @@ impl State {
     pub fn server_status(&self) -> ServerStatus {
         match self {
             Self::Running { server_status } | Self::Stopping { server_status } => *server_status,
-            Self::Killing | Self::Exited { .. } => ServerStatus::Unknown,
+            Self::Killing | Self::Restarting { .. } | Self::Exited { .. } => ServerStatus::Unknown,
         }
     }
 
@@ -114,6 +130,7 @@ impl State {
             Self::Running { .. } => "Running",
             Self::Stopping { .. } => "Stopping",
             Self::Killing => "Killing",
+            Self::Restarting { .. } => "Restarting",
             Self::Exited { .. } => "Exited",
         }
     }
@@ -146,7 +163,7 @@ pub enum ExitReason {
 
 impl ExitReason {
     /// POSIX `SIGKILL` signal number, invariant across Unix hosts and cross-OS clients.
-    pub const SIGKILL: i32 = 9;
+    pub const SIGKILL: i32 = ExitKind::SIGKILL;
 
     /// Classifies Java's process exit from the raw wait outcome, whether mcpm invoked kill,
     /// and any crash report detected and analysed on the Host.
@@ -155,22 +172,14 @@ impl ExitReason {
         killed_by_mcpm: bool,
         crash_report: Option<DetectedCrashReport>,
     ) -> Self {
-        match exit {
-            LaunchExit::Code(0) => match crash_report {
-                Some(crash_report) => Self::Crashed {
-                    code: 0,
-                    crash_report: Some(crash_report),
-                },
-                None => Self::Exited,
-            },
-            LaunchExit::Signal(Self::SIGKILL) if killed_by_mcpm => Self::KilledByMcpm { exit },
-            LaunchExit::Signal(Self::SIGKILL) => Self::KilledByUser,
-            LaunchExit::Code(_) if killed_by_mcpm => Self::KilledByMcpm { exit },
-            LaunchExit::Code(code) => Self::Crashed { code, crash_report },
-            LaunchExit::Signal(_) => Self::Crashed {
+        match ExitKind::classify(exit, killed_by_mcpm, crash_report.is_some()) {
+            ExitKind::Exit => Self::Exited,
+            ExitKind::Crash => Self::Crashed {
                 code: exit.shell_code(),
                 crash_report,
             },
+            ExitKind::KilledByMcpm => Self::KilledByMcpm { exit },
+            ExitKind::KilledByUser => Self::KilledByUser,
         }
     }
 

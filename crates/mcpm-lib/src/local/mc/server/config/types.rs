@@ -1,6 +1,7 @@
 //! Strict version-one launch and tuning schemas; decoding is owned by the config facade.
 
 pub use crate::local::java::command::JavaEntry;
+use crate::local::mc::server::restart::RestartPolicy;
 use mcpm_macros::ConfigFields;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -81,6 +82,13 @@ pub struct ServerConfig {
     #[serde(default, rename = "authlib-injector")]
     #[config(nested)]
     pub authlib_injector: Option<super::AuthlibInjector>,
+    #[serde(
+        default,
+        rename = "restart_on",
+        skip_serializing_if = "RestartPolicy::is_empty"
+    )]
+    #[config(skip)]
+    pub restart_on: RestartPolicy,
 }
 
 impl Default for ServerConfig {
@@ -92,6 +100,7 @@ impl Default for ServerConfig {
             server: Server::default(),
             application: Arguments::default(),
             authlib_injector: None,
+            restart_on: RestartPolicy::default(),
         }
     }
 }

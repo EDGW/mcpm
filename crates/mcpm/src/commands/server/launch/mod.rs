@@ -382,7 +382,10 @@ pub(super) fn run(args: LaunchArgs, ssh: SshArgs) -> Result<CommandOutcome> {
         progress.starting();
         drop(progress);
         let launched = executor.call::<shim::Launch>(shim::LaunchInput {
-            server: prepared.server, plan: prepared.plan, communication: args.execution.communication.into(),
+            server: prepared.server,
+            plan: prepared.plan,
+            restart: prepared.restart,
+            communication: args.execution.communication.into(),
             launch_request_id: uuid::Uuid::new_v4().to_string(),
         }).await?;
         if args.execution.detach {

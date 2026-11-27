@@ -81,6 +81,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
         let name = serde_string(&field.attrs, "rename")?
             .unwrap_or(canonical_name(&member.to_string(), rule.as_deref())?);
         let mut nested = false;
+        let mut skip = false;
         let mut command: Option<LitStr> = None;
         let mut short: Option<syn::LitChar> = None;
         for attr in field
@@ -91,6 +92,8 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("nested") {
                     nested = true;
+                } else if meta.path.is_ident("skip") {
+                    skip = true;
                 } else if meta.path.is_ident("name") {
                     let explicit: LitStr = meta.value()?.parse()?;
                     if explicit.value() != name {
@@ -108,6 +111,9 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
                 }
                 Ok(())
             })?;
+        }
+        if skip {
+            continue;
         }
         let help = field
             .attrs

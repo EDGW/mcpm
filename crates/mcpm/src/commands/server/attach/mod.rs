@@ -306,6 +306,8 @@ pub(super) async fn flow(
     let mut commands = JoinSet::new();
     let mut help = JoinSet::new();
     let mut help_requested = false;
+    let mut last_restarting_attempt: Option<u32> = None;
+    let mut exit_reported_for_generation = false;
     let mut pending = std::collections::VecDeque::new();
     let mut command_history = command_history::CommandHistory::default();
     let mut finished = [false; 2];
@@ -315,6 +317,19 @@ pub(super) async fn flow(
     let mut redraw = tokio::time::interval(Duration::from_millis(100));
     {
         let _keyboard = reader.pause();
+        if let State::Restarting {
+            previous_exit,
+            rule,
+            attempt,
+            remaining_ms,
+            ..
+        } = &display.state.clone()
+        {
+            last_restarting_attempt = Some(*attempt);
+            exit_reported_for_generation = true;
+            display.exited(previous_exit)?;
+            display.restarting(rule, *attempt, *remaining_ms)?;
+        }
         display.draw(executor.traffic_stats())?;
     }
     loop {
@@ -369,7 +384,11 @@ pub(super) async fn flow(
             && let Some(exit) = display.state.exit_reason().cloned()
         {
             let _keyboard = reader.pause();
-            display.exited(&exit)?;
+            if exit_reported_for_generation {
+                display.notice("restart", "Auto-restart stopped; exiting")?;
+            } else {
+                display.exited(&exit)?;
+            }
             return Ok(Exit::Exited(exit.shell_code()));
         }
         tokio::select! {
@@ -409,7 +428,10 @@ pub(super) async fn flow(
                 let _keyboard = reader.pause();
                 match action.context("control action disappeared")? {
                     Ok((id, Ok(Action::Command(result)))) => {
-                        if result.status != CommandStatus::Accepted { submitted.remove(&id); display.notice("command", "Java has exited")?; }
+                        if result.status != CommandStatus::Accepted {
+                            submitted.remove(&id);
+                            display.notice("command", result.diagnostic.as_deref().unwrap_or("Java has exited"))?;
+                        }
                     }
                     Ok((id, Ok(Action::Kill(result)))) => {
                         if result == KillResult::AlreadyExited { submitted.remove(&id); display.notice("kill", "Java has exited")?; }
@@ -432,7 +454,27 @@ pub(super) async fn flow(
                     finished[usize::from(source == Source::Stderr)] = batch.finished;
                 }
                 Some(Update::Status(snapshot)) => {
-                    display.state = snapshot.state;
+                    let was_restarting = matches!(display.state, State::Restarting { .. });
+                    if let State::Restarting {
+                        previous_exit,
+                        rule,
+                        attempt,
+                        delay_ms,
+                        ..
+                    } = &snapshot.state
+                        && last_restarting_attempt != Some(*attempt)
+                    {
+                        last_restarting_attempt = Some(*attempt);
+                        exit_reported_for_generation = true;
+                        display.finish_source(Source::Stdout)?;
+                        display.finish_source(Source::Stderr)?;
+                        display.exited(previous_exit)?;
+                        display.restarting(rule, *attempt, *delay_ms)?;
+                    } else if was_restarting && matches!(snapshot.state, State::Running { .. }) {
+                        help_requested = false;
+                        exit_reported_for_generation = false;
+                    }
+                    display.set_state(snapshot.state);
                     display.channel = snapshot.actual_channel;
                 }
                 Some(Update::Command(CommandEvent::Completed { listener_id: origin, command_id, text, result })) => {
@@ -454,7 +496,11 @@ pub(super) async fn flow(
                         .filter(|_| finished.iter().all(|finished| *finished) && commands_finished)
                         .cloned()
                         .context("attach readers ended without authoritative completion")?;
-                    display.exited(&exit)?;
+                    if exit_reported_for_generation {
+                        display.notice("restart", "Auto-restart stopped; exiting")?;
+                    } else {
+                        display.exited(&exit)?;
+                    }
                     return Ok(Exit::Exited(exit.shell_code()));
                 }
                 }
@@ -741,7 +787,7 @@ fn spawn_interrupt(
                 })
                 .await?;
             match info.state {
-                State::Running { .. } => send_command(
+                State::Running { .. } | State::Restarting { .. } => send_command(
                     &executor,
                     &reference,
                     &listener_id,

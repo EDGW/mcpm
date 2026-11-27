@@ -1,10 +1,19 @@
 //! Java-owning shim runtime: independent control, bounded logs and serialized command outcomes.
 
 use super::*;
-use mcpm_lib::local::mc::server::launch::{JavaProcess, rcon};
+use mcpm_lib::local::mc::server::{
+    launch::{JavaProcess, rcon},
+    restart::{
+        CompiledRestartPolicy, ExitObservation, ObservedCrashReport, RestartDecision,
+        RestartHistory, current_local_timestamp,
+    },
+};
 use std::{
     io::{Read, Write},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Instant,
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore, watch};
@@ -12,6 +21,10 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore, watch};
 struct Data {
     state: State,
     reaped: bool,
+    kill_requested: bool,
+    restart_cancelled: bool,
+    has_restart_policy: bool,
+    restart_deadline: Option<tokio::time::Instant>,
     channel: Channel,
     stdout: logs::Buffer,
     stderr: logs::Buffer,
@@ -46,6 +59,25 @@ struct Runtime {
     status: watch::Sender<()>,
     command_updates: watch::Sender<()>,
     kill: Notify,
+    cancel_restart: Notify,
+    pipe_closed: Notify,
+}
+
+enum SupervisionPhase {
+    Running {
+        java: JavaProcess,
+        started_at: Instant,
+        stdout_since: u64,
+        stderr_since: u64,
+        stdout_drained: Arc<AtomicBool>,
+        stderr_drained: Arc<AtomicBool>,
+        killed_by_mcpm: bool,
+        pending_exit: Option<(LaunchExit, bool, Instant)>,
+    },
+    Restarting {
+        previous_exit: ExitReason,
+        deadline: tokio::time::Instant,
+    },
 }
 
 pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
@@ -75,6 +107,8 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     )?;
     let _hint = RunHint::create(&record)?;
     let plan = input.plan.decode()?;
+    let restart_policy =
+        CompiledRestartPolicy::compile(&input.restart).context("invalid restart_on policy")?;
     let (settings, configuration_error) = match input.communication {
         Communication::Stdin => (None, None),
         Communication::Rcon => (rcon::Settings::from_plan(&plan)?, None),
@@ -92,9 +126,11 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         input.communication != Communication::Rcon || settings.is_some(),
         "rcon mode requires configured RCON credentials"
     );
+    let has_rcon_settings = settings.is_some();
+    let has_restart_policy = !restart_policy.is_empty();
     let history = history::History::create(&directory, &record.reference.run_id)?;
     let java_directory = plan.directory().to_path_buf();
-    let mut java = JavaProcess::spawn(plan)
+    let mut java = JavaProcess::spawn(plan.clone())
         .map_err(crate::operations::server::shim::attach_executable_tip)?;
     let stdin = java.take_stdin().context("missing Java stdin")?;
     let stdout = java.take_stdout().context("missing Java stdout")?;
@@ -115,6 +151,10 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                 server_status: ServerStatus::Unknown,
             },
             reaped: false,
+            kill_requested: false,
+            restart_cancelled: false,
+            has_restart_policy,
+            restart_deadline: None,
             channel: Channel::Stdin,
             stdout: logs::Buffer::default(),
             stderr: logs::Buffer::default(),
@@ -136,9 +176,13 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         status,
         command_updates,
         kill: Notify::new(),
+        cancel_restart: Notify::new(),
+        pipe_closed: Notify::new(),
     });
-    drain(stdout, Source::Stdout, runtime.clone());
-    drain(stderr, Source::Stderr, runtime.clone());
+    let stdout_drained = Arc::new(AtomicBool::new(false));
+    let stderr_drained = Arc::new(AtomicBool::new(false));
+    drain(stdout, Source::Stdout, runtime.clone(), stdout_drained.clone());
+    drain(stderr, Source::Stderr, runtime.clone(), stderr_drained.clone());
     publish(&directory.join("instance.json"), &record)?;
     let launched = runtime.launched();
     let reply: std::result::Result<Launched, ErrorReport> = Ok(launched);
@@ -147,108 +191,343 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     }
     let capacity = Arc::new(Semaphore::new(64));
     let mut tick = tokio::time::interval(Duration::from_millis(20));
-    let mut pending_exit: Option<(LaunchExit, bool, Instant)> = None;
-    let mut killed_by_mcpm = false;
     let mut requests = tokio::task::JoinSet::new();
-    if runtime.commands.lock().await.settings.is_some() {
+    let mut rcon_probe: Option<tokio::task::JoinHandle<()>> = has_rcon_settings.then(|| {
         let runtime = runtime.clone();
-        requests.spawn(async move { runtime.probe_rcon().await });
-    }
-    let mark_reaped = |exit: LaunchExit, killed: bool| {
-        let mut data = runtime.data.lock().unwrap();
-        data.reaped = true;
-        match &mut data.state {
-            State::Running { server_status } | State::Stopping { server_status } => {
-                *server_status = ServerStatus::Unknown;
-            }
-            State::Killing | State::Exited { .. } => {}
-        }
-        (exit, killed, Instant::now())
+        tokio::spawn(async move { runtime.probe_rcon().await })
+    });
+    let mut restart_history = RestartHistory::new();
+    let mut phase = SupervisionPhase::Running {
+        java,
+        started_at: Instant::now(),
+        stdout_since: 0,
+        stderr_since: 0,
+        stdout_drained,
+        stderr_drained,
+        killed_by_mcpm: false,
+        pending_exit: None,
     };
-    let try_finalize_exit = |exit: LaunchExit, killed: bool, exited_at: Instant| -> bool {
-        let report_path = {
-            let data = runtime.data.lock().unwrap();
-            if !(data.stdout.closed && data.stderr.closed)
-                && exited_at.elapsed() < Duration::from_secs(2)
-            {
-                return false;
-            }
-            logs::detect_crash_report(&data.stdout, &data.stderr, &java_directory)
-        };
-        let crash_report = report_path.map(|path| {
-            let analysis = mcpm_lib::local::mc::crash_report::analyse_file(Path::new(&path))
-                .map_err(|error| ErrorReport::capture_std(&error));
-            DetectedCrashReport { path, analysis }
-        });
-        let mut data = runtime.data.lock().unwrap();
-        data.state = State::Exited {
-            reason: ExitReason::from_launch_exit(exit, killed, crash_report),
-        };
-        runtime.status.send_replace(());
-        true
-    };
+
     loop {
-        tokio::select! {
-            _ = tick.tick() => {
-                if pending_exit.is_none() && let Some(exit) = java.try_wait()? {
-                    pending_exit = Some(mark_reaped(exit, killed_by_mcpm));
+        match &mut phase {
+            SupervisionPhase::Running { .. } => {
+                let mut should_check_exit = false;
+                let mut should_kill = false;
+                tokio::select! {
+                    _ = tick.tick() => {
+                        should_check_exit = true;
+                    }
+                    _ = runtime.pipe_closed.notified() => {
+                        should_check_exit = true;
+                    }
+                    _ = runtime.kill.notified(), if matches!(phase, SupervisionPhase::Running { pending_exit: None, .. }) => {
+                        should_kill = true;
+                    }
+                    _ = requests.join_next(), if !requests.is_empty() => {},
+                    connection = listener.accept() => {
+                        accept_connection(connection?, &capacity, &runtime, &mut requests);
+                    }
                 }
-                if let Some((exit, killed, exited_at)) = pending_exit
-                    && try_finalize_exit(exit, killed, exited_at)
+
+                if should_kill
+                    && runtime.data.lock().unwrap().kill_requested
+                    && let SupervisionPhase::Running {
+                        java,
+                        killed_by_mcpm,
+                        pending_exit,
+                        ..
+                    } = &mut phase
+                    && pending_exit.is_none()
                 {
+                    if let Some(exit) = java.try_wait()? {
+                        if let Some(handle) = rcon_probe.take() {
+                            handle.abort();
+                        }
+                        *pending_exit = Some(mark_reaped(&runtime, exit, *killed_by_mcpm));
+                        should_check_exit = true;
+                    } else {
+                        java.kill()?;
+                        *killed_by_mcpm = true;
+                    }
+                }
+
+                if should_check_exit {
+                    let finalized = if let SupervisionPhase::Running {
+                        java,
+                        started_at,
+                        stdout_since,
+                        stderr_since,
+                        stdout_drained,
+                        stderr_drained,
+                        killed_by_mcpm,
+                        pending_exit,
+                    } = &mut phase
+                    {
+                        if pending_exit.is_none()
+                            && let Some(exit) = java.try_wait()?
+                        {
+                            if let Some(handle) = rcon_probe.take() {
+                                handle.abort();
+                            }
+                            *pending_exit = Some(mark_reaped(&runtime, exit, *killed_by_mcpm));
+                        }
+                        if let Some((exit, killed, exited_at)) = *pending_exit {
+                            let pipes_ready = (stdout_drained.load(Ordering::Acquire)
+                                && stderr_drained.load(Ordering::Acquire))
+                                || exited_at.elapsed() >= Duration::from_secs(2);
+                            if pipes_ready {
+                                Some((
+                                    exit,
+                                    killed,
+                                    exited_at,
+                                    *started_at,
+                                    *stdout_since,
+                                    *stderr_since,
+                                ))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some((exit, killed, exited_at, started_at, stdout_since, stderr_since)) =
+                        finalized
+                    {
+                        let report_path = {
+                            let data = runtime.data.lock().unwrap();
+                            logs::detect_crash_report(
+                                &data.stdout,
+                                &data.stderr,
+                                &java_directory,
+                                stdout_since,
+                                stderr_since,
+                            )
+                        };
+                        let mut observed_report = None;
+                        let detected_report = report_path.map(|path| {
+                            let raw =
+                                mcpm_lib::local::mc::crash_report::analyse_file(Path::new(&path));
+                            observed_report = Some(ObservedCrashReport {
+                                path: path.clone(),
+                                analysis: raw.as_ref().cloned().map_err(|err| err.to_string()),
+                            });
+                            let analysis = raw.map_err(|error| ErrorReport::capture_std(&error));
+                            DetectedCrashReport { path, analysis }
+                        });
+                        let exit_reason =
+                            ExitReason::from_launch_exit(exit, killed, detected_report);
+
+                        let (stop_requested, rcon_ever_connected) = {
+                            let mut lane = runtime.commands.lock().await;
+                            lane.stdin = None;
+                            lane.connection = None;
+                            (lane.stop_attempted, lane.ever_connected)
+                        };
+
+                        let observation = ExitObservation {
+                            exit,
+                            killed_by_mcpm: killed,
+                            stop_requested,
+                            crash_report: observed_report,
+                            uptime: exited_at.saturating_duration_since(started_at),
+                            rcon_ever_connected,
+                            now: current_local_timestamp(),
+                            at: exited_at,
+                        };
+                        let outcome = restart_policy.evaluate(&observation, &mut restart_history);
+                        for message in &outcome.diagnostics {
+                            tracing::warn!("{message}");
+                        }
+
+                        match outcome.decision {
+                            RestartDecision::Stop { .. } => {
+                                let mut data = runtime.data.lock().unwrap();
+                                data.restart_deadline = None;
+                                data.state = State::Exited {
+                                    reason: exit_reason,
+                                };
+                                runtime.status.send_replace(());
+                                break;
+                            }
+                            RestartDecision::Restart {
+                                rule,
+                                delay,
+                                attempt,
+                            } => {
+                                let delay_ms =
+                                    u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
+                                let deadline = tokio::time::Instant::now()
+                                    .checked_add(delay)
+                                    .unwrap_or_else(|| {
+                                        tokio::time::Instant::now()
+                                            + mcpm_lib::local::mc::server::restart::MAX_RESTART_DURATION
+                                    });
+                                let suppressed = {
+                                    let mut data = runtime.data.lock().unwrap();
+                                    if data.kill_requested || data.restart_cancelled {
+                                        data.restart_deadline = None;
+                                        data.state = State::Exited {
+                                            reason: exit_reason.clone(),
+                                        };
+                                        runtime.status.send_replace(());
+                                        true
+                                    } else {
+                                        data.restart_deadline = Some(deadline);
+                                        data.state = State::Restarting {
+                                            previous_exit: exit_reason.clone(),
+                                            rule: rule.clone(),
+                                            attempt,
+                                            delay_ms,
+                                            remaining_ms: delay_ms,
+                                        };
+                                        runtime.status.send_replace(());
+                                        false
+                                    }
+                                };
+                                if suppressed {
+                                    break;
+                                }
+                                tracing::info!(
+                                    rule = %rule,
+                                    attempt,
+                                    delay_ms,
+                                    "scheduling server auto-restart"
+                                );
+                                phase = SupervisionPhase::Restarting {
+                                    previous_exit: exit_reason,
+                                    deadline,
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            SupervisionPhase::Restarting { deadline, .. } => {
+                let deadline = *deadline;
+                let mut due = false;
+                let mut cancelled = false;
+                tokio::select! {
+                    _ = tokio::time::sleep_until(deadline) => {
+                        due = true;
+                    }
+                    _ = runtime.cancel_restart.notified() => {
+                        cancelled = true;
+                    }
+                    _ = requests.join_next(), if !requests.is_empty() => {},
+                    connection = listener.accept() => {
+                        accept_connection(connection?, &capacity, &runtime, &mut requests);
+                    }
+                }
+
+                let cancelled =
+                    cancelled || runtime.data.lock().unwrap().restart_cancelled;
+                if cancelled {
+                    let SupervisionPhase::Restarting { previous_exit, .. } = phase else {
+                        unreachable!();
+                    };
+                    let mut data = runtime.data.lock().unwrap();
+                    data.restart_deadline = None;
+                    data.state = State::Exited {
+                        reason: previous_exit,
+                    };
+                    runtime.status.send_replace(());
                     break;
                 }
-            }
-            _ = runtime.kill.notified(), if pending_exit.is_none() => {
-                if let Some(exit) = java.try_wait()? {
-                    let (exit, killed, exited_at) = mark_reaped(exit, killed_by_mcpm);
-                    if try_finalize_exit(exit, killed, exited_at) {
-                        break;
+
+                if due {
+                    let SupervisionPhase::Restarting { previous_exit, .. } = phase else {
+                        unreachable!();
+                    };
+                    match spawn_next_generation(&plan, &runtime).await {
+                        Ok((mut next_java, stdout, stderr)) => {
+                            let stdout_drained = Arc::new(AtomicBool::new(false));
+                            let stderr_drained = Arc::new(AtomicBool::new(false));
+                            let cursors = {
+                                let mut data = runtime.data.lock().unwrap();
+                                if data.restart_cancelled {
+                                    data.restart_deadline = None;
+                                    data.state = State::Exited {
+                                        reason: previous_exit.clone(),
+                                    };
+                                    runtime.status.send_replace(());
+                                    None
+                                } else {
+                                    let stdout_since = data.stdout.range().latest;
+                                    let stderr_since = data.stderr.range().latest;
+                                    data.reaped = false;
+                                    data.kill_requested = false;
+                                    data.restart_cancelled = false;
+                                    data.restart_deadline = None;
+                                    data.channel = Channel::Stdin;
+                                    data.state = State::Running {
+                                        server_status: ServerStatus::Unknown,
+                                    };
+                                    runtime.status.send_replace(());
+                                    Some((stdout_since, stderr_since))
+                                }
+                            };
+                            let Some((stdout_since, stderr_since)) = cursors else {
+                                let _ = next_java.kill();
+                                let mut lane = runtime.commands.lock().await;
+                                lane.stdin = None;
+                                lane.connection = None;
+                                break;
+                            };
+                            drain(
+                                stdout,
+                                Source::Stdout,
+                                runtime.clone(),
+                                stdout_drained.clone(),
+                            );
+                            drain(
+                                stderr,
+                                Source::Stderr,
+                                runtime.clone(),
+                                stderr_drained.clone(),
+                            );
+                            if has_rcon_settings {
+                                let runtime = runtime.clone();
+                                rcon_probe =
+                                    Some(tokio::spawn(async move { runtime.probe_rcon().await }));
+                            }
+                            phase = SupervisionPhase::Running {
+                                java: next_java,
+                                started_at: Instant::now(),
+                                stdout_since,
+                                stderr_since,
+                                stdout_drained,
+                                stderr_drained,
+                                killed_by_mcpm: false,
+                                pending_exit: None,
+                            };
+                        }
+                        Err(error) => {
+                            tracing::error!("failed to respawn Java during auto-restart: {error:#}");
+                            let mut data = runtime.data.lock().unwrap();
+                            data.stderr.push(
+                                format!("mcpm: failed to respawn Java during auto-restart: {error:#}\n")
+                                    .into_bytes(),
+                            );
+                            if let Some(sender) = &data.output[1] {
+                                sender.send_replace(());
+                            }
+                            data.state = State::Exited {
+                                reason: previous_exit,
+                            };
+                            runtime.status.send_replace(());
+                            break;
+                        }
                     }
-                    pending_exit = Some((exit, killed, exited_at));
-                } else {
-                    java.kill()?;
-                    killed_by_mcpm = true;
                 }
             }
-            _ = requests.join_next(), if !requests.is_empty() => {},
-            connection = listener.accept() => {
-                let (mut reader, mut writer) = connection?;
-                let Ok(permit) = capacity.clone().try_acquire_owned() else { continue; };
-                let runtime = runtime.clone();
-                requests.spawn(async move {
-                    let _permit = permit;
-                    let request = tokio::time::timeout(Duration::from_secs(3), read_frame::<_, Request>(&mut reader)).await;
-                    let response = match request {
-                        Ok(Ok(Request::Logs(input))) => {
-                            if let Err(error) = runtime.subscribe(input, &mut reader, &mut writer).await {
-                                let reply: std::result::Result<LogBatch, ErrorReport> = Err(ErrorReport::capture(&error));
-                                let _ = write_frame(&mut writer, &reply).await;
-                            }
-                            return;
-                        }
-                        Ok(Ok(Request::Commands(input))) => {
-                            if let Err(error) = runtime.subscribe_commands(input, &mut reader, &mut writer).await {
-                                let reply: std::result::Result<CommandEvent, ErrorReport> = Err(ErrorReport::capture(&error));
-                                let _ = write_frame(&mut writer, &reply).await;
-                            }
-                            return;
-                        }
-                        Ok(Ok(Request::Status(input))) => {
-                            if let Err(error) = runtime.subscribe_status(input, &mut reader, &mut writer).await {
-                                let reply: std::result::Result<Snapshot, ErrorReport> = Err(ErrorReport::capture(&error));
-                                let _ = write_frame(&mut writer, &reply).await;
-                            }
-                            return;
-                        }
-                        Ok(Ok(request)) => runtime.handle(request).await,
-                        Ok(Err(error)) => Err(error),
-                        Err(error) => Err(error.into()),
-                    }.map_err(|error| ErrorReport::capture(&error));
-                    let _ = tokio::time::timeout(Duration::from_secs(3), write_frame(&mut writer, &response)).await;
-                });
-            }
         }
+    }
+    if let Some(handle) = rcon_probe.take() {
+        handle.abort();
     }
     // Finish an in-flight exchange before closing the shared result Channel.
     {
@@ -313,7 +592,107 @@ fn remove_obsolete_command_databases(directory: &Path) -> Result<()> {
     Ok(())
 }
 
-fn drain(mut source: impl Read + Send + 'static, kind: Source, runtime: Arc<Runtime>) {
+fn mark_reaped(runtime: &Runtime, exit: LaunchExit, killed: bool) -> (LaunchExit, bool, Instant) {
+    let mut data = runtime.data.lock().unwrap();
+    data.reaped = true;
+    match &mut data.state {
+        State::Running { server_status } | State::Stopping { server_status } => {
+            *server_status = ServerStatus::Unknown;
+        }
+        State::Killing | State::Restarting { .. } | State::Exited { .. } => {}
+    }
+    (exit, killed, Instant::now())
+}
+
+async fn spawn_next_generation(
+    plan: &mcpm_lib::local::mc::server::launch::LaunchPlan,
+    runtime: &Runtime,
+) -> Result<(
+    JavaProcess,
+    std::process::ChildStdout,
+    std::process::ChildStderr,
+)> {
+    let mut java = JavaProcess::spawn(plan.clone())
+        .map_err(crate::operations::server::shim::attach_executable_tip)?;
+    let stdin = java.take_stdin().context("missing Java stdin")?;
+    let stdout = java.take_stdout().context("missing Java stdout")?;
+    let stderr = java.take_stderr().context("missing Java stderr")?;
+    let mut lane = runtime.commands.lock().await;
+    lane.stdin = Some(stdin);
+    lane.java_pid = java.id();
+    lane.connection = None;
+    lane.ever_connected = false;
+    lane.stop_attempted = false;
+    Ok((java, stdout, stderr))
+}
+
+fn accept_connection<R, W>(
+    (mut reader, mut writer): (R, W),
+    capacity: &Arc<Semaphore>,
+    runtime: &Arc<Runtime>,
+    requests: &mut tokio::task::JoinSet<()>,
+) where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    let Ok(permit) = capacity.clone().try_acquire_owned() else {
+        return;
+    };
+    let runtime = runtime.clone();
+    requests.spawn(async move {
+        let _permit = permit;
+        let request = tokio::time::timeout(
+            Duration::from_secs(3),
+            read_frame::<_, Request>(&mut reader),
+        )
+        .await;
+        let response = match request {
+            Ok(Ok(Request::Logs(input))) => {
+                if let Err(error) = runtime.subscribe(input, &mut reader, &mut writer).await {
+                    let reply: std::result::Result<LogBatch, ErrorReport> =
+                        Err(ErrorReport::capture(&error));
+                    let _ = write_frame(&mut writer, &reply).await;
+                }
+                return;
+            }
+            Ok(Ok(Request::Commands(input))) => {
+                if let Err(error) = runtime
+                    .subscribe_commands(input, &mut reader, &mut writer)
+                    .await
+                {
+                    let reply: std::result::Result<CommandEvent, ErrorReport> =
+                        Err(ErrorReport::capture(&error));
+                    let _ = write_frame(&mut writer, &reply).await;
+                }
+                return;
+            }
+            Ok(Ok(Request::Status(input))) => {
+                if let Err(error) = runtime
+                    .subscribe_status(input, &mut reader, &mut writer)
+                    .await
+                {
+                    let reply: std::result::Result<Snapshot, ErrorReport> =
+                        Err(ErrorReport::capture(&error));
+                    let _ = write_frame(&mut writer, &reply).await;
+                }
+                return;
+            }
+            Ok(Ok(request)) => runtime.handle(request).await,
+            Ok(Err(error)) => Err(error),
+            Err(error) => Err(error.into()),
+        }
+        .map_err(|error| ErrorReport::capture(&error));
+        let _ =
+            tokio::time::timeout(Duration::from_secs(3), write_frame(&mut writer, &response)).await;
+    });
+}
+
+fn drain(
+    mut source: impl Read + Send + 'static,
+    kind: Source,
+    runtime: Arc<Runtime>,
+    drained: Arc<AtomicBool>,
+) {
     std::thread::spawn(move || {
         let mut bytes = vec![0; MAX_LOG_BLOCK_BYTES];
         loop {
@@ -332,19 +711,17 @@ fn drain(mut source: impl Read + Send + 'static, kind: Source, runtime: Arc<Runt
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(error) => {
-                    runtime.data.lock().unwrap().io_error =
-                        Some(format!("failed to read Java {kind:?}: {error}"));
+                    let mut data = runtime.data.lock().unwrap();
+                    data.io_error = Some(format!("failed to read Java {kind:?}: {error}"));
+                    if let Some(sender) = &data.output[usize::from(kind == Source::Stderr)] {
+                        sender.send_replace(());
+                    }
                     break;
                 }
             }
         }
-        let mut data = runtime.data.lock().unwrap();
-        match kind {
-            Source::Stdout => &mut data.stdout,
-            Source::Stderr => &mut data.stderr,
-        }
-        .closed = true;
-        data.output[usize::from(kind == Source::Stderr)] = None;
+        drained.store(true, Ordering::Release);
+        runtime.pipe_closed.notify_one();
     });
 }
 
@@ -495,9 +872,16 @@ impl Runtime {
         }
     }
     fn snapshot_from(&self, data: &Data) -> Snapshot {
+        let mut state = data.state.clone();
+        if let State::Restarting { remaining_ms, .. } = &mut state
+            && let Some(deadline) = data.restart_deadline
+        {
+            let rem = deadline.saturating_duration_since(tokio::time::Instant::now());
+            *remaining_ms = u64::try_from(rem.as_millis()).unwrap_or(u64::MAX);
+        }
         Snapshot {
             reference: self.reference.clone(),
-            state: data.state.clone(),
+            state,
             communication: self.communication,
             actual_channel: data.channel,
             stdout: data.stdout.range(),
@@ -586,9 +970,31 @@ impl Runtime {
                 );
                 let mut data = self.data.lock().unwrap();
                 let channel = data.channel;
-                let result = if data.state.is_exited() || data.reaped {
+                let result = if data.state.is_exited() || data.restart_cancelled {
+                    KillResult::AlreadyExited
+                } else if matches!(data.state, State::Restarting { .. })
+                    || (data.reaped && data.has_restart_policy)
+                {
+                    data.restart_cancelled = true;
+                    data.events.push(CommandEvent::Completed {
+                        listener_id: input.listener_id,
+                        command_id: input.command_id,
+                        text: "@kill".into(),
+                        result: CommandResult {
+                            status: CommandStatus::Accepted,
+                            channel,
+                            output: Some("Cancelled pending auto-restart".into()),
+                            result: CommandOutcome::Completed,
+                            diagnostic: None,
+                        },
+                    });
+                    self.command_updates.send_replace(());
+                    self.cancel_restart.notify_one();
+                    KillResult::Accepted
+                } else if data.reaped {
                     KillResult::AlreadyExited
                 } else {
+                    data.kill_requested = true;
                     if !matches!(data.state, State::Killing) {
                         data.state = State::Killing;
                         data.events.push(CommandEvent::Completed {
@@ -631,9 +1037,37 @@ impl Runtime {
             "invalid Listener identity"
         );
         let mut lane = self.commands.lock().await;
+        let command = input.text.trim();
+        let is_stop = command.strip_prefix('/').unwrap_or(command) == "stop";
+        let mut restarting_cancel_result = None;
         {
-            let data = self.data.lock().unwrap();
-            if data.state.is_exited() || data.reaped {
+            let mut data = self.data.lock().unwrap();
+            if matches!(data.state, State::Restarting { .. })
+                || (data.reaped && !data.state.is_exited() && data.has_restart_policy)
+            {
+                if !data.restart_cancelled && is_stop {
+                    data.restart_cancelled = true;
+                    let result = CommandResult {
+                        status: CommandStatus::Accepted,
+                        channel: data.channel,
+                        output: Some("Cancelled pending auto-restart".into()),
+                        result: CommandOutcome::Completed,
+                        diagnostic: None,
+                    };
+                    self.cancel_restart.notify_one();
+                    restarting_cancel_result = Some(result);
+                } else {
+                    return Ok(CommandResult {
+                        status: CommandStatus::Exited,
+                        channel: data.channel,
+                        output: None,
+                        result: CommandOutcome::Unknown,
+                        diagnostic: Some(
+                            "Java is restarting; send @stop or @kill to cancel".into(),
+                        ),
+                    });
+                }
+            } else if data.state.is_exited() || data.reaped {
                 return Ok(CommandResult {
                     status: CommandStatus::Exited,
                     channel: data.channel,
@@ -642,6 +1076,17 @@ impl Runtime {
                     diagnostic: Some("Java has exited".into()),
                 });
             }
+        }
+        if let Some(result) = restarting_cancel_result {
+            if input.visibility == CommandVisibility::User {
+                self.command_event(
+                    input.listener_id,
+                    input.command_id,
+                    input.text,
+                    result.clone(),
+                );
+            }
+            return Ok(result);
         }
         let mut hash = blake3::Hasher::new();
         hash.update(&[u8::from(input.visibility == CommandVisibility::Internal)]);
@@ -659,8 +1104,6 @@ impl Runtime {
             history::Prepared::Existing(previous) => return Ok(previous),
             history::Prepared::Pending(ticket) => ticket,
         };
-        let command = input.text.trim();
-        let is_stop = command.strip_prefix('/').unwrap_or(command) == "stop";
         if is_stop {
             lane.stop_attempted = true;
             self.connected(false);

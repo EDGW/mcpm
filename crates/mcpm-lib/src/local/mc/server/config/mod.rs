@@ -263,6 +263,7 @@ impl ServerConfig {
             auth.validate()?;
             auth.validate_properties(&self.jvm.extra_arguments)?;
         }
+        self.restart_on.validate()?;
         Ok(())
     }
     pub(crate) fn jvm_arguments(&self) -> Result<Vec<String>> {
