@@ -90,9 +90,17 @@ struct Bootstrap {
     input: LaunchInput,
     record: Record,
 }
+const RECEIPT_VERSION: u32 = 2;
+
 #[derive(Serialize, Deserialize)]
 struct Receipt {
+    #[serde(default = "legacy_receipt_version")]
+    version: u32,
     snapshot: RunSnapshot,
+}
+
+fn legacy_receipt_version() -> u32 {
+    1
 }
 
 /// Durable exit data deliberately has no server path; the containing folder is its location.
@@ -103,8 +111,7 @@ struct RunSnapshot {
     state: State,
     communication: Communication,
     actual_channel: Channel,
-    stdout: CursorRange,
-    stderr: CursorRange,
+    logs: CursorRange,
 }
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -130,8 +137,8 @@ struct RunSnapshotWire {
     exit_code: Option<u32>,
     communication: Communication,
     actual_channel: Channel,
-    stdout: CursorRange,
-    stderr: CursorRange,
+    #[serde(default)]
+    logs: Option<CursorRange>,
 }
 impl From<RunSnapshotWire> for RunSnapshot {
     fn from(value: RunSnapshotWire) -> Self {
@@ -156,8 +163,10 @@ impl From<RunSnapshotWire> for RunSnapshot {
             state,
             communication: value.communication,
             actual_channel: value.actual_channel,
-            stdout: value.stdout,
-            stderr: value.stderr,
+            logs: value.logs.unwrap_or(CursorRange {
+                oldest: 0,
+                latest: 0,
+            }),
         }
     }
 }
@@ -170,8 +179,7 @@ impl From<Snapshot> for RunSnapshot {
             state: value.state,
             communication: value.communication,
             actual_channel: value.actual_channel,
-            stdout: value.stdout,
-            stderr: value.stderr,
+            logs: value.logs,
         }
     }
 }
@@ -185,8 +193,7 @@ impl From<RunSnapshot> for Snapshot {
             state: value.state,
             communication: value.communication,
             actual_channel: value.actual_channel,
-            stdout: value.stdout,
-            stderr: value.stderr,
+            logs: value.logs,
         }
     }
 }
@@ -273,6 +280,18 @@ pub(crate) fn acquire_running_lock(server: &Path, exclusive: bool) -> Result<(Fi
     Ok((file, path))
 }
 
+fn read_receipt(directory: &Path) -> Result<Option<Receipt>> {
+    let Some(receipt) = read_optional::<Receipt>(&directory.join("finished.json"))? else {
+        return Ok(None);
+    };
+    ensure!(
+        matches!(receipt.version, 1..=RECEIPT_VERSION),
+        "unsupported finished receipt version {}",
+        receipt.version
+    );
+    Ok(Some(receipt))
+}
+
 fn ensure_inactive_in_directory(directory: &Path) -> Result<()> {
     if is_running(directory)? {
         bail!("server is currently running; stop it before modifying the server");
@@ -281,11 +300,9 @@ fn ensure_inactive_in_directory(directory: &Path) -> Result<()> {
         return Ok(());
     };
     ensure!(record.version == 1, "unsupported shim discovery version");
-    let finished = read_optional::<Receipt>(&directory.join("finished.json"))?.is_some_and(
-        |receipt| {
-            receipt.snapshot.reference == record.reference && receipt.snapshot.state.is_exited()
-        },
-    );
+    let finished = read_receipt(directory)?.is_some_and(|receipt| {
+        receipt.snapshot.reference == record.reference && receipt.snapshot.state.is_exited()
+    });
     if finished {
         return Ok(());
     }
@@ -352,11 +369,10 @@ pub(crate) async fn launch(mut input: LaunchInput) -> Result<Launched> {
         ensure!(record.version == 1, "unsupported shim discovery version");
         // A matching receipt proves this run ended, even after the folder was moved.
         // Never send a stale record to an endpoint now owned by another server.
-        let finished =
-            read_optional::<Receipt>(&directory.join("finished.json"))?.filter(|receipt| {
-                receipt.snapshot.reference == record.reference
-                    && receipt.snapshot.state.is_exited()
-            });
+        let finished = read_receipt(&directory)?.filter(|receipt| {
+            receipt.snapshot.reference == record.reference
+                && receipt.snapshot.state.is_exited()
+        });
         publish(&directory.join("instance.json"), &record)?;
         if let Some(receipt) = finished {
             publish(&directory.join("finished.json"), &receipt)?;
@@ -501,7 +517,7 @@ pub(crate) async fn call<T: DeserializeOwned>(
     let (record, server) = locate(&mut request_input)?;
     if let Some(server) = &server {
         let directory = server.join(".mcpm/run");
-        if let Some(receipt) = read_optional::<Receipt>(&directory.join("finished.json"))?
+        if let Some(receipt) = read_receipt(&directory)?
             && receipt.snapshot.reference == record.reference
             && receipt.snapshot.state.is_exited()
         {
@@ -525,8 +541,7 @@ pub(crate) async fn call<T: DeserializeOwned>(
                 return Err(error);
             }
             if let Some(server) = &server
-                && let Some(receipt) =
-                    read_optional::<Receipt>(&server.join(".mcpm/run/finished.json"))?
+                && let Some(receipt) = read_receipt(&server.join(".mcpm/run"))?
                 && receipt.snapshot.reference == record.reference
                 && receipt.snapshot.state.is_exited()
             {
@@ -583,7 +598,7 @@ pub(crate) async fn subscribe_logs(
     let mut request_input = Request::Logs(input);
     let (record, server) = locate(&mut request_input)?;
     if let Some(server) = &server {
-        if let Some(receipt) = read_optional::<Receipt>(&server.join(".mcpm/run/finished.json"))?
+        if let Some(receipt) = read_receipt(&server.join(".mcpm/run"))?
             && receipt.snapshot.reference == record.reference
             && receipt.snapshot.state.is_exited()
         {
@@ -605,8 +620,7 @@ pub(crate) async fn subscribe_logs(
         Ok(connection) => connection,
         Err(error) => {
             if let Some(server) = &server
-                && let Some(receipt) =
-                    read_optional::<Receipt>(&server.join(".mcpm/run/finished.json"))?
+                && let Some(receipt) = read_receipt(&server.join(".mcpm/run"))?
                 && receipt.snapshot.reference == record.reference
                 && receipt.snapshot.state.is_exited()
             {
@@ -720,7 +734,7 @@ fn terminal_status(record: &Record, server: Option<&Path>) -> Result<Option<Snap
     let Some(server) = server else {
         return Ok(None);
     };
-    let Some(receipt) = read_optional::<Receipt>(&server.join(".mcpm/run/finished.json"))? else {
+    let Some(receipt) = read_receipt(&server.join(".mcpm/run"))? else {
         return Ok(None);
     };
     if receipt.snapshot.reference != record.reference || !receipt.snapshot.state.is_exited() {
@@ -737,15 +751,26 @@ async fn retained_logs(
     mut input: LogsInput,
     sender: mcpm_exec::operation::StreamSender<LogBatch>,
 ) -> Result<()> {
-    let range = match input.source {
-        Source::Stdout => &receipt.snapshot.stdout,
-        Source::Stderr => &receipt.snapshot.stderr,
-    };
+    if receipt.version == 1 {
+        sender
+            .send(LogBatch {
+                batch: Vec::new(),
+                next_cursor: 0,
+                gap: None,
+                finished: true,
+            })
+            .await?;
+        return Ok(());
+    }
+    ensure!(
+        receipt.version == RECEIPT_VERSION,
+        "unsupported finished receipt version {}",
+        receipt.version
+    );
     let buffer = logs::Buffer::restore(
         directory,
         &receipt.snapshot.reference.run_id,
-        input.source,
-        range,
+        &receipt.snapshot.logs,
     )?;
     loop {
         let batch = buffer.read(&input)?;
@@ -911,5 +936,37 @@ fn detach(command: &mut tokio::process::Command) {
     {
         use windows_sys::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS};
         command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_v1_receipt_defaults_version_to_one_and_preserves_exit_state() {
+        let legacy_json = r#"{
+            "snapshot": {
+                "reference": { "run_id": "00000000-0000-0000-0000-000000000001" },
+                "state": { "kind": "exited", "reason": { "kind": "crashed", "code": 1 } },
+                "communication": "auto",
+                "actual_channel": "stdin",
+                "stdout": { "oldest": 0, "latest": 128 },
+                "stderr": { "oldest": 0, "latest": 32 }
+            }
+        }"#;
+        let receipt: Receipt = serde_json::from_str(legacy_json).expect("legacy v1 receipt");
+        assert_eq!(receipt.version, 1);
+        assert_eq!(
+            receipt.snapshot.state,
+            State::Exited {
+                reason: ExitReason::Crashed {
+                    code: 1,
+                    crash_report: None,
+                },
+            }
+        );
+        assert_eq!(receipt.snapshot.logs.oldest, 0);
+        assert_eq!(receipt.snapshot.logs.latest, 0);
     }
 }

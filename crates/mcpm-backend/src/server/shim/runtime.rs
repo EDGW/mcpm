@@ -14,7 +14,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::Instant,
+    time::{Instant, SystemTime},
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore, watch};
 
@@ -26,11 +26,10 @@ struct Data {
     has_restart_policy: bool,
     restart_deadline: Option<tokio::time::Instant>,
     channel: Channel,
-    stdout: logs::Buffer,
-    stderr: logs::Buffer,
+    logs: logs::Buffer,
     io_error: Option<String>,
     events: events::Events,
-    output: [Option<watch::Sender<()>>; 2],
+    output: Option<watch::Sender<()>>,
 }
 struct Commands {
     stdin: Option<std::process::ChildStdin>,
@@ -55,7 +54,7 @@ struct Runtime {
     launch_request_id: String,
     data: Mutex<Data>,
     commands: AsyncMutex<Commands>,
-    output: [watch::Receiver<()>; 2],
+    output: watch::Receiver<()>,
     status: watch::Sender<()>,
     command_updates: watch::Sender<()>,
     kill: Notify,
@@ -67,8 +66,8 @@ enum SupervisionPhase {
     Running {
         java: JavaProcess,
         started_at: Instant,
-        stdout_since: u64,
-        stderr_since: u64,
+        started_wall: SystemTime,
+        logs_since: u64,
         stdout_drained: Arc<AtomicBool>,
         stderr_drained: Arc<AtomicBool>,
         killed_by_mcpm: bool,
@@ -98,7 +97,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         }
     })?;
     remove_obsolete_command_databases(&directory)?;
-    let previous = read_optional::<Receipt>(&directory.join("finished.json"))?;
+    let previous = read_receipt(&directory)?;
     logs::remove_obsolete(
         &directory,
         previous
@@ -130,13 +129,13 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     let has_restart_policy = !restart_policy.is_empty();
     let history = history::History::create(&directory, &record.reference.run_id)?;
     let java_directory = plan.directory().to_path_buf();
+    let started_wall = SystemTime::now();
     let mut java = JavaProcess::spawn(plan.clone())
         .map_err(crate::operations::server::shim::attach_executable_tip)?;
     let stdin = java.take_stdin().context("missing Java stdin")?;
     let stdout = java.take_stdout().context("missing Java stdout")?;
     let stderr = java.take_stderr().context("missing Java stderr")?;
-    let (stdout_updates, stdout_channel) = watch::channel(());
-    let (stderr_updates, stderr_channel) = watch::channel(());
+    let (log_updates, log_channel) = watch::channel(());
     let (status, _) = watch::channel(());
     let (command_updates, _) = watch::channel(());
     let runtime = Arc::new(Runtime {
@@ -156,10 +155,9 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
             has_restart_policy,
             restart_deadline: None,
             channel: Channel::Stdin,
-            stdout: logs::Buffer::default(),
-            stderr: logs::Buffer::default(),
+            logs: logs::Buffer::default(),
             io_error: None,
-            output: [Some(stdout_updates), Some(stderr_updates)],
+            output: Some(log_updates),
             events: events::Events::default(),
         }),
         commands: AsyncMutex::new(Commands {
@@ -172,7 +170,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
             ever_connected: false,
             stop_attempted: false,
         }),
-        output: [stdout_channel, stderr_channel],
+        output: log_channel,
         status,
         command_updates,
         kill: Notify::new(),
@@ -200,8 +198,8 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     let mut phase = SupervisionPhase::Running {
         java,
         started_at: Instant::now(),
-        stdout_since: 0,
-        stderr_since: 0,
+        started_wall,
+        logs_since: 0,
         stdout_drained,
         stderr_drained,
         killed_by_mcpm: false,
@@ -255,8 +253,8 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                     let finalized = if let SupervisionPhase::Running {
                         java,
                         started_at,
-                        stdout_since,
-                        stderr_since,
+                        started_wall,
+                        logs_since,
                         stdout_drained,
                         stderr_drained,
                         killed_by_mcpm,
@@ -281,8 +279,8 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                                     killed,
                                     exited_at,
                                     *started_at,
-                                    *stdout_since,
-                                    *stderr_since,
+                                    *started_wall,
+                                    *logs_since,
                                 ))
                             } else {
                                 None
@@ -294,30 +292,31 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                         None
                     };
 
-                    if let Some((exit, killed, exited_at, started_at, stdout_since, stderr_since)) =
+                    if let Some((exit, killed, exited_at, started_at, started_wall, logs_since)) =
                         finalized
                     {
-                        let report_path = {
+                        let candidates = {
                             let data = runtime.data.lock().unwrap();
-                            logs::detect_crash_report(
-                                &data.stdout,
-                                &data.stderr,
+                            logs::detect_crash_report_candidates(
+                                &data.logs,
                                 &java_directory,
-                                stdout_since,
-                                stderr_since,
+                                logs_since,
                             )
                         };
                         let mut observed_report = None;
-                        let detected_report = report_path.map(|path| {
-                            let raw =
-                                mcpm_lib::local::mc::crash_report::analyse_file(Path::new(&path));
-                            observed_report = Some(ObservedCrashReport {
-                                path: path.clone(),
-                                analysis: raw.as_ref().cloned().map_err(|err| err.to_string()),
-                            });
-                            let analysis = raw.map_err(|error| ErrorReport::capture_std(&error));
-                            DetectedCrashReport { path, analysis }
-                        });
+                        let detected_report =
+                            verify_crash_report(&candidates, &java_directory, started_wall).map(
+                                |(path, analysis)| {
+                                    observed_report = Some(ObservedCrashReport {
+                                        path: path.clone(),
+                                        analysis: Ok(analysis.clone()),
+                                    });
+                                    DetectedCrashReport {
+                                        path,
+                                        analysis: Ok(analysis),
+                                    }
+                                },
+                            );
                         let exit_reason =
                             ExitReason::from_launch_exit(exit, killed, detected_report);
 
@@ -442,11 +441,12 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                     let SupervisionPhase::Restarting { previous_exit, .. } = phase else {
                         unreachable!();
                     };
+                    let started_wall = SystemTime::now();
                     match spawn_next_generation(&plan, &runtime).await {
                         Ok((mut next_java, stdout, stderr)) => {
                             let stdout_drained = Arc::new(AtomicBool::new(false));
                             let stderr_drained = Arc::new(AtomicBool::new(false));
-                            let cursors = {
+                            let logs_since = {
                                 let mut data = runtime.data.lock().unwrap();
                                 if data.restart_cancelled {
                                     data.restart_deadline = None;
@@ -456,8 +456,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                                     runtime.status.send_replace(());
                                     None
                                 } else {
-                                    let stdout_since = data.stdout.range().latest;
-                                    let stderr_since = data.stderr.range().latest;
+                                    let logs_since = data.logs.range().latest;
                                     data.reaped = false;
                                     data.kill_requested = false;
                                     data.restart_cancelled = false;
@@ -467,10 +466,10 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                                         server_status: ServerStatus::Unknown,
                                     };
                                     runtime.status.send_replace(());
-                                    Some((stdout_since, stderr_since))
+                                    Some(logs_since)
                                 }
                             };
-                            let Some((stdout_since, stderr_since)) = cursors else {
+                            let Some(logs_since) = logs_since else {
                                 let _ = next_java.kill();
                                 let mut lane = runtime.commands.lock().await;
                                 lane.stdin = None;
@@ -497,8 +496,8 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                             phase = SupervisionPhase::Running {
                                 java: next_java,
                                 started_at: Instant::now(),
-                                stdout_since,
-                                stderr_since,
+                                started_wall,
+                                logs_since,
                                 stdout_drained,
                                 stderr_drained,
                                 killed_by_mcpm: false,
@@ -508,11 +507,12 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                         Err(error) => {
                             tracing::error!("failed to respawn Java during auto-restart: {error:#}");
                             let mut data = runtime.data.lock().unwrap();
-                            data.stderr.push(
+                            data.logs.push(
+                                Source::Stderr,
                                 format!("mcpm: failed to respawn Java during auto-restart: {error:#}\n")
                                     .into_bytes(),
                             );
-                            if let Some(sender) = &data.output[1] {
+                            if let Some(sender) = &data.output {
                                 sender.send_replace(());
                             }
                             data.state = State::Exited {
@@ -537,14 +537,11 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     }
     {
         let mut data = runtime.data.lock().unwrap();
-        data.stdout.closed = true;
-        data.stderr.closed = true;
-        data.output = [None, None];
-        data.stdout
-            .persist(&directory, &record.reference.run_id, Source::Stdout)?;
-        data.stderr
-            .persist(&directory, &record.reference.run_id, Source::Stderr)?;
+        data.logs.closed = true;
+        data.output = None;
+        data.logs.persist(&directory, &record.reference.run_id)?;
         let receipt = Receipt {
+            version: RECEIPT_VERSION,
             snapshot: runtime.snapshot_from(&data).into(),
         };
         publish(&directory.join("finished.json"), &receipt)?;
@@ -700,12 +697,8 @@ fn drain(
                 Ok(0) => break,
                 Ok(length) => {
                     let mut data = runtime.data.lock().unwrap();
-                    match kind {
-                        Source::Stdout => &mut data.stdout,
-                        Source::Stderr => &mut data.stderr,
-                    }
-                    .push(bytes[..length].to_vec());
-                    if let Some(sender) = &data.output[usize::from(kind == Source::Stderr)] {
+                    data.logs.push(kind, bytes[..length].to_vec());
+                    if let Some(sender) = &data.output {
                         sender.send_replace(());
                     }
                 }
@@ -713,7 +706,7 @@ fn drain(
                 Err(error) => {
                     let mut data = runtime.data.lock().unwrap();
                     data.io_error = Some(format!("failed to read Java {kind:?}: {error}"));
-                    if let Some(sender) = &data.output[usize::from(kind == Source::Stderr)] {
+                    if let Some(sender) = &data.output {
                         sender.send_replace(());
                     }
                     break;
@@ -736,7 +729,7 @@ impl Runtime {
             input.reference.run_id == self.reference.run_id,
             "EndpointCollision: refusing logs for a different run"
         );
-        let mut channel = self.output[usize::from(input.source == Source::Stderr)].clone();
+        let mut channel = self.output.clone();
         channel.borrow_and_update();
         loop {
             let (batch, latest) = {
@@ -744,11 +737,7 @@ impl Runtime {
                 if let Some(error) = &data.io_error {
                     bail!("{error}");
                 }
-                let buffer = match input.source {
-                    Source::Stdout => &data.stdout,
-                    Source::Stderr => &data.stderr,
-                };
-                (buffer.read(&input)?, buffer.range().latest)
+                (data.logs.read(&input)?, data.logs.range().latest)
             };
             let finished = batch.finished;
             input.cursor = Some(batch.next_cursor);
@@ -884,8 +873,7 @@ impl Runtime {
             state,
             communication: self.communication,
             actual_channel: data.channel,
-            stdout: data.stdout.range(),
-            stderr: data.stderr.range(),
+            logs: data.logs.range(),
         }
     }
     fn connected(&self, connected: bool) {
@@ -1208,5 +1196,134 @@ impl Runtime {
             );
         }
         Ok(result)
+    }
+}
+
+/// Verifies crash report path candidates against authoritative filesystem facts:
+/// canonical containment inside `working_directory` (handling symlinked working directories
+/// and Windows case/8.3 aliases while blocking symlink and `..` escapes), regular file,
+/// written on or after this generation's start (floored to whole seconds for coarse
+/// filesystem timestamps), and valid Minecraft crash report banner.
+fn verify_crash_report(
+    candidates: &[PathBuf],
+    working_directory: &Path,
+    started_wall: SystemTime,
+) -> Option<(String, CrashReportAnalysis)> {
+    let Ok(canonical_wd) = std::fs::canonicalize(working_directory) else {
+        return None;
+    };
+    let min_mtime = floor_to_whole_seconds(started_wall);
+    for candidate in candidates {
+        let Ok(canonical) = std::fs::canonicalize(candidate) else {
+            continue;
+        };
+        if !canonical.starts_with(&canonical_wd) {
+            continue;
+        }
+        let Ok(metadata) = std::fs::metadata(&canonical) else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        if modified < min_mtime {
+            continue;
+        }
+        let Ok(analysis) = mcpm_lib::local::mc::crash_report::analyse_file(&canonical) else {
+            continue;
+        };
+        let display_path = logs::strip_windows_verbatim(&canonical);
+        return Some((display_path.to_string_lossy().into_owned(), analysis));
+    }
+    None
+}
+
+fn floor_to_whole_seconds(time: SystemTime) -> SystemTime {
+    match time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => SystemTime::UNIX_EPOCH + Duration::from_secs(duration.as_secs()),
+        Err(_) => time,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verify_crash_report_enforces_containment_freshness_and_valid_banner() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let wd = root.path().join("server");
+        let outside = root.path().join("outside");
+        std::fs::create_dir_all(wd.join("logs")).unwrap();
+        std::fs::create_dir_all(wd.join("crash-reports")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let missing = wd.join("crash-reports/missing.txt");
+        let latest_log = wd.join("logs/latest.log");
+        let stale_report = wd.join("crash-reports/stale.txt");
+        let fresh_report = wd.join("crash-reports/fresh.txt");
+        let outside_report = outside.join("other-crash.txt");
+
+        let report_body = "---- Minecraft Crash Report ----\n// Watchdog\n\nTime: 2026-11-28 00:00:00\nDescription: Watching Server\n";
+        std::fs::write(&stale_report, report_body).unwrap();
+        let stale_time = SystemTime::now()
+            .checked_sub(Duration::from_secs(60))
+            .unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&stale_report)
+            .unwrap()
+            .set_modified(stale_time)
+            .unwrap();
+
+        let started_wall = SystemTime::now();
+        std::fs::write(&latest_log, "[00:00:00] [Server thread/INFO]: normal log\n").unwrap();
+        std::fs::write(&fresh_report, report_body).unwrap();
+        std::fs::write(&outside_report, report_body).unwrap();
+
+        let mut invalid_candidates = vec![
+            missing.clone(),
+            latest_log.clone(),
+            stale_report.clone(),
+            outside_report.clone(),
+            wd.join("../outside/other-crash.txt"),
+        ];
+
+        #[cfg(unix)]
+        {
+            // Symlink inside server directory pointing outside must be rejected.
+            let escape_link = wd.join("crash-reports/escape.txt");
+            std::os::unix::fs::symlink(&outside_report, &escape_link).unwrap();
+            invalid_candidates.push(escape_link);
+
+            // Symlinked working directory alias pointing to the real server directory must work.
+            let wd_alias = root.path().join("server-alias");
+            std::os::unix::fs::symlink(&wd, &wd_alias).unwrap();
+            let aliased_candidate = wd_alias.join("crash-reports/fresh.txt");
+            let (path, analysis) =
+                verify_crash_report(&[aliased_candidate], &wd, started_wall)
+                    .expect("symlinked working directory alias accepted");
+            assert_eq!(
+                PathBuf::from(path),
+                logs::strip_windows_verbatim(&std::fs::canonicalize(&fresh_report).unwrap())
+            );
+            assert_eq!(analysis.report_type, CrashReportType::Watchdog);
+        }
+
+        // Only invalid/stale/outside candidates -> None.
+        assert!(verify_crash_report(&invalid_candidates, &wd, started_wall).is_none());
+
+        // Falls through spoofed/invalid candidates to accept the real fresh crash report.
+        invalid_candidates.push(fresh_report.clone());
+        let (path, analysis) = verify_crash_report(&invalid_candidates, &wd, started_wall)
+            .expect("fresh valid crash report");
+        assert_eq!(
+            PathBuf::from(path),
+            logs::strip_windows_verbatim(&std::fs::canonicalize(&fresh_report).unwrap())
+        );
+        assert_eq!(analysis.report_type, CrashReportType::Watchdog);
     }
 }

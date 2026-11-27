@@ -169,7 +169,7 @@ pub(super) fn run(args: AttachArgs, ssh: SshArgs) -> Result<Exit> {
 }
 
 enum Update {
-    Logs(Source, LogBatch),
+    Logs(LogBatch),
     History(Vec<(Source, Vec<u8>)>),
     Status(Snapshot),
     Command(CommandEvent),
@@ -261,7 +261,7 @@ pub(super) async fn flow(
                     &reference,
                     cursor,
                     history_lines,
-                    [snapshot.stdout, snapshot.stderr],
+                    snapshot.logs,
                     &updates,
                 )
                 .await;
@@ -310,7 +310,7 @@ pub(super) async fn flow(
     let mut exit_reported_for_generation = false;
     let mut pending = std::collections::VecDeque::new();
     let mut command_history = command_history::CommandHistory::default();
-    let mut finished = [false; 2];
+    let mut finished = false;
     let mut submitted = HashSet::new();
     let mut commands_finished = false;
     let mut detaching = false;
@@ -382,7 +382,7 @@ pub(super) async fn flow(
         {
             return Ok(Exit::Completed);
         }
-        if finished.iter().all(|finished| *finished)
+        if finished
             && commands_finished
             && let Some(exit) = display.state.exit_reason().cloned()
         {
@@ -449,13 +449,37 @@ pub(super) async fn flow(
                 match event {
                 Some(Update::History(lines)) => {
                     if !lines.is_empty() { display.history_divider()?; }
-                    for (source, bytes) in lines { display.logs(source, &bytes)?; }
+                    let mut last_by_source = [None; 2];
+                    for (index, (source, _)) in lines.iter().enumerate() {
+                        last_by_source[usize::from(*source == Source::Stderr)] = Some(index);
+                    }
+                    for (index, (source, bytes)) in lines.into_iter().enumerate() {
+                        let ends_newline = bytes.ends_with(b"\n");
+                        display.logs(source, &bytes)?;
+                        if !ends_newline
+                            && last_by_source[usize::from(source == Source::Stderr)] != Some(index)
+                        {
+                            display.finish_source(source)?;
+                        }
+                    }
                 }
-                Some(Update::Logs(source, batch)) => {
-                    if let Some(gap) = batch.gap { display.notice("logs", &format!("{source:?}: output gap {}..{} (retention exceeded)", gap.from, gap.to))?; }
-                    for chunk in batch.batch { display.logs(source, &chunk.bytes)?; }
-                    if batch.finished { display.finish_source(source)?; }
-                    finished[usize::from(source == Source::Stderr)] = batch.finished;
+                Some(Update::Logs(batch)) => {
+                    if let Some(gap) = batch.gap {
+                        display.finish_source(Source::Stdout)?;
+                        display.finish_source(Source::Stderr)?;
+                        display.notice(
+                            "logs",
+                            &format!("output gap {}..{} (retention exceeded)", gap.from, gap.to),
+                        )?;
+                    }
+                    for chunk in batch.batch {
+                        display.logs(chunk.source, &chunk.bytes)?;
+                    }
+                    if batch.finished {
+                        display.finish_source(Source::Stdout)?;
+                        display.finish_source(Source::Stderr)?;
+                    }
+                    finished = batch.finished;
                 }
                 Some(Update::Status(snapshot)) => {
                     let previous_restart = match &display.state {
@@ -508,7 +532,7 @@ pub(super) async fn flow(
                     let exit = display
                         .state
                         .exit_reason()
-                        .filter(|_| finished.iter().all(|finished| *finished) && commands_finished)
+                        .filter(|_| finished && commands_finished)
                         .cloned()
                         .context("attach readers ended without authoritative completion")?;
                     if exit_reported_for_generation {
@@ -619,63 +643,23 @@ async fn follow_logs(
     reference: &ShimRef,
     cursor: Option<u64>,
     history_lines: Option<usize>,
-    ranges: [CursorRange; 2],
+    range: CursorRange,
     updates: &mpsc::Sender<Update>,
 ) -> Result<()> {
-    let (mut stdout, mut stderr) = tokio::try_join!(
-        history::open(
-            executor,
-            reference,
-            Source::Stdout,
-            cursor,
-            &ranges[0],
-            history_lines
-        ),
-        history::open(
-            executor,
-            reference,
-            Source::Stderr,
-            cursor,
-            &ranges[1],
-            history_lines
-        ),
-    )?;
-    if let Some(limit) = history_lines.filter(|limit| *limit > 0) {
-        let mut lines: std::collections::VecDeque<_> = stdout
-            .history
-            .drain(..)
-            .map(|bytes| (Source::Stdout, bytes))
-            .chain(
-                stderr
-                    .history
-                    .drain(..)
-                    .map(|bytes| (Source::Stderr, bytes)),
-            )
-            .collect();
-        while lines.len() > limit {
-            lines.pop_front();
-        }
-        updates.send(Update::History(lines.into())).await?;
+    let mut opened = history::open(executor, reference, cursor, &range, history_lines).await?;
+    if history_lines.is_some_and(|limit| limit > 0) {
+        updates
+            .send(Update::History(opened.history.drain(..).collect()))
+            .await?;
     }
-    async fn source(
-        mut opened: history::Opened,
-        kind: Source,
-        updates: &mpsc::Sender<Update>,
-    ) -> Result<()> {
-        if let Some(batch) = opened.pending {
-            if !batch.batch.is_empty() || batch.gap.is_some() || batch.finished {
-                updates.send(Update::Logs(kind, batch)).await?;
-            }
-        }
-        while let Some(batch) = opened.channel.next().await {
-            updates.send(Update::Logs(kind, batch?)).await?;
-        }
-        Ok(())
+    if let Some(batch) = opened.pending
+        && (!batch.batch.is_empty() || batch.gap.is_some() || batch.finished)
+    {
+        updates.send(Update::Logs(batch)).await?;
     }
-    tokio::try_join!(
-        source(stdout, Source::Stdout, updates),
-        source(stderr, Source::Stderr, updates)
-    )?;
+    while let Some(batch) = opened.channel.next().await {
+        updates.send(Update::Logs(batch?)).await?;
+    }
     Ok(())
 }
 

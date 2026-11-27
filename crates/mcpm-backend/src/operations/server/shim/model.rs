@@ -79,8 +79,7 @@ pub struct Snapshot {
     pub state: State,
     pub communication: Communication,
     pub actual_channel: Channel,
-    pub stdout: CursorRange,
-    pub stderr: CursorRange,
+    pub logs: CursorRange,
 }
 
 /// Lifecycle state of the managed Java process; state-specific data lives strictly on its variant.
@@ -278,7 +277,6 @@ pub const MAX_LOG_BLOCK_BYTES: usize = 1024 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogsInput {
     pub reference: ShimRef,
-    pub source: Source,
     pub cursor: Option<u64>,
     pub tail: Option<usize>,
     pub max_bytes: usize,
@@ -294,6 +292,7 @@ pub struct LogBatch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogChunk {
     pub seq: u64,
+    pub source: Source,
     pub bytes: Vec<u8>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]

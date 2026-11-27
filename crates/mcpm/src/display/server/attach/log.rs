@@ -1,37 +1,37 @@
-//! Frontend-only recognition of Minecraft Log4j prefixes; message bodies are never rewritten.
+//! Frontend-only rendering of Minecraft server log headers parsed by `mcpm_lib::local::mc::log`;
+//! message bodies are never rewritten, and unrecognized lines pass through unstyled.
 
 use crate::theme::{self, widgets::style};
+use mcpm_lib::local::mc::log::{LogLevel, parse_header};
 use mcpm_rich::Role;
 use ratatui::text::{Line, Span};
-use regex::Regex;
-use std::{
-    io::{self, Write},
-    sync::LazyLock,
-};
+use std::io::{self, Write};
 
-// Vanilla/Sponge: [%d{HH:mm:ss}] [%t/%level]; Forge also uses ddMMMyyyy timestamps.
-// https://docs.spongepowered.org/stable/en/server/spongineer/logs.html
-static PREFIX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(concat!(
-    r"^\[(?:[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.,][0-9]{1,9})?|",
-    r"[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.,][0-9]{1,9})?(?:Z|[+-][0-9]{2}:?[0-9]{2})?|",
-    r"[0-9]{2}[A-Za-z]{3}[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.,][0-9]{1,9})?)\]",
-    r"[ \t]+(?P<block>\[(?:[^\]\r\n]+/)?(?P<level>TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)\])"
-)).expect("static Minecraft prefix expression")
-});
-
-pub(super) fn prefix(text: &str) -> Option<(usize, usize, Role, bool)> {
-    let captures = PREFIX.captures(text)?;
-    let (role, muted_body) = match captures.name("level")?.as_str() {
-        "INFO" => (Role::Success, true),
-        "WARN" | "WARNING" => (Role::Warning, true),
-        "ERROR" | "FATAL" => (Role::Danger, false),
-        "DEBUG" => (Role::Secondary, true),
-        "TRACE" => (Role::Muted, true),
-        _ => return None,
+fn prefix(text: &str) -> Option<(PrefixSpan, Role, bool)> {
+    let header = parse_header(text)?;
+    let (role, muted_body) = match header.level {
+        LogLevel::Info => (Role::Success, true),
+        LogLevel::Warn => (Role::Warning, true),
+        LogLevel::Error | LogLevel::Fatal => (Role::Danger, false),
+        LogLevel::Debug => (Role::Secondary, true),
+        LogLevel::Trace => (Role::Muted, true),
     };
-    let block = captures.name("block")?;
-    Some((block.start(), block.end(), role, muted_body))
+    Some((
+        PrefixSpan {
+            level_start: header.level_span.start,
+            level_end: header.level_span.end,
+            prefix_end: header.prefix_end,
+        },
+        role,
+        muted_body,
+    ))
+}
+
+#[derive(Clone, Copy)]
+struct PrefixSpan {
+    level_start: usize,
+    level_end: usize,
+    prefix_end: usize,
 }
 
 /// Styling state belongs to one source and resets at each logical newline.
@@ -40,15 +40,15 @@ pub(super) struct Formatting {
     muted_body: bool,
 }
 pub(super) struct Fragment {
-    prefix: Option<(usize, usize, Role)>,
+    prefix: Option<(PrefixSpan, Role)>,
     muted_body: bool,
 }
 impl Formatting {
     pub fn fragment(&mut self, text: &str, first: bool, newline: bool) -> Fragment {
         let prefix = if first {
             let parsed = prefix(text);
-            self.muted_body = parsed.is_some_and(|(_, _, _, muted)| muted);
-            parsed.map(|(start, end, role, _)| (start, end, role))
+            self.muted_body = parsed.is_some_and(|(_, _, muted)| muted);
+            parsed.map(|(span, role, _)| (span, role))
         } else {
             None
         };
@@ -72,11 +72,22 @@ pub(super) fn line<'a>(text: &'a str, fragment: &Fragment) -> Line<'a> {
         }
     };
     match fragment.prefix {
-        Some((start, end, role)) => Line::from(vec![
-            Span::styled(&text[..start], style(Role::Muted)),
-            Span::styled(&text[start..end], style(role)),
-            body(&text[end..]),
-        ]),
+        Some((span, role)) => {
+            let mut spans = Vec::with_capacity(4);
+            spans.push(Span::styled(&text[..span.level_start], style(Role::Muted)));
+            spans.push(Span::styled(
+                &text[span.level_start..span.level_end],
+                style(role),
+            ));
+            if span.level_end < span.prefix_end {
+                spans.push(Span::styled(
+                    &text[span.level_end..span.prefix_end],
+                    style(Role::Muted),
+                ));
+            }
+            spans.push(body(&text[span.prefix_end..]));
+            Line::from(spans)
+        }
         None => Line::from(body(text)),
     }
 }
@@ -90,14 +101,21 @@ pub(super) fn write(
     if !color {
         return output.write_all(text.as_bytes());
     }
-    let end = if let Some((start, end, role)) = fragment.prefix {
+    let end = if let Some((span, role)) = fragment.prefix {
         write!(
             output,
             "{}{}",
-            theme::console(Role::Muted).style(&text[..start]),
-            theme::console(role).style(&text[start..end])
+            theme::console(Role::Muted).style(&text[..span.level_start]),
+            theme::console(role).style(&text[span.level_start..span.level_end])
         )?;
-        end
+        if span.level_end < span.prefix_end {
+            write!(
+                output,
+                "{}",
+                theme::console(Role::Muted).style(&text[span.level_end..span.prefix_end])
+            )?;
+        }
+        span.prefix_end
     } else {
         0
     };
@@ -117,13 +135,18 @@ pub(super) fn write(
 mod tests {
     use super::*;
     #[test]
-    fn recognizes_optional_threads_dates_and_only_the_prefix() {
+    fn recognizes_optional_threads_dates_paper_jul_and_only_the_prefix() {
         for (text, head) in [
             (
                 "[12:34:56] [Server thread/INFO]: Done (1.2s)!",
                 "[12:34:56] [Server thread/INFO]",
             ),
             ("[12:34:56.001] [WARN] warning", "[12:34:56.001] [WARN]"),
+            ("[12:34:56 ERROR]: Paper error", "[12:34:56 ERROR]"),
+            (
+                "2013-10-15 16:20:00 [SEVERE] legacy",
+                "2013-10-15 16:20:00 [SEVERE]",
+            ),
             (
                 "[2026-11-06T12:34:56] [Worker-Main-1/ERROR] [mod/logger]: 中文",
                 "[2026-11-06T12:34:56] [Worker-Main-1/ERROR]",
@@ -132,9 +155,13 @@ mod tests {
                 "[06Nov2026 12:34:56.123] [main/DEBUG] [loader/]: loading",
                 "[06Nov2026 12:34:56.123] [main/DEBUG]",
             ),
+            (
+                "[2811月2026 12:34:56.123] [main/INFO] [loader/]: localized",
+                "[2811月2026 12:34:56.123] [main/INFO]",
+            ),
         ] {
-            let (_, end, _, _) = prefix(text).expect("valid prefix");
-            assert_eq!(&text[..end], head);
+            let (span, _, _) = prefix(text).expect("valid prefix");
+            assert_eq!(&text[..span.prefix_end], head);
             let mut bytes = Vec::new();
             let fragment = Formatting::default().fragment(text, true, true);
             write(&mut bytes, text, &fragment, false).unwrap();
@@ -145,6 +172,7 @@ mod tests {
     fn leaves_nonmatching_and_embedded_prefixes_untouched() {
         for text in [
             "ordinary output",
+            "ordinary output with [INFO] token",
             " [12:34:56] [INFO] indented",
             "[not a date] [WARN] text",
             "[12:34:56] [CUSTOM] text",
@@ -154,6 +182,8 @@ mod tests {
             assert!(prefix(text).is_none(), "{text}");
             let mut bytes = Vec::new();
             let fragment = Formatting::default().fragment(text, true, true);
+            assert!(fragment.prefix.is_none());
+            assert!(!fragment.muted_body);
             write(&mut bytes, text, &fragment, true).unwrap();
             assert_eq!(bytes, text.as_bytes());
         }
@@ -171,7 +201,7 @@ mod tests {
                     .muted_body
             );
         }
-        for level in ["ERROR", "FATAL"] {
+        for level in ["ERROR", "FATAL", "SEVERE"] {
             let text = format!("[12:34:56] [main/{level}] text");
             let fragment = formatting.fragment(&text, true, true);
             assert!(fragment.prefix.is_some());
@@ -179,11 +209,21 @@ mod tests {
         }
     }
     #[test]
-    fn timestamp_and_warning_alias_have_separate_style_ranges() {
+    fn timestamp_and_level_have_separate_style_ranges_including_paper() {
         let text = "[12:34:56] [Server thread/WARNING] message";
-        let (start, end, _, muted) = prefix(text).expect("WARNING prefix");
-        assert_eq!(&text[..start], "[12:34:56] ");
-        assert_eq!(&text[start..end], "[Server thread/WARNING]");
+        let (span, _, muted) = prefix(text).expect("WARNING prefix");
+        assert_eq!(&text[..span.level_start], "[12:34:56] ");
+        assert_eq!(&text[span.level_start..span.level_end], "[Server thread/WARNING]");
+        assert_eq!(span.level_end, span.prefix_end);
         assert!(muted);
+
+        let paper = "[12:34:56 ERROR]: boom";
+        let (span, role, muted) = prefix(paper).expect("Paper prefix");
+        assert_eq!(&paper[..span.level_start], "[12:34:56 ");
+        assert_eq!(&paper[span.level_start..span.level_end], "ERROR");
+        assert_eq!(&paper[span.level_end..span.prefix_end], "]");
+        assert_eq!(&paper[span.prefix_end..], ": boom");
+        assert_eq!(role, Role::Danger);
+        assert!(!muted);
     }
 }

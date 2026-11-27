@@ -1,62 +1,102 @@
-//! Byte-bounded source buffers with loss-explicit cursors and independently readable tails.
+//! Unified arrival-ordered log journal with per-source byte quotas, loss-explicit cursors,
+//! framed binary persistence, and generation-scoped crash report tail scanning.
 
 use crate::operations::server::shim::{
     CursorRange, Gap, LogBatch, LogChunk, LogsInput, MAX_LOG_BLOCK_BYTES, Source,
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
+use mcpm_lib::local::mc::log::{parse_header, strip_ansi};
 use std::{
     collections::VecDeque,
     io::{Read, Write},
     path::{Path, PathBuf},
 };
 
-const CAPACITY: usize = MAX_LOG_BLOCK_BYTES;
+/// Maximum retained bytes per source (`stdout` and `stderr` each have an independent 1 MiB quota).
+const CAPACITY_PER_SOURCE: usize = MAX_LOG_BLOCK_BYTES;
+/// Coalesce tiny consecutive same-source reads up to 8 KiB without changing cross-source ordering.
+const MERGE_CHUNK_BYTES: usize = 8 * 1024;
+const FRAMED_LOG_MAGIC: &[u8; 8] = b"MCPMLOG\x01";
 const CRASH_REPORT_MARKER: &str = "This crash report has been saved to:";
 const CRASH_REPORT_SCAN_LINES: usize = 200;
 
-/// Scans at most the last 200 logical lines of stdout and stderr written at or after each
-/// stream's generation cursor for Minecraft's crash report notice, resolving relative paths
-/// against Java's working directory.
-pub(super) fn detect_crash_report(
-    stdout: &Buffer,
-    stderr: &Buffer,
+/// Scans at most the last 200 logical lines of stdout (then stderr) written at or after
+/// `since_cursor` for Minecraft's `ERROR`/`FATAL`/`SEVERE` crash report notices, returning
+/// distinct candidate paths (newest first) resolved against `working_directory`.
+/// Authoritative filesystem containment and validity checks are enforced by the caller.
+pub(super) fn detect_crash_report_candidates(
+    logs: &Buffer,
     working_directory: &Path,
-    stdout_since: u64,
-    stderr_since: u64,
-) -> Option<String> {
-    stdout
-        .detect_crash_report(working_directory, stdout_since)
-        .or_else(|| stderr.detect_crash_report(working_directory, stderr_since))
+    since_cursor: u64,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    logs.collect_crash_report_candidates(
+        Source::Stdout,
+        working_directory,
+        since_cursor,
+        &mut candidates,
+    );
+    logs.collect_crash_report_candidates(
+        Source::Stderr,
+        working_directory,
+        since_cursor,
+        &mut candidates,
+    );
+    candidates
 }
 
 #[derive(Default)]
 pub(super) struct Buffer {
     chunks: VecDeque<LogChunk>,
     latest: u64,
-    size: usize,
+    source_bytes: [usize; 2],
     pub closed: bool,
 }
+
 impl Buffer {
-    pub fn push(&mut self, bytes: Vec<u8>) {
+    pub fn push(&mut self, source: Source, mut bytes: Vec<u8>) {
         if bytes.is_empty() {
             return;
         }
-        let seq = self.latest;
+        let mut seq = self.latest;
         self.latest += bytes.len() as u64;
-        self.size += bytes.len();
-        self.chunks.push_back(LogChunk { seq, bytes });
-        while self.size > CAPACITY {
-            if let Some(chunk) = self.chunks.pop_front() {
-                self.size -= chunk.bytes.len();
+        if bytes.len() > CAPACITY_PER_SOURCE {
+            let skip = bytes.len() - CAPACITY_PER_SOURCE;
+            bytes.drain(..skip);
+            seq += skip as u64;
+        }
+        let added = bytes.len();
+        let idx = source_index(source);
+        self.source_bytes[idx] += added;
+
+        if let Some(last) = self.chunks.back_mut()
+            && last.source == source
+            && last.seq + last.bytes.len() as u64 == seq
+            && last.bytes.len() + added <= MERGE_CHUNK_BYTES
+        {
+            last.bytes.extend_from_slice(&bytes);
+        } else {
+            self.chunks.push_back(LogChunk { seq, source, bytes });
+        }
+
+        // Enforce an independent 1 MiB cap per source so heavy stdout never evicts stderr.
+        while self.source_bytes[idx] > CAPACITY_PER_SOURCE {
+            let Some(pos) = self.chunks.iter().position(|chunk| chunk.source == source) else {
+                break;
+            };
+            if let Some(evicted) = self.chunks.remove(pos) {
+                self.source_bytes[idx] = self.source_bytes[idx].saturating_sub(evicted.bytes.len());
             }
         }
     }
+
     pub fn range(&self) -> CursorRange {
         CursorRange {
             oldest: self.chunks.front().map_or(self.latest, |chunk| chunk.seq),
             latest: self.latest,
         }
     }
+
     pub fn read(&self, input: &LogsInput) -> Result<LogBatch> {
         let range = self.range();
         let requested = input.cursor.unwrap_or_else(|| match input.tail {
@@ -67,30 +107,67 @@ impl Buffer {
             requested <= range.latest,
             "log cursor is beyond this run's output"
         );
-        let gap = (requested < range.oldest).then_some(Gap {
+        let mut gap = (requested < range.oldest).then_some(Gap {
             from: requested,
             to: range.oldest,
         });
         let mut next_cursor = requested.max(range.oldest);
         let mut remaining = input.max_bytes.clamp(1, MAX_LOG_BLOCK_BYTES);
+        let max_items = input.max_items.clamp(1, 128);
         let mut batch = Vec::new();
+
         for chunk in &self.chunks {
             let end = chunk.seq + chunk.bytes.len() as u64;
             if end <= next_cursor {
                 continue;
             }
-            if batch.len() >= input.max_items.clamp(1, 128) || remaining == 0 {
+            if next_cursor < chunk.seq {
+                // An internal gap exists where chunks of one source were evicted while an
+                // earlier chunk from the other source remained retained.
+                if !batch.is_empty() {
+                    break;
+                }
+                gap = Some(match gap {
+                    Some(existing) => Gap {
+                        from: existing.from,
+                        to: chunk.seq,
+                    },
+                    None => Gap {
+                        from: next_cursor,
+                        to: chunk.seq,
+                    },
+                });
+                next_cursor = chunk.seq;
+            }
+            if batch.len() >= max_items || remaining == 0 {
                 break;
             }
             let begin = (next_cursor - chunk.seq) as usize;
             let length = (chunk.bytes.len() - begin).min(remaining);
             batch.push(LogChunk {
                 seq: next_cursor,
+                source: chunk.source,
                 bytes: chunk.bytes[begin..begin + length].to_vec(),
             });
             next_cursor += length as u64;
             remaining -= length;
         }
+
+        // If all bytes at or after `next_cursor` were evicted (only possible if `chunks` is empty).
+        if batch.is_empty() && next_cursor < range.latest {
+            gap = Some(match gap {
+                Some(existing) => Gap {
+                    from: existing.from,
+                    to: range.latest,
+                },
+                None => Gap {
+                    from: next_cursor,
+                    to: range.latest,
+                },
+            });
+            next_cursor = range.latest;
+        }
+
         Ok(LogBatch {
             batch,
             next_cursor,
@@ -99,67 +176,122 @@ impl Buffer {
         })
     }
 
-    /// Write raw source bytes before publishing the receipt that references their cursors.
-    pub fn persist(&self, directory: &Path, run_id: &str, source: Source) -> Result<()> {
-        let mut file = super::private_file(&log_path(directory, run_id, source)?)?;
+    /// Writes framed chunks (`[seq:u64][source:u8][len:u32][bytes]`) before publishing the receipt.
+    pub fn persist(&self, directory: &Path, run_id: &str) -> Result<()> {
+        let mut file = super::private_file(&log_path(directory, run_id)?)?;
+        file.write_all(FRAMED_LOG_MAGIC)?;
         for chunk in &self.chunks {
+            let len = u32::try_from(chunk.bytes.len()).context("log chunk exceeds u32 length")?;
+            file.write_all(&chunk.seq.to_le_bytes())?;
+            file.write_all(&[encode_source(chunk.source)])?;
+            file.write_all(&len.to_le_bytes())?;
             file.write_all(&chunk.bytes)?;
         }
         file.flush()?;
         file.sync_all().context("failed to sync retained log bytes")
     }
 
-    pub fn restore(
-        directory: &Path,
-        run_id: &str,
-        source: Source,
-        range: &CursorRange,
-    ) -> Result<Self> {
+    pub fn restore(directory: &Path, run_id: &str, range: &CursorRange) -> Result<Self> {
         ensure!(
             range.oldest <= range.latest,
             "invalid retained log cursor range"
         );
-        let length = range.latest - range.oldest;
-        ensure!(length <= CAPACITY as u64, "retained log exceeds byte limit");
-        let path = log_path(directory, run_id, source)?;
-        let file = std::fs::File::open(&path)
+        let path = log_path(directory, run_id)?;
+        let mut file = std::fs::File::open(&path)
             .with_context(|| format!("failed to open retained log {path:?}"))?;
+        let mut magic = [0u8; 8];
+        file.read_exact(&mut magic)
+            .context("retained log is missing framed header")?;
         ensure!(
-            file.metadata()?.len() == length,
-            "retained log size does not match receipt cursors"
+            &magic == FRAMED_LOG_MAGIC,
+            "unsupported or corrupted retained log header"
         );
-        let mut bytes = Vec::with_capacity(length as usize);
-        file.take(length).read_to_end(&mut bytes)?;
-        ensure!(
-            bytes.len() as u64 == length,
-            "retained log ended before its declared cursor"
-        );
-        let chunks = if bytes.is_empty() {
-            VecDeque::new()
+
+        let mut chunks = VecDeque::new();
+        let mut source_bytes = [0usize; 2];
+        let mut prev_end = range.oldest;
+        let mut header = [0u8; 13];
+        loop {
+            match read_exact_or_eof(&mut file, &mut header)? {
+                false => break,
+                true => {}
+            }
+            let seq = u64::from_le_bytes(header[0..8].try_into().unwrap());
+            let source = decode_source(header[8])?;
+            let len = u32::from_le_bytes(header[9..13].try_into().unwrap()) as usize;
+            ensure!(len > 0 && len <= CAPACITY_PER_SOURCE, "invalid retained chunk length");
+            ensure!(
+                seq >= prev_end,
+                "retained log chunks are out of order or overlapping"
+            );
+            let end = seq
+                .checked_add(len as u64)
+                .context("retained log sequence overflow")?;
+            ensure!(
+                end <= range.latest,
+                "retained log chunk exceeds receipt latest cursor"
+            );
+            let idx = source_index(source);
+            source_bytes[idx] = source_bytes[idx]
+                .checked_add(len)
+                .context("retained log byte count overflow")?;
+            ensure!(
+                source_bytes[idx] <= CAPACITY_PER_SOURCE,
+                "retained log exceeds per-source byte limit"
+            );
+            let mut bytes = vec![0u8; len];
+            file.read_exact(&mut bytes)
+                .context("retained log ended mid-chunk")?;
+            chunks.push_back(LogChunk { seq, source, bytes });
+            prev_end = end;
+        }
+
+        if let Some(first) = chunks.front() {
+            ensure!(
+                first.seq == range.oldest,
+                "retained log oldest cursor does not match receipt"
+            );
+            ensure!(
+                prev_end == range.latest,
+                "retained log ended before its declared latest cursor"
+            );
         } else {
-            VecDeque::from([LogChunk {
-                seq: range.oldest,
-                bytes,
-            }])
-        };
+            ensure!(
+                range.oldest == range.latest,
+                "empty retained log does not match non-empty receipt range"
+            );
+        }
+
         Ok(Self {
             chunks,
             latest: range.latest,
-            size: length as usize,
+            source_bytes,
             closed: true,
         })
     }
 
-    fn detect_crash_report(&self, working_directory: &Path, since_cursor: u64) -> Option<String> {
-        let tail = self.tail_lines_bytes(CRASH_REPORT_SCAN_LINES, since_cursor);
+    fn collect_crash_report_candidates(
+        &self,
+        source: Source,
+        working_directory: &Path,
+        since_cursor: u64,
+        candidates: &mut Vec<PathBuf>,
+    ) {
+        let tail = self.tail_lines_bytes(source, CRASH_REPORT_SCAN_LINES, since_cursor);
         if tail.is_empty() {
-            return None;
+            return;
         }
-        let working_directory = strip_windows_verbatim(working_directory);
+        let working_directory = normalize_lexical(&strip_windows_verbatim(working_directory));
         let text = String::from_utf8_lossy(&tail);
         for line in text.lines().rev() {
             let clean = strip_ansi(line);
-            let Some((_, raw_path)) = clean.rsplit_once(CRASH_REPORT_MARKER) else {
+            let Some(header) = parse_header(&clean) else {
+                continue;
+            };
+            if !header.level.is_error_or_fatal() {
+                continue;
+            }
+            let Some(raw_path) = header.body.strip_prefix(CRASH_REPORT_MARKER) else {
                 continue;
             };
             let trimmed = raw_path.trim();
@@ -172,14 +304,16 @@ impl Buffer {
             } else {
                 working_directory.join(candidate)
             };
-            return Some(normalize_lexical(&resolved).to_string_lossy().into_owned());
+            let normalized = normalize_lexical(&resolved);
+            if !candidates.contains(&normalized) {
+                candidates.push(normalized);
+            }
         }
-        None
     }
 
-    /// Collects bytes covering at most the last `max_lines` logical lines across chunk boundaries,
-    /// restricted to bytes at sequence offset `>= since_cursor`.
-    fn tail_lines_bytes(&self, max_lines: usize, since_cursor: u64) -> Vec<u8> {
+    /// Collects bytes covering at most the last `max_lines` logical lines of `source` across
+    /// chunk boundaries, restricted to bytes at sequence offset `>= since_cursor`.
+    fn tail_lines_bytes(&self, source: Source, max_lines: usize, since_cursor: u64) -> Vec<u8> {
         if max_lines == 0 || self.chunks.is_empty() || self.latest <= since_cursor {
             return Vec::new();
         }
@@ -191,20 +325,19 @@ impl Buffer {
             if chunk_end <= since_cursor {
                 break;
             }
+            if chunk.source != source {
+                continue;
+            }
             let slice_start = since_cursor.saturating_sub(chunk.seq) as usize;
             for &byte in chunk.bytes[slice_start..].iter().rev() {
-                if byte == b'\n' {
-                    if seen_any {
-                        newlines += 1;
-                        if newlines >= max_lines {
-                            break 'outer;
-                        }
-                    } else {
-                        // A single trailing line terminator does not start an extra empty line.
-                        seen_any = true;
-                        continue;
+                if byte == b'\n' && seen_any {
+                    newlines += 1;
+                    if newlines >= max_lines {
+                        break 'outer;
                     }
                 }
+                // A single trailing `\n` sets `seen_any` without incrementing `newlines`,
+                // keeping the terminator byte so `str::lines()` strips CRLF cleanly.
                 seen_any = true;
                 reversed.push(byte);
             }
@@ -214,48 +347,46 @@ impl Buffer {
     }
 }
 
-/// Removes ANSI CSI/OSC/ESC control sequences so color resets never stick to extracted paths.
-fn strip_ansi(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '\x1b' {
-            output.push(ch);
-            continue;
-        }
-        match chars.peek().copied() {
-            Some('[') => {
-                chars.next();
-                for next in chars.by_ref() {
-                    if ('@'..='~').contains(&next) {
-                        break;
-                    }
+fn source_index(source: Source) -> usize {
+    usize::from(source == Source::Stderr)
+}
+
+fn encode_source(source: Source) -> u8 {
+    match source {
+        Source::Stdout => 0,
+        Source::Stderr => 1,
+    }
+}
+
+fn decode_source(byte: u8) -> Result<Source> {
+    match byte {
+        0 => Ok(Source::Stdout),
+        1 => Ok(Source::Stderr),
+        other => bail!("invalid retained log source tag {other}"),
+    }
+}
+
+fn read_exact_or_eof(reader: &mut impl Read, buf: &mut [u8]) -> Result<bool> {
+    let mut offset = 0;
+    while offset < buf.len() {
+        match reader.read(&mut buf[offset..]) {
+            Ok(0) => {
+                if offset == 0 {
+                    return Ok(false);
                 }
+                bail!("retained log ended inside a frame header");
             }
-            Some(']') => {
-                chars.next();
-                while let Some(next) = chars.next() {
-                    if next == '\x07' {
-                        break;
-                    }
-                    if next == '\x1b' && chars.peek() == Some(&'\\') {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-            Some(_) => {
-                chars.next();
-            }
-            None => {}
+            Ok(n) => offset += n,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error).context("failed to read retained log frame header"),
         }
     }
-    output
+    Ok(true)
 }
 
 /// Strips Windows verbatim prefixes (`\\?\` / `\\?\UNC\`) so `Path::components()` normalizes
 /// `.` / `..` segments and display paths stay readable.
-fn strip_windows_verbatim(path: &Path) -> PathBuf {
+pub(super) fn strip_windows_verbatim(path: &Path) -> PathBuf {
     let Some(text) = path.to_str() else {
         return path.to_path_buf();
     };
@@ -293,16 +424,13 @@ fn normalize_lexical(path: &Path) -> PathBuf {
     }
 }
 
-fn log_path(directory: &Path, run_id: &str, source: Source) -> Result<PathBuf> {
+fn log_path(directory: &Path, run_id: &str) -> Result<PathBuf> {
     uuid::Uuid::parse_str(run_id).context("invalid retained log run id")?;
-    let source = match source {
-        Source::Stdout => "stdout",
-        Source::Stderr => "stderr",
-    };
-    Ok(directory.join(format!("logs-{run_id}-{source}.bin")))
+    Ok(directory.join(format!("logs-{run_id}.bin")))
 }
 
-/// Keep the latest published receipt's tails while removing older generated run files.
+/// Keep the latest published receipt's log file while removing older generated run files
+/// (including legacy split `logs-<id>-stdout.bin` / `logs-<id>-stderr.bin` files).
 pub(super) fn remove_obsolete(directory: &Path, retained: Option<&str>) -> Result<()> {
     for entry in std::fs::read_dir(directory)? {
         let entry = entry?;
@@ -313,10 +441,12 @@ pub(super) fn remove_obsolete(directory: &Path, retained: Option<&str>) -> Resul
         let Some((id, suffix)) = name.split_at_checked(36) else {
             continue;
         };
-        if uuid::Uuid::parse_str(id).is_ok()
-            && Some(id) != retained
-            && matches!(suffix, "-stdout.bin" | "-stderr.bin")
-        {
+        if uuid::Uuid::parse_str(id).is_err() {
+            continue;
+        }
+        let is_legacy = matches!(suffix, "-stdout.bin" | "-stderr.bin");
+        let is_current = suffix == ".bin" && Some(id) != retained;
+        if is_legacy || is_current {
             std::fs::remove_file(entry.path()).context("failed to remove obsolete retained log")?;
         }
     }
@@ -327,32 +457,50 @@ pub(super) fn remove_obsolete(directory: &Path, retained: Option<&str>) -> Resul
 mod tests {
     use super::*;
     use crate::operations::server::shim::{ShimRef, Source};
+
     fn input(cursor: Option<u64>, tail: Option<usize>, max_bytes: usize) -> LogsInput {
         LogsInput {
             reference: ShimRef {
                 server: ".".into(),
                 run_id: "test".into(),
             },
-            source: Source::Stdout,
             cursor,
             tail,
             max_bytes,
             max_items: 128,
         }
     }
+
     #[test]
-    fn tail_split_resume_and_overflow_are_loss_explicit() -> Result<()> {
+    fn tail_split_resume_and_per_source_quota_eviction_are_loss_explicit() -> Result<()> {
         let mut buffer = Buffer::default();
-        buffer.push(b"abcdef".to_vec());
-        let first = buffer.read(&input(None, Some(3), 2))?;
-        assert_eq!(first.batch[0].bytes, b"de");
-        assert_eq!(first.next_cursor, 5);
-        let second = buffer.read(&input(Some(first.next_cursor), None, 2))?;
-        assert_eq!(second.batch[0].bytes, b"f");
-        buffer.push(vec![b'x'; CAPACITY]);
-        let lost = buffer.read(&input(Some(5), None, 10))?;
-        assert_eq!((lost.gap.unwrap().from, lost.next_cursor), (5, 16));
-        assert!(!lost.finished);
+        buffer.push(Source::Stderr, b"ERR!".to_vec());
+        buffer.push(Source::Stdout, b"abcdef".to_vec());
+
+        // Reading across interleaved sources preserves exact arrival order.
+        let first = buffer.read(&input(Some(0), None, 6))?;
+        assert_eq!(first.batch.len(), 2);
+        assert_eq!((first.batch[0].source, first.batch[0].bytes.as_slice()), (Source::Stderr, b"ERR!".as_slice()));
+        assert_eq!((first.batch[1].source, first.batch[1].bytes.as_slice()), (Source::Stdout, b"ab".as_slice()));
+        assert_eq!(first.next_cursor, 6);
+
+        // Overflowing stdout evicts old stdout ("abcdef") while retaining earlier stderr ("ERR!").
+        buffer.push(Source::Stdout, vec![b'x'; CAPACITY_PER_SOURCE]);
+        let before_gap = buffer.read(&input(Some(0), None, 10))?;
+        assert_eq!(before_gap.batch.len(), 1);
+        assert_eq!(before_gap.batch[0].source, Source::Stderr);
+        assert_eq!(before_gap.batch[0].bytes, b"ERR!");
+        assert_eq!(before_gap.next_cursor, 4);
+        assert!(before_gap.gap.is_none());
+
+        // The next read reports the internal gap 4..10 where stdout was evicted.
+        let across_gap = buffer.read(&input(Some(4), None, 10))?;
+        assert_eq!(across_gap.gap.as_ref().map(|g| (g.from, g.to)), Some((4, 10)));
+        assert_eq!(across_gap.batch[0].source, Source::Stdout);
+        assert_eq!(across_gap.batch[0].seq, 10);
+        assert_eq!(across_gap.next_cursor, 20);
+        assert!(!across_gap.finished);
+
         buffer.closed = true;
         assert!(
             buffer
@@ -363,77 +511,112 @@ mod tests {
     }
 
     #[test]
-    fn binary_tail_preserves_bytes_cursors_and_rejects_inconsistent_files() -> Result<()> {
+    fn framed_persist_preserves_interleaved_sources_gaps_and_rejects_corrupt_files() -> Result<()> {
         let directory = tempfile::tempdir()?;
         let run = "00000000-0000-0000-0000-000000000001";
         let mut buffer = Buffer::default();
-        buffer.push(b"gone".to_vec());
-        let bytes: Vec<u8> = (0..MAX_LOG_BLOCK_BYTES)
+        buffer.push(Source::Stderr, b"early-err\n".to_vec());
+        buffer.push(Source::Stdout, b"evicted\n".to_vec());
+        let flood: Vec<u8> = (0..CAPACITY_PER_SOURCE)
             .map(|index| (index % 256) as u8)
             .collect();
-        buffer.push(bytes.clone());
+        buffer.push(Source::Stdout, flood.clone());
+        buffer.push(Source::Stderr, b"late-err\n".to_vec());
         buffer.closed = true;
         let range = buffer.range();
-        buffer.persist(directory.path(), run, Source::Stdout)?;
-        let loaded = Buffer::restore(directory.path(), run, Source::Stdout, &range)?;
-        let batch = loaded.read(&input(Some(0), None, MAX_LOG_BLOCK_BYTES * 2))?;
-        assert_eq!(batch.gap.unwrap().to, 4);
-        assert_eq!(batch.batch[0].seq, 4);
-        assert_eq!(batch.batch[0].bytes, bytes);
-        assert_eq!(batch.next_cursor, range.latest);
-        assert!(batch.finished);
-        std::fs::write(
-            log_path(directory.path(), run, Source::Stdout)?,
-            b"truncated",
-        )?;
-        assert!(Buffer::restore(directory.path(), run, Source::Stdout, &range).is_err());
+        buffer.persist(directory.path(), run)?;
+
+        let loaded = Buffer::restore(directory.path(), run, &range)?;
+        let first = loaded.read(&input(Some(0), None, MAX_LOG_BLOCK_BYTES))?;
+        assert_eq!(first.batch.len(), 1);
+        assert_eq!(first.batch[0].source, Source::Stderr);
+        assert_eq!(first.batch[0].bytes, b"early-err\n");
+        assert!(first.gap.is_none());
+
+        let second = loaded.read(&input(Some(first.next_cursor), None, MAX_LOG_BLOCK_BYTES))?;
+        assert_eq!(second.gap.as_ref().map(|g| (g.from, g.to)), Some((10, 18)));
+        assert_eq!(second.batch[0].source, Source::Stdout);
+        assert_eq!(second.batch[0].bytes, flood);
+
+        let third = loaded.read(&input(Some(second.next_cursor), None, MAX_LOG_BLOCK_BYTES))?;
+        assert_eq!(third.batch[0].source, Source::Stderr);
+        assert_eq!(third.batch[0].bytes, b"late-err\n");
+        assert!(third.finished);
+
+        std::fs::write(log_path(directory.path(), run)?, b"truncated")?;
+        assert!(Buffer::restore(directory.path(), run, &range).is_err());
         Ok(())
     }
 
     #[test]
-    fn detects_crash_report_paths_across_versions_chunks_ansi_and_200_line_limit() {
+    fn detects_crash_report_candidates_across_loaders_and_rejects_forgery() {
         let wd = Path::new("/srv/minecraft");
 
         // 1.6.4 logs to stderr with an absolute path containing `/./`.
-        let stdout = Buffer::default();
-        let mut stderr = Buffer::default();
-        stderr.push(
+        let mut logs = Buffer::default();
+        logs.push(
+            Source::Stderr,
             b"2013-10-15 16:20:00 [SEVERE] This crash report has been saved to: /srv/minecraft/./crash-reports/crash-2013-10-15_16.20.00-server.txt\r\n"
                 .to_vec(),
         );
         assert_eq!(
-            detect_crash_report(&stdout, &stderr, wd, 0, 0),
-            Some("/srv/minecraft/crash-reports/crash-2013-10-15_16.20.00-server.txt".to_owned())
+            detect_crash_report_candidates(&logs, wd, 0),
+            vec![PathBuf::from(
+                "/srv/minecraft/crash-reports/crash-2013-10-15_16.20.00-server.txt"
+            )]
         );
 
-        // Modern 1.21+ relative path with ANSI reset codes and split across chunks.
-        let mut stdout = Buffer::default();
-        let stderr = Buffer::default();
-        stdout.push(b"\x1b[31m[12:00:00] [Server thread/ERROR]: This crash report has been ".to_vec());
-        stdout.push(b"saved to: crash-reports/crash-2026-05-01_12.00.00-server.txt\x1b[m\n".to_vec());
+        // Modern 1.21+ relative path with ANSI reset codes and split across chunks,
+        // followed by spoofed player chat, prefixed error lines, and bare lines.
+        let mut logs = Buffer::default();
+        logs.push(
+            Source::Stdout,
+            b"\x1b[31m[12:00:00] [Server thread/ERROR]: This crash report has been ".to_vec(),
+        );
+        logs.push(
+            Source::Stdout,
+            b"saved to: crash-reports/crash-2026-05-01_12.00.00-server.txt\x1b[m\n".to_vec(),
+        );
+        logs.push(
+            Source::Stdout,
+            concat!(
+                "[12:00:01] [Server thread/INFO]: <Steve> This crash report has been saved to: crash-reports/fake.txt\n",
+                "[12:00:01 INFO]: [Steve]: This crash report has been saved to: crash-reports/fake2.txt\n",
+                "[12:00:01] [Server thread/ERROR]: Failed for Steve: This crash report has been saved to: crash-reports/fake3.txt\n",
+                "This crash report has been saved to: crash-reports/bare.txt\n",
+            )
+            .as_bytes()
+            .to_vec(),
+        );
         assert_eq!(
-            detect_crash_report(&stdout, &stderr, wd, 0, 0),
-            Some("/srv/minecraft/crash-reports/crash-2026-05-01_12.00.00-server.txt".to_owned())
+            detect_crash_report_candidates(&logs, wd, 0),
+            vec![PathBuf::from(
+                "/srv/minecraft/crash-reports/crash-2026-05-01_12.00.00-server.txt"
+            )]
         );
         // Generation boundary excludes crash reports from earlier generations.
-        let next_gen = stdout.range().latest;
-        stdout.push(b"[12:01:00] [Server thread/INFO]: Clean restart\n".to_vec());
-        assert_eq!(detect_crash_report(&stdout, &stderr, wd, next_gen, 0), None);
+        let next_gen = logs.range().latest;
+        logs.push(
+            Source::Stdout,
+            b"[12:01:00] [Server thread/INFO]: Clean restart\n".to_vec(),
+        );
+        assert!(detect_crash_report_candidates(&logs, wd, next_gen).is_empty());
 
-        // Enforce the 200-line tail window: 199 trailing lines still match, 200 trailing lines evict it.
-        let mut stdout = Buffer::default();
-        stdout.push(
-            b"[12:00:00] [Server Watchdog/FATAL]: This crash report has been saved to: crash-reports/old.txt\n"
+        // Paper & Forge headers plus 200-line tail window: 199 trailing lines still match, 200 evict it.
+        let mut logs = Buffer::default();
+        logs.push(
+            Source::Stdout,
+            b"[06Nov2026 12:00:00.123] [Server Watchdog/FATAL] [net.minecraft.server.dedicated.ServerWatchdog/]: This crash report has been saved to: crash-reports/old.txt\n"
                 .to_vec(),
         );
         for _ in 0..199 {
-            stdout.push(b"noise line\n".to_vec());
+            logs.push(Source::Stdout, b"noise line\n".to_vec());
         }
         assert_eq!(
-            detect_crash_report(&stdout, &stderr, wd, 0, 0),
-            Some("/srv/minecraft/crash-reports/old.txt".to_owned())
+            detect_crash_report_candidates(&logs, wd, 0),
+            vec![PathBuf::from("/srv/minecraft/crash-reports/old.txt")]
         );
-        stdout.push(b"one more noise line\n".to_vec());
-        assert_eq!(detect_crash_report(&stdout, &stderr, wd, 0, 0), None);
+        logs.push(Source::Stdout, b"one more noise line\n".to_vec());
+        assert!(detect_crash_report_candidates(&logs, wd, 0).is_empty());
     }
 }
