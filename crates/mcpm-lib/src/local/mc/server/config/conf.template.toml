@@ -50,14 +50,13 @@ world = "world"                       # Optional string. Emits --world and overr
 #   "crash", "watchdog", "other_crash", "exit", "killed_by_user", "killed_by_mcpm", "any".
 # During a restart delay, @stop, @kill, or Ctrl+C cancels the pending restart.
 
-[[restart_on]]                        # Example 1: simple fixed-delay rule with a sliding-window run budget.
-name = "crash-limit"                  # Optional unique rule name.
+[[restart_on]]                        # Default enabled rule: recover from ServerWatchdog hangs.
+name = "watchdog"                     # Optional unique rule name.
 type = "simple"                       # Optional; "simple" is the default when omitted.
 action = "restart"                    # Optional; "restart" (default) or "stop".
-exit_type = "crash"                   # Optional; defaults to "crash". Accepts a string or list of matchers.
-exit_codes = [1, 137]                 # Optional integer list. Omit or leave empty to match any exit code.
+exit_type = "watchdog"                # Matches ServerWatchdog crashes only. Accepts a string or list of matchers.
 max_runs = 3                          # Optional integer >= 1. Maximum restarts triggered by this rule within window.
-window = "10m"                        # Optional duration > 0 (requires max_runs). Omit for whole shim lifetime.
+window = "30m"                        # Optional duration > 0 (requires max_runs). Omit for whole shim lifetime.
 delay = "5s"                          # Optional duration (default "5s"). Wait time before respawning Java.
 
 [[restart_on]]                        # Example 2: exponential backoff rule to guard against crash loops.
@@ -65,7 +64,7 @@ name = "crash-backoff"                # Optional unique rule name.
 type = "backoff"                      # Exponential backoff mode.
 action = "restart"                    # Optional; "restart" (default) or "stop".
 exit_type = ["crash", "watchdog"]     # Optional; defaults to "crash".
-exit_codes = []                       # Optional integer list. Empty matches any exit code.
+exit_codes = [1, 137]                 # Optional integer list. Omit or leave empty to match any exit code.
 initial_delay = "5s"                  # Optional duration (default "5s"). Delay for the first consecutive crash.
 max_delay = "5m"                      # Optional duration (default "5m"). Upper cap for backoff delay (>= initial_delay).
 multiplier = 2.0                      # Optional finite number >= 1.0 (default 2.0).

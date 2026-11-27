@@ -90,7 +90,7 @@ fn keys(sender: &mpsc::Sender<Input>, stop: &AtomicBool, keyboard: &Keyboard) ->
         while keyboard.pause_requested.load(Ordering::Acquire) {
             guard = keyboard.resumed.wait(guard).unwrap();
         }
-        if event::poll(Duration::from_millis(50))?
+        if event::poll(Duration::from_millis(16))?
             && let Event::Key(key) = event::read()?
         {
             drop(guard);

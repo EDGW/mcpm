@@ -15,8 +15,12 @@ use super::{ConfigurationOverrides, ServerConfig, decode_conf_with_overrides};
 /// Valid uncommented example template; every schema field and comment lives here once.
 pub(super) const CONF_TEMPLATE: &str = include_str!("conf.template.toml");
 
-/// Renders the default configuration with only the required `[java]` table active and all
-/// optional settings (including `[[restart_on]]` examples) commented out in place.
+/// Default `[[restart_on]]` rule enabled in newly generated `conf.toml` files.
+const DEFAULT_ENABLED_RESTART_RULE: &str = "watchdog";
+
+/// Renders the default configuration with the required `[java]` table and the default
+/// `watchdog` `[[restart_on]]` rule active, while keeping all other optional settings and
+/// restart examples commented out in place.
 pub(super) fn default_template() -> String {
     render_template::<&toml::Value>(BTreeMap::new())
         .expect("embedded conf.template.toml must render cleanly")
@@ -172,6 +176,13 @@ fn render_section<T: Serialize>(
 
     let dotted_path = join_key_names(&section.path);
     let header_display = join_key_reprs(&section.path);
+    let active_array_table = section.is_array_of_tables
+        && dotted_path == "restart_on"
+        && section
+            .table
+            .get("name")
+            .and_then(Item::as_str)
+            == Some(DEFAULT_ENABLED_RESTART_RULE);
 
     if !section.path.is_empty() && (section.is_array_of_tables || visible_table) {
         if let Some(prefix) = section.table.decor().prefix().and_then(|raw| raw.as_str()) {
@@ -183,12 +194,13 @@ fn render_section<T: Serialize>(
             .suffix()
             .and_then(|raw| raw.as_str())
             .unwrap_or("");
-        let table_active = !section.is_array_of_tables
-            && (dotted_path == "java"
-                || entries.iter().any(|(key_path, _)| {
-                    let full = entry_path(&dotted_path, key_path);
-                    remaining.contains_key(full.as_str())
-                }));
+        let table_active = active_array_table
+            || (!section.is_array_of_tables
+                && (dotted_path == "java"
+                    || entries.iter().any(|(key_path, _)| {
+                        let full = entry_path(&dotted_path, key_path);
+                        remaining.contains_key(full.as_str())
+                    })));
         let header = if section.is_array_of_tables {
             format!("[[{header_display}]]{suffix}")
         } else {
@@ -210,7 +222,14 @@ fn render_section<T: Serialize>(
         let key_repr = join_key_reprs(&key_path);
         let full_path = entry_path(&dotted_path, &key_path);
 
-        if !section.is_array_of_tables
+        if active_array_table {
+            let key_suffix = leaf
+                .leaf_decor()
+                .suffix()
+                .and_then(|raw| raw.as_str())
+                .unwrap_or(" ");
+            output.push_str(&format!("{key_repr}{key_suffix}={value}\n"));
+        } else if !section.is_array_of_tables
             && let Some(configured) = remaining.remove(full_path.as_str())
         {
             let encoded = encode_setting(&configured)?;

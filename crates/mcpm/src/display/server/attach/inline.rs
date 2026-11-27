@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::Modifier,
     text::{Line, Span},
-    widgets::{Block, Borders, Padding, Paragraph, Widget, Wrap},
+    widgets::{Block, Borders, Gauge, Padding, Paragraph, Widget, Wrap},
 };
 use std::{
     collections::VecDeque,
@@ -17,9 +17,17 @@ use std::{
 };
 use unicode_width::UnicodeWidthStr;
 
+pub(super) struct RestartView<'a> {
+    pub attempt: u32,
+    pub lines: Vec<Line<'a>>,
+    pub ratio: f64,
+    pub countdown_label: String,
+}
+
 pub(super) struct Screen {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
     height: u16,
+    restart_rows: u16,
     suggestion_rows: u16,
     speed_rows: u16,
     raw: bool,
@@ -50,6 +58,7 @@ impl Screen {
                 },
             )?,
             height,
+            restart_rows: 0,
             suggestion_rows: 0,
             speed_rows,
             raw: false,
@@ -74,6 +83,7 @@ impl Screen {
         self.height = target;
         self.resize_viewport(
             target
+                .saturating_add(self.restart_rows)
                 .saturating_add(self.suggestion_rows)
                 .saturating_add(self.speed_rows)
                 .min(size.height.max(1)),
@@ -184,6 +194,12 @@ impl Screen {
         let (widget, height) = exit_report_widget(title, role, lines, width);
         self.insert_before(height, |buffer| widget.render(buffer.area, buffer))
     }
+    pub fn restart_report(&mut self, attempt: u32, lines: Vec<Line<'_>>) -> io::Result<()> {
+        self.terminal.autoresize()?;
+        let width = self.terminal.size()?.width.max(1);
+        let (widget, height) = restart_report_widget(attempt, lines, width);
+        self.insert_before(height, |buffer| widget.render(buffer.area, buffer))
+    }
 
     fn scrolled_output(&mut self, lines: u16, previous_top: u16) {
         let advanced = self
@@ -202,6 +218,7 @@ impl Screen {
         cursor: usize,
         status: &str,
         partial: &str,
+        restart: Option<RestartView<'_>>,
         suggestions: super::suggestions::View<'_>,
         speed: Vec<Line<'static>>,
     ) -> io::Result<()> {
@@ -213,11 +230,24 @@ impl Screen {
         self.speed_rows = speed
             .line_count(size.width)
             .min(size.height.saturating_sub(self.height) as usize) as u16;
-        let available = size
+        let content_width = size.width.saturating_sub(4).max(1);
+        let after_speed = size
             .height
             .saturating_sub(self.height)
             .saturating_sub(self.speed_rows);
-        let content_width = size.width.saturating_sub(4);
+        self.restart_rows = match &restart {
+            Some(view) if after_speed >= 3 => {
+                let info_rows = Paragraph::new(view.lines.clone())
+                    .wrap(Wrap { trim: false })
+                    .line_count(content_width);
+                info_rows
+                    .saturating_add(3)
+                    .min(after_speed as usize) as u16
+            }
+            Some(_) if after_speed >= 1 => 1,
+            _ => 0,
+        };
+        let available = after_speed.saturating_sub(self.restart_rows);
         let mut row_height = 0usize;
         let mut selected_start = 0usize;
         let mut selected_end = 0usize;
@@ -242,6 +272,7 @@ impl Screen {
             .min(u16::MAX as usize) as u16;
         self.resize_viewport(
             self.height
+                .saturating_add(self.restart_rows)
                 .saturating_add(self.suggestion_rows)
                 .saturating_add(self.speed_rows)
                 .min(size.height.max(1)),
@@ -290,13 +321,44 @@ impl Screen {
         }
         let content = Line::from(spans);
         self.terminal.draw(|frame| {
-            let [hints, input, footer, traffic] = Layout::vertical([
+            let [restart_area, hints, input, footer, traffic] = Layout::vertical([
+                Constraint::Length(self.restart_rows),
                 Constraint::Length(self.suggestion_rows),
                 Constraint::Min(1),
                 Constraint::Length(1),
                 Constraint::Length(self.speed_rows),
             ])
             .areas(frame.area());
+            if let Some(view) = restart
+                && restart_area.height > 0
+            {
+                let gauge = Gauge::default()
+                    .use_unicode(true)
+                    .gauge_style(style(Role::Primary))
+                    .ratio(view.ratio.clamp(0.0, 1.0))
+                    .label(view.countdown_label);
+                if restart_area.height >= 3 {
+                    let block = restart_block(view.attempt);
+                    let inner = block.inner(restart_area);
+                    frame.render_widget(block, restart_area);
+                    if inner.height >= 2 {
+                        let [info_area, gauge_area] = Layout::vertical([
+                            Constraint::Min(1),
+                            Constraint::Length(1),
+                        ])
+                        .areas(inner);
+                        frame.render_widget(
+                            Paragraph::new(view.lines).wrap(Wrap { trim: false }),
+                            info_area,
+                        );
+                        frame.render_widget(gauge, gauge_area);
+                    } else if inner.height == 1 {
+                        frame.render_widget(gauge, inner);
+                    }
+                } else {
+                    frame.render_widget(gauge, restart_area);
+                }
+            }
             let hint_frame = Block::new()
                 .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
                 .border_style(style(Role::Muted))
@@ -439,6 +501,51 @@ pub(super) fn console_response(
     let mut buffer = Buffer::empty(Rect::new(0, 0, width.max(3), height));
     widget.render(buffer.area, &mut buffer);
     write_buffer(output, &buffer, color, &[role, Role::Muted])
+}
+
+fn restart_block(attempt: u32) -> Block<'static> {
+    Block::new()
+        .borders(Borders::ALL)
+        .border_style(style(Role::Primary))
+        .title_style(style(Role::Primary))
+        .padding(Padding::horizontal(1))
+        .title(Line::from(vec![
+            Span::styled(
+                " Restart: ",
+                style(Role::Primary).remove_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("attempt #{attempt}"),
+                style(Role::Primary).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" ", style(Role::Primary).remove_modifier(Modifier::BOLD)),
+        ]))
+}
+
+fn restart_report_widget<'a>(
+    attempt: u32,
+    lines: Vec<Line<'a>>,
+    width: u16,
+) -> (Paragraph<'a>, u16) {
+    let paragraph = Paragraph::new(lines)
+        .block(restart_block(attempt))
+        .wrap(Wrap { trim: false });
+    let height = paragraph.line_count(width).max(3).min(u16::MAX as usize) as u16;
+    (paragraph, height)
+}
+
+/// Renders the restart card with the same Primary Block/Paragraph widgets as inline TUI.
+pub(super) fn console_restart_report(
+    output: &mut impl Write,
+    attempt: u32,
+    lines: Vec<Line<'_>>,
+    width: u16,
+    color: bool,
+) -> io::Result<()> {
+    let (widget, height) = restart_report_widget(attempt, lines, width.max(5));
+    let mut buffer = Buffer::empty(Rect::new(0, 0, width.max(5), height));
+    widget.render(buffer.area, &mut buffer);
+    write_buffer(output, &buffer, color, &[Role::Primary, Role::Muted])
 }
 
 /// Renders the exit report card with the same Block/Paragraph widgets as inline TUI.

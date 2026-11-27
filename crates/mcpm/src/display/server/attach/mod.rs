@@ -2,6 +2,7 @@
 
 use crate::{logging, terminal, theme::widgets::style};
 use anyhow::Result;
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use mcpm_backend::operations::server::shim::{
     Channel, CommandOutcome, CommandResult, CrashReportType, ExitReason, LaunchExit, ServerStatus,
     Source, State,
@@ -9,7 +10,10 @@ use mcpm_backend::operations::server::shim::{
 use mcpm_exec::messaging::SessionTrafficStats;
 use mcpm_rich::Role;
 use ratatui::text::{Line, Span};
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    time::Instant,
+};
 
 mod command_hints;
 mod inline;
@@ -19,6 +23,98 @@ mod suggestions;
 mod text;
 pub(crate) use inline::modifier_name;
 pub(crate) use suggestions::help_page_count;
+
+struct ConsoleRestartBar {
+    bar: ProgressBar,
+    _logs: logging::ProgressGuard,
+}
+
+impl ConsoleRestartBar {
+    fn new(delay_ms: u64) -> Self {
+        let multi = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(20));
+        let bar = multi.add(ProgressBar::new(delay_ms.max(1)));
+        bar.set_style(
+            ProgressStyle::with_template(&crate::theme::progress_template(
+                "  [{wide_bar}] {msg}",
+            ))
+            .expect("restart progress template must be valid")
+            .progress_chars("█▉▊▋▌▍▎▏ "),
+        );
+        let logs = logging::attach_progress(Some(multi));
+        Self { bar, _logs: logs }
+    }
+}
+
+impl Drop for ConsoleRestartBar {
+    fn drop(&mut self) {
+        self.bar.finish_and_clear();
+    }
+}
+
+struct RestartCountdown {
+    attempt: u32,
+    rule: String,
+    delay_ms: u64,
+    initial_remaining_ms: u64,
+    anchored_at: Instant,
+    console_bar: Option<ConsoleRestartBar>,
+}
+
+impl RestartCountdown {
+    fn new(
+        attempt: u32,
+        rule: String,
+        delay_ms: u64,
+        remaining_ms: u64,
+        console_bar: Option<ConsoleRestartBar>,
+    ) -> Self {
+        Self {
+            attempt,
+            rule,
+            delay_ms,
+            initial_remaining_ms: remaining_ms.min(delay_ms),
+            anchored_at: Instant::now(),
+            console_bar,
+        }
+    }
+
+    fn remaining_ms(&self) -> u64 {
+        let since_anchor = u64::try_from(self.anchored_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.initial_remaining_ms.saturating_sub(since_anchor)
+    }
+
+    fn elapsed_ms(&self) -> u64 {
+        self.delay_ms.saturating_sub(self.remaining_ms())
+    }
+
+    fn ratio(&self) -> f64 {
+        if self.delay_ms == 0 {
+            1.0
+        } else {
+            (self.elapsed_ms() as f64 / self.delay_ms as f64).clamp(0.0, 1.0)
+        }
+    }
+
+    fn remaining_secs(&self) -> u64 {
+        self.remaining_ms().div_ceil(1_000)
+    }
+
+    fn countdown_label(&self) -> String {
+        format!("Restarting in {}s", self.remaining_secs())
+    }
+
+    fn update_console_bar(&self) {
+        if let Some(console) = &self.console_bar {
+            let pos = if self.delay_ms == 0 {
+                1
+            } else {
+                self.elapsed_ms().min(self.delay_ms)
+            };
+            console.bar.set_position(pos);
+            console.bar.set_message(self.countdown_label());
+        }
+    }
+}
 
 /// One inline terminal owner; all asynchronous terminal diagnostics are routed through its Channel.
 pub(crate) struct Display {
@@ -31,7 +127,7 @@ pub(crate) struct Display {
     pub cursor: usize,
     pub state: State,
     pub channel: Channel,
-    restart_anchor: Option<(std::time::Instant, u64)>,
+    restart_countdown: Option<RestartCountdown>,
     suggestions: suggestions::Suggestions,
     speed_full: bool,
     pub diagnostics: tokio::sync::mpsc::Receiver<(Vec<u8>, usize)>,
@@ -67,12 +163,7 @@ impl Display {
             stderr_start: true,
             draft: String::new(),
             cursor: 0,
-            restart_anchor: match &state {
-                State::Restarting { remaining_ms, .. } => {
-                    Some((std::time::Instant::now(), *remaining_ms))
-                }
-                _ => None,
-            },
+            restart_countdown: None,
             state,
             channel,
             suggestions: suggestions::Suggestions::default(),
@@ -82,12 +173,9 @@ impl Display {
         })
     }
     pub fn set_state(&mut self, state: State) {
-        self.restart_anchor = match &state {
-            State::Restarting { remaining_ms, .. } => {
-                Some((std::time::Instant::now(), *remaining_ms))
-            }
-            _ => None,
-        };
+        if !matches!(state, State::Restarting { .. }) {
+            self.restart_countdown = None;
+        }
         self.state = state;
     }
     pub fn is_tui(&self) -> bool {
@@ -127,7 +215,9 @@ impl Display {
         if let Some(screen) = &mut self.screen {
             screen.divider()?;
         } else if !self.raw {
-            inline::console_divider(&mut io::stdout().lock(), terminal_width())?;
+            self.suspend_console_bar(|| {
+                inline::console_divider(&mut io::stdout().lock(), terminal_width())
+            })?;
         }
         Ok(())
     }
@@ -151,21 +241,47 @@ impl Display {
             return Ok(());
         }
         let index = usize::from(source == Source::Stderr);
+        let console_bar = self
+            .restart_countdown
+            .as_ref()
+            .and_then(|countdown| countdown.console_bar.as_ref())
+            .map(|console| &console.bar);
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[index];
         let stderr_start = &mut self.stderr_start;
-        self.streams[index].feed(bytes, |text, first, newline| {
-            emit(screen, formatting, stderr_start, index, text, first, newline)
-        })
+        let stream = &mut self.streams[index];
+        let mut feed = || {
+            stream.feed(bytes, |text, first, newline| {
+                emit(screen, formatting, stderr_start, index, text, first, newline)
+            })
+        };
+        if let Some(bar) = console_bar {
+            bar.suspend(feed)
+        } else {
+            feed()
+        }
     }
     pub fn finish_source(&mut self, source: Source) -> Result<()> {
         let index = usize::from(source == Source::Stderr);
+        let console_bar = self
+            .restart_countdown
+            .as_ref()
+            .and_then(|countdown| countdown.console_bar.as_ref())
+            .map(|console| &console.bar);
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[index];
         let stderr_start = &mut self.stderr_start;
-        self.streams[index].finish(|text, first, newline| {
-            emit(screen, formatting, stderr_start, index, text, first, newline)
-        })
+        let stream = &mut self.streams[index];
+        let mut finish = || {
+            stream.finish(|text, first, newline| {
+                emit(screen, formatting, stderr_start, index, text, first, newline)
+            })
+        };
+        if let Some(bar) = console_bar {
+            bar.suspend(finish)
+        } else {
+            finish()
+        }
     }
     pub fn diagnostic(&mut self, bytes: &[u8], dropped: usize) -> Result<()> {
         if dropped > 0 {
@@ -174,12 +290,36 @@ impl Display {
                 &format!("{dropped} terminal log bytes omitted while output was busy"),
             )?;
         }
+        let console_bar = self
+            .restart_countdown
+            .as_ref()
+            .and_then(|countdown| countdown.console_bar.as_ref())
+            .map(|console| &console.bar);
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[2];
         let stderr_start = &mut self.stderr_start;
-        self.streams[2].feed(bytes, |text, first, newline| {
-            emit(screen, formatting, stderr_start, 2, text, first, newline)
-        })
+        let stream = &mut self.streams[2];
+        let mut feed = || {
+            stream.feed(bytes, |text, first, newline| {
+                emit(screen, formatting, stderr_start, 2, text, first, newline)
+            })
+        };
+        if let Some(bar) = console_bar {
+            bar.suspend(feed)
+        } else {
+            feed()
+        }
+    }
+    fn suspend_console_bar<R>(&self, action: impl FnOnce() -> R) -> R {
+        if let Some(console) = self
+            .restart_countdown
+            .as_ref()
+            .and_then(|countdown| countdown.console_bar.as_ref())
+        {
+            console.bar.suspend(action)
+        } else {
+            action()
+        }
     }
     pub fn notice(&mut self, source: &str, message: &str) -> Result<()> {
         let clean = text::clean(message);
@@ -190,28 +330,84 @@ impl Display {
                     Span::raw(line),
                 ]))?;
             } else {
-                let mut output = io::stderr().lock();
-                if !self.stderr_start {
-                    writeln!(output)?;
-                    self.stderr_start = true;
-                }
-                writeln!(output, "[{source}] {line}")?;
-                output.flush()?;
+                let mut stderr_start = self.stderr_start;
+                self.suspend_console_bar(|| -> io::Result<()> {
+                    let mut output = io::stderr().lock();
+                    if !stderr_start {
+                        writeln!(output)?;
+                        stderr_start = true;
+                    }
+                    writeln!(output, "[{source}] {line}")?;
+                    output.flush()
+                })?;
+                self.stderr_start = stderr_start;
             }
         }
         Ok(())
     }
-    pub fn restarting(&mut self, rule: &str, attempt: u32, delay_ms: u64) -> Result<()> {
-        let rule = sanitize_field(rule);
-        let delay = format_delay_ms(delay_ms);
-        self.notice(
-            "restart",
-            &format!(
-                "Restarting in {delay} (rule: {rule}, attempt #{attempt}); @stop / @kill / Ctrl+C to cancel"
-            ),
-        )
+    pub fn restarting(
+        &mut self,
+        rule: &str,
+        attempt: u32,
+        delay_ms: u64,
+        remaining_ms: u64,
+    ) -> Result<()> {
+        let clean_rule = sanitize_field(rule);
+        if self.raw {
+            let remaining = format_delay_ms(remaining_ms);
+            return self.notice(
+                "restart",
+                &format!(
+                    "Restarting in {remaining} (rule: {clean_rule}, attempt #{attempt}); @stop / @kill / Ctrl+C to cancel"
+                ),
+            );
+        }
+        if self.screen.is_some() {
+            // Inline TUI renders the live Primary-bordered Restart card + smooth Gauge in the viewport.
+            self.restart_countdown = Some(RestartCountdown::new(
+                attempt,
+                clean_rule,
+                delay_ms,
+                remaining_ms,
+                None,
+            ));
+            return Ok(());
+        }
+        // Console mode (--no-ui): print the Primary-bordered card, then drive a smooth stderr bar.
+        self.restart_countdown = None;
+        let lines = restart_info_lines(&clean_rule, delay_ms, true);
+        {
+            let mut output = io::stderr().lock();
+            if !self.stderr_start {
+                writeln!(output)?;
+                self.stderr_start = true;
+            }
+            inline::console_restart_report(
+                &mut output,
+                attempt,
+                lines,
+                terminal_width(),
+                terminal::stderr_color_enabled(),
+            )?;
+            output.flush()?;
+        }
+        let bar = terminal::stderr_is_tty().then(|| ConsoleRestartBar::new(delay_ms));
+        let countdown = RestartCountdown::new(attempt, clean_rule, delay_ms, remaining_ms, bar);
+        countdown.update_console_bar();
+        self.restart_countdown = Some(countdown);
+        Ok(())
+    }
+    pub fn restart_started(&mut self, rule: &str, attempt: u32, delay_ms: u64) -> Result<()> {
+        self.restart_countdown = None;
+        if let Some(screen) = &mut self.screen {
+            let clean_rule = sanitize_field(rule);
+            let lines = restart_info_lines(&clean_rule, delay_ms, false);
+            screen.restart_report(attempt, lines)?;
+        }
+        Ok(())
     }
     pub fn exited(&mut self, exit: &ExitReason) -> Result<()> {
+        self.restart_countdown = None;
         if self.raw {
             let label = format_exit(exit);
             let mut output = io::stderr().lock();
@@ -301,17 +497,19 @@ impl Display {
                 if let Some(screen) = &mut self.screen {
                     screen.rcon(label, &name, &origin, &output[start..end], first, last)?;
                 } else {
-                    inline::console_response(
-                        &mut io::stderr().lock(),
-                        label,
-                        &name,
-                        &origin,
-                        &output[start..end],
-                        terminal_width(),
-                        terminal::stderr_color_enabled(),
-                        first,
-                        last,
-                    )?;
+                    self.suspend_console_bar(|| {
+                        inline::console_response(
+                            &mut io::stderr().lock(),
+                            label,
+                            &name,
+                            &origin,
+                            &output[start..end],
+                            terminal_width(),
+                            terminal::stderr_color_enabled(),
+                            first,
+                            last,
+                        )
+                    })?;
                 }
                 if last {
                     break;
@@ -337,29 +535,23 @@ impl Display {
     }
     pub fn draw(&mut self, traffic: Option<SessionTrafficStats>) -> Result<()> {
         let Some(screen) = &mut self.screen else {
+            if let Some(countdown) = &self.restart_countdown {
+                countdown.update_console_bar();
+            }
             return Ok(());
         };
-        let status = match &self.state {
-            State::Restarting {
-                rule,
-                attempt,
-                remaining_ms,
-                ..
-            } => {
-                let effective_remaining_ms = match self.restart_anchor {
-                    Some((anchored_at, base_ms)) => {
-                        let elapsed =
-                            u64::try_from(anchored_at.elapsed().as_millis()).unwrap_or(u64::MAX);
-                        base_ms.saturating_sub(elapsed)
-                    }
-                    None => *remaining_ms,
-                };
-                let remaining = format_countdown_ms(effective_remaining_ms);
-                let rule = sanitize_field(rule);
-                format!(
-                    "Java Restarting in {remaining} (rule: {rule} · attempt #{attempt}) · @stop / @kill / Ctrl+C: cancel · @detach / Ctrl+D: detach"
-                )
+        let restart_view = self.restart_countdown.as_ref().map(|countdown| {
+            inline::RestartView {
+                attempt: countdown.attempt,
+                lines: restart_info_lines(&countdown.rule, countdown.delay_ms, true),
+                ratio: countdown.ratio(),
+                countdown_label: countdown.countdown_label(),
             }
+        });
+        let status = match &self.state {
+            State::Restarting { attempt, .. } => format!(
+                "Java Restarting · attempt #{attempt} · @stop / @kill / Ctrl+C: cancel · @detach / Ctrl+D: detach"
+            ),
             _ => {
                 let server_status = match self.state.server_status() {
                     ServerStatus::Unknown => "Unknown",
@@ -383,6 +575,7 @@ impl Display {
             self.cursor,
             &status,
             partial,
+            restart_view,
             self.suggestions.view(&self.draft),
             speed::lines(traffic, self.speed_full),
         )?;
@@ -391,6 +584,7 @@ impl Display {
 }
 impl Drop for Display {
     fn drop(&mut self) {
+        self.restart_countdown = None;
         while let Ok((bytes, dropped)) = self.diagnostics.try_recv() {
             let _ = self.diagnostic(&bytes, dropped);
         }
@@ -439,6 +633,25 @@ fn sanitize_field(value: &str) -> String {
         .collect()
 }
 
+fn restart_info_lines(rule: &str, delay_ms: u64, waiting: bool) -> Vec<Line<'static>> {
+    let field = |label: &'static str, value: String| {
+        Line::from(vec![
+            Span::styled(format!("{label}: "), style(Role::Muted)),
+            Span::raw(value),
+        ])
+    };
+    let status = if waiting {
+        "Waiting before respawning Java (@stop / @kill / Ctrl+C to cancel)"
+    } else {
+        "Respawning Java"
+    };
+    vec![
+        field("Status", status.into()),
+        field("Rule", rule.to_owned()),
+        field("Delay", format_delay_ms(delay_ms)),
+    ]
+}
+
 fn format_delay_ms(delay_ms: u64) -> String {
     if delay_ms == 0 {
         return "0s".into();
@@ -453,13 +666,6 @@ fn format_delay_ms(delay_ms: u64) -> String {
     } else {
         format!("{secs}.{:03}s", rem_ms)
     }
-}
-
-fn format_countdown_ms(remaining_ms: u64) -> String {
-    if remaining_ms == 0 {
-        return "0s".into();
-    }
-    format_seconds(remaining_ms.div_ceil(1_000))
 }
 
 fn format_seconds(total_secs: u64) -> String {

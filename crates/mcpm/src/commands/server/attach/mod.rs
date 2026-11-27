@@ -315,20 +315,23 @@ pub(super) async fn flow(
     let mut commands_finished = false;
     let mut detaching = false;
     let mut redraw = tokio::time::interval(Duration::from_millis(100));
+    redraw.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut restart_redraw = tokio::time::interval(Duration::from_millis(50));
+    restart_redraw.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     {
         let _keyboard = reader.pause();
         if let State::Restarting {
             previous_exit,
             rule,
             attempt,
+            delay_ms,
             remaining_ms,
-            ..
         } = &display.state.clone()
         {
             last_restarting_attempt = Some(*attempt);
             exit_reported_for_generation = true;
             display.exited(previous_exit)?;
-            display.restarting(rule, *attempt, *remaining_ms)?;
+            display.restarting(rule, *attempt, *delay_ms, *remaining_ms)?;
         }
         display.draw(executor.traffic_stats())?;
     }
@@ -393,6 +396,7 @@ pub(super) async fn flow(
         }
         tokio::select! {
             _ = redraw.tick() => {},
+            _ = restart_redraw.tick(), if matches!(display.state, State::Restarting { .. }) => {},
             diagnostic = display.diagnostics.recv(), if diagnostics_open => {
                 let _keyboard = reader.pause();
                 match diagnostic {
@@ -454,13 +458,21 @@ pub(super) async fn flow(
                     finished[usize::from(source == Source::Stderr)] = batch.finished;
                 }
                 Some(Update::Status(snapshot)) => {
-                    let was_restarting = matches!(display.state, State::Restarting { .. });
+                    let previous_restart = match &display.state {
+                        State::Restarting {
+                            rule,
+                            attempt,
+                            delay_ms,
+                            ..
+                        } => Some((rule.clone(), *attempt, *delay_ms)),
+                        _ => None,
+                    };
                     if let State::Restarting {
                         previous_exit,
                         rule,
                         attempt,
                         delay_ms,
-                        ..
+                        remaining_ms,
                     } = &snapshot.state
                         && last_restarting_attempt != Some(*attempt)
                     {
@@ -469,10 +481,13 @@ pub(super) async fn flow(
                         display.finish_source(Source::Stdout)?;
                         display.finish_source(Source::Stderr)?;
                         display.exited(previous_exit)?;
-                        display.restarting(rule, *attempt, *delay_ms)?;
-                    } else if was_restarting && matches!(snapshot.state, State::Running { .. }) {
+                        display.restarting(rule, *attempt, *delay_ms, *remaining_ms)?;
+                    } else if let Some((rule, attempt, delay_ms)) = previous_restart
+                        && matches!(snapshot.state, State::Running { .. })
+                    {
                         help_requested = false;
                         exit_reported_for_generation = false;
+                        display.restart_started(&rule, attempt, delay_ms)?;
                     }
                     display.set_state(snapshot.state);
                     display.channel = snapshot.actual_channel;

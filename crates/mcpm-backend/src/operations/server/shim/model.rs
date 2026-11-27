@@ -99,7 +99,7 @@ pub enum State {
         rule: String,
         attempt: u32,
         delay_ms: u64,
-        /// Monotonic remaining delay measured on the Host at snapshot time (immune to clock skew).
+        /// Remaining delay when the snapshot was taken, used by newly attached clients as initial seed.
         remaining_ms: u64,
     },
     /// Java has exited with an authoritative exit classification.

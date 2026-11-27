@@ -116,22 +116,28 @@ fn imported_values_are_active_and_absent_values_remain_comments() {
     assert!(empty.jvm_arguments().unwrap().is_empty());
     assert!(empty.server_arguments().is_empty());
     assert!(empty.java.executable.is_none());
-    assert!(empty.restart_on.is_empty());
+    assert_eq!(empty.restart_on.rules.len(), 1);
+    assert_eq!(empty.restart_on.rules[0].name.as_deref(), Some("watchdog"));
 
     // The uncommented conf.template.toml itself must stay a complete, valid ServerConfig.
     let full = decode_conf(template::CONF_TEMPLATE).unwrap();
     assert_eq!(full.restart_on.rules.len(), 3);
 
-    // Vanilla `new` draft activates only [java] and [server].nogui while keeping [[restart_on]]
-    // commented right below [server].
+    // Vanilla `new` draft activates [java], [server].nogui, and the default watchdog restart rule
+    // right below [server], while keeping the remaining [[restart_on]] examples commented.
     let vanilla = vanilla_server().unwrap().template().unwrap();
     let vanilla_conf = decode_conf(&vanilla).unwrap();
     assert_eq!(vanilla_conf.server.nogui, Some(true));
-    assert!(vanilla_conf.restart_on.is_empty());
+    assert_eq!(vanilla_conf.restart_on.rules.len(), 1);
+    assert_eq!(
+        vanilla_conf.restart_on.rules[0].name.as_deref(),
+        Some("watchdog")
+    );
     let server_pos = vanilla.find("[server]").unwrap();
-    let restart_pos = vanilla.find("# [[restart_on]]").unwrap();
+    let restart_pos = vanilla.find("\n[[restart_on]]").unwrap();
+    let commented_restart_pos = vanilla.find("# [[restart_on]]").unwrap();
     let app_pos = vanilla.find("# [application]").unwrap();
-    assert!(server_pos < restart_pos && restart_pos < app_pos);
+    assert!(server_pos < restart_pos && restart_pos < commented_restart_pos && commented_restart_pos < app_pos);
 }
 
 #[test]
