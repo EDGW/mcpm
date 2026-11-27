@@ -153,6 +153,7 @@ pub(super) fn run(args: AttachArgs, ssh: SshArgs) -> Result<Exit> {
             "Java has exited ({}); use launch to start a new instance",
             snapshot
                 .exit
+                .as_ref()
                 .map_or_else(|| "unknown".into(), format_exit)
         );
         flow(
@@ -369,7 +370,7 @@ pub(super) async fn flow(
         }
         if finished.iter().all(|finished| *finished)
             && commands_finished
-            && let Some(exit) = exit
+            && let Some(exit) = &exit
         {
             let _keyboard = reader.pause();
             display.exited(exit)?;
@@ -453,7 +454,7 @@ pub(super) async fn flow(
                         "attach readers ended without authoritative completion"
                     );
                     let exit = exit.unwrap();
-                    display.exited(exit)?;
+                    display.exited(&exit)?;
                     return Ok(Exit::Exited(exit.shell_code()));
                 }
                 }

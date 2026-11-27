@@ -11,6 +11,21 @@ use std::{
 };
 
 const CAPACITY: usize = MAX_LOG_BLOCK_BYTES;
+const CRASH_REPORT_MARKER: &str = "This crash report has been saved to:";
+const CRASH_REPORT_SCAN_LINES: usize = 200;
+
+/// Scans the last 200 logical lines of stdout and stderr for Minecraft's crash report notice,
+/// resolving relative paths against Java's working directory.
+pub(super) fn detect_crash_report(
+    stdout: &Buffer,
+    stderr: &Buffer,
+    working_directory: &Path,
+) -> Option<String> {
+    stdout
+        .detect_crash_report(working_directory)
+        .or_else(|| stderr.detect_crash_report(working_directory))
+}
+
 #[derive(Default)]
 pub(super) struct Buffer {
     chunks: VecDeque<LogChunk>,
@@ -131,6 +146,142 @@ impl Buffer {
             closed: true,
         })
     }
+
+    fn detect_crash_report(&self, working_directory: &Path) -> Option<String> {
+        let tail = self.tail_lines_bytes(CRASH_REPORT_SCAN_LINES);
+        if tail.is_empty() {
+            return None;
+        }
+        let working_directory = strip_windows_verbatim(working_directory);
+        let text = String::from_utf8_lossy(&tail);
+        for line in text.lines().rev() {
+            let clean = strip_ansi(line);
+            let Some((_, raw_path)) = clean.rsplit_once(CRASH_REPORT_MARKER) else {
+                continue;
+            };
+            let trimmed = raw_path.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let candidate = strip_windows_verbatim(Path::new(trimmed));
+            let resolved = if candidate.is_absolute() {
+                candidate
+            } else {
+                working_directory.join(candidate)
+            };
+            return Some(normalize_lexical(&resolved).to_string_lossy().into_owned());
+        }
+        None
+    }
+
+    /// Collects bytes covering at most the last `max_lines` logical lines across chunk boundaries.
+    fn tail_lines_bytes(&self, max_lines: usize) -> Vec<u8> {
+        if max_lines == 0 || self.chunks.is_empty() {
+            return Vec::new();
+        }
+        let mut reversed = Vec::new();
+        let mut newlines = 0usize;
+        let mut seen_any = false;
+        'outer: for chunk in self.chunks.iter().rev() {
+            for &byte in chunk.bytes.iter().rev() {
+                if byte == b'\n' {
+                    if seen_any {
+                        newlines += 1;
+                        if newlines >= max_lines {
+                            break 'outer;
+                        }
+                    } else {
+                        // A single trailing line terminator does not start an extra empty line.
+                        seen_any = true;
+                        continue;
+                    }
+                }
+                seen_any = true;
+                reversed.push(byte);
+            }
+        }
+        reversed.reverse();
+        reversed
+    }
+}
+
+/// Removes ANSI CSI/OSC/ESC control sequences so color resets never stick to extracted paths.
+fn strip_ansi(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\x1b' {
+            output.push(ch);
+            continue;
+        }
+        match chars.peek().copied() {
+            Some('[') => {
+                chars.next();
+                for next in chars.by_ref() {
+                    if ('@'..='~').contains(&next) {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                chars.next();
+                while let Some(next) = chars.next() {
+                    if next == '\x07' {
+                        break;
+                    }
+                    if next == '\x1b' && chars.peek() == Some(&'\\') {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            Some(_) => {
+                chars.next();
+            }
+            None => {}
+        }
+    }
+    output
+}
+
+/// Strips Windows verbatim prefixes (`\\?\` / `\\?\UNC\`) so `Path::components()` normalizes
+/// `.` / `..` segments and display paths stay readable.
+fn strip_windows_verbatim(path: &Path) -> PathBuf {
+    let Some(text) = path.to_str() else {
+        return path.to_path_buf();
+    };
+    if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{unc}"))
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+fn normalize_lexical(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(std::path::Component::Normal(_))
+                ) {
+                    normalized.pop();
+                } else if !normalized.has_root() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
 }
 
 fn log_path(directory: &Path, run_id: &str, source: Source) -> Result<PathBuf> {
@@ -228,5 +379,48 @@ mod tests {
         )?;
         assert!(Buffer::restore(directory.path(), run, Source::Stdout, &range).is_err());
         Ok(())
+    }
+
+    #[test]
+    fn detects_crash_report_paths_across_versions_chunks_ansi_and_200_line_limit() {
+        let wd = Path::new("/srv/minecraft");
+
+        // 1.6.4 logs to stderr with an absolute path containing `/./`.
+        let stdout = Buffer::default();
+        let mut stderr = Buffer::default();
+        stderr.push(
+            b"2013-10-15 16:20:00 [SEVERE] This crash report has been saved to: /srv/minecraft/./crash-reports/crash-2013-10-15_16.20.00-server.txt\r\n"
+                .to_vec(),
+        );
+        assert_eq!(
+            detect_crash_report(&stdout, &stderr, wd),
+            Some("/srv/minecraft/crash-reports/crash-2013-10-15_16.20.00-server.txt".to_owned())
+        );
+
+        // Modern 1.21+ relative path with ANSI reset codes and split across chunks.
+        let mut stdout = Buffer::default();
+        let stderr = Buffer::default();
+        stdout.push(b"\x1b[31m[12:00:00] [Server thread/ERROR]: This crash report has been ".to_vec());
+        stdout.push(b"saved to: crash-reports/crash-2026-05-01_12.00.00-server.txt\x1b[m\n".to_vec());
+        assert_eq!(
+            detect_crash_report(&stdout, &stderr, wd),
+            Some("/srv/minecraft/crash-reports/crash-2026-05-01_12.00.00-server.txt".to_owned())
+        );
+
+        // Enforce the 200-line tail window: 199 trailing lines still match, 200 trailing lines evict it.
+        let mut stdout = Buffer::default();
+        stdout.push(
+            b"[12:00:00] [Server Watchdog/FATAL]: This crash report has been saved to: crash-reports/old.txt\n"
+                .to_vec(),
+        );
+        for _ in 0..199 {
+            stdout.push(b"noise line\n".to_vec());
+        }
+        assert_eq!(
+            detect_crash_report(&stdout, &stderr, wd),
+            Some("/srv/minecraft/crash-reports/old.txt".to_owned())
+        );
+        stdout.push(b"one more noise line\n".to_vec());
+        assert_eq!(detect_crash_report(&stdout, &stderr, wd), None);
     }
 }

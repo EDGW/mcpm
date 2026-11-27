@@ -76,13 +76,17 @@ pub struct Snapshot {
 }
 
 /// Classified termination reason of the managed Java process.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ExitReason {
-    /// Java exited cleanly with code 0.
+    /// Java exited cleanly with code 0 and no crash report was detected.
     Exited,
-    /// Java exited with a non-zero exit code or a non-`SIGKILL` signal.
-    Crashed { code: u32 },
+    /// Java exited with a non-zero exit code, a non-`SIGKILL` signal, or after saving a crash report.
+    Crashed {
+        code: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        report_path: Option<String>,
+    },
     /// Java was terminated by mcpm (`@kill` / `Kill` RPC).
     KilledByMcpm { exit: LaunchExit },
     /// Java was terminated externally by `SIGKILL`.
@@ -93,16 +97,28 @@ impl ExitReason {
     /// POSIX `SIGKILL` signal number, invariant across Unix hosts and cross-OS clients.
     pub const SIGKILL: i32 = 9;
 
-    /// Classifies Java's process exit from the raw wait outcome and whether mcpm invoked kill.
-    pub fn from_launch_exit(exit: LaunchExit, killed_by_mcpm: bool) -> Self {
+    /// Classifies Java's process exit from the raw wait outcome, whether mcpm invoked kill,
+    /// and any crash report path detected in trailing logs.
+    pub fn from_launch_exit(
+        exit: LaunchExit,
+        killed_by_mcpm: bool,
+        report_path: Option<String>,
+    ) -> Self {
         match exit {
-            LaunchExit::Code(0) => Self::Exited,
+            LaunchExit::Code(0) => match report_path {
+                Some(report_path) => Self::Crashed {
+                    code: 0,
+                    report_path: Some(report_path),
+                },
+                None => Self::Exited,
+            },
             LaunchExit::Signal(Self::SIGKILL) if killed_by_mcpm => Self::KilledByMcpm { exit },
             LaunchExit::Signal(Self::SIGKILL) => Self::KilledByUser,
             LaunchExit::Code(_) if killed_by_mcpm => Self::KilledByMcpm { exit },
-            LaunchExit::Code(code) => Self::Crashed { code },
+            LaunchExit::Code(code) => Self::Crashed { code, report_path },
             LaunchExit::Signal(_) => Self::Crashed {
                 code: exit.shell_code(),
+                report_path,
             },
         }
     }
@@ -112,15 +128,18 @@ impl ExitReason {
         if code == 0 {
             Self::Exited
         } else {
-            Self::Crashed { code }
+            Self::Crashed {
+                code,
+                report_path: None,
+            }
         }
     }
 
     /// Shell-compatible exit code propagated by `mcpm attach` / `mcpm launch`.
-    pub fn shell_code(self) -> u32 {
+    pub fn shell_code(&self) -> u32 {
         match self {
             Self::Exited => 0,
-            Self::Crashed { code } => code,
+            Self::Crashed { code, .. } => *code,
             Self::KilledByMcpm { exit } => exit.shell_code(),
             Self::KilledByUser => LaunchExit::Signal(Self::SIGKILL).shell_code(),
         }
@@ -296,17 +315,29 @@ mod tests {
     #[test]
     fn classifies_java_exit_reasons_and_shell_codes() {
         assert_eq!(
-            ExitReason::from_launch_exit(LaunchExit::Code(0), false),
+            ExitReason::from_launch_exit(LaunchExit::Code(0), false, None),
             ExitReason::Exited
         );
         assert_eq!(
-            ExitReason::from_launch_exit(LaunchExit::Code(0), true),
+            ExitReason::from_launch_exit(LaunchExit::Code(0), true, None),
             ExitReason::Exited
         );
         assert_eq!(ExitReason::Exited.shell_code(), 0);
 
+        let report = "/srv/mc/crash-reports/crash-2026.txt".to_owned();
+        let crashed_with_zero =
+            ExitReason::from_launch_exit(LaunchExit::Code(0), false, Some(report.clone()));
+        assert_eq!(
+            crashed_with_zero,
+            ExitReason::Crashed {
+                code: 0,
+                report_path: Some(report.clone()),
+            }
+        );
+        assert_eq!(crashed_with_zero.shell_code(), 0);
+
         let mcpm_unix =
-            ExitReason::from_launch_exit(LaunchExit::Signal(ExitReason::SIGKILL), true);
+            ExitReason::from_launch_exit(LaunchExit::Signal(ExitReason::SIGKILL), true, None);
         assert_eq!(
             mcpm_unix,
             ExitReason::KilledByMcpm {
@@ -315,7 +346,7 @@ mod tests {
         );
         assert_eq!(mcpm_unix.shell_code(), 137);
 
-        let mcpm_windows = ExitReason::from_launch_exit(LaunchExit::Code(1), true);
+        let mcpm_windows = ExitReason::from_launch_exit(LaunchExit::Code(1), true, None);
         assert_eq!(
             mcpm_windows,
             ExitReason::KilledByMcpm {
@@ -325,23 +356,49 @@ mod tests {
         assert_eq!(mcpm_windows.shell_code(), 1);
 
         let user_kill =
-            ExitReason::from_launch_exit(LaunchExit::Signal(ExitReason::SIGKILL), false);
+            ExitReason::from_launch_exit(LaunchExit::Signal(ExitReason::SIGKILL), false, None);
         assert_eq!(user_kill, ExitReason::KilledByUser);
         assert_eq!(user_kill.shell_code(), 137);
 
-        let crashed_code = ExitReason::from_launch_exit(LaunchExit::Code(37), false);
-        assert_eq!(crashed_code, ExitReason::Crashed { code: 37 });
+        let crashed_code =
+            ExitReason::from_launch_exit(LaunchExit::Code(37), false, Some(report.clone()));
+        assert_eq!(
+            crashed_code,
+            ExitReason::Crashed {
+                code: 37,
+                report_path: Some(report),
+            }
+        );
         assert_eq!(crashed_code.shell_code(), 37);
 
-        let crashed_sigterm = ExitReason::from_launch_exit(LaunchExit::Signal(15), false);
-        assert_eq!(crashed_sigterm, ExitReason::Crashed { code: 143 });
+        let crashed_sigterm = ExitReason::from_launch_exit(LaunchExit::Signal(15), false, None);
+        assert_eq!(
+            crashed_sigterm,
+            ExitReason::Crashed {
+                code: 143,
+                report_path: None,
+            }
+        );
         assert_eq!(crashed_sigterm.shell_code(), 143);
 
         let crashed_sigsegv_racing_kill =
-            ExitReason::from_launch_exit(LaunchExit::Signal(11), true);
+            ExitReason::from_launch_exit(LaunchExit::Signal(11), true, None);
         assert_eq!(
             crashed_sigsegv_racing_kill,
-            ExitReason::Crashed { code: 139 }
+            ExitReason::Crashed {
+                code: 139,
+                report_path: None,
+            }
+        );
+
+        let legacy: ExitReason =
+            serde_json::from_str(r#"{"kind":"crashed","code":1}"#).expect("legacy crashed json");
+        assert_eq!(
+            legacy,
+            ExitReason::Crashed {
+                code: 1,
+                report_path: None,
+            }
         );
     }
 }

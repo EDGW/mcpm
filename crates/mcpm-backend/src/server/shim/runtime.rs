@@ -11,6 +11,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore, watch};
 
 struct Data {
     state: State,
+    reaped: bool,
     exit: Option<ExitReason>,
     channel: Channel,
     rcon_connected: bool,
@@ -94,6 +95,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         "rcon mode requires configured RCON credentials"
     );
     let history = history::History::create(&directory, &record.reference.run_id)?;
+    let java_directory = plan.directory().to_path_buf();
     let mut java = JavaProcess::spawn(plan)
         .map_err(crate::operations::server::shim::attach_executable_tip)?;
     let stdin = java.take_stdin().context("missing Java stdin")?;
@@ -112,6 +114,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         launch_request_id: record.launch_request_id.clone(),
         data: Mutex::new(Data {
             state: State::Running,
+            reaped: false,
             exit: None,
             channel: Channel::Stdin,
             rcon_connected: false,
@@ -146,35 +149,52 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     }
     let capacity = Arc::new(Semaphore::new(64));
     let mut tick = tokio::time::interval(Duration::from_millis(20));
-    let mut exited_at = None;
+    let mut pending_exit: Option<(LaunchExit, bool, Instant)> = None;
     let mut killed_by_mcpm = false;
     let mut requests = tokio::task::JoinSet::new();
     if runtime.commands.lock().await.settings.is_some() {
         let runtime = runtime.clone();
         requests.spawn(async move { runtime.probe_rcon().await });
     }
-    let record_exit = |exit: LaunchExit, killed_by_mcpm: bool| {
+    let mark_reaped = |exit: LaunchExit, killed: bool| {
         let mut data = runtime.data.lock().unwrap();
-        data.state = State::Exited;
-        data.exit = Some(ExitReason::from_launch_exit(exit, killed_by_mcpm));
+        data.reaped = true;
         data.rcon_connected = false;
-        runtime.status.send_replace(());
-        Instant::now()
+        (exit, killed, Instant::now())
+    };
+    let try_finalize_exit = |exit: LaunchExit, killed: bool, exited_at: Instant| -> bool {
+        let mut data = runtime.data.lock().unwrap();
+        if (data.stdout.closed && data.stderr.closed)
+            || exited_at.elapsed() >= Duration::from_secs(2)
+        {
+            let report_path = logs::detect_crash_report(&data.stdout, &data.stderr, &java_directory);
+            data.state = State::Exited;
+            data.exit = Some(ExitReason::from_launch_exit(exit, killed, report_path));
+            data.rcon_connected = false;
+            runtime.status.send_replace(());
+            return true;
+        }
+        false
     };
     loop {
         tokio::select! {
             _ = tick.tick() => {
-                if exited_at.is_none() && let Some(exit) = java.try_wait()? {
-                    exited_at = Some(record_exit(exit, killed_by_mcpm));
+                if pending_exit.is_none() && let Some(exit) = java.try_wait()? {
+                    pending_exit = Some(mark_reaped(exit, killed_by_mcpm));
                 }
-                if let Some(exited) = exited_at {
-                    let data = runtime.data.lock().unwrap();
-                    if (data.stdout.closed && data.stderr.closed) || exited.elapsed() >= Duration::from_secs(2) { break; }
+                if let Some((exit, killed, exited_at)) = pending_exit
+                    && try_finalize_exit(exit, killed, exited_at)
+                {
+                    break;
                 }
             }
-            _ = runtime.kill.notified(), if exited_at.is_none() => {
+            _ = runtime.kill.notified(), if pending_exit.is_none() => {
                 if let Some(exit) = java.try_wait()? {
-                    exited_at = Some(record_exit(exit, killed_by_mcpm));
+                    let (exit, killed, exited_at) = mark_reaped(exit, killed_by_mcpm);
+                    if try_finalize_exit(exit, killed, exited_at) {
+                        break;
+                    }
+                    pending_exit = Some((exit, killed, exited_at));
                 } else {
                     java.kill()?;
                     killed_by_mcpm = true;
@@ -467,7 +487,7 @@ impl Runtime {
         Snapshot {
             reference: self.reference.clone(),
             state: data.state,
-            exit: data.exit,
+            exit: data.exit.clone(),
             communication: self.communication,
             actual_channel: data.channel,
             server_status: if data.rcon_connected && data.state != State::Exited {
@@ -493,8 +513,11 @@ impl Runtime {
         loop {
             {
                 let mut lane = self.commands.lock().await;
-                if self.data.lock().unwrap().state == State::Exited {
-                    return;
+                {
+                    let data = self.data.lock().unwrap();
+                    if data.state == State::Exited || data.reaped {
+                        return;
+                    }
                 }
                 if lane.stop_attempted {
                     self.connected(false);
@@ -506,7 +529,10 @@ impl Runtime {
                         self.connected(false);
                     }
                 } else if !lane.ever_connected
-                    && self.data.lock().unwrap().state == State::Running
+                    && {
+                        let data = self.data.lock().unwrap();
+                        data.state == State::Running && !data.reaped
+                    }
                     && let Some(settings) = &lane.settings
                     && let Ok(connection) =
                         rcon::Connection::connect_owned(settings, lane.java_pid).await
@@ -546,7 +572,7 @@ impl Runtime {
                 );
                 let mut data = self.data.lock().unwrap();
                 let channel = data.channel;
-                let result = if data.state == State::Exited {
+                let result = if data.state == State::Exited || data.reaped {
                     KillResult::AlreadyExited
                 } else {
                     if data.state != State::Killing {
@@ -593,7 +619,7 @@ impl Runtime {
         let mut lane = self.commands.lock().await;
         {
             let data = self.data.lock().unwrap();
-            if data.state == State::Exited {
+            if data.state == State::Exited || data.reaped {
                 return Ok(CommandResult {
                     status: CommandStatus::Exited,
                     channel: data.channel,

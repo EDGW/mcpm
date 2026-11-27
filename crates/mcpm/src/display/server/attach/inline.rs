@@ -128,35 +128,36 @@ impl Screen {
         self.terminal.clear()?;
         Ok(())
     }
-    pub fn line(&mut self, line: Line<'_>) -> io::Result<()> {
-        self.terminal.autoresize()?;
-        let width = self.terminal.size()?.width.max(1);
-        let paragraph = Paragraph::new(line).wrap(Wrap { trim: false });
-        let height = paragraph.line_count(width).max(1).min(u16::MAX as usize) as u16;
+    fn insert_before(
+        &mut self,
+        height: u16,
+        render: impl FnOnce(&mut Buffer),
+    ) -> io::Result<()> {
         let limit = self.terminal.size()?.height as usize;
         let output = &mut self.output;
         let previous_top = self.terminal.get_frame().area().y;
         self.terminal.insert_before(height, |buffer| {
-            paragraph.render(buffer.area, buffer);
+            render(buffer);
             remember(output, buffer, limit);
         })?;
         self.scrolled_output(height, previous_top);
         Ok(())
     }
+    pub fn line(&mut self, line: Line<'_>) -> io::Result<()> {
+        self.terminal.autoresize()?;
+        let width = self.terminal.size()?.width.max(1);
+        let paragraph = Paragraph::new(line).wrap(Wrap { trim: false });
+        let height = paragraph.line_count(width).max(1).min(u16::MAX as usize) as u16;
+        self.insert_before(height, |buffer| paragraph.render(buffer.area, buffer))
+    }
     pub fn divider(&mut self) -> io::Result<()> {
-        let limit = self.terminal.size()?.height as usize;
-        let output = &mut self.output;
-        let previous_top = self.terminal.get_frame().area().y;
-        self.terminal.insert_before(1, |buffer| {
+        self.insert_before(1, |buffer| {
             Block::new()
                 .borders(Borders::TOP)
                 .border_style(style(Role::Muted))
                 .title(" History ")
                 .render(buffer.area, buffer);
-            remember(output, buffer, limit);
-        })?;
-        self.scrolled_output(1, previous_top);
-        Ok(())
+        })
     }
     pub fn rcon(
         &mut self,
@@ -169,16 +170,19 @@ impl Screen {
     ) -> io::Result<()> {
         self.terminal.autoresize()?;
         let width = self.terminal.size()?.width.max(1);
-        let (widget, height) = response(label, name, origin, text, width, first, last);
-        let limit = self.terminal.size()?.height as usize;
-        let output = &mut self.output;
-        let previous_top = self.terminal.get_frame().area().y;
-        self.terminal.insert_before(height, |buffer| {
-            widget.render(buffer.area, buffer);
-            remember(output, buffer, limit);
-        })?;
-        self.scrolled_output(height, previous_top);
-        Ok(())
+        let (widget, height, _) = response(label, name, origin, text, width, first, last);
+        self.insert_before(height, |buffer| widget.render(buffer.area, buffer))
+    }
+    pub fn exit_report(
+        &mut self,
+        title: &str,
+        role: Role,
+        lines: Vec<Line<'_>>,
+    ) -> io::Result<()> {
+        self.terminal.autoresize()?;
+        let width = self.terminal.size()?.width.max(1);
+        let (widget, height) = exit_report_widget(title, role, lines, width);
+        self.insert_before(height, |buffer| widget.render(buffer.area, buffer))
     }
 
     fn scrolled_output(&mut self, lines: u16, previous_top: u16) {
@@ -354,7 +358,7 @@ fn response<'a>(
     width: u16,
     first: bool,
     last: bool,
-) -> (Paragraph<'a>, u16) {
+) -> (Paragraph<'a>, u16, Role) {
     let mut borders = Borders::LEFT | Borders::RIGHT;
     if first {
         borders |= Borders::TOP;
@@ -393,6 +397,29 @@ fn response<'a>(
         .line_count(width)
         .max(usize::from(first) + usize::from(last) + 1)
         .min(u16::MAX as usize) as u16;
+    (paragraph, height, role)
+}
+
+fn exit_report_widget<'a>(
+    title: &str,
+    role: Role,
+    lines: Vec<Line<'a>>,
+    width: u16,
+) -> (Paragraph<'a>, u16) {
+    let block = Block::new()
+        .borders(Borders::ALL)
+        .border_style(style(role))
+        .title_style(style(role))
+        .padding(Padding::horizontal(1))
+        .title(Line::from(vec![
+            Span::styled(" Exit: ", style(role).remove_modifier(Modifier::BOLD)),
+            Span::styled(title.to_owned(), style(role).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", style(role).remove_modifier(Modifier::BOLD)),
+        ]));
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    let height = paragraph.line_count(width).max(3).min(u16::MAX as usize) as u16;
     (paragraph, height)
 }
 
@@ -408,10 +435,25 @@ pub(super) fn console_response(
     first: bool,
     last: bool,
 ) -> io::Result<()> {
-    let (widget, height) = response(label, name, origin, text, width.max(3), first, last);
+    let (widget, height, role) = response(label, name, origin, text, width.max(3), first, last);
     let mut buffer = Buffer::empty(Rect::new(0, 0, width.max(3), height));
     widget.render(buffer.area, &mut buffer);
-    write_buffer(output, &buffer, color)
+    write_buffer(output, &buffer, color, &[role, Role::Muted])
+}
+
+/// Renders the exit report card with the same Block/Paragraph widgets as inline TUI.
+pub(super) fn console_exit_report(
+    output: &mut impl Write,
+    title: &str,
+    role: Role,
+    lines: Vec<Line<'_>>,
+    width: u16,
+    color: bool,
+) -> io::Result<()> {
+    let (widget, height) = exit_report_widget(title, role, lines, width.max(5));
+    let mut buffer = Buffer::empty(Rect::new(0, 0, width.max(5), height));
+    widget.render(buffer.area, &mut buffer);
+    write_buffer(output, &buffer, color, &[role, Role::Muted])
 }
 
 pub(super) fn console_divider(output: &mut impl Write, width: u16) -> io::Result<()> {
@@ -422,10 +464,20 @@ pub(super) fn console_divider(output: &mut impl Write, width: u16) -> io::Result
         .border_style(style(Role::Muted))
         .title_style(style(Role::Muted))
         .render(buffer.area, &mut buffer);
-    write_buffer(output, &buffer, crate::terminal::stdout_color_enabled())
+    write_buffer(
+        output,
+        &buffer,
+        crate::terminal::stdout_color_enabled(),
+        &[Role::Muted],
+    )
 }
 
-fn write_buffer(output: &mut impl Write, buffer: &Buffer, color: bool) -> io::Result<()> {
+fn write_buffer(
+    output: &mut impl Write,
+    buffer: &Buffer,
+    color: bool,
+    roles: &[Role],
+) -> io::Result<()> {
     for row in buffer.content.chunks(buffer.area.width.max(1) as usize) {
         let mut skip = 0;
         for cell in row {
@@ -433,9 +485,14 @@ fn write_buffer(output: &mut impl Write, buffer: &Buffer, color: bool) -> io::Re
                 skip -= 1;
                 continue;
             }
-            let role = [Role::Primary, Role::Success, Role::Muted]
-                .into_iter()
-                .find(|role| style(*role).fg == Some(cell.fg));
+            let role = if cell.fg == ratatui::style::Color::Reset {
+                None
+            } else {
+                roles
+                    .iter()
+                    .copied()
+                    .find(|role| style(*role).fg == Some(cell.fg))
+            };
             if color && let Some(role) = role {
                 write!(
                     output,

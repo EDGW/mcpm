@@ -139,16 +139,19 @@ impl Display {
         let index = usize::from(source == Source::Stderr);
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[index];
+        let stderr_start = &mut self.stderr_start;
         self.streams[index].feed(bytes, |text, first, newline| {
-            emit(screen, formatting, index, text, first, newline)
+            emit(screen, formatting, stderr_start, index, text, first, newline)
         })
     }
     pub fn finish_source(&mut self, source: Source) -> Result<()> {
         let index = usize::from(source == Source::Stderr);
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[index];
-        self.streams[index]
-            .finish(|text, first, newline| emit(screen, formatting, index, text, first, newline))
+        let stderr_start = &mut self.stderr_start;
+        self.streams[index].finish(|text, first, newline| {
+            emit(screen, formatting, stderr_start, index, text, first, newline)
+        })
     }
     pub fn diagnostic(&mut self, bytes: &[u8], dropped: usize) -> Result<()> {
         if dropped > 0 {
@@ -159,8 +162,9 @@ impl Display {
         }
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[2];
+        let stderr_start = &mut self.stderr_start;
         self.streams[2].feed(bytes, |text, first, newline| {
-            emit(screen, formatting, 2, text, first, newline)
+            emit(screen, formatting, stderr_start, 2, text, first, newline)
         })
     }
     pub fn notice(&mut self, source: &str, message: &str) -> Result<()> {
@@ -183,34 +187,35 @@ impl Display {
         }
         Ok(())
     }
-    pub fn exited(&mut self, exit: ExitReason) -> Result<()> {
-        let label = format_exit(exit);
-        let role = match exit {
-            ExitReason::Exited => Role::Success,
-            ExitReason::KilledByMcpm { .. } | ExitReason::KilledByUser => Role::Warning,
-            ExitReason::Crashed { .. } => Role::Danger,
-        };
+    pub fn exited(&mut self, exit: &ExitReason) -> Result<()> {
+        if self.raw {
+            let label = format_exit(exit);
+            let mut output = io::stderr().lock();
+            if !self.stderr_start {
+                writeln!(output)?;
+                self.stderr_start = true;
+            }
+            writeln!(output, "[exit] Java terminated: {label}")?;
+            output.flush()?;
+            return Ok(());
+        }
+        let (title, role, lines) = exit_report(exit);
         if let Some(screen) = &mut self.screen {
-            screen.line(Line::from(vec![
-                Span::styled("[exit] ", style(Role::Muted)),
-                Span::styled(format!("Java terminated: {label}"), style(role)),
-            ]))?;
+            screen.exit_report(title, role, lines)?;
         } else {
             let mut output = io::stderr().lock();
             if !self.stderr_start {
                 writeln!(output)?;
                 self.stderr_start = true;
             }
-            if !self.raw && terminal::stderr_color_enabled() {
-                writeln!(
-                    output,
-                    "{}{}",
-                    crate::theme::console(Role::Muted).style("[exit] "),
-                    crate::theme::console(role).style(format!("Java terminated: {label}"))
-                )?;
-            } else {
-                writeln!(output, "[exit] Java terminated: {label}")?;
-            }
+            inline::console_exit_report(
+                &mut output,
+                title,
+                role,
+                lines,
+                terminal_width(),
+                terminal::stderr_color_enabled(),
+            )?;
             output.flush()?;
         }
         Ok(())
@@ -343,12 +348,14 @@ impl Drop for Display {
         let _ = self.finish_source(Source::Stderr);
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[2];
-        let _ = self.streams[2]
-            .finish(|text, first, newline| emit(screen, formatting, 2, text, first, newline));
+        let stderr_start = &mut self.stderr_start;
+        let _ = self.streams[2].finish(|text, first, newline| {
+            emit(screen, formatting, stderr_start, 2, text, first, newline)
+        });
     }
 }
-/// Formats a classified Java termination reason for attach diagnostics and exit notices.
-pub(crate) fn format_exit(exit: ExitReason) -> String {
+/// Formats a classified Java termination reason for attach diagnostics and raw exit notices.
+pub(crate) fn format_exit(exit: &ExitReason) -> String {
     match exit {
         ExitReason::KilledByUser => "KilledByUser".into(),
         ExitReason::KilledByMcpm {
@@ -356,7 +363,79 @@ pub(crate) fn format_exit(exit: ExitReason) -> String {
         } => "KilledByMcpm(SIGKILL)".into(),
         ExitReason::KilledByMcpm { .. } => "KilledByMcpm".into(),
         ExitReason::Exited => "EXITED(0)".into(),
-        ExitReason::Crashed { code } => format!("CRASHED({code})"),
+        ExitReason::Crashed {
+            code,
+            report_path: Some(path),
+        } => format!("CRASHED({code}, {})", sanitize_field(path)),
+        ExitReason::Crashed {
+            code,
+            report_path: None,
+        } => format!("CRASHED({code})"),
+    }
+}
+
+fn sanitize_field(value: &str) -> String {
+    text::clean(value)
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .collect()
+}
+
+fn exit_report(exit: &ExitReason) -> (&'static str, Role, Vec<Line<'static>>) {
+    let field = |label: &'static str, value: String| {
+        Line::from(vec![
+            Span::styled(format!("{label}: "), style(Role::Muted)),
+            Span::raw(value),
+        ])
+    };
+    match exit {
+        ExitReason::Exited => (
+            "Exited",
+            Role::Success,
+            vec![
+                field("Status", "Java exited cleanly".into()),
+                field("Exit code", "0".into()),
+            ],
+        ),
+        ExitReason::KilledByMcpm { exit: launch_exit } => {
+            let mut lines = vec![field("Status", "Java was force-killed by mcpm".into())];
+            match launch_exit {
+                LaunchExit::Signal(ExitReason::SIGKILL) => {
+                    lines.push(field(
+                        "Signal",
+                        format!("SIGKILL ({}) · Exit code {}", ExitReason::SIGKILL, exit.shell_code()),
+                    ));
+                }
+                LaunchExit::Signal(signal) => {
+                    lines.push(field(
+                        "Signal",
+                        format!("{signal} · Exit code {}", exit.shell_code()),
+                    ));
+                }
+                LaunchExit::Code(code) => {
+                    lines.push(field("Exit code", code.to_string()));
+                }
+            }
+            ("Killed by mcpm", Role::Warning, lines)
+        }
+        ExitReason::KilledByUser => (
+            "Killed by user",
+            Role::Warning,
+            vec![
+                field("Status", "Java was terminated externally (SIGKILL)".into()),
+                field("Exit code", exit.shell_code().to_string()),
+            ],
+        ),
+        ExitReason::Crashed { code, report_path } => {
+            let mut lines = vec![
+                field("Status", "Java crashed unexpectedly".into()),
+                field("Exit code", code.to_string()),
+            ];
+            if let Some(path) = report_path {
+                lines.push(field("Crash report", sanitize_field(path)));
+            }
+            ("Crashed", Role::Danger, lines)
+        }
     }
 }
 
@@ -366,6 +445,7 @@ fn terminal_width() -> u16 {
 fn emit(
     screen: &mut Option<inline::Screen>,
     formatting: &mut log::Formatting,
+    stderr_start: &mut bool,
     origin: usize,
     text: &str,
     first: bool,
@@ -405,6 +485,7 @@ fn emit(
         if newline {
             writeln!(output)?;
         }
+        *stderr_start = newline;
         output.flush()?;
     }
     Ok(())
