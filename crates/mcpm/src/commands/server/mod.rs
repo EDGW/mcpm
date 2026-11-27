@@ -39,6 +39,8 @@ enum ServerCommand {
     Mods(mods::ModsArgs),
     /// Save, inspect and switch complete Mod snapshots (Console, Raw).
     Stash(stash::StashArgs),
+    /// Inspect Minecraft crash report files (Console, Raw).
+    CrashReport(crate::commands::crash_report::CrashReportArgs),
     /// Inspect command help and terminal presentation.
     Debug(crate::commands::debug::DebugArgs),
 }
@@ -78,6 +80,7 @@ pub(crate) fn run(
         ServerCommand::Info(args) => return info::run(args, ssh),
         ServerCommand::Mods(args) => mods::run(args, ssh),
         ServerCommand::Stash(args) => stash::run(args, ssh),
+        ServerCommand::CrashReport(args) => crate::commands::crash_report::run(args, ssh),
     };
     result.map(|()| crate::commands::CommandOutcome::Completed)
 }
