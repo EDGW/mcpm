@@ -101,16 +101,29 @@ struct Receipt {
 struct RunSnapshot {
     reference: RunReference,
     state: State,
-    exit: Option<ExitReason>,
     communication: Communication,
     actual_channel: Channel,
     stdout: CursorRange,
     stderr: CursorRange,
 }
 #[derive(Deserialize)]
+#[serde(untagged)]
+enum WireState {
+    Structured(State),
+    Legacy(LegacyState),
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum LegacyState {
+    Running,
+    Stopping,
+    Killing,
+    Exited,
+}
+#[derive(Deserialize)]
 struct RunSnapshotWire {
     reference: RunReference,
-    state: State,
+    state: WireState,
     #[serde(default)]
     exit: Option<ExitReason>,
     #[serde(default)]
@@ -122,12 +135,25 @@ struct RunSnapshotWire {
 }
 impl From<RunSnapshotWire> for RunSnapshot {
     fn from(value: RunSnapshotWire) -> Self {
+        let state = match value.state {
+            WireState::Structured(state) => state,
+            WireState::Legacy(LegacyState::Running) => State::Running {
+                server_status: ServerStatus::Unknown,
+            },
+            WireState::Legacy(LegacyState::Stopping) => State::Stopping {
+                server_status: ServerStatus::Unknown,
+            },
+            WireState::Legacy(LegacyState::Killing) => State::Killing,
+            WireState::Legacy(LegacyState::Exited) => State::Exited {
+                reason: value
+                    .exit
+                    .or_else(|| value.exit_code.map(ExitReason::from_legacy_code))
+                    .unwrap_or(ExitReason::Exited),
+            },
+        };
         Self {
             reference: value.reference,
-            state: value.state,
-            exit: value
-                .exit
-                .or_else(|| value.exit_code.map(ExitReason::from_legacy_code)),
+            state,
             communication: value.communication,
             actual_channel: value.actual_channel,
             stdout: value.stdout,
@@ -142,7 +168,6 @@ impl From<Snapshot> for RunSnapshot {
                 run_id: value.reference.run_id,
             },
             state: value.state,
-            exit: value.exit,
             communication: value.communication,
             actual_channel: value.actual_channel,
             stdout: value.stdout,
@@ -158,10 +183,8 @@ impl From<RunSnapshot> for Snapshot {
                 run_id: value.reference.run_id,
             },
             state: value.state,
-            exit: value.exit,
             communication: value.communication,
             actual_channel: value.actual_channel,
-            server_status: ServerStatus::Unknown,
             stdout: value.stdout,
             stderr: value.stderr,
         }
@@ -260,7 +283,7 @@ fn ensure_inactive_in_directory(directory: &Path) -> Result<()> {
     ensure!(record.version == 1, "unsupported shim discovery version");
     let finished = read_optional::<Receipt>(&directory.join("finished.json"))?.is_some_and(
         |receipt| {
-            receipt.snapshot.reference == record.reference && receipt.snapshot.state == State::Exited
+            receipt.snapshot.reference == record.reference && receipt.snapshot.state.is_exited()
         },
     );
     if finished {
@@ -332,7 +355,7 @@ pub(crate) async fn launch(mut input: LaunchInput) -> Result<Launched> {
         let finished =
             read_optional::<Receipt>(&directory.join("finished.json"))?.filter(|receipt| {
                 receipt.snapshot.reference == record.reference
-                    && receipt.snapshot.state == State::Exited
+                    && receipt.snapshot.state.is_exited()
             });
         publish(&directory.join("instance.json"), &record)?;
         if let Some(receipt) = finished {
@@ -480,7 +503,7 @@ pub(crate) async fn call<T: DeserializeOwned>(
         let directory = server.join(".mcpm/run");
         if let Some(receipt) = read_optional::<Receipt>(&directory.join("finished.json"))?
             && receipt.snapshot.reference == record.reference
-            && receipt.snapshot.state == State::Exited
+            && receipt.snapshot.state.is_exited()
         {
             return Ok((
                 serde_json::from_value(receipt.reply(request_input)?)?,
@@ -505,7 +528,7 @@ pub(crate) async fn call<T: DeserializeOwned>(
                 && let Some(receipt) =
                     read_optional::<Receipt>(&server.join(".mcpm/run/finished.json"))?
                 && receipt.snapshot.reference == record.reference
-                && receipt.snapshot.state == State::Exited
+                && receipt.snapshot.state.is_exited()
             {
                 return Ok((
                     serde_json::from_value(receipt.reply(request_input)?)?,
@@ -562,7 +585,7 @@ pub(crate) async fn subscribe_logs(
     if let Some(server) = &server {
         if let Some(receipt) = read_optional::<Receipt>(&server.join(".mcpm/run/finished.json"))?
             && receipt.snapshot.reference == record.reference
-            && receipt.snapshot.state == State::Exited
+            && receipt.snapshot.state.is_exited()
         {
             let Request::Logs(input) = request_input else {
                 unreachable!()
@@ -585,7 +608,7 @@ pub(crate) async fn subscribe_logs(
                 && let Some(receipt) =
                     read_optional::<Receipt>(&server.join(".mcpm/run/finished.json"))?
                 && receipt.snapshot.reference == record.reference
-                && receipt.snapshot.state == State::Exited
+                && receipt.snapshot.state.is_exited()
             {
                 let Request::Logs(input) = request_input else {
                     unreachable!()
@@ -651,7 +674,7 @@ pub(crate) async fn subscribe_status(
         if let Some(server) = &server {
             snapshot.reference.server = server.clone();
         }
-        let exited = snapshot.state == State::Exited;
+        let exited = snapshot.state.is_exited();
         sender.send(snapshot).await?;
         if exited {
             return Ok(());
@@ -700,7 +723,7 @@ fn terminal_status(record: &Record, server: Option<&Path>) -> Result<Option<Snap
     let Some(receipt) = read_optional::<Receipt>(&server.join(".mcpm/run/finished.json"))? else {
         return Ok(None);
     };
-    if receipt.snapshot.reference != record.reference || receipt.snapshot.state != State::Exited {
+    if receipt.snapshot.reference != record.reference || !receipt.snapshot.state.is_exited() {
         return Ok(None);
     }
     let mut snapshot = Snapshot::from(receipt.snapshot);

@@ -12,9 +12,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore, watch};
 struct Data {
     state: State,
     reaped: bool,
-    exit: Option<ExitReason>,
     channel: Channel,
-    rcon_connected: bool,
     stdout: logs::Buffer,
     stderr: logs::Buffer,
     io_error: Option<String>,
@@ -113,11 +111,11 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         communication: input.communication,
         launch_request_id: record.launch_request_id.clone(),
         data: Mutex::new(Data {
-            state: State::Running,
+            state: State::Running {
+                server_status: ServerStatus::Unknown,
+            },
             reaped: false,
-            exit: None,
             channel: Channel::Stdin,
-            rcon_connected: false,
             stdout: logs::Buffer::default(),
             stderr: logs::Buffer::default(),
             io_error: None,
@@ -159,22 +157,35 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     let mark_reaped = |exit: LaunchExit, killed: bool| {
         let mut data = runtime.data.lock().unwrap();
         data.reaped = true;
-        data.rcon_connected = false;
+        match &mut data.state {
+            State::Running { server_status } | State::Stopping { server_status } => {
+                *server_status = ServerStatus::Unknown;
+            }
+            State::Killing | State::Exited { .. } => {}
+        }
         (exit, killed, Instant::now())
     };
     let try_finalize_exit = |exit: LaunchExit, killed: bool, exited_at: Instant| -> bool {
+        let report_path = {
+            let data = runtime.data.lock().unwrap();
+            if !(data.stdout.closed && data.stderr.closed)
+                && exited_at.elapsed() < Duration::from_secs(2)
+            {
+                return false;
+            }
+            logs::detect_crash_report(&data.stdout, &data.stderr, &java_directory)
+        };
+        let crash_report = report_path.map(|path| {
+            let analysis = mcpm_lib::local::mc::crash_report::analyse_file(Path::new(&path))
+                .map_err(|error| ErrorReport::capture_std(&error));
+            DetectedCrashReport { path, analysis }
+        });
         let mut data = runtime.data.lock().unwrap();
-        if (data.stdout.closed && data.stderr.closed)
-            || exited_at.elapsed() >= Duration::from_secs(2)
-        {
-            let report_path = logs::detect_crash_report(&data.stdout, &data.stderr, &java_directory);
-            data.state = State::Exited;
-            data.exit = Some(ExitReason::from_launch_exit(exit, killed, report_path));
-            data.rcon_connected = false;
-            runtime.status.send_replace(());
-            return true;
-        }
-        false
+        data.state = State::Exited {
+            reason: ExitReason::from_launch_exit(exit, killed, crash_report),
+        };
+        runtime.status.send_replace(());
+        true
     };
     loop {
         tokio::select! {
@@ -403,7 +414,7 @@ impl Runtime {
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             let snapshot = self.snapshot_from(&self.data.lock().unwrap());
-            let exited = snapshot.state == State::Exited;
+            let exited = snapshot.state.is_exited();
             let reply: std::result::Result<Snapshot, ErrorReport> = Ok(snapshot);
             tokio::select! {
                 _ = reader.read_u8() => return Ok(()),
@@ -480,31 +491,34 @@ impl Runtime {
         Launched {
             reference: self.reference.clone(),
             initial_cursor: 0,
-            state: self.data.lock().unwrap().state,
+            state: self.data.lock().unwrap().state.clone(),
         }
     }
     fn snapshot_from(&self, data: &Data) -> Snapshot {
         Snapshot {
             reference: self.reference.clone(),
-            state: data.state,
-            exit: data.exit.clone(),
+            state: data.state.clone(),
             communication: self.communication,
             actual_channel: data.channel,
-            server_status: if data.rcon_connected && data.state != State::Exited {
-                ServerStatus::RconConnected
-            } else {
-                ServerStatus::Unknown
-            },
             stdout: data.stdout.range(),
             stderr: data.stderr.range(),
         }
     }
     fn connected(&self, connected: bool) {
         let mut data = self.data.lock().unwrap();
-        let connected = connected && matches!(data.state, State::Running | State::Stopping);
-        if data.rcon_connected != connected {
-            data.rcon_connected = connected;
-            self.status.send_replace(());
+        let target = if connected && !data.reaped {
+            ServerStatus::RconConnected
+        } else {
+            ServerStatus::Unknown
+        };
+        match &mut data.state {
+            State::Running { server_status } | State::Stopping { server_status }
+                if *server_status != target =>
+            {
+                *server_status = target;
+                self.status.send_replace(());
+            }
+            _ => {}
         }
     }
 
@@ -515,7 +529,7 @@ impl Runtime {
                 let mut lane = self.commands.lock().await;
                 {
                     let data = self.data.lock().unwrap();
-                    if data.state == State::Exited || data.reaped {
+                    if data.state.is_exited() || data.reaped {
                         return;
                     }
                 }
@@ -531,7 +545,7 @@ impl Runtime {
                 } else if !lane.ever_connected
                     && {
                         let data = self.data.lock().unwrap();
-                        data.state == State::Running && !data.reaped
+                        matches!(data.state, State::Running { .. }) && !data.reaped
                     }
                     && let Some(settings) = &lane.settings
                     && let Ok(connection) =
@@ -572,10 +586,10 @@ impl Runtime {
                 );
                 let mut data = self.data.lock().unwrap();
                 let channel = data.channel;
-                let result = if data.state == State::Exited || data.reaped {
+                let result = if data.state.is_exited() || data.reaped {
                     KillResult::AlreadyExited
                 } else {
-                    if data.state != State::Killing {
+                    if !matches!(data.state, State::Killing) {
                         data.state = State::Killing;
                         data.events.push(CommandEvent::Completed {
                             listener_id: input.listener_id,
@@ -619,7 +633,7 @@ impl Runtime {
         let mut lane = self.commands.lock().await;
         {
             let data = self.data.lock().unwrap();
-            if data.state == State::Exited || data.reaped {
+            if data.state.is_exited() || data.reaped {
                 return Ok(CommandResult {
                     status: CommandStatus::Exited,
                     channel: data.channel,
@@ -651,8 +665,8 @@ impl Runtime {
             lane.stop_attempted = true;
             self.connected(false);
             let mut data = self.data.lock().unwrap();
-            if data.state == State::Running {
-                data.state = State::Stopping;
+            if let State::Running { server_status } = data.state {
+                data.state = State::Stopping { server_status };
                 self.status.send_replace(());
             }
         }

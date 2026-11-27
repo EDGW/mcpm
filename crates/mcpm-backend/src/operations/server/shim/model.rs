@@ -1,9 +1,13 @@
 //! Transport models shared by Host operations, private shim IPC and terminal flows.
 
+use mcpm_exec::error::ErrorReport;
+pub use mcpm_lib::local::mc::{
+    crash_report::{CrashReportAnalysis, CrashReportType},
+    server::launch::LaunchExit,
+};
 use mcpm_lib::local::mc::server::{
     authlib_injector::JarPolicy, config::ConfigurationOverrides, launch::LaunchPlan,
 };
-pub use mcpm_lib::local::mc::server::launch::LaunchExit;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -66,13 +70,60 @@ pub struct InspectInput {
 pub struct Snapshot {
     pub reference: ShimRef,
     pub state: State,
-    pub exit: Option<ExitReason>,
     pub communication: Communication,
     pub actual_channel: Channel,
-    /// Communication evidence, independent of Java's lifecycle and command transport.
-    pub server_status: ServerStatus,
     pub stdout: CursorRange,
     pub stderr: CursorRange,
+}
+
+/// Lifecycle state of the managed Java process; state-specific data lives strictly on its variant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum State {
+    /// Java is running; `server_status` reports independent RCON communication evidence.
+    Running { server_status: ServerStatus },
+    /// Graceful `stop` was requested; Java is shutting down.
+    Stopping { server_status: ServerStatus },
+    /// Force-kill was requested (`@kill` / second Ctrl+C).
+    Killing,
+    /// Java has exited with an authoritative exit classification.
+    Exited { reason: ExitReason },
+}
+
+impl State {
+    pub fn is_exited(&self) -> bool {
+        matches!(self, Self::Exited { .. })
+    }
+
+    pub fn exit_reason(&self) -> Option<&ExitReason> {
+        match self {
+            Self::Exited { reason } => Some(reason),
+            _ => None,
+        }
+    }
+
+    pub fn server_status(&self) -> ServerStatus {
+        match self {
+            Self::Running { server_status } | Self::Stopping { server_status } => *server_status,
+            Self::Killing | Self::Exited { .. } => ServerStatus::Unknown,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Running { .. } => "Running",
+            Self::Stopping { .. } => "Stopping",
+            Self::Killing => "Killing",
+            Self::Exited { .. } => "Exited",
+        }
+    }
+}
+
+/// Crash report detected in trailing console logs and its Host-side analysis outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetectedCrashReport {
+    pub path: String,
+    pub analysis: Result<CrashReportAnalysis, ErrorReport>,
 }
 
 /// Classified termination reason of the managed Java process.
@@ -85,7 +136,7 @@ pub enum ExitReason {
     Crashed {
         code: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        report_path: Option<String>,
+        crash_report: Option<DetectedCrashReport>,
     },
     /// Java was terminated by mcpm (`@kill` / `Kill` RPC).
     KilledByMcpm { exit: LaunchExit },
@@ -98,27 +149,27 @@ impl ExitReason {
     pub const SIGKILL: i32 = 9;
 
     /// Classifies Java's process exit from the raw wait outcome, whether mcpm invoked kill,
-    /// and any crash report path detected in trailing logs.
+    /// and any crash report detected and analysed on the Host.
     pub fn from_launch_exit(
         exit: LaunchExit,
         killed_by_mcpm: bool,
-        report_path: Option<String>,
+        crash_report: Option<DetectedCrashReport>,
     ) -> Self {
         match exit {
-            LaunchExit::Code(0) => match report_path {
-                Some(report_path) => Self::Crashed {
+            LaunchExit::Code(0) => match crash_report {
+                Some(crash_report) => Self::Crashed {
                     code: 0,
-                    report_path: Some(report_path),
+                    crash_report: Some(crash_report),
                 },
                 None => Self::Exited,
             },
             LaunchExit::Signal(Self::SIGKILL) if killed_by_mcpm => Self::KilledByMcpm { exit },
             LaunchExit::Signal(Self::SIGKILL) => Self::KilledByUser,
             LaunchExit::Code(_) if killed_by_mcpm => Self::KilledByMcpm { exit },
-            LaunchExit::Code(code) => Self::Crashed { code, report_path },
+            LaunchExit::Code(code) => Self::Crashed { code, crash_report },
             LaunchExit::Signal(_) => Self::Crashed {
                 code: exit.shell_code(),
-                report_path,
+                crash_report,
             },
         }
     }
@@ -130,7 +181,7 @@ impl ExitReason {
         } else {
             Self::Crashed {
                 code,
-                report_path: None,
+                crash_report: None,
             }
         }
     }
@@ -278,14 +329,6 @@ pub enum Source {
     Stdout,
     Stderr,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum State {
-    Running,
-    Stopping,
-    Killing,
-    Exited,
-}
 
 /// Communication evidence from configured RCON, independent of the launch policy label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -324,14 +367,21 @@ mod tests {
         );
         assert_eq!(ExitReason::Exited.shell_code(), 0);
 
-        let report = "/srv/mc/crash-reports/crash-2026.txt".to_owned();
+        let report = DetectedCrashReport {
+            path: "/srv/mc/crash-reports/crash-2026.txt".to_owned(),
+            analysis: Ok(CrashReportAnalysis {
+                report_type: CrashReportType::Watchdog,
+                desc: Some("Watching Server".to_owned()),
+                time: None,
+            }),
+        };
         let crashed_with_zero =
             ExitReason::from_launch_exit(LaunchExit::Code(0), false, Some(report.clone()));
         assert_eq!(
             crashed_with_zero,
             ExitReason::Crashed {
                 code: 0,
-                report_path: Some(report.clone()),
+                crash_report: Some(report.clone()),
             }
         );
         assert_eq!(crashed_with_zero.shell_code(), 0);
@@ -366,7 +416,7 @@ mod tests {
             crashed_code,
             ExitReason::Crashed {
                 code: 37,
-                report_path: Some(report),
+                crash_report: Some(report),
             }
         );
         assert_eq!(crashed_code.shell_code(), 37);
@@ -376,7 +426,7 @@ mod tests {
             crashed_sigterm,
             ExitReason::Crashed {
                 code: 143,
-                report_path: None,
+                crash_report: None,
             }
         );
         assert_eq!(crashed_sigterm.shell_code(), 143);
@@ -387,7 +437,7 @@ mod tests {
             crashed_sigsegv_racing_kill,
             ExitReason::Crashed {
                 code: 139,
-                report_path: None,
+                crash_report: None,
             }
         );
 
@@ -397,7 +447,7 @@ mod tests {
             legacy,
             ExitReason::Crashed {
                 code: 1,
-                report_path: None,
+                crash_report: None,
             }
         );
     }

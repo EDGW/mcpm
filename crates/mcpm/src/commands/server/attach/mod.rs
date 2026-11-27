@@ -148,14 +148,12 @@ pub(super) fn run(args: AttachArgs, ssh: SshArgs) -> Result<Exit> {
                 run_id: None,
             })
             .await?;
-        ensure!(
-            snapshot.state != State::Exited,
-            "Java has exited ({}); use launch to start a new instance",
-            snapshot
-                .exit
-                .as_ref()
-                .map_or_else(|| "unknown".into(), format_exit)
-        );
+        if let State::Exited { reason } = &snapshot.state {
+            anyhow::bail!(
+                "Java has exited ({}); use launch to start a new instance",
+                format_exit(reason)
+            );
+        }
         flow(
             executor,
             snapshot.reference,
@@ -213,13 +211,12 @@ pub(super) async fn flow(
         .await
         .context("initial state Channel snapshot timed out; Java's exit is not confirmed")?
         .context("state Channel closed without an initial snapshot")??;
-    let initially_exited = snapshot.state == State::Exited;
+    let initially_exited = snapshot.state.is_exited();
     let mut display = Display::new(
         no_ui,
         input_height,
         snapshot.state,
         snapshot.actual_channel,
-        snapshot.server_status,
         executor.traffic_stats(),
     )?;
     display.builtin_hints(
@@ -312,7 +309,6 @@ pub(super) async fn flow(
     let mut pending = std::collections::VecDeque::new();
     let mut command_history = command_history::CommandHistory::default();
     let mut finished = [false; 2];
-    let mut exit = snapshot.exit;
     let mut submitted = HashSet::new();
     let mut commands_finished = false;
     let mut detaching = false;
@@ -325,7 +321,7 @@ pub(super) async fn flow(
         if !help_requested
             && !detaching
             && display.is_tui()
-            && display.server_status == ServerStatus::RconConnected
+            && display.state.server_status() == ServerStatus::RconConnected
         {
             help_requested = true;
             let executor = executor.clone();
@@ -370,10 +366,10 @@ pub(super) async fn flow(
         }
         if finished.iter().all(|finished| *finished)
             && commands_finished
-            && let Some(exit) = &exit
+            && let Some(exit) = display.state.exit_reason().cloned()
         {
             let _keyboard = reader.pause();
-            display.exited(exit)?;
+            display.exited(&exit)?;
             return Ok(Exit::Exited(exit.shell_code()));
         }
         tokio::select! {
@@ -435,7 +431,10 @@ pub(super) async fn flow(
                     if batch.finished { display.finish_source(source)?; }
                     finished[usize::from(source == Source::Stderr)] = batch.finished;
                 }
-                Some(Update::Status(snapshot)) => { display.state = snapshot.state; display.channel = snapshot.actual_channel; display.server_status = snapshot.server_status; exit = snapshot.exit; }
+                Some(Update::Status(snapshot)) => {
+                    display.state = snapshot.state;
+                    display.channel = snapshot.actual_channel;
+                }
                 Some(Update::Command(CommandEvent::Completed { listener_id: origin, command_id, text, result })) => {
                     let other = origin != listener_id;
                     if !other { submitted.remove(&command_id); }
@@ -449,11 +448,12 @@ pub(super) async fn flow(
                 Some(Update::Command(CommandEvent::Ready)) => return Err(anyhow::anyhow!("unexpected repeated result Channel handshake")),
                 Some(Update::Failed(error)) => return Err(error).context("attach lost the shim; Java was not stopped automatically"),
                 None => {
-                    ensure!(
-                        finished.iter().all(|finished| *finished) && exit.is_some() && commands_finished,
-                        "attach readers ended without authoritative completion"
-                    );
-                    let exit = exit.unwrap();
+                    let exit = display
+                        .state
+                        .exit_reason()
+                        .filter(|_| finished.iter().all(|finished| *finished) && commands_finished)
+                        .cloned()
+                        .context("attach readers ended without authoritative completion")?;
                     display.exited(&exit)?;
                     return Ok(Exit::Exited(exit.shell_code()));
                 }
@@ -631,7 +631,7 @@ async fn follow_status(
         {
             Some(snapshot) => {
                 let snapshot = snapshot?;
-                exited = snapshot.state == State::Exited;
+                exited = snapshot.state.is_exited();
                 updates.send(Update::Status(snapshot)).await?;
             }
             None => {
@@ -741,7 +741,7 @@ fn spawn_interrupt(
                 })
                 .await?;
             match info.state {
-                State::Running => send_command(
+                State::Running { .. } => send_command(
                     &executor,
                     &reference,
                     &listener_id,
@@ -751,12 +751,12 @@ fn spawn_interrupt(
                 )
                 .await
                 .map(Action::Command),
-                State::Stopping | State::Killing => {
+                State::Stopping { .. } | State::Killing => {
                     send_kill(&executor, &reference, &listener_id, id.clone())
                         .await
                         .map(Action::Kill)
                 }
-                State::Exited => Ok(Action::Kill(KillResult::AlreadyExited)),
+                State::Exited { .. } => Ok(Action::Kill(KillResult::AlreadyExited)),
             }
         }
         .await;

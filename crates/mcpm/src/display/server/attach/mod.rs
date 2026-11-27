@@ -3,7 +3,8 @@
 use crate::{logging, terminal, theme::widgets::style};
 use anyhow::Result;
 use mcpm_backend::operations::server::shim::{
-    Channel, CommandOutcome, CommandResult, ExitReason, LaunchExit, ServerStatus, Source, State,
+    Channel, CommandOutcome, CommandResult, CrashReportType, ExitReason, LaunchExit, ServerStatus,
+    Source, State,
 };
 use mcpm_exec::messaging::SessionTrafficStats;
 use mcpm_rich::Role;
@@ -30,7 +31,6 @@ pub(crate) struct Display {
     pub cursor: usize,
     pub state: State,
     pub channel: Channel,
-    pub server_status: ServerStatus,
     suggestions: suggestions::Suggestions,
     speed_full: bool,
     pub diagnostics: tokio::sync::mpsc::Receiver<(Vec<u8>, usize)>,
@@ -43,7 +43,6 @@ impl Display {
         height: u16,
         state: State,
         channel: Channel,
-        server_status: ServerStatus,
         traffic: Option<SessionTrafficStats>,
     ) -> Result<Self> {
         let tui =
@@ -69,7 +68,6 @@ impl Display {
             cursor: 0,
             state,
             channel,
-            server_status,
             suggestions: suggestions::Suggestions::default(),
             speed_full: false,
             diagnostics,
@@ -315,13 +313,15 @@ impl Display {
         let Some(screen) = &mut self.screen else {
             return Ok(());
         };
-        let server_status = match self.server_status {
+        let server_status = match self.state.server_status() {
             ServerStatus::Unknown => "Unknown",
             ServerStatus::RconConnected => "RCON Connected",
         };
         let status = format!(
-            "Java {:?} · Server {} · {:?} · @detach / Ctrl+D: detach · Ctrl+C: stop / kill",
-            self.state, server_status, self.channel
+            "Java {} · Server {} · {:?} · @detach / Ctrl+D: detach · Ctrl+C: stop / kill",
+            self.state.label(),
+            server_status,
+            self.channel
         );
         let partial = self
             .streams
@@ -365,11 +365,19 @@ pub(crate) fn format_exit(exit: &ExitReason) -> String {
         ExitReason::Exited => "EXITED(0)".into(),
         ExitReason::Crashed {
             code,
-            report_path: Some(path),
-        } => format!("CRASHED({code}, {})", sanitize_field(path)),
+            crash_report: Some(report),
+        } => {
+            let path = sanitize_field(&report.path);
+            match &report.analysis {
+                Ok(analysis) if analysis.report_type == CrashReportType::Watchdog => {
+                    format!("CRASHED({code}, watchdog, {path})")
+                }
+                Ok(_) | Err(_) => format!("CRASHED({code}, {path})"),
+            }
+        }
         ExitReason::Crashed {
             code,
-            report_path: None,
+            crash_report: None,
         } => format!("CRASHED({code})"),
     }
 }
@@ -403,7 +411,11 @@ fn exit_report(exit: &ExitReason) -> (&'static str, Role, Vec<Line<'static>>) {
                 LaunchExit::Signal(ExitReason::SIGKILL) => {
                     lines.push(field(
                         "Signal",
-                        format!("SIGKILL ({}) · Exit code {}", ExitReason::SIGKILL, exit.shell_code()),
+                        format!(
+                            "SIGKILL ({}) · Exit code {}",
+                            ExitReason::SIGKILL,
+                            exit.shell_code()
+                        ),
                     ));
                 }
                 LaunchExit::Signal(signal) => {
@@ -426,15 +438,45 @@ fn exit_report(exit: &ExitReason) -> (&'static str, Role, Vec<Line<'static>>) {
                 field("Exit code", exit.shell_code().to_string()),
             ],
         ),
-        ExitReason::Crashed { code, report_path } => {
+        ExitReason::Crashed { code, crash_report } => {
+            let mut title = "Crashed";
             let mut lines = vec![
                 field("Status", "Java crashed unexpectedly".into()),
                 field("Exit code", code.to_string()),
             ];
-            if let Some(path) = report_path {
-                lines.push(field("Crash report", sanitize_field(path)));
+            if let Some(report) = crash_report {
+                match &report.analysis {
+                    Ok(analysis) => {
+                        let crash_type = match analysis.report_type {
+                            CrashReportType::Watchdog => {
+                                title = "Crashed (Watchdog)";
+                                "Watchdog"
+                            }
+                            CrashReportType::Others => "Others",
+                            CrashReportType::Unknown => "Unknown",
+                        };
+                        lines.push(field("Crash type", crash_type.into()));
+                        if let Some(desc) = &analysis.desc {
+                            lines.push(field("Description", sanitize_field(desc)));
+                        }
+                        lines.push(field("Crash report", sanitize_field(&report.path)));
+                    }
+                    Err(error) => {
+                        lines.push(field("Crash report", sanitize_field(&report.path)));
+                        lines.push(Line::from(Span::styled(
+                            "Crash report analysis:",
+                            style(Role::Muted),
+                        )));
+                        for line in crate::display::error::lines(error, false) {
+                            lines.push(Line::from(Span::raw(format!(
+                                "  {}",
+                                sanitize_field(&line)
+                            ))));
+                        }
+                    }
+                }
             }
-            ("Crashed", Role::Danger, lines)
+            (title, Role::Danger, lines)
         }
     }
 }
