@@ -11,7 +11,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore, watch};
 
 struct Data {
     state: State,
-    exit_code: Option<u32>,
+    exit: Option<ExitReason>,
     channel: Channel,
     rcon_connected: bool,
     stdout: logs::Buffer,
@@ -112,7 +112,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         launch_request_id: record.launch_request_id.clone(),
         data: Mutex::new(Data {
             state: State::Running,
-            exit_code: None,
+            exit: None,
             channel: Channel::Stdin,
             rcon_connected: false,
             stdout: logs::Buffer::default(),
@@ -147,28 +147,39 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     let capacity = Arc::new(Semaphore::new(64));
     let mut tick = tokio::time::interval(Duration::from_millis(20));
     let mut exited_at = None;
+    let mut killed_by_mcpm = false;
     let mut requests = tokio::task::JoinSet::new();
     if runtime.commands.lock().await.settings.is_some() {
         let runtime = runtime.clone();
         requests.spawn(async move { runtime.probe_rcon().await });
     }
+    let record_exit = |exit: LaunchExit, killed_by_mcpm: bool| {
+        let mut data = runtime.data.lock().unwrap();
+        data.state = State::Exited;
+        data.exit = Some(ExitReason::from_launch_exit(exit, killed_by_mcpm));
+        data.rcon_connected = false;
+        runtime.status.send_replace(());
+        Instant::now()
+    };
     loop {
         tokio::select! {
             _ = tick.tick() => {
                 if exited_at.is_none() && let Some(exit) = java.try_wait()? {
-                    let mut data = runtime.data.lock().unwrap();
-                    data.state = State::Exited;
-                    data.exit_code = Some(exit.shell_code());
-                    data.rcon_connected = false;
-                    exited_at = Some(Instant::now());
-                    runtime.status.send_replace(());
+                    exited_at = Some(record_exit(exit, killed_by_mcpm));
                 }
                 if let Some(exited) = exited_at {
                     let data = runtime.data.lock().unwrap();
                     if (data.stdout.closed && data.stderr.closed) || exited.elapsed() >= Duration::from_secs(2) { break; }
                 }
             }
-            _ = runtime.kill.notified(), if exited_at.is_none() => { java.kill()?; }
+            _ = runtime.kill.notified(), if exited_at.is_none() => {
+                if let Some(exit) = java.try_wait()? {
+                    exited_at = Some(record_exit(exit, killed_by_mcpm));
+                } else {
+                    java.kill()?;
+                    killed_by_mcpm = true;
+                }
+            }
             _ = requests.join_next(), if !requests.is_empty() => {},
             connection = listener.accept() => {
                 let (mut reader, mut writer) = connection?;
@@ -456,7 +467,7 @@ impl Runtime {
         Snapshot {
             reference: self.reference.clone(),
             state: data.state,
-            exit_code: data.exit_code,
+            exit: data.exit,
             communication: self.communication,
             actual_channel: data.channel,
             server_status: if data.rcon_connected && data.state != State::Exited {

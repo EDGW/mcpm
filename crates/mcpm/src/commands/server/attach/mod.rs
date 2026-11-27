@@ -2,7 +2,7 @@
 
 use crate::{
     commands::{CommandOutcome as Exit, execution::Runtime},
-    display::server::attach::{Display, help_page_count},
+    display::server::attach::{Display, format_exit, help_page_count},
     ssh::SshArgs,
 };
 use anyhow::{Context, Result, ensure};
@@ -150,8 +150,10 @@ pub(super) fn run(args: AttachArgs, ssh: SshArgs) -> Result<Exit> {
             .await?;
         ensure!(
             snapshot.state != State::Exited,
-            "Java has exited (code {:?}); use launch to start a new instance",
-            snapshot.exit_code
+            "Java has exited ({}); use launch to start a new instance",
+            snapshot
+                .exit
+                .map_or_else(|| "unknown".into(), format_exit)
         );
         flow(
             executor,
@@ -309,7 +311,7 @@ pub(super) async fn flow(
     let mut pending = std::collections::VecDeque::new();
     let mut command_history = command_history::CommandHistory::default();
     let mut finished = [false; 2];
-    let mut exit_code = snapshot.exit_code;
+    let mut exit = snapshot.exit;
     let mut submitted = HashSet::new();
     let mut commands_finished = false;
     let mut detaching = false;
@@ -367,9 +369,11 @@ pub(super) async fn flow(
         }
         if finished.iter().all(|finished| *finished)
             && commands_finished
-            && let Some(code) = exit_code
+            && let Some(exit) = exit
         {
-            return Ok(Exit::Exited(code));
+            let _keyboard = reader.pause();
+            display.exited(exit)?;
+            return Ok(Exit::Exited(exit.shell_code()));
         }
         tokio::select! {
             _ = redraw.tick() => {},
@@ -430,7 +434,7 @@ pub(super) async fn flow(
                     if batch.finished { display.finish_source(source)?; }
                     finished[usize::from(source == Source::Stderr)] = batch.finished;
                 }
-                Some(Update::Status(snapshot)) => { display.state = snapshot.state; display.channel = snapshot.actual_channel; display.server_status = snapshot.server_status; exit_code = snapshot.exit_code; }
+                Some(Update::Status(snapshot)) => { display.state = snapshot.state; display.channel = snapshot.actual_channel; display.server_status = snapshot.server_status; exit = snapshot.exit; }
                 Some(Update::Command(CommandEvent::Completed { listener_id: origin, command_id, text, result })) => {
                     let other = origin != listener_id;
                     if !other { submitted.remove(&command_id); }
@@ -443,7 +447,15 @@ pub(super) async fn flow(
                 Some(Update::Command(CommandEvent::Done)) => { commands_finished = true; submitted.clear(); }
                 Some(Update::Command(CommandEvent::Ready)) => return Err(anyhow::anyhow!("unexpected repeated result Channel handshake")),
                 Some(Update::Failed(error)) => return Err(error).context("attach lost the shim; Java was not stopped automatically"),
-                None => { ensure!(finished.iter().all(|finished| *finished) && exit_code.is_some() && commands_finished, "attach readers ended without authoritative completion"); return Ok(Exit::Exited(exit_code.unwrap())); }
+                None => {
+                    ensure!(
+                        finished.iter().all(|finished| *finished) && exit.is_some() && commands_finished,
+                        "attach readers ended without authoritative completion"
+                    );
+                    let exit = exit.unwrap();
+                    display.exited(exit)?;
+                    return Ok(Exit::Exited(exit.shell_code()));
+                }
                 }
             },
             input = reader.events.recv(), if !detaching => {

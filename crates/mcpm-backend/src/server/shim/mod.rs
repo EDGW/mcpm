@@ -97,14 +97,43 @@ struct Receipt {
 
 /// Durable exit data deliberately has no server path; the containing folder is its location.
 #[derive(Serialize, Deserialize)]
+#[serde(from = "RunSnapshotWire")]
 struct RunSnapshot {
     reference: RunReference,
     state: State,
+    exit: Option<ExitReason>,
+    communication: Communication,
+    actual_channel: Channel,
+    stdout: CursorRange,
+    stderr: CursorRange,
+}
+#[derive(Deserialize)]
+struct RunSnapshotWire {
+    reference: RunReference,
+    state: State,
+    #[serde(default)]
+    exit: Option<ExitReason>,
+    #[serde(default)]
     exit_code: Option<u32>,
     communication: Communication,
     actual_channel: Channel,
     stdout: CursorRange,
     stderr: CursorRange,
+}
+impl From<RunSnapshotWire> for RunSnapshot {
+    fn from(value: RunSnapshotWire) -> Self {
+        Self {
+            reference: value.reference,
+            state: value.state,
+            exit: value
+                .exit
+                .or_else(|| value.exit_code.map(ExitReason::from_legacy_code)),
+            communication: value.communication,
+            actual_channel: value.actual_channel,
+            stdout: value.stdout,
+            stderr: value.stderr,
+        }
+    }
 }
 impl From<Snapshot> for RunSnapshot {
     fn from(value: Snapshot) -> Self {
@@ -113,7 +142,7 @@ impl From<Snapshot> for RunSnapshot {
                 run_id: value.reference.run_id,
             },
             state: value.state,
-            exit_code: value.exit_code,
+            exit: value.exit,
             communication: value.communication,
             actual_channel: value.actual_channel,
             stdout: value.stdout,
@@ -129,7 +158,7 @@ impl From<RunSnapshot> for Snapshot {
                 run_id: value.reference.run_id,
             },
             state: value.state,
-            exit_code: value.exit_code,
+            exit: value.exit,
             communication: value.communication,
             actual_channel: value.actual_channel,
             server_status: ServerStatus::Unknown,

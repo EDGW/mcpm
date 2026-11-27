@@ -3,7 +3,7 @@
 use crate::{logging, terminal, theme::widgets::style};
 use anyhow::Result;
 use mcpm_backend::operations::server::shim::{
-    Channel, CommandOutcome, CommandResult, ServerStatus, Source, State,
+    Channel, CommandOutcome, CommandResult, ExitReason, LaunchExit, ServerStatus, Source, State,
 };
 use mcpm_exec::messaging::SessionTrafficStats;
 use mcpm_rich::Role;
@@ -183,6 +183,38 @@ impl Display {
         }
         Ok(())
     }
+    pub fn exited(&mut self, exit: ExitReason) -> Result<()> {
+        let label = format_exit(exit);
+        let role = match exit {
+            ExitReason::Exited => Role::Success,
+            ExitReason::KilledByMcpm { .. } | ExitReason::KilledByUser => Role::Warning,
+            ExitReason::Crashed { .. } => Role::Danger,
+        };
+        if let Some(screen) = &mut self.screen {
+            screen.line(Line::from(vec![
+                Span::styled("[exit] ", style(Role::Muted)),
+                Span::styled(format!("Java terminated: {label}"), style(role)),
+            ]))?;
+        } else {
+            let mut output = io::stderr().lock();
+            if !self.stderr_start {
+                writeln!(output)?;
+                self.stderr_start = true;
+            }
+            if !self.raw && terminal::stderr_color_enabled() {
+                writeln!(
+                    output,
+                    "{}{}",
+                    crate::theme::console(Role::Muted).style("[exit] "),
+                    crate::theme::console(role).style(format!("Java terminated: {label}"))
+                )?;
+            } else {
+                writeln!(output, "[exit] Java terminated: {label}")?;
+            }
+            output.flush()?;
+        }
+        Ok(())
+    }
     pub fn command(
         &mut self,
         command: &str,
@@ -315,6 +347,19 @@ impl Drop for Display {
             .finish(|text, first, newline| emit(screen, formatting, 2, text, first, newline));
     }
 }
+/// Formats a classified Java termination reason for attach diagnostics and exit notices.
+pub(crate) fn format_exit(exit: ExitReason) -> String {
+    match exit {
+        ExitReason::KilledByUser => "KilledByUser".into(),
+        ExitReason::KilledByMcpm {
+            exit: LaunchExit::Signal(ExitReason::SIGKILL),
+        } => "KilledByMcpm(SIGKILL)".into(),
+        ExitReason::KilledByMcpm { .. } => "KilledByMcpm".into(),
+        ExitReason::Exited => "EXITED(0)".into(),
+        ExitReason::Crashed { code } => format!("CRASHED({code})"),
+    }
+}
+
 fn terminal_width() -> u16 {
     crossterm::terminal::size().map_or(80, |(width, _)| width.max(3))
 }
