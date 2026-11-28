@@ -25,6 +25,7 @@ impl Operation for PrepareRemote {
                 server: info,
                 git,
                 publication: None,
+                rcon_outcome: None,
             })
         })
         .await?

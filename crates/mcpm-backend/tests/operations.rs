@@ -45,6 +45,7 @@ fn input(path: &Path, version: &str) -> Initialize {
             replace_conf: false,
             conf_overrides: Default::default(),
             preserve_conf: false,
+            rcon: None,
         }),
     }
 }
@@ -115,6 +116,7 @@ async fn recognition_is_read_only_and_transports_the_selected_configuration_draf
                 replace_conf: false,
                 conf_overrides: Default::default(),
                 preserve_conf: false,
+                rcon: None,
             }),
         },
     )

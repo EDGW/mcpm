@@ -2,13 +2,14 @@
 
 use std::io::{self, Write};
 
+use mcpm_backend::operations::server::init::InitRconOutcome;
 use mcpm_lib::local::mc::server::identify::SkippedStatement;
 use mcpm_rich::rich;
 
 use crate::{
     display::{
         console::ConsoleWriter,
-        rich::{block, tip},
+        rich::{block, line, tip},
         style::{OutputStyle, text},
     },
     terminal,
@@ -90,6 +91,63 @@ pub(super) fn write_success(output: &mut impl Write, launch_missing: bool) -> io
             ),
             &style,
         )?;
+    }
+    Ok(())
+}
+
+pub(super) fn write_rcon_warning(output: &mut impl Write, message: &str) -> io::Result<()> {
+    let style = OutputStyle::stderr();
+    let escaped = text(message);
+    block(
+        &mut ConsoleWriter::new(output),
+        &rich!("[warning:](warning) {escaped}"),
+        &style,
+    )
+}
+
+pub(super) fn write_rcon_outcome(
+    output: &mut impl Write,
+    outcome: &InitRconOutcome,
+) -> io::Result<()> {
+    let mut writer = ConsoleWriter::new(output);
+    let style = OutputStyle::stderr();
+    match outcome {
+        InitRconOutcome::Enabled {
+            port,
+            generated_password,
+        } => {
+            block(
+                &mut writer,
+                &rich!("[Successfully configured RCON.](success)"),
+                &style,
+            )?;
+            writeln!(
+                writer,
+                "{}",
+                line(&rich!("RCON port: [{port}](secondary)"), &style)
+            )?;
+            if let Some(password) = generated_password {
+                let message = if terminal::stderr_is_tty() {
+                    let escaped = text(password);
+                    rich!("RCON password: [{escaped}](secondary)")
+                } else {
+                    rich!("Generated RCON password was written to `server.properties`.")
+                };
+                writeln!(writer, "{}", line(&message, &style))?;
+            }
+        }
+        InitRconOutcome::Disabled => {
+            block(
+                &mut writer,
+                &rich!(
+                    "[Disabled incomplete RCON configuration in](muted) `server.properties`[.](muted)"
+                ),
+                &style,
+            )?;
+        }
+        InitRconOutcome::Warning { message } => {
+            write_rcon_warning(output, message)?;
+        }
     }
     Ok(())
 }

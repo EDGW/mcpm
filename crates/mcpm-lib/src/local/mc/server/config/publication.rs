@@ -215,6 +215,7 @@ pub struct ServerLock {
     _file: Option<File>,
     root: PathBuf,
     write: bool,
+    created_directory: bool,
 }
 
 impl ServerLock {
@@ -241,6 +242,7 @@ impl ServerLock {
             _file: file,
             root: canonical_root,
             write: false,
+            created_directory: false,
         })
     }
 
@@ -264,6 +266,7 @@ impl ServerLock {
             _file: Some(file),
             root: canonical_root,
             write: false,
+            created_directory: false,
         })
     }
 
@@ -273,13 +276,13 @@ impl ServerLock {
     pub fn acquire_write(root: &Path) -> Result<Self> {
         let canonical_root = resolve_root(root)?;
         let mcpm_dir = canonical_root.join(".mcpm");
-        match fs::create_dir(&mcpm_dir) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        let created_directory = match fs::create_dir(&mcpm_dir) {
+            Ok(()) => true,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
             Err(error) => {
                 return Err(error).context("failed to create server metadata directory");
             }
-        }
+        };
         let meta = fs::symlink_metadata(&mcpm_dir)
             .context("failed to inspect server metadata directory")?;
         ensure!(
@@ -307,11 +310,50 @@ impl ServerLock {
             .with_context(|| format!("failed to open server lock {lock_path:?}"))?;
         file.try_lock()
             .context("server is busy or cannot be locked")?;
+        require_current_lock(&file, &lock_path)?;
         Ok(Self {
             _file: Some(file),
             root: canonical_root,
             write: true,
+            created_directory,
         })
+    }
+
+    /// Removes a newly created metadata directory when initialization stopped before publication.
+    /// Unlinks its lock while held. Contenders must verify that their handle is still current.
+    pub fn discard_unpublished_directory(self) -> Result<()> {
+        if !self.created_directory {
+            return Ok(());
+        }
+        let directory = self.root.join(".mcpm");
+        let path = self.path();
+        for entry in fs::read_dir(&directory)? {
+            if entry?.path() != path {
+                return Ok(());
+            }
+        }
+        let file = self
+            ._file
+            .as_ref()
+            .expect("new directories have a write lock");
+        require_current_lock(file, &path)?;
+        fs::remove_file(&path).context("failed to remove unpublished server lock")?;
+        drop(self);
+        match fs::remove_dir(&directory) {
+            Ok(()) => Ok(()),
+            // Another writer may have already started using the directory again.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::DirectoryNotEmpty | io::ErrorKind::NotFound
+                ) =>
+            {
+                Ok(())
+            }
+            Err(error) => {
+                Err(error).context("failed to remove unpublished server metadata directory")
+            }
+        }
     }
 
     /// Returns the canonical lock file path `<root>/.mcpm/server.lock`.
@@ -388,7 +430,51 @@ fn open_existing_shared(lock_path: &Path) -> Result<File> {
         .with_context(|| format!("failed to open server lock {lock_path:?}"))?;
     file.try_lock_shared()
         .context("server is busy or cannot be locked")?;
+    require_current_lock(&file, lock_path)?;
     Ok(file)
+}
+
+// An opener can hold the old file across a failed first initialization. A lease is
+// valid only if it still refers to the lock at the workspace path.
+#[cfg(unix)]
+fn require_current_lock(file: &File, path: &Path) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let locked = file.metadata()?;
+    let current = fs::symlink_metadata(path).context("failed to recheck server lock")?;
+    ensure!(
+        (locked.dev(), locked.ino()) == (current.dev(), current.ino()),
+        "server lock was replaced; retry the operation"
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+fn require_current_lock(file: &File, path: &Path) -> Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    fn identity(file: &File) -> io::Result<(u32, u32, u32)> {
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: file is an open handle and info is writable for the duration of the call.
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok((
+            info.dwVolumeSerialNumber,
+            info.nFileIndexHigh,
+            info.nFileIndexLow,
+        ))
+    }
+
+    let current = File::open(path).context("failed to reopen server lock")?;
+    ensure!(
+        identity(file)? == identity(&current)?,
+        "server lock was replaced; retry the operation"
+    );
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize)]

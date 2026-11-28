@@ -44,6 +44,16 @@ pub enum RecognizeEvent {
     Candidates(Vec<Candidate>),
 }
 
+pub struct ProbeInitRcon;
+impl Operation for ProbeInitRcon {
+    const ID: &'static str = "server.init.probe_rcon";
+    type Input = ProbeRcon;
+    type Output = InitRconProbe;
+    async fn run(input: ProbeRcon) -> Result<Self::Output> {
+        tokio::task::spawn_blocking(move || implementation::probe_rcon(input)).await?
+    }
+}
+
 pub struct Init;
 impl Operation for Init {
     const ID: &'static str = "server.init";

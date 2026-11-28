@@ -415,7 +415,7 @@ async fn install_vanilla(
             path,
             metadata: MinecraftServerMetadata { version: SERVER_METADATA_VERSION, minecraft_version: version, loader: ServerLoader::Vanilla },
             force: false,
-            local: Some(LocalConfiguration {
+            local: Some(&LocalConfiguration {
                 configuration: Some(draft),
                 replace_conf: false,
                 conf_overrides: Default::default(),
@@ -424,6 +424,7 @@ async fn install_vanilla(
         },
         || observe(("Initializing Local workspace...".into(), None)),
         |_| observe(("Initializing Local workspace...".into(), None)),
+        |_| Ok(()),
         |path| if no_git { Ok(None) } else { git::ensure_repository(path, git).map(Some) },
     )).await?
         .with_context(|| format!("server.jar and eula.txt were written to {final_path:?}, but workspace initialization failed; inspect completed files before retrying"))?;
