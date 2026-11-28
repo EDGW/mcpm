@@ -57,7 +57,7 @@ fn build_identity(revision: Option<&Revision>) -> Result<()> {
     let official = profile == "release"
         && requested == "1"
         && github == "true"
-        && repository == "EDGW/mcpm"
+        && repository == "hitszosa/mcpm"
         && matches!(event.as_str(), "push" | "workflow_dispatch")
         && ref_type == "tag"
         && tag == format!("v{version}");

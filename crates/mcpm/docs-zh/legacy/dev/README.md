@@ -41,7 +41,7 @@
 - `scripts/build.rs` 统一生成 CLI、daemon、执行层的构建身份；`build_info.rs` 提供前端元数据，`display/build_info.rs` 展示启动提示。
 - Commit ID 和工作区状态在构建时从 Git 读取，仅受跟踪文件的已暂存或未暂存变更计为 `modified`；监视仓库受跟踪文件及 Git 索引、引用以刷新构建缓存。
 - 共享构建脚本在 workspace 发布版本后追加六位 commit 和可选 `.modified`，缺少 Git 时使用 `.unknown`。客户端、link、daemon 握手比较完整构建身份，打包校验整套程序版本一致。
-- 正式构建要求同时满足：release 配置、`MCPM_OFFICIAL_RELEASE=1`、`GITHUB_ACTIONS=true`、仓库为 `EDGW/mcpm`、事件为 `push` 或 `workflow_dispatch`、引用类型为 Tag，且 Tag 为 `v<Cargo 包版本>`。
+- 正式构建要求同时满足：release 配置、`MCPM_OFFICIAL_RELEASE=1`、`GITHUB_ACTIONS=true`、仓库为 `hitszosa/mcpm`、事件为 `push` 或 `workflow_dispatch`、引用类型为 Tag，且 Tag 为 `v<Cargo 包版本>`。
 - 发布工作流在 Tag 构建中注入标记；分支、PR、本地和 Fork 构建默认非正式。环境变量改变时 Cargo 重新生成身份。
 - `official` 表示正式发布流程构建，也包含官方预发布版本，不表示稳定版。该标记不是来源签名。
 - 五个入口共享版本详情和非正式 release 启动提示；提示仅写 stderr，不受日志级别影响。

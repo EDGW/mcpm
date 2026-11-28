@@ -224,7 +224,7 @@ function Invoke-Install {
         New-Item -ItemType Directory -Path $backup | Out-Null
         New-Item -ItemType Directory -Path $packageBin -Force | Out-Null
         $asset = 'mcpm-windows-x86_64'
-        $url = "https://github.com/EDGW/mcpm/releases/download/$Version/$asset.zip"
+        $url = "https://github.com/hitszosa/mcpm/releases/download/$Version/$asset.zip"
         if ($Proxy) { $url = "$Proxy/$url" }
         $archivePath = Join-Path $stage 'package.zip'
         $checksumPath = Join-Path $stage 'checksum'

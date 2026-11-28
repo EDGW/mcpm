@@ -215,7 +215,7 @@ main() {
     stage=$(mktemp -d "$install_dir/.stage.XXXXXXXX")
     mkdir "$stage/old" "$stage/package" "$stage/package/bin"
     archive=$stage/package.zip
-    url=https://github.com/EDGW/mcpm/releases/download/$version/$asset.zip
+    url=https://github.com/hitszosa/mcpm/releases/download/$version/$asset.zip
     if [ -n "$proxy" ]; then url=$proxy/$url; fi
     printf 'Downloading %s...\n' "$url"
     curl --fail --silent --show-error --location "$url" --output "$archive"

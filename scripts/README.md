@@ -15,14 +15,14 @@
 Supported for `v0.1.0-rc1` and newer releases:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- v0.1.0-rc1 --proxy https://gh-proxy.com
+curl -fsSL https://raw.githubusercontent.com/hitszosa/mcpm/v0.1.0-rc2/scripts/install.sh | sh -s -- v0.1.0-rc2 --proxy https://gh-proxy.com
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Version v0.1.0-rc1 -Proxy https://gh-proxy.com
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hitszosa/mcpm/v0.1.0-rc2/scripts/install.ps1))) -Version v0.1.0-rc2 -Proxy https://gh-proxy.com
 ```
 
-- The proxy prefix is prepended to the complete GitHub URL for both the archive and its `.sha256` file, for example `https://gh-proxy.com/https://github.com/EDGW/mcpm/releases/download/...`.
+- The proxy prefix is prepended to the complete GitHub URL for both the archive and its `.sha256` file, for example `https://gh-proxy.com/https://github.com/hitszosa/mcpm/releases/download/...`.
 - HTTP and HTTPS prefixes are accepted, with or without a trailing slash. The Unix option may appear before or after the version.
 - Omitting the option keeps the original direct URLs. Proxy failures do not silently fall back to direct downloads; checksum verification and rollback remain unchanged.
 - This option does not affect the initial download of the installer itself. If necessary, also prefix that Raw URL. Use a script version containing this option; proxying an older script does not add the option.
