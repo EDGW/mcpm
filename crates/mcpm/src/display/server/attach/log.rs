@@ -4,7 +4,10 @@
 use crate::theme::{self, widgets::style};
 use mcpm_lib::local::mc::log::{LogLevel, parse_header};
 use mcpm_rich::Role;
-use ratatui::text::{Line, Span};
+use ratatui::{
+    style::{Modifier, Style},
+    text::{Line, Span},
+};
 use std::io::{self, Write};
 
 fn prefix(text: &str) -> Option<(PrefixSpan, Role, bool)> {
@@ -21,6 +24,7 @@ fn prefix(text: &str) -> Option<(PrefixSpan, Role, bool)> {
             level_start: header.level_span.start,
             level_end: header.level_span.end,
             prefix_end: header.prefix_end,
+            body_start: header.body_start,
         },
         role,
         muted_body,
@@ -32,21 +36,25 @@ struct PrefixSpan {
     level_start: usize,
     level_end: usize,
     prefix_end: usize,
+    body_start: usize,
 }
 
 /// Styling state belongs to one source and resets at each logical newline.
 #[derive(Default)]
 pub(super) struct Formatting {
     muted_body: bool,
+    recognized: bool,
 }
 pub(super) struct Fragment {
     prefix: Option<(PrefixSpan, Role)>,
     muted_body: bool,
+    recognized: bool,
 }
 impl Formatting {
     pub fn fragment(&mut self, text: &str, first: bool, newline: bool) -> Fragment {
         let prefix = if first {
             let parsed = prefix(text);
+            self.recognized = parsed.is_some();
             self.muted_body = parsed.is_some_and(|(_, _, muted)| muted);
             parsed.map(|(span, role, _)| (span, role))
         } else {
@@ -55,25 +63,26 @@ impl Formatting {
         let result = Fragment {
             prefix,
             muted_body: self.muted_body,
+            recognized: self.recognized,
         };
         if newline {
             self.muted_body = false;
+            self.recognized = false;
         }
         result
     }
 }
 
-pub(super) fn line<'a>(text: &'a str, fragment: &Fragment) -> Line<'a> {
-    let body = |text: &'a str| {
-        if fragment.muted_body {
-            Span::styled(text, style(Role::Muted))
-        } else {
-            Span::raw(text)
-        }
+pub(super) fn line<'a>(text: &'a str, fragment: &Fragment, underline_content: bool) -> Line<'a> {
+    let body_span = |slice: &'a str, underlined: bool| match (fragment.muted_body, underlined) {
+        (true, true) => Span::styled(slice, style(Role::Muted).add_modifier(Modifier::UNDERLINED)),
+        (true, false) => Span::styled(slice, style(Role::Muted)),
+        (false, true) => Span::styled(slice, Style::new().add_modifier(Modifier::UNDERLINED)),
+        (false, false) => Span::raw(slice),
     };
     match fragment.prefix {
         Some((span, role)) => {
-            let mut spans = Vec::with_capacity(4);
+            let mut spans = Vec::with_capacity(5);
             spans.push(Span::styled(&text[..span.level_start], style(Role::Muted)));
             spans.push(Span::styled(
                 &text[span.level_start..span.level_end],
@@ -85,10 +94,19 @@ pub(super) fn line<'a>(text: &'a str, fragment: &Fragment) -> Line<'a> {
                     style(Role::Muted),
                 ));
             }
-            spans.push(body(&text[span.prefix_end..]));
+            if underline_content {
+                if span.prefix_end < span.body_start {
+                    spans.push(body_span(&text[span.prefix_end..span.body_start], false));
+                }
+                if span.body_start < text.len() {
+                    spans.push(body_span(&text[span.body_start..], true));
+                }
+            } else {
+                spans.push(body_span(&text[span.prefix_end..], false));
+            }
             Line::from(spans)
         }
-        None => Line::from(body(text)),
+        None => Line::from(body_span(text, underline_content && fragment.recognized)),
     }
 }
 
@@ -97,11 +115,31 @@ pub(super) fn write(
     text: &str,
     fragment: &Fragment,
     color: bool,
+    underline_content: bool,
 ) -> io::Result<()> {
     if !color {
         return output.write_all(text.as_bytes());
     }
-    let end = if let Some((span, role)) = fragment.prefix {
+    let write_body = |output: &mut dyn Write, slice: &str, underlined: bool| -> io::Result<()> {
+        if slice.is_empty() {
+            return Ok(());
+        }
+        match (fragment.muted_body, underlined) {
+            (true, true) => write!(
+                output,
+                "{}",
+                theme::console(Role::Muted).underline().style(slice)
+            ),
+            (true, false) => write!(output, "{}", theme::console(Role::Muted).style(slice)),
+            (false, true) => write!(
+                output,
+                "{}",
+                owo_colors::Style::new().underline().style(slice)
+            ),
+            (false, false) => output.write_all(slice.as_bytes()),
+        }
+    };
+    if let Some((span, role)) = fragment.prefix {
         write!(
             output,
             "{}{}",
@@ -115,19 +153,14 @@ pub(super) fn write(
                 theme::console(Role::Muted).style(&text[span.level_end..span.prefix_end])
             )?;
         }
-        span.prefix_end
+        if underline_content {
+            write_body(output, &text[span.prefix_end..span.body_start], false)?;
+            write_body(output, &text[span.body_start..], true)
+        } else {
+            write_body(output, &text[span.prefix_end..], false)
+        }
     } else {
-        0
-    };
-    if fragment.muted_body {
-        // The library resets styling after this fragment, including at a logical line boundary.
-        write!(
-            output,
-            "{}",
-            theme::console(Role::Muted).style(&text[end..])
-        )
-    } else {
-        output.write_all(text[end..].as_bytes())
+        write_body(output, text, underline_content && fragment.recognized)
     }
 }
 
@@ -164,7 +197,7 @@ mod tests {
             assert_eq!(&text[..span.prefix_end], head);
             let mut bytes = Vec::new();
             let fragment = Formatting::default().fragment(text, true, true);
-            write(&mut bytes, text, &fragment, false).unwrap();
+            write(&mut bytes, text, &fragment, false, false).unwrap();
             assert_eq!(bytes, text.as_bytes());
         }
     }
@@ -184,7 +217,7 @@ mod tests {
             let fragment = Formatting::default().fragment(text, true, true);
             assert!(fragment.prefix.is_none());
             assert!(!fragment.muted_body);
-            write(&mut bytes, text, &fragment, true).unwrap();
+            write(&mut bytes, text, &fragment, true, true).unwrap();
             assert_eq!(bytes, text.as_bytes());
         }
     }
@@ -225,5 +258,64 @@ mod tests {
         assert_eq!(&paper[span.prefix_end..], ": boom");
         assert_eq!(role, Role::Danger);
         assert!(!muted);
+    }
+
+    #[test]
+    fn underlines_only_stripped_body_range_on_recognized_lines_and_continuations() {
+        let mut formatting = Formatting::default();
+        for (text, expected_underlined) in [
+            (
+                "[12:34:56] [Server thread/INFO]: Done (1.2s)!",
+                "Done (1.2s)!",
+            ),
+            (
+                "[12:34:56] [Server thread/INFO] [minecraft/DedicatedServer]: Done (1.2s)!",
+                "Done (1.2s)!",
+            ),
+            ("[12:34:56 ERROR]: <Steve> boom", "<Steve> boom"),
+            ("2013-10-15 16:20:00 [INFO] legacy body", "legacy body"),
+        ] {
+            let fragment = formatting.fragment(text, true, true);
+            let rendered = line(text, &fragment, true);
+            let underlined: String = rendered
+                .spans
+                .iter()
+                .filter(|span| span.style.add_modifier.contains(Modifier::UNDERLINED))
+                .map(|span| span.content.as_ref())
+                .collect();
+            assert_eq!(underlined, expected_underlined, "{text}");
+            // Unchanged when display_content_range is disabled.
+            let plain = line(text, &fragment, false);
+            assert!(
+                plain
+                    .spans
+                    .iter()
+                    .all(|span| !span.style.add_modifier.contains(Modifier::UNDERLINED))
+            );
+        }
+
+        // Continuation fragment of a recognized line stays underlined until newline resets state.
+        let first = formatting.fragment("[12:34:56] [Server thread/ERROR]: part1", true, false);
+        assert_eq!(
+            line("[12:34:56] [Server thread/ERROR]: part1", &first, true)
+                .spans
+                .last()
+                .map(|s| (s.content.as_ref(), s.style.add_modifier.contains(Modifier::UNDERLINED))),
+            Some(("part1", true))
+        );
+        let cont = formatting.fragment("part2", false, true);
+        assert!(
+            line("part2", &cont, true)
+                .spans
+                .iter()
+                .all(|s| s.style.add_modifier.contains(Modifier::UNDERLINED))
+        );
+        let next_unrecognized = formatting.fragment("plain line", true, true);
+        assert!(
+            line("plain line", &next_unrecognized, true)
+                .spans
+                .iter()
+                .all(|s| !s.style.add_modifier.contains(Modifier::UNDERLINED))
+        );
     }
 }

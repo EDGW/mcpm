@@ -1,13 +1,19 @@
-//! Gamerule assistance gated by an explicit enumeration in the server's help response.
+//! Gamerule syntax checker constructed from an explicit enumeration in the server's help output.
 
-use super::{Diagnostic, Query};
+use super::syntax::{
+    Candidate, CandidateEmphasis, Diagnostic, SyntaxChecker, SyntaxQuery, boolean_argument_query,
+    next_token, trailing_range,
+};
+use std::borrow::Cow;
 
-pub(super) struct Gamerule {
+/// Gamerule argument completer and advisory validator backed by the server's enumerated rule list.
+pub(super) struct GameruleSyntax {
     types: Vec<String>,
 }
 
-impl Gamerule {
-    pub fn parse(arguments: &str) -> Option<Self> {
+impl GameruleSyntax {
+    /// Extracts an explicit `(ruleA | ruleB ...)` gamerule list from help arguments.
+    pub fn from_help(arguments: &str) -> Option<Self> {
         let (choices, suffix) = arguments.trim().strip_prefix('(')?.split_once(')')?;
         if !suffix.is_empty()
             && (!suffix.starts_with(char::is_whitespace) || suffix.trim() != "<value>")
@@ -32,59 +38,122 @@ impl Gamerule {
         (alternatives >= 2).then_some(Self { types })
     }
 
-    pub fn query<'a, 'input>(&'a self, arguments: &'input str) -> Query<'a, 'input> {
-        let end = arguments
-            .find(char::is_whitespace)
-            .unwrap_or(arguments.len());
-        let name = &arguments[..end];
-        let complete = end < arguments.len();
-        let known = !name.is_empty() && self.types.iter().any(|candidate| candidate == name);
-        let mut query = Query {
-            candidates: if known && complete { &[] } else { &self.types },
-            prefix: name,
-            replacement: 0..end,
-            diagnostic: None,
-            validates_value: |name| ValueType::for_rule(name).is_some(),
-        };
-        if name.is_empty() {
-            return query;
-        }
-        if !known {
-            if complete
-                || !self
-                    .types
-                    .iter()
-                    .any(|candidate| candidate.starts_with(name))
-            {
-                query.diagnostic = Some(Diagnostic {
-                    range: 0..end,
-                    message: "Unknown gamerule type",
-                });
-            }
-            return query;
-        }
-        let tail = &arguments[end..];
-        let value = tail.trim();
-        if value.is_empty() {
-            return query;
-        }
-        if let Some(kind) = ValueType::for_rule(name) {
-            let valid = match kind {
-                ValueType::Boolean => matches!(value, "true" | "false"),
-                ValueType::Integer => value.parse::<i64>().is_ok(),
+    fn type_candidates(&self) -> Vec<Candidate<'_>> {
+        self.types
+            .iter()
+            .map(|name| Candidate {
+                text: name.as_str(),
+                description: None,
+                emphasis: if ValueType::for_rule(name).is_some() {
+                    CandidateEmphasis::Primary
+                } else {
+                    CandidateEmphasis::Normal
+                },
+                append_space: true,
+            })
+            .collect()
+    }
+}
+
+impl SyntaxChecker for GameruleSyntax {
+    fn summary(&self) -> &str {
+        "<type> <value>"
+    }
+
+    fn query<'a, 'input>(&'a self, arguments: &'input str) -> SyntaxQuery<'a, 'input> {
+        let Some(first) = next_token(arguments, 0) else {
+            return SyntaxQuery {
+                candidates: self.type_candidates(),
+                prefix: "",
+                replacement: 0..0,
+                diagnostic: None,
             };
-            if !valid {
-                let start = arguments.len() - tail.trim_start().len();
-                query.diagnostic = Some(Diagnostic {
-                    range: start..start + value.len(),
-                    message: match kind {
-                        ValueType::Boolean => "Expected true or false",
-                        ValueType::Integer => "Expected a signed 64-bit integer",
-                    },
-                });
-            }
+        };
+
+        let known = self.types.iter().any(|candidate| candidate == first.text);
+        if !known {
+            let prefix_valid = self
+                .types
+                .iter()
+                .any(|candidate| candidate.starts_with(first.text));
+            let diagnostic = if first.complete || !prefix_valid {
+                Some(Diagnostic {
+                    range: first.range.clone(),
+                    message: Cow::Borrowed("Unknown gamerule type"),
+                })
+            } else {
+                None
+            };
+            return SyntaxQuery {
+                candidates: self.type_candidates(),
+                prefix: first.text,
+                replacement: first.range,
+                diagnostic,
+            };
         }
-        query
+
+        if !first.complete {
+            return SyntaxQuery {
+                candidates: self.type_candidates(),
+                prefix: first.text,
+                replacement: first.range,
+                diagnostic: None,
+            };
+        }
+
+        match ValueType::for_rule(first.text) {
+            Some(ValueType::Boolean) => boolean_argument_query(arguments, first.range.end),
+            Some(ValueType::Integer) => integer_argument_query(arguments, first.range.end),
+            None => SyntaxQuery {
+                candidates: Vec::new(),
+                prefix: "",
+                replacement: arguments.len()..arguments.len(),
+                diagnostic: None,
+            },
+        }
+    }
+}
+
+fn integer_argument_query(arguments: &str, from: usize) -> SyntaxQuery<'static, '_> {
+    let Some(token) = next_token(arguments, from) else {
+        let end = arguments.len();
+        return SyntaxQuery {
+            candidates: Vec::new(),
+            prefix: "",
+            replacement: end..end,
+            diagnostic: None,
+        };
+    };
+
+    if token.text.parse::<i64>().is_err() {
+        return SyntaxQuery {
+            candidates: Vec::new(),
+            prefix: "",
+            replacement: token.range.clone(),
+            diagnostic: Some(Diagnostic {
+                range: token.range,
+                message: Cow::Borrowed("Expected a signed 64-bit integer"),
+            }),
+        };
+    }
+
+    if let Some(extra) = next_token(arguments, token.range.end) {
+        return SyntaxQuery {
+            candidates: Vec::new(),
+            prefix: "",
+            replacement: extra.range.clone(),
+            diagnostic: Some(Diagnostic {
+                range: trailing_range(arguments, extra.range.start),
+                message: Cow::Borrowed("Unexpected extra argument"),
+            }),
+        };
+    }
+
+    SyntaxQuery {
+        candidates: Vec::new(),
+        prefix: "",
+        replacement: arguments.len()..arguments.len(),
+        diagnostic: None,
     }
 }
 
@@ -230,11 +299,9 @@ mod tests {
             "(keepInventory | mod.rule)",
             " (keepInventory|mod.rule) <value> ",
         ] {
-            let rule = Gamerule::parse(syntax).unwrap();
-            assert_eq!(
-                rule.query("").matches().collect::<Vec<_>>(),
-                ["keepInventory", "mod.rule"]
-            );
+            let rule = GameruleSyntax::from_help(syntax).unwrap();
+            let texts: Vec<_> = rule.query("").matches().map(|c| c.text).collect();
+            assert_eq!(texts, ["keepInventory", "mod.rule"]);
         }
         for syntax in [
             "<type> <value>",
@@ -250,13 +317,15 @@ mod tests {
             "(a b | c)",
             "-> gamerule",
         ] {
-            assert!(Gamerule::parse(syntax).is_none(), "{syntax}");
+            assert!(GameruleSyntax::from_help(syntax).is_none(), "{syntax}");
         }
     }
 
     #[test]
-    fn server_membership_is_separate_from_local_value_knowledge() {
-        let rule = Gamerule::parse("(keepInventory | randomTickSpeed | mod.rule | 規則)").unwrap();
+    fn boolean_rules_offer_candidates_and_allow_in_progress_prefixes() {
+        let rule =
+            GameruleSyntax::from_help("(keepInventory | randomTickSpeed | mod.rule | 規則)")
+                .unwrap();
         assert!(rule.query("kee").diagnostic.is_none());
         assert!(rule.query("kee ").diagnostic.is_some());
         assert!(rule.query("unknown").diagnostic.is_some());
@@ -264,18 +333,37 @@ mod tests {
         assert!(rule.query("mod.rule anything at all").diagnostic.is_none());
         assert!(rule.query("規則 任意").diagnostic.is_none());
         assert!(rule.query("keepInventory").diagnostic.is_none());
-        assert!(rule.query("keepInventory   ").diagnostic.is_none());
+
+        let blank_val = rule.query("keepInventory   ");
+        assert!(blank_val.diagnostic.is_none());
+        assert_eq!(
+            blank_val.matches().map(|c| c.text).collect::<Vec<_>>(),
+            ["true", "false"]
+        );
+
+        let typing = rule.query("keepInventory t");
+        assert!(typing.diagnostic.is_none());
+        assert_eq!(
+            typing.matches().map(|c| c.text).collect::<Vec<_>>(),
+            ["true"]
+        );
+
+        let finished_prefix = rule.query("keepInventory t ");
+        assert!(finished_prefix.diagnostic.is_some());
+
         let invalid = rule.query("keepInventory wrong").diagnostic.unwrap();
         assert_eq!(&"keepInventory wrong"[invalid.range], "wrong");
         assert!(rule.query("keepInventory true").diagnostic.is_none());
         assert!(rule.query("keepInventory false").diagnostic.is_none());
         assert!(rule.query("keepInventory TRUE").diagnostic.is_some());
-        assert!(rule.query("keepInventory true false").diagnostic.is_some());
+
+        let extra = rule.query("keepInventory true false").diagnostic.unwrap();
+        assert_eq!(&"keepInventory true false"[extra.range], "false");
     }
 
     #[test]
     fn integers_use_i64_without_game_specific_ranges() {
-        let rule = Gamerule::parse("(random_tick_speed | randomTickSpeed)").unwrap();
+        let rule = GameruleSyntax::from_help("(random_tick_speed | randomTickSpeed)").unwrap();
         for value in [
             "-9223372036854775808",
             "9223372036854775807",

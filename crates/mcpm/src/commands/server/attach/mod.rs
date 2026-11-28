@@ -2,7 +2,7 @@
 
 use crate::{
     commands::{CommandOutcome as Exit, execution::Runtime},
-    display::server::attach::{Display, format_exit, help_page_count},
+    display::server::attach::{Display, SendDecision, format_exit, help_page_count},
     ssh::SshArgs,
 };
 use anyhow::{Context, Result, ensure};
@@ -78,6 +78,10 @@ fn after_help() -> clap::builder::StyledStr {
     ));
     help.line("          and full 100ms/1000ms lifetime peaks and averages.");
     help.line(&format!(
+        "  {}: toggle frontend debug variables (e.g. display_content_range).",
+        bold("@debug <var_name> <true|false>")
+    ));
+    help.line(&format!(
         "  {}: send a built-in command literally.",
         bold("@@<command>")
     ));
@@ -113,7 +117,9 @@ fn after_help() -> clap::builder::StyledStr {
     help.line("  Otherwise:");
     help.line("    Up/Down browses hints with a position counter.");
     help.line("    Tab fills.");
-    help.line("    Enter always sends the current input, including input with errors.");
+    help.line("    Enter sends the current input, including input with syntax warnings.");
+    help.line("    Server commands and @stop are only recommended when Server is Done;");
+    help.line("    otherwise press Enter twice within 3s without other input to force send.");
     help.blank();
     help.line("  Leading spaces trigger a warning in the Command Input title:");
     help.line("  Minecraft may not recognize the command.");
@@ -345,9 +351,7 @@ pub(super) async fn flow(
             let executor = executor.clone();
             let reference = reference.clone();
             let listener_id = listener_id.clone();
-            help.spawn(async move {
-                fetch_help_pages(&executor, &reference, &listener_id).await
-            });
+            help.spawn(async move { fetch_help_pages(&executor, &reference, &listener_id).await });
         }
         if commands.is_empty()
             && let Some(text) = pending.pop_front()
@@ -395,7 +399,9 @@ pub(super) async fn flow(
             return Ok(Exit::Exited(exit.shell_code()));
         }
         tokio::select! {
-            _ = redraw.tick() => {},
+            _ = redraw.tick() => {
+                display.expire_confirmation();
+            },
             _ = restart_redraw.tick(), if matches!(display.state, State::Restarting { .. }) => {},
             diagnostic = display.diagnostics.recv(), if diagnostics_open => {
                 let _keyboard = reader.pause();
@@ -511,6 +517,7 @@ pub(super) async fn flow(
                     {
                         help_requested = false;
                         exit_reported_for_generation = false;
+                        display.clear_confirmation();
                         display.restart_started(&rule, attempt, delay_ms)?;
                     }
                     display.set_state(snapshot.state);
@@ -545,12 +552,22 @@ pub(super) async fn flow(
                 }
             },
             input = reader.events.recv(), if !detaching => {
-                let mut line = None;
+                let mut submitted_line: Option<(String, bool)> = None;
                 match input {
-                    None | Some(Input::Eof) => detaching = true,
+                    None | Some(Input::Eof) => {
+                        display.clear_confirmation();
+                        detaching = true;
+                    }
                     Some(Input::Error(error)) => return Err(error).context("attach input failed; Java was not stopped automatically"),
-                    Some(Input::Line(text)) => line = Some(text),
+                    Some(Input::Line(text)) => submitted_line = Some((text, false)),
+                    Some(Input::Key(key)) if key.code == KeyCode::Enter && key.kind == KeyEventKind::Repeat => {},
                     Some(Input::Key(key)) if key.kind != KeyEventKind::Release => {
+                        let is_plain_enter = key.code == KeyCode::Enter
+                            && key.kind == KeyEventKind::Press
+                            && !key.modifiers.intersects(KeyModifiers::ALT | KeyModifiers::CONTROL | KeyModifiers::SUPER);
+                        if !is_plain_enter {
+                            display.clear_confirmation();
+                        }
                         if key.modifiers.contains(KeyModifiers::ALT) && matches!(key.code, KeyCode::Up | KeyCode::Down) {
                             let _keyboard = reader.pause();
                             display.resize_input(key.code == KeyCode::Up)?;
@@ -562,7 +579,7 @@ pub(super) async fn flow(
                             }
                         } else {
                             match key.code {
-                                KeyCode::Enter => { display.reset_suggestion(); display.cursor = 0; line = Some(std::mem::take(&mut display.draft)); }
+                                KeyCode::Enter if is_plain_enter => { submitted_line = Some((display.draft.clone(), true)); }
                                 KeyCode::Tab => { command_history.reset(); display.accept_suggestion(); }
                                 KeyCode::Up | KeyCode::Down => {
                                     let down = key.code == KeyCode::Down;
@@ -586,35 +603,71 @@ pub(super) async fn flow(
                     }
                     Some(Input::Key(_)) => {},
                 }
-                if let Some(mut text) = line {
-                    if display.is_tui() {
-                        command_history.record(&text);
-                    }
+                if let Some((mut text, from_tui_enter)) = submitted_line {
                     let builtin = builtin::parse(&text);
-                    if matches!(builtin, Some(builtin::Builtin::Detach)) { detaching = true; }
-                    else if matches!(builtin, Some(builtin::Builtin::Speed)) {
-                        let _keyboard = reader.pause();
-                        display.toggle_speed(executor.traffic_stats())?;
-                    }
-                    else if matches!(builtin, Some(builtin::Builtin::Kill)) {
-                        ensure!(actions.len() < 32, "too many pending control actions; Java was not stopped automatically");
-                        let executor = executor.clone();
-                        let reference = reference.clone();
-                        let listener_id = listener_id.clone();
-                        let id = uuid::Uuid::new_v4().to_string();
-                        submitted.insert(id.clone());
-                        actions.spawn(async move {
-                            let result = send_kill(&executor, &reference, &listener_id, id.clone()).await.map(Action::Kill);
-                            (id, result)
-                        });
-                    } else if !text.is_empty() {
-                        if matches!(builtin, Some(builtin::Builtin::Stop)) {
-                            text = "stop".into();
-                        } else if text.strip_prefix('@').and_then(builtin::parse).is_some() {
-                            text.remove(0);
+                    let needs_server_done = !display.is_raw()
+                        && (matches!(builtin, Some(builtin::Builtin::Stop))
+                            || (builtin.is_none() && !text.is_empty()));
+                    let proceed = if needs_server_done {
+                        let builtin_name =
+                            matches!(builtin, Some(builtin::Builtin::Stop)).then_some("@stop");
+                        match display.check_send_recommendation(&text, builtin_name) {
+                            SendDecision::Send => true,
+                            SendDecision::NeedsConfirmation { reason } => {
+                                if !from_tui_enter {
+                                    let _keyboard = reader.pause();
+                                    display.notice(
+                                        "confirm",
+                                        &format!(
+                                            "{reason}; send the same command again within 3s to force send"
+                                        ),
+                                    )?;
+                                }
+                                false
+                            }
                         }
-                        ensure!(pending.len() + commands.len() < 32, "too many pending console commands; Java was not stopped automatically");
-                        pending.push_back(text);
+                    } else {
+                        display.clear_confirmation();
+                        true
+                    };
+                    if proceed {
+                        if from_tui_enter {
+                            display.draft.clear();
+                            display.cursor = 0;
+                            display.reset_suggestion();
+                        }
+                        if display.is_tui() {
+                            command_history.record(&text);
+                        }
+                        if matches!(builtin, Some(builtin::Builtin::Detach)) { detaching = true; }
+                        else if matches!(builtin, Some(builtin::Builtin::Speed)) {
+                            let _keyboard = reader.pause();
+                            display.toggle_speed(executor.traffic_stats())?;
+                        }
+                        else if let Some(builtin::Builtin::Debug(args)) = builtin {
+                            let _keyboard = reader.pause();
+                            display.debug_command(args)?;
+                        }
+                        else if matches!(builtin, Some(builtin::Builtin::Kill)) {
+                            ensure!(actions.len() < 32, "too many pending control actions; Java was not stopped automatically");
+                            let executor = executor.clone();
+                            let reference = reference.clone();
+                            let listener_id = listener_id.clone();
+                            let id = uuid::Uuid::new_v4().to_string();
+                            submitted.insert(id.clone());
+                            actions.spawn(async move {
+                                let result = send_kill(&executor, &reference, &listener_id, id.clone()).await.map(Action::Kill);
+                                (id, result)
+                            });
+                        } else if !text.is_empty() {
+                            if matches!(builtin, Some(builtin::Builtin::Stop)) {
+                                text = "stop".into();
+                            } else if text.strip_prefix('@').and_then(builtin::parse).is_some() {
+                                text.remove(0);
+                            }
+                            ensure!(pending.len() + commands.len() < 32, "too many pending console commands; Java was not stopped automatically");
+                            pending.push_back(text);
+                        }
                     }
                 }
             }

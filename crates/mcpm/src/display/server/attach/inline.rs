@@ -24,6 +24,22 @@ pub(super) struct RestartView<'a> {
     pub countdown_label: String,
 }
 
+pub(super) struct ConfirmationView<'a> {
+    pub reason: &'a str,
+    pub remaining_secs: u64,
+}
+
+pub(super) struct DrawFrame<'a> {
+    pub draft: &'a str,
+    pub cursor: usize,
+    pub status: Line<'a>,
+    pub partial: &'a str,
+    pub restart: Option<RestartView<'a>>,
+    pub confirmation: Option<ConfirmationView<'a>>,
+    pub suggestions: super::suggestions::View<'a>,
+    pub speed: Vec<Line<'static>>,
+}
+
 pub(super) struct Screen {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
     height: u16,
@@ -212,16 +228,17 @@ impl Screen {
             .history_end
             .saturating_sub(lines.saturating_sub(advanced));
     }
-    pub fn draw(
-        &mut self,
-        draft: &str,
-        cursor: usize,
-        status: Line<'_>,
-        partial: &str,
-        restart: Option<RestartView<'_>>,
-        suggestions: super::suggestions::View<'_>,
-        speed: Vec<Line<'static>>,
-    ) -> io::Result<()> {
+    pub fn draw(&mut self, frame_data: DrawFrame<'_>) -> io::Result<()> {
+        let DrawFrame {
+            draft,
+            cursor,
+            status,
+            partial,
+            restart,
+            confirmation,
+            suggestions,
+            speed,
+        } = frame_data;
         self.terminal.autoresize()?;
         let size = self.terminal.size()?;
         let speed = Paragraph::new(speed)
@@ -280,7 +297,16 @@ impl Screen {
         let leading_spaces = draft.len() - draft.trim_start_matches(' ').len();
         let diagnostic = suggestions.diagnostic.as_ref();
         let leading_warning = "Leading spaces: Minecraft may not recognize this command";
-        let title = if let Some(diagnostic) = diagnostic {
+        let confirming = confirmation.is_some();
+        let title = if let Some(confirm) = confirmation {
+            Line::styled(
+                format!(
+                    " Confirm send ({}s) · {} · Enter again to send ",
+                    confirm.remaining_secs, confirm.reason
+                ),
+                style(Role::Warning),
+            )
+        } else if let Some(diagnostic) = diagnostic {
             let prefix = if leading_spaces > 0 {
                 format!(" · {leading_warning}")
             } else {
@@ -374,9 +400,13 @@ impl Screen {
             let width = input.width.saturating_sub(4) as usize;
             let cursor_width = UnicodeWidthStr::width(&draft[..cursor]);
             let horizontal = cursor_width.saturating_sub(width.saturating_sub(1));
+            let mut input_block = panel(title, true).padding(Padding::horizontal(1));
+            if confirming {
+                input_block = input_block.border_style(style(Role::Warning));
+            }
             frame.render_widget(
                 Paragraph::new(content)
-                    .block(panel(title, true).padding(Padding::horizontal(1)))
+                    .block(input_block)
                     .scroll((0, horizontal.min(u16::MAX as usize) as u16)),
                 input,
             );

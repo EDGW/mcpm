@@ -2,6 +2,8 @@
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyEvent};
+#[cfg(windows)]
+use crossterm::event::{KeyCode, KeyEventKind};
 use std::{
     io::{self, BufRead, Read},
     sync::{
@@ -85,6 +87,8 @@ impl Drop for Paused<'_> {
     }
 }
 fn keys(sender: &mpsc::Sender<Input>, stop: &AtomicBool, keyboard: &Keyboard) -> Result<()> {
+    #[cfg(windows)]
+    let mut enter_down = false;
     while !stop.load(Ordering::Relaxed) {
         let mut guard = keyboard.gate.lock().unwrap();
         while keyboard.pause_requested.load(Ordering::Acquire) {
@@ -94,6 +98,19 @@ fn keys(sender: &mpsc::Sender<Input>, stop: &AtomicBool, keyboard: &Keyboard) ->
             && let Event::Key(key) = event::read()?
         {
             drop(guard);
+            #[cfg(windows)]
+            let key = {
+                // Crossterm reports repeated Windows key-down events as Press.
+                let mut key = key;
+                if key.code == KeyCode::Enter {
+                    let down = key.kind != KeyEventKind::Release;
+                    if down && enter_down {
+                        key.kind = KeyEventKind::Repeat;
+                    }
+                    enter_down = down;
+                }
+                key
+            };
             if sender.blocking_send(Input::Key(key)).is_err() {
                 break;
             }

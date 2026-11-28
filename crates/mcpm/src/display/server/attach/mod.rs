@@ -11,11 +11,12 @@ use mcpm_exec::messaging::SessionTrafficStats;
 use mcpm_rich::Role;
 use ratatui::text::{Line, Span};
 use std::{
+    borrow::Cow,
     io::{self, Write},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
-mod command_hints;
+mod debug;
 mod inline;
 mod log;
 mod speed;
@@ -116,6 +117,93 @@ impl RestartCountdown {
     }
 }
 
+const CONFIRM_WINDOW: Duration = Duration::from_secs(3);
+
+/// Result of checking a command's recommendation validity before submission.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SendDecision {
+    /// Safe to send immediately (either recommended valid or confirmed within the 3-second window).
+    Send,
+    /// First attempt for a command currently flagged as not recommended; hold submission.
+    NeedsConfirmation { reason: String },
+}
+
+/// Tracks the 3-second double-submit confirmation window for non-recommended commands.
+#[derive(Default)]
+struct SendConfirmGuard {
+    pending: Option<PendingConfirmation>,
+}
+
+struct PendingConfirmation {
+    text: String,
+    reason: Cow<'static, str>,
+    deadline: Instant,
+}
+
+impl SendConfirmGuard {
+    fn evaluate(
+        &mut self,
+        text: &str,
+        recommendation: suggestions::Recommendation,
+        now: Instant,
+    ) -> SendDecision {
+        match recommendation {
+            suggestions::Recommendation::Valid => {
+                self.pending = None;
+                SendDecision::Send
+            }
+            suggestions::Recommendation::Invalid { reason } => {
+                if self
+                    .pending
+                    .as_ref()
+                    .is_some_and(|pending| pending.text == text && now < pending.deadline)
+                {
+                    self.pending = None;
+                    SendDecision::Send
+                } else {
+                    let message = reason.clone().into_owned();
+                    self.pending = Some(PendingConfirmation {
+                        text: text.to_owned(),
+                        reason,
+                        deadline: now + CONFIRM_WINDOW,
+                    });
+                    SendDecision::NeedsConfirmation { reason: message }
+                }
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        self.pending = None;
+    }
+
+    fn refresh(&mut self, now: Instant, status: ServerStatus) {
+        let Some(pending) = &mut self.pending else {
+            return;
+        };
+        if now >= pending.deadline {
+            self.pending = None;
+            return;
+        }
+        match suggestions::Suggestions::server_command_recommendation(status) {
+            suggestions::Recommendation::Valid => self.pending = None,
+            suggestions::Recommendation::Invalid { reason } => pending.reason = reason,
+        }
+    }
+
+    fn view(&self, now: Instant) -> Option<inline::ConfirmationView<'_>> {
+        let pending = self.pending.as_ref()?;
+        let remaining = pending.deadline.checked_duration_since(now)?;
+        if remaining.is_zero() {
+            return None;
+        }
+        Some(inline::ConfirmationView {
+            reason: pending.reason.as_ref(),
+            remaining_secs: remaining.as_millis().div_ceil(1_000) as u64,
+        })
+    }
+}
+
 /// One inline terminal owner; all asynchronous terminal diagnostics are routed through its Channel.
 pub(crate) struct Display {
     screen: Option<inline::Screen>,
@@ -129,7 +217,9 @@ pub(crate) struct Display {
     pub channel: Channel,
     restart_countdown: Option<RestartCountdown>,
     suggestions: suggestions::Suggestions,
+    confirm: SendConfirmGuard,
     speed_full: bool,
+    debug: debug::DebugVariables,
     pub diagnostics: tokio::sync::mpsc::Receiver<(Vec<u8>, usize)>,
     // Dropped after screen restoration, so terminal diagnostics cannot overwrite a live input area.
     _console: Option<logging::ConsoleChannelGuard>,
@@ -167,7 +257,9 @@ impl Display {
             state,
             channel,
             suggestions: suggestions::Suggestions::default(),
+            confirm: SendConfirmGuard::default(),
             speed_full: false,
+            debug: debug::DebugVariables::default(),
             diagnostics,
             _console: guard,
         })
@@ -177,9 +269,13 @@ impl Display {
             self.restart_countdown = None;
         }
         self.state = state;
+        self.expire_confirmation();
     }
     pub fn is_tui(&self) -> bool {
         self.screen.is_some()
+    }
+    pub fn is_raw(&self) -> bool {
+        self.raw
     }
     pub fn resize_input(&mut self, grow: bool) -> Result<()> {
         if let Some(screen) = &mut self.screen {
@@ -191,9 +287,37 @@ impl Display {
         &mut self,
         definitions: impl Iterator<Item = (&'static str, &'static str)>,
     ) {
-        if self.is_tui() {
-            self.suggestions.builtin_hints(definitions);
-        }
+        self.suggestions
+            .builtin_hints(definitions.map(|(name, description)| {
+                let syntax = match name {
+                    "@debug" => suggestions::debug_syntax(),
+                    _ => suggestions::Syntax::plain(""),
+                };
+                let validity = match name {
+                    "@stop" => suggestions::ValidityPolicy::RequiresServerDone,
+                    _ => suggestions::ValidityPolicy::Always,
+                };
+                (name, description, syntax, validity)
+            }));
+    }
+    pub fn check_send_recommendation(
+        &mut self,
+        text: &str,
+        builtin_name: Option<&str>,
+    ) -> SendDecision {
+        let status = self.state.server_status();
+        let recommendation = match builtin_name {
+            Some(name) => self.suggestions.builtin_recommendation(name, status),
+            None => suggestions::Suggestions::server_command_recommendation(status),
+        };
+        self.confirm.evaluate(text, recommendation, Instant::now())
+    }
+    pub fn clear_confirmation(&mut self) {
+        self.confirm.clear();
+    }
+    pub fn expire_confirmation(&mut self) {
+        self.confirm
+            .refresh(Instant::now(), self.state.server_status());
     }
     pub fn help_result(&mut self, pages: Option<&[String]>) {
         if self.is_tui() {
@@ -249,10 +373,20 @@ impl Display {
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[index];
         let stderr_start = &mut self.stderr_start;
+        let underline_content = self.debug.display_content_range;
         let stream = &mut self.streams[index];
         let mut feed = || {
             stream.feed(bytes, |text, first, newline| {
-                emit(screen, formatting, stderr_start, index, text, first, newline)
+                emit(
+                    screen,
+                    formatting,
+                    stderr_start,
+                    index,
+                    text,
+                    first,
+                    newline,
+                    underline_content,
+                )
             })
         };
         if let Some(bar) = console_bar {
@@ -271,10 +405,20 @@ impl Display {
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[index];
         let stderr_start = &mut self.stderr_start;
+        let underline_content = self.debug.display_content_range;
         let stream = &mut self.streams[index];
         let mut finish = || {
             stream.finish(|text, first, newline| {
-                emit(screen, formatting, stderr_start, index, text, first, newline)
+                emit(
+                    screen,
+                    formatting,
+                    stderr_start,
+                    index,
+                    text,
+                    first,
+                    newline,
+                    underline_content,
+                )
             })
         };
         if let Some(bar) = console_bar {
@@ -301,7 +445,16 @@ impl Display {
         let stream = &mut self.streams[2];
         let mut feed = || {
             stream.feed(bytes, |text, first, newline| {
-                emit(screen, formatting, stderr_start, 2, text, first, newline)
+                emit(
+                    screen,
+                    formatting,
+                    stderr_start,
+                    2,
+                    text,
+                    first,
+                    newline,
+                    false,
+                )
             })
         };
         if let Some(bar) = console_bar {
@@ -533,7 +686,14 @@ impl Display {
         }
         Ok(())
     }
+    pub fn debug_command(&mut self, args: &str) -> Result<()> {
+        let message = self.debug.apply(args);
+        self.notice("debug", &message)
+    }
     pub fn draw(&mut self, traffic: Option<SessionTrafficStats>) -> Result<()> {
+        let now = Instant::now();
+        let server_status = self.state.server_status();
+        self.confirm.refresh(now, server_status);
         let Some(screen) = &mut self.screen else {
             if let Some(countdown) = &self.restart_countdown {
                 countdown.update_console_bar();
@@ -554,15 +714,16 @@ impl Display {
             .iter()
             .find(|stream| !stream.partial().is_empty())
             .map_or("", text::Stream::partial);
-        screen.draw(
-            &self.draft,
-            self.cursor,
+        screen.draw(inline::DrawFrame {
+            draft: &self.draft,
+            cursor: self.cursor,
             status,
             partial,
-            restart_view,
-            self.suggestions.view(&self.draft),
-            speed::lines(traffic, self.speed_full),
-        )?;
+            restart: restart_view,
+            confirmation: self.confirm.view(now),
+            suggestions: self.suggestions.view(&self.draft, server_status),
+            speed: speed::lines(traffic, self.speed_full),
+        })?;
         Ok(())
     }
 }
@@ -578,7 +739,16 @@ impl Drop for Display {
         let formatting = &mut self.formatting[2];
         let stderr_start = &mut self.stderr_start;
         let _ = self.streams[2].finish(|text, first, newline| {
-            emit(screen, formatting, stderr_start, 2, text, first, newline)
+            emit(
+                screen,
+                formatting,
+                stderr_start,
+                2,
+                text,
+                first,
+                newline,
+                false,
+            )
         });
     }
 }
@@ -834,6 +1004,7 @@ fn status_line(state: &State, channel: Channel) -> Line<'static> {
 fn terminal_width() -> u16 {
     crossterm::terminal::size().map_or(80, |(width, _)| width.max(3))
 }
+#[allow(clippy::too_many_arguments)]
 fn emit(
     screen: &mut Option<inline::Screen>,
     formatting: &mut log::Formatting,
@@ -842,10 +1013,11 @@ fn emit(
     text: &str,
     first: bool,
     newline: bool,
+    underline_content: bool,
 ) -> Result<()> {
     let fragment = formatting.fragment(text, first && origin < 2, newline);
     if let Some(screen) = screen {
-        let mut line = log::line(text, &fragment);
+        let mut line = log::line(text, &fragment, underline_content);
         if origin == 1 && first {
             line.spans
                 .insert(0, Span::styled("[java stderr] ", style(Role::Muted)));
@@ -858,6 +1030,7 @@ fn emit(
             text,
             &fragment,
             terminal::stdout_color_enabled(),
+            underline_content,
         )?;
         if newline {
             writeln!(output)?;
@@ -873,6 +1046,7 @@ fn emit(
             text,
             &fragment,
             terminal::stderr_color_enabled(),
+            underline_content,
         )?;
         if newline {
             writeln!(output)?;
@@ -881,4 +1055,75 @@ fn emit(
         output.flush()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn confirm_guard_requires_uninterrupted_double_submit_within_window() {
+        let mut guard = SendConfirmGuard::default();
+        let t0 = Instant::now();
+        let invalid = suggestions::Suggestions::server_command_recommendation(
+            ServerStatus::StartingOrUnknown,
+        );
+
+        // First attempt holds submission and exposes a countdown view.
+        assert!(matches!(
+            guard.evaluate("list", invalid.clone(), t0),
+            SendDecision::NeedsConfirmation { .. }
+        ));
+        assert_eq!(guard.view(t0).unwrap().remaining_secs, 3);
+        assert_eq!(
+            guard.view(t0 + Duration::from_millis(2_100)).unwrap().remaining_secs,
+            1
+        );
+
+        // Second identical attempt within 3s succeeds and clears the prompt.
+        assert_eq!(
+            guard.evaluate("list", invalid.clone(), t0 + Duration::from_secs(2)),
+            SendDecision::Send
+        );
+        assert!(guard.view(t0 + Duration::from_secs(2)).is_none());
+
+        // Expiration past 3s resets to a fresh first attempt.
+        assert!(matches!(
+            guard.evaluate("@stop", invalid.clone(), t0),
+            SendDecision::NeedsConfirmation { .. }
+        ));
+        assert!(guard.view(t0 + Duration::from_secs(3)).is_none());
+        assert!(matches!(
+            guard.evaluate("@stop", invalid.clone(), t0 + Duration::from_secs(3)),
+            SendDecision::NeedsConfirmation { .. }
+        ));
+
+        // Other input clears the pending confirmation immediately.
+        guard.clear();
+        assert!(guard.view(t0 + Duration::from_secs(3)).is_none());
+
+        // Transitioning to ServerStatus::Done clears pending confirmation and sends immediately.
+        assert!(matches!(
+            guard.evaluate("say hi", invalid, t0),
+            SendDecision::NeedsConfirmation { .. }
+        ));
+        guard.refresh(t0 + Duration::from_secs(1), ServerStatus::GeneratingChunks(55));
+        assert!(
+            guard
+                .view(t0 + Duration::from_secs(1))
+                .unwrap()
+                .reason
+                .contains("55%")
+        );
+        guard.refresh(t0 + Duration::from_secs(1), ServerStatus::Done);
+        assert!(guard.view(t0 + Duration::from_secs(1)).is_none());
+        assert_eq!(
+            guard.evaluate(
+                "say hi",
+                suggestions::Suggestions::server_command_recommendation(ServerStatus::Done),
+                t0 + Duration::from_secs(1),
+            ),
+            SendDecision::Send
+        );
+    }
 }
