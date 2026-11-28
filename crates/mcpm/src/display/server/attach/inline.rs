@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::Modifier,
     text::{Line, Span},
-    widgets::{Block, Borders, Padding, Paragraph, Widget, Wrap},
+    widgets::{Block, Borders, Gauge, Padding, Paragraph, Widget, Wrap},
 };
 use std::{
     collections::VecDeque,
@@ -17,9 +17,33 @@ use std::{
 };
 use unicode_width::UnicodeWidthStr;
 
+pub(super) struct RestartView<'a> {
+    pub attempt: u32,
+    pub lines: Vec<Line<'a>>,
+    pub ratio: f64,
+    pub countdown_label: String,
+}
+
+pub(super) struct ConfirmationView<'a> {
+    pub reason: &'a str,
+    pub remaining_secs: u64,
+}
+
+pub(super) struct DrawFrame<'a> {
+    pub draft: &'a str,
+    pub cursor: usize,
+    pub status: Line<'a>,
+    pub partial: &'a str,
+    pub restart: Option<RestartView<'a>>,
+    pub confirmation: Option<ConfirmationView<'a>>,
+    pub suggestions: super::suggestions::View<'a>,
+    pub speed: Vec<Line<'static>>,
+}
+
 pub(super) struct Screen {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
     height: u16,
+    restart_rows: u16,
     suggestion_rows: u16,
     speed_rows: u16,
     raw: bool,
@@ -50,6 +74,7 @@ impl Screen {
                 },
             )?,
             height,
+            restart_rows: 0,
             suggestion_rows: 0,
             speed_rows,
             raw: false,
@@ -74,6 +99,7 @@ impl Screen {
         self.height = target;
         self.resize_viewport(
             target
+                .saturating_add(self.restart_rows)
                 .saturating_add(self.suggestion_rows)
                 .saturating_add(self.speed_rows)
                 .min(size.height.max(1)),
@@ -128,35 +154,36 @@ impl Screen {
         self.terminal.clear()?;
         Ok(())
     }
-    pub fn line(&mut self, line: Line<'_>) -> io::Result<()> {
-        self.terminal.autoresize()?;
-        let width = self.terminal.size()?.width.max(1);
-        let paragraph = Paragraph::new(line).wrap(Wrap { trim: false });
-        let height = paragraph.line_count(width).max(1).min(u16::MAX as usize) as u16;
+    fn insert_before(
+        &mut self,
+        height: u16,
+        render: impl FnOnce(&mut Buffer),
+    ) -> io::Result<()> {
         let limit = self.terminal.size()?.height as usize;
         let output = &mut self.output;
         let previous_top = self.terminal.get_frame().area().y;
         self.terminal.insert_before(height, |buffer| {
-            paragraph.render(buffer.area, buffer);
+            render(buffer);
             remember(output, buffer, limit);
         })?;
         self.scrolled_output(height, previous_top);
         Ok(())
     }
+    pub fn line(&mut self, line: Line<'_>) -> io::Result<()> {
+        self.terminal.autoresize()?;
+        let width = self.terminal.size()?.width.max(1);
+        let paragraph = Paragraph::new(line).wrap(Wrap { trim: false });
+        let height = paragraph.line_count(width).max(1).min(u16::MAX as usize) as u16;
+        self.insert_before(height, |buffer| paragraph.render(buffer.area, buffer))
+    }
     pub fn divider(&mut self) -> io::Result<()> {
-        let limit = self.terminal.size()?.height as usize;
-        let output = &mut self.output;
-        let previous_top = self.terminal.get_frame().area().y;
-        self.terminal.insert_before(1, |buffer| {
+        self.insert_before(1, |buffer| {
             Block::new()
                 .borders(Borders::TOP)
                 .border_style(style(Role::Muted))
                 .title(" History ")
                 .render(buffer.area, buffer);
-            remember(output, buffer, limit);
-        })?;
-        self.scrolled_output(1, previous_top);
-        Ok(())
+        })
     }
     pub fn rcon(
         &mut self,
@@ -169,16 +196,25 @@ impl Screen {
     ) -> io::Result<()> {
         self.terminal.autoresize()?;
         let width = self.terminal.size()?.width.max(1);
-        let (widget, height) = response(label, name, origin, text, width, first, last);
-        let limit = self.terminal.size()?.height as usize;
-        let output = &mut self.output;
-        let previous_top = self.terminal.get_frame().area().y;
-        self.terminal.insert_before(height, |buffer| {
-            widget.render(buffer.area, buffer);
-            remember(output, buffer, limit);
-        })?;
-        self.scrolled_output(height, previous_top);
-        Ok(())
+        let (widget, height, _) = response(label, name, origin, text, width, first, last);
+        self.insert_before(height, |buffer| widget.render(buffer.area, buffer))
+    }
+    pub fn exit_report(
+        &mut self,
+        title: &str,
+        role: Role,
+        lines: Vec<Line<'_>>,
+    ) -> io::Result<()> {
+        self.terminal.autoresize()?;
+        let width = self.terminal.size()?.width.max(1);
+        let (widget, height) = exit_report_widget(title, role, lines, width);
+        self.insert_before(height, |buffer| widget.render(buffer.area, buffer))
+    }
+    pub fn restart_report(&mut self, attempt: u32, lines: Vec<Line<'_>>) -> io::Result<()> {
+        self.terminal.autoresize()?;
+        let width = self.terminal.size()?.width.max(1);
+        let (widget, height) = restart_report_widget(attempt, lines, width);
+        self.insert_before(height, |buffer| widget.render(buffer.area, buffer))
     }
 
     fn scrolled_output(&mut self, lines: u16, previous_top: u16) {
@@ -192,15 +228,17 @@ impl Screen {
             .history_end
             .saturating_sub(lines.saturating_sub(advanced));
     }
-    pub fn draw(
-        &mut self,
-        draft: &str,
-        cursor: usize,
-        status: &str,
-        partial: &str,
-        suggestions: super::suggestions::View<'_>,
-        speed: Vec<Line<'static>>,
-    ) -> io::Result<()> {
+    pub fn draw(&mut self, frame_data: DrawFrame<'_>) -> io::Result<()> {
+        let DrawFrame {
+            draft,
+            cursor,
+            status,
+            partial,
+            restart,
+            confirmation,
+            suggestions,
+            speed,
+        } = frame_data;
         self.terminal.autoresize()?;
         let size = self.terminal.size()?;
         let speed = Paragraph::new(speed)
@@ -209,11 +247,24 @@ impl Screen {
         self.speed_rows = speed
             .line_count(size.width)
             .min(size.height.saturating_sub(self.height) as usize) as u16;
-        let available = size
+        let content_width = size.width.saturating_sub(4).max(1);
+        let after_speed = size
             .height
             .saturating_sub(self.height)
             .saturating_sub(self.speed_rows);
-        let content_width = size.width.saturating_sub(4);
+        self.restart_rows = match &restart {
+            Some(view) if after_speed >= 3 => {
+                let info_rows = Paragraph::new(view.lines.clone())
+                    .wrap(Wrap { trim: false })
+                    .line_count(content_width);
+                info_rows
+                    .saturating_add(3)
+                    .min(after_speed as usize) as u16
+            }
+            Some(_) if after_speed >= 1 => 1,
+            _ => 0,
+        };
+        let available = after_speed.saturating_sub(self.restart_rows);
         let mut row_height = 0usize;
         let mut selected_start = 0usize;
         let mut selected_end = 0usize;
@@ -238,6 +289,7 @@ impl Screen {
             .min(u16::MAX as usize) as u16;
         self.resize_viewport(
             self.height
+                .saturating_add(self.restart_rows)
                 .saturating_add(self.suggestion_rows)
                 .saturating_add(self.speed_rows)
                 .min(size.height.max(1)),
@@ -245,7 +297,16 @@ impl Screen {
         let leading_spaces = draft.len() - draft.trim_start_matches(' ').len();
         let diagnostic = suggestions.diagnostic.as_ref();
         let leading_warning = "Leading spaces: Minecraft may not recognize this command";
-        let title = if let Some(diagnostic) = diagnostic {
+        let confirming = confirmation.is_some();
+        let title = if let Some(confirm) = confirmation {
+            Line::styled(
+                format!(
+                    " Confirm send ({}s) · {} · Enter again to send ",
+                    confirm.remaining_secs, confirm.reason
+                ),
+                style(Role::Warning),
+            )
+        } else if let Some(diagnostic) = diagnostic {
             let prefix = if leading_spaces > 0 {
                 format!(" · {leading_warning}")
             } else {
@@ -286,13 +347,44 @@ impl Screen {
         }
         let content = Line::from(spans);
         self.terminal.draw(|frame| {
-            let [hints, input, footer, traffic] = Layout::vertical([
+            let [restart_area, hints, input, footer, traffic] = Layout::vertical([
+                Constraint::Length(self.restart_rows),
                 Constraint::Length(self.suggestion_rows),
                 Constraint::Min(1),
                 Constraint::Length(1),
                 Constraint::Length(self.speed_rows),
             ])
             .areas(frame.area());
+            if let Some(view) = restart
+                && restart_area.height > 0
+            {
+                let gauge = Gauge::default()
+                    .use_unicode(true)
+                    .gauge_style(style(Role::Primary))
+                    .ratio(view.ratio.clamp(0.0, 1.0))
+                    .label(view.countdown_label);
+                if restart_area.height >= 3 {
+                    let block = restart_block(view.attempt);
+                    let inner = block.inner(restart_area);
+                    frame.render_widget(block, restart_area);
+                    if inner.height >= 2 {
+                        let [info_area, gauge_area] = Layout::vertical([
+                            Constraint::Min(1),
+                            Constraint::Length(1),
+                        ])
+                        .areas(inner);
+                        frame.render_widget(
+                            Paragraph::new(view.lines).wrap(Wrap { trim: false }),
+                            info_area,
+                        );
+                        frame.render_widget(gauge, gauge_area);
+                    } else if inner.height == 1 {
+                        frame.render_widget(gauge, inner);
+                    }
+                } else {
+                    frame.render_widget(gauge, restart_area);
+                }
+            }
             let hint_frame = Block::new()
                 .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
                 .border_style(style(Role::Muted))
@@ -308,17 +400,22 @@ impl Screen {
             let width = input.width.saturating_sub(4) as usize;
             let cursor_width = UnicodeWidthStr::width(&draft[..cursor]);
             let horizontal = cursor_width.saturating_sub(width.saturating_sub(1));
+            let mut input_block = panel(title, true).padding(Padding::horizontal(1));
+            if confirming {
+                input_block = input_block.border_style(style(Role::Warning));
+            }
             frame.render_widget(
                 Paragraph::new(content)
-                    .block(panel(title, true).padding(Padding::horizontal(1)))
+                    .block(input_block)
                     .scroll((0, horizontal.min(u16::MAX as usize) as u16)),
                 input,
             );
-            frame.render_widget(
-                Paragraph::new(if partial.is_empty() { status } else { partial })
-                    .style(style(Role::Muted)),
-                footer,
-            );
+            let footer_widget = if partial.is_empty() {
+                Paragraph::new(status)
+            } else {
+                Paragraph::new(partial).style(style(Role::Muted))
+            };
+            frame.render_widget(footer_widget, footer);
             frame.render_widget(speed, traffic);
             if input.width > 4 && input.height > 1 {
                 frame.set_cursor_position((
@@ -354,7 +451,7 @@ fn response<'a>(
     width: u16,
     first: bool,
     last: bool,
-) -> (Paragraph<'a>, u16) {
+) -> (Paragraph<'a>, u16, Role) {
     let mut borders = Borders::LEFT | Borders::RIGHT;
     if first {
         borders |= Borders::TOP;
@@ -393,6 +490,29 @@ fn response<'a>(
         .line_count(width)
         .max(usize::from(first) + usize::from(last) + 1)
         .min(u16::MAX as usize) as u16;
+    (paragraph, height, role)
+}
+
+fn exit_report_widget<'a>(
+    title: &str,
+    role: Role,
+    lines: Vec<Line<'a>>,
+    width: u16,
+) -> (Paragraph<'a>, u16) {
+    let block = Block::new()
+        .borders(Borders::ALL)
+        .border_style(style(role))
+        .title_style(style(role))
+        .padding(Padding::horizontal(1))
+        .title(Line::from(vec![
+            Span::styled(" Exit: ", style(role).remove_modifier(Modifier::BOLD)),
+            Span::styled(title.to_owned(), style(role).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", style(role).remove_modifier(Modifier::BOLD)),
+        ]));
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    let height = paragraph.line_count(width).max(3).min(u16::MAX as usize) as u16;
     (paragraph, height)
 }
 
@@ -408,10 +528,70 @@ pub(super) fn console_response(
     first: bool,
     last: bool,
 ) -> io::Result<()> {
-    let (widget, height) = response(label, name, origin, text, width.max(3), first, last);
+    let (widget, height, role) = response(label, name, origin, text, width.max(3), first, last);
     let mut buffer = Buffer::empty(Rect::new(0, 0, width.max(3), height));
     widget.render(buffer.area, &mut buffer);
-    write_buffer(output, &buffer, color)
+    write_buffer(output, &buffer, color, &[role, Role::Muted])
+}
+
+fn restart_block(attempt: u32) -> Block<'static> {
+    Block::new()
+        .borders(Borders::ALL)
+        .border_style(style(Role::Primary))
+        .title_style(style(Role::Primary))
+        .padding(Padding::horizontal(1))
+        .title(Line::from(vec![
+            Span::styled(
+                " Restart: ",
+                style(Role::Primary).remove_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("attempt #{attempt}"),
+                style(Role::Primary).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" ", style(Role::Primary).remove_modifier(Modifier::BOLD)),
+        ]))
+}
+
+fn restart_report_widget<'a>(
+    attempt: u32,
+    lines: Vec<Line<'a>>,
+    width: u16,
+) -> (Paragraph<'a>, u16) {
+    let paragraph = Paragraph::new(lines)
+        .block(restart_block(attempt))
+        .wrap(Wrap { trim: false });
+    let height = paragraph.line_count(width).max(3).min(u16::MAX as usize) as u16;
+    (paragraph, height)
+}
+
+/// Renders the restart card with the same Primary Block/Paragraph widgets as inline TUI.
+pub(super) fn console_restart_report(
+    output: &mut impl Write,
+    attempt: u32,
+    lines: Vec<Line<'_>>,
+    width: u16,
+    color: bool,
+) -> io::Result<()> {
+    let (widget, height) = restart_report_widget(attempt, lines, width.max(5));
+    let mut buffer = Buffer::empty(Rect::new(0, 0, width.max(5), height));
+    widget.render(buffer.area, &mut buffer);
+    write_buffer(output, &buffer, color, &[Role::Primary, Role::Muted])
+}
+
+/// Renders the exit report card with the same Block/Paragraph widgets as inline TUI.
+pub(super) fn console_exit_report(
+    output: &mut impl Write,
+    title: &str,
+    role: Role,
+    lines: Vec<Line<'_>>,
+    width: u16,
+    color: bool,
+) -> io::Result<()> {
+    let (widget, height) = exit_report_widget(title, role, lines, width.max(5));
+    let mut buffer = Buffer::empty(Rect::new(0, 0, width.max(5), height));
+    widget.render(buffer.area, &mut buffer);
+    write_buffer(output, &buffer, color, &[role, Role::Muted])
 }
 
 pub(super) fn console_divider(output: &mut impl Write, width: u16) -> io::Result<()> {
@@ -422,10 +602,20 @@ pub(super) fn console_divider(output: &mut impl Write, width: u16) -> io::Result
         .border_style(style(Role::Muted))
         .title_style(style(Role::Muted))
         .render(buffer.area, &mut buffer);
-    write_buffer(output, &buffer, crate::terminal::stdout_color_enabled())
+    write_buffer(
+        output,
+        &buffer,
+        crate::terminal::stdout_color_enabled(),
+        &[Role::Muted],
+    )
 }
 
-fn write_buffer(output: &mut impl Write, buffer: &Buffer, color: bool) -> io::Result<()> {
+fn write_buffer(
+    output: &mut impl Write,
+    buffer: &Buffer,
+    color: bool,
+    roles: &[Role],
+) -> io::Result<()> {
     for row in buffer.content.chunks(buffer.area.width.max(1) as usize) {
         let mut skip = 0;
         for cell in row {
@@ -433,9 +623,14 @@ fn write_buffer(output: &mut impl Write, buffer: &Buffer, color: bool) -> io::Re
                 skip -= 1;
                 continue;
             }
-            let role = [Role::Primary, Role::Success, Role::Muted]
-                .into_iter()
-                .find(|role| style(*role).fg == Some(cell.fg));
+            let role = if cell.fg == ratatui::style::Color::Reset {
+                None
+            } else {
+                roles
+                    .iter()
+                    .copied()
+                    .find(|role| style(*role).fg == Some(cell.fg))
+            };
             if color && let Some(role) = role {
                 write!(
                     output,

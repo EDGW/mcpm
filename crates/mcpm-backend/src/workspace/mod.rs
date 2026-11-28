@@ -171,18 +171,22 @@ pub struct Writer {
 
 impl Writer {
     pub fn acquire(root: &Path) -> Result<Self> {
+        let writer = Self::acquire_unprepared(root)?;
+        append_gitignore(root)?;
+        Ok(writer)
+    }
+
+    fn acquire_unprepared(root: &Path) -> Result<Self> {
         ensure!(
             root.is_dir(),
             "workspace must be an existing directory: {root:?}"
         );
         let lock = ServerLock::acquire_write(root)
             .context("workspace registration is already being changed or cannot be locked")?;
-        let writer = Self {
+        Ok(Self {
             root: root.to_owned(),
             lock,
-        };
-        append_gitignore(root)?;
-        Ok(writer)
+        })
     }
 
     pub(crate) fn lock(&self) -> &ServerLock {

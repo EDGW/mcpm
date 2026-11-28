@@ -69,7 +69,7 @@ while [ "$#" -gt 0 ]; do
  esac
  shift
 done
-relative=${url#https://github.com/EDGW/mcpm/releases/download/}
+relative=${url#https://github.com/hitszosa/mcpm/releases/download/}
 cp "$MCPM_TEST_RELEASES/$relative" "$destination"
 ''')
         self.archive('v0.1.0-rc1')
@@ -237,7 +237,7 @@ exec {real_mv} "$@"
 
     def test_proxy_install_and_corrupt_proxied_upgrade_preserve_integrity(self):
         releases = self.releases
-        route = '/download/https://github.com/EDGW/mcpm/releases/download/'
+        route = '/download/https://github.com/hitszosa/mcpm/releases/download/'
 
         class Proxy(BaseHTTPRequestHandler):
             def do_GET(self):

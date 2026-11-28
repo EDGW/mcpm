@@ -10,7 +10,7 @@
 
 ## 安装
 
-安装预发布版本 [v0.1.0-rc1](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-rc1)。
+安装预发布版本 [v0.1.0-rc2](https://github.com/hitszosa/mcpm/releases/tag/v0.1.0-rc2)。
 安装脚本仅支持 **v0.1.0-rc1 及更新版本**，不支持 `v0.1.0-rc1` 之前的版本（旧版本会在下载前被拒绝）。
 六个程序及随包产物整套安装：`mcpm`、`mcpm-server`、`mcpmc`、`mcpm-client`、`mcpm-tools`、`mcpmd`。
 
@@ -25,13 +25,13 @@
 ### Windows（PowerShell 5.1 或更高版本）
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Version v0.1.0-rc1
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hitszosa/mcpm/v0.1.0-rc2/scripts/install.ps1))) -Version v0.1.0-rc2
 ```
 
 卸载：
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hitszosa/mcpm/v0.1.0-rc2/scripts/install.ps1))) -Uninstall
 ```
 
 PATH 对当前 PowerShell 和之后新开的终端生效，其他已打开的终端需要重新打开。升级时如提示文件被占用，请先退出正在运行的 mcpm 进程。
@@ -41,7 +41,7 @@ PATH 对当前 PowerShell 和之后新开的终端生效，其他已打开的终
 需要 `curl`、`unzip`，以及 `sha256sum` 或 `shasum`。
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- v0.1.0-rc1
+curl -fsSL https://raw.githubusercontent.com/hitszosa/mcpm/v0.1.0-rc2/scripts/install.sh | sh -s -- v0.1.0-rc2
 ```
 
 如果 `~/.local/bin` 尚未加入 PATH，在 shell 配置文件中添加下面一行：zsh 使用 `~/.zshrc`，bash 使用 `~/.bashrc`。
@@ -55,7 +55,7 @@ export PATH="$HOME/.local/bin:$PATH"
 卸载：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/hitszosa/mcpm/v0.1.0-rc2/scripts/install.sh | sh -s -- --uninstall
 ```
 
 如需通过 GitHub URL 前缀代理下载（`--proxy` / `-Proxy`），见 [GitHub URL 前缀代理参数](scripts/README.md#github-url-prefix-proxy)。
@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/instal
 
 ### 手动安装
 
-[发布附件](https://github.com/EDGW/mcpm/releases)的 ZIP 安装包包含 `bin/` 和 `manifest.json`：
+[发布附件](https://github.com/hitszosa/mcpm/releases)的 ZIP 安装包包含 `bin/` 和 `manifest.json`：
 
 - macOS/Linux：`mcpm-PLATFORM-ARCH[-LIBC].zip`。
 - Windows：`mcpm-windows-x86_64.zip`。

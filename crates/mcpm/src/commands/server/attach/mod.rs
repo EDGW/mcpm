@@ -2,7 +2,7 @@
 
 use crate::{
     commands::{CommandOutcome as Exit, execution::Runtime},
-    display::server::attach::{Display, help_page_count},
+    display::server::attach::{Display, SendDecision, format_exit, help_page_count},
     ssh::SshArgs,
 };
 use anyhow::{Context, Result, ensure};
@@ -78,6 +78,10 @@ fn after_help() -> clap::builder::StyledStr {
     ));
     help.line("          and full 100ms/1000ms lifetime peaks and averages.");
     help.line(&format!(
+        "  {}: toggle frontend debug variables (e.g. display_content_range).",
+        bold("@debug <var_name> <true|false>")
+    ));
+    help.line(&format!(
         "  {}: send a built-in command literally.",
         bold("@@<command>")
     ));
@@ -113,7 +117,9 @@ fn after_help() -> clap::builder::StyledStr {
     help.line("  Otherwise:");
     help.line("    Up/Down browses hints with a position counter.");
     help.line("    Tab fills.");
-    help.line("    Enter always sends the current input, including input with errors.");
+    help.line("    Enter sends the current input, including input with syntax warnings.");
+    help.line("    Server commands and @stop are only recommended when Server is Done;");
+    help.line("    otherwise press Enter twice within 3s without other input to force send.");
     help.blank();
     help.line("  Leading spaces trigger a warning in the Command Input title:");
     help.line("  Minecraft may not recognize the command.");
@@ -148,11 +154,12 @@ pub(super) fn run(args: AttachArgs, ssh: SshArgs) -> Result<Exit> {
                 run_id: None,
             })
             .await?;
-        ensure!(
-            snapshot.state != State::Exited,
-            "Java has exited (code {:?}); use launch to start a new instance",
-            snapshot.exit_code
-        );
+        if let State::Exited { reason } = &snapshot.state {
+            anyhow::bail!(
+                "Java has exited ({}); use launch to start a new instance",
+                format_exit(reason)
+            );
+        }
         flow(
             executor,
             snapshot.reference,
@@ -168,7 +175,7 @@ pub(super) fn run(args: AttachArgs, ssh: SshArgs) -> Result<Exit> {
 }
 
 enum Update {
-    Logs(Source, LogBatch),
+    Logs(LogBatch),
     History(Vec<(Source, Vec<u8>)>),
     Status(Snapshot),
     Command(CommandEvent),
@@ -210,13 +217,12 @@ pub(super) async fn flow(
         .await
         .context("initial state Channel snapshot timed out; Java's exit is not confirmed")?
         .context("state Channel closed without an initial snapshot")??;
-    let initially_exited = snapshot.state == State::Exited;
+    let initially_exited = snapshot.state.is_exited();
     let mut display = Display::new(
         no_ui,
         input_height,
         snapshot.state,
         snapshot.actual_channel,
-        snapshot.server_status,
         executor.traffic_stats(),
     )?;
     display.builtin_hints(
@@ -261,7 +267,7 @@ pub(super) async fn flow(
                     &reference,
                     cursor,
                     history_lines,
-                    [snapshot.stdout, snapshot.stderr],
+                    snapshot.logs,
                     &updates,
                 )
                 .await;
@@ -306,31 +312,46 @@ pub(super) async fn flow(
     let mut commands = JoinSet::new();
     let mut help = JoinSet::new();
     let mut help_requested = false;
+    let mut last_restarting_attempt: Option<u32> = None;
+    let mut exit_reported_for_generation = false;
     let mut pending = std::collections::VecDeque::new();
     let mut command_history = command_history::CommandHistory::default();
-    let mut finished = [false; 2];
-    let mut exit_code = snapshot.exit_code;
+    let mut finished = false;
     let mut submitted = HashSet::new();
     let mut commands_finished = false;
     let mut detaching = false;
     let mut redraw = tokio::time::interval(Duration::from_millis(100));
+    redraw.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut restart_redraw = tokio::time::interval(Duration::from_millis(50));
+    restart_redraw.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     {
         let _keyboard = reader.pause();
+        if let State::Restarting {
+            previous_exit,
+            rule,
+            attempt,
+            delay_ms,
+            remaining_ms,
+        } = &display.state.clone()
+        {
+            last_restarting_attempt = Some(*attempt);
+            exit_reported_for_generation = true;
+            display.exited(previous_exit)?;
+            display.restarting(rule, *attempt, *delay_ms, *remaining_ms)?;
+        }
         display.draw(executor.traffic_stats())?;
     }
     loop {
         if !help_requested
             && !detaching
             && display.is_tui()
-            && display.server_status == ServerStatus::RconConnected
+            && display.state.rcon_status() == RconStatus::Connected
         {
             help_requested = true;
             let executor = executor.clone();
             let reference = reference.clone();
             let listener_id = listener_id.clone();
-            help.spawn(async move {
-                fetch_help_pages(&executor, &reference, &listener_id).await
-            });
+            help.spawn(async move { fetch_help_pages(&executor, &reference, &listener_id).await });
         }
         if commands.is_empty()
             && let Some(text) = pending.pop_front()
@@ -365,14 +386,23 @@ pub(super) async fn flow(
         {
             return Ok(Exit::Completed);
         }
-        if finished.iter().all(|finished| *finished)
+        if finished
             && commands_finished
-            && let Some(code) = exit_code
+            && let Some(exit) = display.state.exit_reason().cloned()
         {
-            return Ok(Exit::Exited(code));
+            let _keyboard = reader.pause();
+            if exit_reported_for_generation {
+                display.notice("restart", "Auto-restart stopped; exiting")?;
+            } else {
+                display.exited(&exit)?;
+            }
+            return Ok(Exit::Exited(exit.shell_code()));
         }
         tokio::select! {
-            _ = redraw.tick() => {},
+            _ = redraw.tick() => {
+                display.expire_confirmation();
+            },
+            _ = restart_redraw.tick(), if matches!(display.state, State::Restarting { .. }) => {},
             diagnostic = display.diagnostics.recv(), if diagnostics_open => {
                 let _keyboard = reader.pause();
                 match diagnostic {
@@ -408,7 +438,10 @@ pub(super) async fn flow(
                 let _keyboard = reader.pause();
                 match action.context("control action disappeared")? {
                     Ok((id, Ok(Action::Command(result)))) => {
-                        if result.status != CommandStatus::Accepted { submitted.remove(&id); display.notice("command", "Java has exited")?; }
+                        if result.status != CommandStatus::Accepted {
+                            submitted.remove(&id);
+                            display.notice("command", result.diagnostic.as_deref().unwrap_or("Java has exited"))?;
+                        }
                     }
                     Ok((id, Ok(Action::Kill(result)))) => {
                         if result == KillResult::AlreadyExited { submitted.remove(&id); display.notice("kill", "Java has exited")?; }
@@ -422,15 +455,74 @@ pub(super) async fn flow(
                 match event {
                 Some(Update::History(lines)) => {
                     if !lines.is_empty() { display.history_divider()?; }
-                    for (source, bytes) in lines { display.logs(source, &bytes)?; }
+                    let mut last_by_source = [None; 2];
+                    for (index, (source, _)) in lines.iter().enumerate() {
+                        last_by_source[usize::from(*source == Source::Stderr)] = Some(index);
+                    }
+                    for (index, (source, bytes)) in lines.into_iter().enumerate() {
+                        let ends_newline = bytes.ends_with(b"\n");
+                        display.logs(source, &bytes)?;
+                        if !ends_newline
+                            && last_by_source[usize::from(source == Source::Stderr)] != Some(index)
+                        {
+                            display.finish_source(source)?;
+                        }
+                    }
                 }
-                Some(Update::Logs(source, batch)) => {
-                    if let Some(gap) = batch.gap { display.notice("logs", &format!("{source:?}: output gap {}..{} (retention exceeded)", gap.from, gap.to))?; }
-                    for chunk in batch.batch { display.logs(source, &chunk.bytes)?; }
-                    if batch.finished { display.finish_source(source)?; }
-                    finished[usize::from(source == Source::Stderr)] = batch.finished;
+                Some(Update::Logs(batch)) => {
+                    if let Some(gap) = batch.gap {
+                        display.finish_source(Source::Stdout)?;
+                        display.finish_source(Source::Stderr)?;
+                        display.notice(
+                            "logs",
+                            &format!("output gap {}..{} (retention exceeded)", gap.from, gap.to),
+                        )?;
+                    }
+                    for chunk in batch.batch {
+                        display.logs(chunk.source, &chunk.bytes)?;
+                    }
+                    if batch.finished {
+                        display.finish_source(Source::Stdout)?;
+                        display.finish_source(Source::Stderr)?;
+                    }
+                    finished = batch.finished;
                 }
-                Some(Update::Status(snapshot)) => { display.state = snapshot.state; display.channel = snapshot.actual_channel; display.server_status = snapshot.server_status; exit_code = snapshot.exit_code; }
+                Some(Update::Status(snapshot)) => {
+                    let previous_restart = match &display.state {
+                        State::Restarting {
+                            rule,
+                            attempt,
+                            delay_ms,
+                            ..
+                        } => Some((rule.clone(), *attempt, *delay_ms)),
+                        _ => None,
+                    };
+                    if let State::Restarting {
+                        previous_exit,
+                        rule,
+                        attempt,
+                        delay_ms,
+                        remaining_ms,
+                    } = &snapshot.state
+                        && last_restarting_attempt != Some(*attempt)
+                    {
+                        last_restarting_attempt = Some(*attempt);
+                        exit_reported_for_generation = true;
+                        display.finish_source(Source::Stdout)?;
+                        display.finish_source(Source::Stderr)?;
+                        display.exited(previous_exit)?;
+                        display.restarting(rule, *attempt, *delay_ms, *remaining_ms)?;
+                    } else if let Some((rule, attempt, delay_ms)) = previous_restart
+                        && matches!(snapshot.state, State::Running { .. })
+                    {
+                        help_requested = false;
+                        exit_reported_for_generation = false;
+                        display.clear_confirmation();
+                        display.restart_started(&rule, attempt, delay_ms)?;
+                    }
+                    display.set_state(snapshot.state);
+                    display.channel = snapshot.actual_channel;
+                }
                 Some(Update::Command(CommandEvent::Completed { listener_id: origin, command_id, text, result })) => {
                     let other = origin != listener_id;
                     if !other { submitted.remove(&command_id); }
@@ -443,16 +535,39 @@ pub(super) async fn flow(
                 Some(Update::Command(CommandEvent::Done)) => { commands_finished = true; submitted.clear(); }
                 Some(Update::Command(CommandEvent::Ready)) => return Err(anyhow::anyhow!("unexpected repeated result Channel handshake")),
                 Some(Update::Failed(error)) => return Err(error).context("attach lost the shim; Java was not stopped automatically"),
-                None => { ensure!(finished.iter().all(|finished| *finished) && exit_code.is_some() && commands_finished, "attach readers ended without authoritative completion"); return Ok(Exit::Exited(exit_code.unwrap())); }
+                None => {
+                    let exit = display
+                        .state
+                        .exit_reason()
+                        .filter(|_| finished && commands_finished)
+                        .cloned()
+                        .context("attach readers ended without authoritative completion")?;
+                    if exit_reported_for_generation {
+                        display.notice("restart", "Auto-restart stopped; exiting")?;
+                    } else {
+                        display.exited(&exit)?;
+                    }
+                    return Ok(Exit::Exited(exit.shell_code()));
+                }
                 }
             },
             input = reader.events.recv(), if !detaching => {
-                let mut line = None;
+                let mut submitted_line: Option<(String, bool)> = None;
                 match input {
-                    None | Some(Input::Eof) => detaching = true,
+                    None | Some(Input::Eof) => {
+                        display.clear_confirmation();
+                        detaching = true;
+                    }
                     Some(Input::Error(error)) => return Err(error).context("attach input failed; Java was not stopped automatically"),
-                    Some(Input::Line(text)) => line = Some(text),
+                    Some(Input::Line(text)) => submitted_line = Some((text, false)),
+                    Some(Input::Key(key)) if key.code == KeyCode::Enter && key.kind == KeyEventKind::Repeat => {},
                     Some(Input::Key(key)) if key.kind != KeyEventKind::Release => {
+                        let is_plain_enter = key.code == KeyCode::Enter
+                            && key.kind == KeyEventKind::Press
+                            && !key.modifiers.intersects(KeyModifiers::ALT | KeyModifiers::CONTROL | KeyModifiers::SUPER);
+                        if !is_plain_enter {
+                            display.clear_confirmation();
+                        }
                         if key.modifiers.contains(KeyModifiers::ALT) && matches!(key.code, KeyCode::Up | KeyCode::Down) {
                             let _keyboard = reader.pause();
                             display.resize_input(key.code == KeyCode::Up)?;
@@ -464,7 +579,7 @@ pub(super) async fn flow(
                             }
                         } else {
                             match key.code {
-                                KeyCode::Enter => { display.reset_suggestion(); display.cursor = 0; line = Some(std::mem::take(&mut display.draft)); }
+                                KeyCode::Enter if is_plain_enter => { submitted_line = Some((display.draft.clone(), true)); }
                                 KeyCode::Tab => { command_history.reset(); display.accept_suggestion(); }
                                 KeyCode::Up | KeyCode::Down => {
                                     let down = key.code == KeyCode::Down;
@@ -488,35 +603,71 @@ pub(super) async fn flow(
                     }
                     Some(Input::Key(_)) => {},
                 }
-                if let Some(mut text) = line {
-                    if display.is_tui() {
-                        command_history.record(&text);
-                    }
+                if let Some((mut text, from_tui_enter)) = submitted_line {
                     let builtin = builtin::parse(&text);
-                    if matches!(builtin, Some(builtin::Builtin::Detach)) { detaching = true; }
-                    else if matches!(builtin, Some(builtin::Builtin::Speed)) {
-                        let _keyboard = reader.pause();
-                        display.toggle_speed(executor.traffic_stats())?;
-                    }
-                    else if matches!(builtin, Some(builtin::Builtin::Kill)) {
-                        ensure!(actions.len() < 32, "too many pending control actions; Java was not stopped automatically");
-                        let executor = executor.clone();
-                        let reference = reference.clone();
-                        let listener_id = listener_id.clone();
-                        let id = uuid::Uuid::new_v4().to_string();
-                        submitted.insert(id.clone());
-                        actions.spawn(async move {
-                            let result = send_kill(&executor, &reference, &listener_id, id.clone()).await.map(Action::Kill);
-                            (id, result)
-                        });
-                    } else if !text.is_empty() {
-                        if matches!(builtin, Some(builtin::Builtin::Stop)) {
-                            text = "stop".into();
-                        } else if text.strip_prefix('@').and_then(builtin::parse).is_some() {
-                            text.remove(0);
+                    let needs_server_done = !display.is_raw()
+                        && (matches!(builtin, Some(builtin::Builtin::Stop))
+                            || (builtin.is_none() && !text.is_empty()));
+                    let proceed = if needs_server_done {
+                        let builtin_name =
+                            matches!(builtin, Some(builtin::Builtin::Stop)).then_some("@stop");
+                        match display.check_send_recommendation(&text, builtin_name) {
+                            SendDecision::Send => true,
+                            SendDecision::NeedsConfirmation { reason } => {
+                                if !from_tui_enter {
+                                    let _keyboard = reader.pause();
+                                    display.notice(
+                                        "confirm",
+                                        &format!(
+                                            "{reason}; send the same command again within 3s to force send"
+                                        ),
+                                    )?;
+                                }
+                                false
+                            }
                         }
-                        ensure!(pending.len() + commands.len() < 32, "too many pending console commands; Java was not stopped automatically");
-                        pending.push_back(text);
+                    } else {
+                        display.clear_confirmation();
+                        true
+                    };
+                    if proceed {
+                        if from_tui_enter {
+                            display.draft.clear();
+                            display.cursor = 0;
+                            display.reset_suggestion();
+                        }
+                        if display.is_tui() {
+                            command_history.record(&text);
+                        }
+                        if matches!(builtin, Some(builtin::Builtin::Detach)) { detaching = true; }
+                        else if matches!(builtin, Some(builtin::Builtin::Speed)) {
+                            let _keyboard = reader.pause();
+                            display.toggle_speed(executor.traffic_stats())?;
+                        }
+                        else if let Some(builtin::Builtin::Debug(args)) = builtin {
+                            let _keyboard = reader.pause();
+                            display.debug_command(args)?;
+                        }
+                        else if matches!(builtin, Some(builtin::Builtin::Kill)) {
+                            ensure!(actions.len() < 32, "too many pending control actions; Java was not stopped automatically");
+                            let executor = executor.clone();
+                            let reference = reference.clone();
+                            let listener_id = listener_id.clone();
+                            let id = uuid::Uuid::new_v4().to_string();
+                            submitted.insert(id.clone());
+                            actions.spawn(async move {
+                                let result = send_kill(&executor, &reference, &listener_id, id.clone()).await.map(Action::Kill);
+                                (id, result)
+                            });
+                        } else if !text.is_empty() {
+                            if matches!(builtin, Some(builtin::Builtin::Stop)) {
+                                text = "stop".into();
+                            } else if text.strip_prefix('@').and_then(builtin::parse).is_some() {
+                                text.remove(0);
+                            }
+                            ensure!(pending.len() + commands.len() < 32, "too many pending console commands; Java was not stopped automatically");
+                            pending.push_back(text);
+                        }
                     }
                 }
             }
@@ -545,63 +696,23 @@ async fn follow_logs(
     reference: &ShimRef,
     cursor: Option<u64>,
     history_lines: Option<usize>,
-    ranges: [CursorRange; 2],
+    range: CursorRange,
     updates: &mpsc::Sender<Update>,
 ) -> Result<()> {
-    let (mut stdout, mut stderr) = tokio::try_join!(
-        history::open(
-            executor,
-            reference,
-            Source::Stdout,
-            cursor,
-            &ranges[0],
-            history_lines
-        ),
-        history::open(
-            executor,
-            reference,
-            Source::Stderr,
-            cursor,
-            &ranges[1],
-            history_lines
-        ),
-    )?;
-    if let Some(limit) = history_lines.filter(|limit| *limit > 0) {
-        let mut lines: std::collections::VecDeque<_> = stdout
-            .history
-            .drain(..)
-            .map(|bytes| (Source::Stdout, bytes))
-            .chain(
-                stderr
-                    .history
-                    .drain(..)
-                    .map(|bytes| (Source::Stderr, bytes)),
-            )
-            .collect();
-        while lines.len() > limit {
-            lines.pop_front();
-        }
-        updates.send(Update::History(lines.into())).await?;
+    let mut opened = history::open(executor, reference, cursor, &range, history_lines).await?;
+    if history_lines.is_some_and(|limit| limit > 0) {
+        updates
+            .send(Update::History(opened.history.drain(..).collect()))
+            .await?;
     }
-    async fn source(
-        mut opened: history::Opened,
-        kind: Source,
-        updates: &mpsc::Sender<Update>,
-    ) -> Result<()> {
-        if let Some(batch) = opened.pending {
-            if !batch.batch.is_empty() || batch.gap.is_some() || batch.finished {
-                updates.send(Update::Logs(kind, batch)).await?;
-            }
-        }
-        while let Some(batch) = opened.channel.next().await {
-            updates.send(Update::Logs(kind, batch?)).await?;
-        }
-        Ok(())
+    if let Some(batch) = opened.pending
+        && (!batch.batch.is_empty() || batch.gap.is_some() || batch.finished)
+    {
+        updates.send(Update::Logs(batch)).await?;
     }
-    tokio::try_join!(
-        source(stdout, Source::Stdout, updates),
-        source(stderr, Source::Stderr, updates)
-    )?;
+    while let Some(batch) = opened.channel.next().await {
+        updates.send(Update::Logs(batch?)).await?;
+    }
     Ok(())
 }
 
@@ -618,7 +729,7 @@ async fn follow_status(
         {
             Some(snapshot) => {
                 let snapshot = snapshot?;
-                exited = snapshot.state == State::Exited;
+                exited = snapshot.state.is_exited();
                 updates.send(Update::Status(snapshot)).await?;
             }
             None => {
@@ -728,22 +839,27 @@ fn spawn_interrupt(
                 })
                 .await?;
             match info.state {
-                State::Running => send_command(
-                    &executor,
-                    &reference,
-                    &listener_id,
-                    id.clone(),
-                    "stop".into(),
-                    CommandVisibility::User,
-                )
-                .await
-                .map(Action::Command),
-                State::Stopping | State::Killing => {
-                    send_kill(&executor, &reference, &listener_id, id.clone())
-                        .await
-                        .map(Action::Kill)
+                State::Running { .. } | State::Restarting { .. }
+                    if info.state.server_status() != ServerStatus::Stopping =>
+                {
+                    send_command(
+                        &executor,
+                        &reference,
+                        &listener_id,
+                        id.clone(),
+                        "stop".into(),
+                        CommandVisibility::User,
+                    )
+                    .await
+                    .map(Action::Command)
                 }
-                State::Exited => Ok(Action::Kill(KillResult::AlreadyExited)),
+                State::Running { .. }
+                | State::Restarting { .. }
+                | State::Stopping { .. }
+                | State::Killing => send_kill(&executor, &reference, &listener_id, id.clone())
+                    .await
+                    .map(Action::Kill),
+                State::Exited { .. } => Ok(Action::Kill(KillResult::AlreadyExited)),
             }
         }
         .await;

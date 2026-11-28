@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 cafebabe = { workspace = true }
+cel = { workspace = true }
 netstat2 = "0.11.2"
 rcon = { version = "0.6.0", features = ["rt-tokio"] }
 bytes = "1"
@@ -36,6 +37,7 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 tokio = { workspace = true, features = ["rt", "fs", "io-util", "time", "net"] }
 url = { workspace = true, features = ["serde"] }
 toml = { workspace = true }
+toml_edit = { workspace = true }
 zip = { workspace = true, features = ["deflate"] }
 
 tempfile = { workspace = true }

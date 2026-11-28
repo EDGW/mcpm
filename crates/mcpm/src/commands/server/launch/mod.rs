@@ -73,6 +73,10 @@ fn after_help() -> clap::builder::StyledStr {
     ));
     help.line("          and full 100ms/1000ms lifetime peaks and averages.");
     help.line(&format!(
+        "  {}: toggle frontend debug variables (e.g. display_content_range).",
+        bold("@debug <var_name> <true|false>")
+    ));
+    help.line(&format!(
         "  {}: send a built-in command literally.",
         bold("@@<command>")
     ));
@@ -106,7 +110,9 @@ fn after_help() -> clap::builder::StyledStr {
     help.blank();
     help.line("  Otherwise:");
     help.line("    Up/Down browses hints; Tab fills.");
-    help.line("    Enter always sends the current input, including input with errors.");
+    help.line("    Enter sends the current input, including input with syntax warnings.");
+    help.line("    Server commands and @stop are only recommended when Server is Done;");
+    help.line("    otherwise press Enter twice within 3s without other input to force send.");
     help.blank();
     help.line("  Leading spaces trigger a warning in the Command Input title:");
     help.line("  Minecraft may not recognize the command.");
@@ -382,7 +388,10 @@ pub(super) fn run(args: LaunchArgs, ssh: SshArgs) -> Result<CommandOutcome> {
         progress.starting();
         drop(progress);
         let launched = executor.call::<shim::Launch>(shim::LaunchInput {
-            server: prepared.server, plan: prepared.plan, communication: args.execution.communication.into(),
+            server: prepared.server,
+            plan: prepared.plan,
+            restart: prepared.restart,
+            communication: args.execution.communication.into(),
             launch_request_id: uuid::Uuid::new_v4().to_string(),
         }).await?;
         if args.execution.detach {

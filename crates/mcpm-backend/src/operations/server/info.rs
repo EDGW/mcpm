@@ -147,7 +147,12 @@ pub enum RconInfo {
 
 impl RconInfo {
     fn read(root: &Path) -> Self {
-        let properties = match properties::Properties::read(&root.join("server.properties")) {
+        let result = config::read_properties_context(root)
+            .and_then(|(launch, args)| {
+                properties::properties_path_from_launch(root, launch.as_ref(), &args)
+            })
+            .and_then(|path| properties::Properties::read(&path));
+        let properties = match result {
             Ok(Some(properties)) => properties,
             Ok(None) => return Self::Disabled,
             Err(_) => return Self::PropertiesParseFailed,

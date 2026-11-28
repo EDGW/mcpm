@@ -24,7 +24,7 @@ function Assert-True {
 function Invoke-WebRequest {
     param([switch]$UseBasicParsing, [string]$Uri, [string]$OutFile)
     $testState.Downloads++
-    if (-not $Uri.StartsWith("https://github.com/EDGW/mcpm/releases/download/$($testState.ReleaseVersion)/")) { throw "Unexpected download: $Uri" }
+    if (-not $Uri.StartsWith("https://github.com/hitszosa/mcpm/releases/download/$($testState.ReleaseVersion)/")) { throw "Unexpected download: $Uri" }
     Copy-Item -LiteralPath (Join-Path $testState.ReleaseDir ($Uri.Split('/')[-1])) -Destination $OutFile
 }
 

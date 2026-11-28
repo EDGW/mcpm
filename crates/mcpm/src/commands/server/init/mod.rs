@@ -2,6 +2,7 @@
 
 use std::{
     cell::RefCell,
+    fmt,
     io::{self, Write},
     path::PathBuf,
 };
@@ -11,18 +12,20 @@ use clap::Args;
 
 use crate::{commands::execution::Runtime, progress::Progress, ssh::SshArgs};
 use mcpm_backend::operations::server::init::{
-    Init, InitEvent, Initialize, Initialized, LocalImport, Phase, Recognize, RecognizeEvent,
-    RecognizeServer,
+    Init, InitEvent, InitRconProbe, InitRconRequest, Initialize, Initialized, LocalImport, Phase,
+    ProbeInitRcon, ProbeRcon, Recognize, RecognizeEvent, RecognizeServer,
 };
 use mcpm_lib::local::mc::server::{
-    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader,
+    MinecraftServerMetadata, SERVER_METADATA_VERSION, ServerLoader, ServerModLoader, properties,
 };
 
 mod manual;
 mod output;
 mod presentation;
+mod rcon_prompt;
 mod reference;
 mod selector;
+mod terminal_input;
 
 /// Builds initialization modes and their examples.
 fn after_help() -> clap::builder::StyledStr {
@@ -51,6 +54,17 @@ fn after_help() -> clap::builder::StyledStr {
     help.line("    server on the SSH host.");
     help.line("    Example: mcpm --ssh 'ssh user@host' init ./workspace --remote /srv/minecraft");
     help.blank();
+    help.heading("RCON configuration");
+    help.blank();
+    help.line("  Console mode prompts to enable RCON for Minecraft 1.9-pre4+ whenever");
+    help.line("  server.properties lacks a complete enabled RCON setup (default: Y,");
+    help.line("  port default: 25575, missing password generates a UUID).");
+    help.line(
+        "  Raw mode leaves RCON disabled unless --rcon / --rcon-port / --rcon-password is passed.",
+    );
+    help.line("  Explicit --rcon* options skip prompting, override matching fields, and");
+    help.line("  require both rcon.port and rcon.password to be specified or present.");
+    help.blank();
     help.heading("Server location");
     help.blank();
     help.line("  Without --remote, an explicit --ssh makes PATH a remote server directory.");
@@ -58,7 +72,7 @@ fn after_help() -> clap::builder::StyledStr {
     help.finish()
 }
 
-#[derive(Args, Debug)]
+#[derive(Args)]
 #[command(
     after_help = after_help(),
     group(clap::ArgGroup::new("force_write").args(["force", "force_all"]).multiple(true))
@@ -125,9 +139,57 @@ pub(super) struct InitArgs {
         help_heading = "Git options"
     )]
     git: bool,
+    /// Enable RCON in server.properties without prompting; requires complete config or overrides.
+    #[arg(long, conflicts_with = "remote", help_heading = "RCON options")]
+    rcon: bool,
+    /// Set and override rcon.port in server.properties; implies --rcon.
+    #[arg(
+        long,
+        value_name = "PORT",
+        value_parser = clap::value_parser!(u16).range(1..),
+        conflicts_with = "remote",
+        help_heading = "RCON options"
+    )]
+    rcon_port: Option<u16>,
+    /// Set and override rcon.password in server.properties; implies --rcon.
+    #[arg(
+        long,
+        value_name = "PASSWORD",
+        conflicts_with = "remote",
+        help_heading = "RCON options"
+    )]
+    rcon_password: Option<String>,
     /// Show the complete startup command generated from launch.toml and conf.toml.
     #[arg(long, help_heading = "Result options")]
     full_command: bool,
+}
+
+impl fmt::Debug for InitArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InitArgs")
+            .field("path", &self.path)
+            .field("remote", &self.remote)
+            .field("start_script", &self.start_script)
+            .field("ignore_unknown_vars", &self.ignore_unknown_vars)
+            .field("minecraft_version", &self.minecraft_version)
+            .field("loader", &self.loader)
+            .field("loader_version", &self.loader_version)
+            .field("manual", &self.manual)
+            .field("force", &self.force)
+            .field("force_all", &self.force_all)
+            .field("foverride_conf", &self.foverride_conf)
+            .field("preserve_conf", &self.preserve_conf)
+            .field("no_git", &self.no_git)
+            .field("git", &self.git)
+            .field("rcon", &self.rcon)
+            .field("rcon_port", &self.rcon_port)
+            .field(
+                "rcon_password",
+                &self.rcon_password.as_ref().map(|_| "<redacted>"),
+            )
+            .field("full_command", &self.full_command)
+            .finish()
+    }
 }
 
 #[tracing::instrument(level = "debug", skip_all, err(level = "debug"))]
@@ -226,6 +288,57 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
             (candidate.metadata, candidate.configuration)
         }
     };
+    let explicit_rcon = args.rcon || args.rcon_port.is_some() || args.rcon_password.is_some();
+    let rcon = if explicit_rcon {
+        Some(InitRconRequest::Explicit {
+            port: args.rcon_port,
+            password: args.rcon_password,
+        })
+    } else if crate::terminal::stdout_is_tty()
+        && properties::supports_rcon_properties(&metadata.minecraft_version)
+    {
+        match executor
+            .call::<ProbeInitRcon>(ProbeRcon {
+                path: path.clone(),
+                launch: configuration.as_ref().map(|draft| draft.launch.clone()),
+                replace_conf,
+                conf_overrides: conf_overrides.clone(),
+                preserve_conf: args.preserve_conf,
+            })
+            .await
+        {
+            Ok(InitRconProbe::AlreadyComplete) => None,
+            Ok(InitRconProbe::ParseFailed { reason }) => {
+                output::write_rcon_warning(
+                    &mut io::stderr().lock(),
+                    &format!("Failed to parse server.properties ({reason}); skipping RCON setup."),
+                )?;
+                None
+            }
+            Ok(InitRconProbe::NeedsPrompt {
+                currently_enabled,
+                existing_port,
+                has_password,
+                invalid_port,
+            }) => rcon_prompt::prompt(
+                currently_enabled,
+                existing_port,
+                has_password,
+                invalid_port.as_deref(),
+            )?,
+            Err(error) => {
+                output::write_rcon_warning(
+                    &mut io::stderr().lock(),
+                    &format!(
+                        "Failed to inspect server.properties ({error:#}); skipping RCON setup."
+                    ),
+                )?;
+                None
+            }
+        }
+    } else {
+        None
+    };
     let mut stream = executor
         .call::<Init>(Initialize {
             path: path.clone(),
@@ -238,6 +351,7 @@ async fn run_async(args: InitArgs, ssh: SshArgs) -> Result<()> {
                 replace_conf,
                 conf_overrides,
                 preserve_conf: args.preserve_conf,
+                rcon,
             }),
         })
         .await?;
@@ -315,7 +429,13 @@ fn write_info(info: &Initialized, full_command: bool) -> Result<()> {
         .context("failed to write initialization success output")?;
     stdout
         .flush()
-        .context("failed to flush initialized server information")
+        .context("failed to flush initialized server information")?;
+    drop(stdout);
+    if let Some(outcome) = &info.rcon_outcome {
+        output::write_rcon_outcome(&mut io::stderr().lock(), outcome)
+            .context("failed to write RCON initialization outcome")?;
+    }
+    Ok(())
 }
 
 /// CLI choices come from the same loader registry used by recognition and initialization.

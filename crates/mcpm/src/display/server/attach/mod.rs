@@ -2,15 +2,21 @@
 
 use crate::{logging, terminal, theme::widgets::style};
 use anyhow::Result;
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use mcpm_backend::operations::server::shim::{
-    Channel, CommandOutcome, CommandResult, ServerStatus, Source, State,
+    Channel, CommandOutcome, CommandResult, CrashReportType, ExitReason, LaunchExit, RconStatus,
+    ServerStatus, Source, State,
 };
 use mcpm_exec::messaging::SessionTrafficStats;
 use mcpm_rich::Role;
 use ratatui::text::{Line, Span};
-use std::io::{self, Write};
+use std::{
+    borrow::Cow,
+    io::{self, Write},
+    time::{Duration, Instant},
+};
 
-mod command_hints;
+mod debug;
 mod inline;
 mod log;
 mod speed;
@@ -18,6 +24,185 @@ mod suggestions;
 mod text;
 pub(crate) use inline::modifier_name;
 pub(crate) use suggestions::help_page_count;
+
+struct ConsoleRestartBar {
+    bar: ProgressBar,
+    _logs: logging::ProgressGuard,
+}
+
+impl ConsoleRestartBar {
+    fn new(delay_ms: u64) -> Self {
+        let multi = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(20));
+        let bar = multi.add(ProgressBar::new(delay_ms.max(1)));
+        bar.set_style(
+            ProgressStyle::with_template(&crate::theme::progress_template(
+                "  [{wide_bar}] {msg}",
+            ))
+            .expect("restart progress template must be valid")
+            .progress_chars("█▉▊▋▌▍▎▏ "),
+        );
+        let logs = logging::attach_progress(Some(multi));
+        Self { bar, _logs: logs }
+    }
+}
+
+impl Drop for ConsoleRestartBar {
+    fn drop(&mut self) {
+        self.bar.finish_and_clear();
+    }
+}
+
+struct RestartCountdown {
+    attempt: u32,
+    rule: String,
+    delay_ms: u64,
+    initial_remaining_ms: u64,
+    anchored_at: Instant,
+    console_bar: Option<ConsoleRestartBar>,
+}
+
+impl RestartCountdown {
+    fn new(
+        attempt: u32,
+        rule: String,
+        delay_ms: u64,
+        remaining_ms: u64,
+        console_bar: Option<ConsoleRestartBar>,
+    ) -> Self {
+        Self {
+            attempt,
+            rule,
+            delay_ms,
+            initial_remaining_ms: remaining_ms.min(delay_ms),
+            anchored_at: Instant::now(),
+            console_bar,
+        }
+    }
+
+    fn remaining_ms(&self) -> u64 {
+        let since_anchor = u64::try_from(self.anchored_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.initial_remaining_ms.saturating_sub(since_anchor)
+    }
+
+    fn elapsed_ms(&self) -> u64 {
+        self.delay_ms.saturating_sub(self.remaining_ms())
+    }
+
+    fn ratio(&self) -> f64 {
+        if self.delay_ms == 0 {
+            1.0
+        } else {
+            (self.elapsed_ms() as f64 / self.delay_ms as f64).clamp(0.0, 1.0)
+        }
+    }
+
+    fn remaining_secs(&self) -> u64 {
+        self.remaining_ms().div_ceil(1_000)
+    }
+
+    fn countdown_label(&self) -> String {
+        format!("Restarting in {}s", self.remaining_secs())
+    }
+
+    fn update_console_bar(&self) {
+        if let Some(console) = &self.console_bar {
+            let pos = if self.delay_ms == 0 {
+                1
+            } else {
+                self.elapsed_ms().min(self.delay_ms)
+            };
+            console.bar.set_position(pos);
+            console.bar.set_message(self.countdown_label());
+        }
+    }
+}
+
+const CONFIRM_WINDOW: Duration = Duration::from_secs(3);
+
+/// Result of checking a command's recommendation validity before submission.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SendDecision {
+    /// Safe to send immediately (either recommended valid or confirmed within the 3-second window).
+    Send,
+    /// First attempt for a command currently flagged as not recommended; hold submission.
+    NeedsConfirmation { reason: String },
+}
+
+/// Tracks the 3-second double-submit confirmation window for non-recommended commands.
+#[derive(Default)]
+struct SendConfirmGuard {
+    pending: Option<PendingConfirmation>,
+}
+
+struct PendingConfirmation {
+    text: String,
+    reason: Cow<'static, str>,
+    deadline: Instant,
+}
+
+impl SendConfirmGuard {
+    fn evaluate(
+        &mut self,
+        text: &str,
+        recommendation: suggestions::Recommendation,
+        now: Instant,
+    ) -> SendDecision {
+        match recommendation {
+            suggestions::Recommendation::Valid => {
+                self.pending = None;
+                SendDecision::Send
+            }
+            suggestions::Recommendation::Invalid { reason } => {
+                if self
+                    .pending
+                    .as_ref()
+                    .is_some_and(|pending| pending.text == text && now < pending.deadline)
+                {
+                    self.pending = None;
+                    SendDecision::Send
+                } else {
+                    let message = reason.clone().into_owned();
+                    self.pending = Some(PendingConfirmation {
+                        text: text.to_owned(),
+                        reason,
+                        deadline: now + CONFIRM_WINDOW,
+                    });
+                    SendDecision::NeedsConfirmation { reason: message }
+                }
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        self.pending = None;
+    }
+
+    fn refresh(&mut self, now: Instant, status: ServerStatus) {
+        let Some(pending) = &mut self.pending else {
+            return;
+        };
+        if now >= pending.deadline {
+            self.pending = None;
+            return;
+        }
+        match suggestions::Suggestions::server_command_recommendation(status) {
+            suggestions::Recommendation::Valid => self.pending = None,
+            suggestions::Recommendation::Invalid { reason } => pending.reason = reason,
+        }
+    }
+
+    fn view(&self, now: Instant) -> Option<inline::ConfirmationView<'_>> {
+        let pending = self.pending.as_ref()?;
+        let remaining = pending.deadline.checked_duration_since(now)?;
+        if remaining.is_zero() {
+            return None;
+        }
+        Some(inline::ConfirmationView {
+            reason: pending.reason.as_ref(),
+            remaining_secs: remaining.as_millis().div_ceil(1_000) as u64,
+        })
+    }
+}
 
 /// One inline terminal owner; all asynchronous terminal diagnostics are routed through its Channel.
 pub(crate) struct Display {
@@ -30,9 +215,11 @@ pub(crate) struct Display {
     pub cursor: usize,
     pub state: State,
     pub channel: Channel,
-    pub server_status: ServerStatus,
+    restart_countdown: Option<RestartCountdown>,
     suggestions: suggestions::Suggestions,
+    confirm: SendConfirmGuard,
     speed_full: bool,
+    debug: debug::DebugVariables,
     pub diagnostics: tokio::sync::mpsc::Receiver<(Vec<u8>, usize)>,
     // Dropped after screen restoration, so terminal diagnostics cannot overwrite a live input area.
     _console: Option<logging::ConsoleChannelGuard>,
@@ -43,7 +230,6 @@ impl Display {
         height: u16,
         state: State,
         channel: Channel,
-        server_status: ServerStatus,
         traffic: Option<SessionTrafficStats>,
     ) -> Result<Self> {
         let tui =
@@ -67,17 +253,29 @@ impl Display {
             stderr_start: true,
             draft: String::new(),
             cursor: 0,
+            restart_countdown: None,
             state,
             channel,
-            server_status,
             suggestions: suggestions::Suggestions::default(),
+            confirm: SendConfirmGuard::default(),
             speed_full: false,
+            debug: debug::DebugVariables::default(),
             diagnostics,
             _console: guard,
         })
     }
+    pub fn set_state(&mut self, state: State) {
+        if !matches!(state, State::Restarting { .. }) {
+            self.restart_countdown = None;
+        }
+        self.state = state;
+        self.expire_confirmation();
+    }
     pub fn is_tui(&self) -> bool {
         self.screen.is_some()
+    }
+    pub fn is_raw(&self) -> bool {
+        self.raw
     }
     pub fn resize_input(&mut self, grow: bool) -> Result<()> {
         if let Some(screen) = &mut self.screen {
@@ -89,9 +287,37 @@ impl Display {
         &mut self,
         definitions: impl Iterator<Item = (&'static str, &'static str)>,
     ) {
-        if self.is_tui() {
-            self.suggestions.builtin_hints(definitions);
-        }
+        self.suggestions
+            .builtin_hints(definitions.map(|(name, description)| {
+                let syntax = match name {
+                    "@debug" => suggestions::debug_syntax(),
+                    _ => suggestions::Syntax::plain(""),
+                };
+                let validity = match name {
+                    "@stop" => suggestions::ValidityPolicy::RequiresServerDone,
+                    _ => suggestions::ValidityPolicy::Always,
+                };
+                (name, description, syntax, validity)
+            }));
+    }
+    pub fn check_send_recommendation(
+        &mut self,
+        text: &str,
+        builtin_name: Option<&str>,
+    ) -> SendDecision {
+        let status = self.state.server_status();
+        let recommendation = match builtin_name {
+            Some(name) => self.suggestions.builtin_recommendation(name, status),
+            None => suggestions::Suggestions::server_command_recommendation(status),
+        };
+        self.confirm.evaluate(text, recommendation, Instant::now())
+    }
+    pub fn clear_confirmation(&mut self) {
+        self.confirm.clear();
+    }
+    pub fn expire_confirmation(&mut self) {
+        self.confirm
+            .refresh(Instant::now(), self.state.server_status());
     }
     pub fn help_result(&mut self, pages: Option<&[String]>) {
         if self.is_tui() {
@@ -113,7 +339,9 @@ impl Display {
         if let Some(screen) = &mut self.screen {
             screen.divider()?;
         } else if !self.raw {
-            inline::console_divider(&mut io::stdout().lock(), terminal_width())?;
+            self.suspend_console_bar(|| {
+                inline::console_divider(&mut io::stdout().lock(), terminal_width())
+            })?;
         }
         Ok(())
     }
@@ -137,18 +365,67 @@ impl Display {
             return Ok(());
         }
         let index = usize::from(source == Source::Stderr);
+        let console_bar = self
+            .restart_countdown
+            .as_ref()
+            .and_then(|countdown| countdown.console_bar.as_ref())
+            .map(|console| &console.bar);
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[index];
-        self.streams[index].feed(bytes, |text, first, newline| {
-            emit(screen, formatting, index, text, first, newline)
-        })
+        let stderr_start = &mut self.stderr_start;
+        let underline_content = self.debug.display_content_range;
+        let stream = &mut self.streams[index];
+        let mut feed = || {
+            stream.feed(bytes, |text, first, newline| {
+                emit(
+                    screen,
+                    formatting,
+                    stderr_start,
+                    index,
+                    text,
+                    first,
+                    newline,
+                    underline_content,
+                )
+            })
+        };
+        if let Some(bar) = console_bar {
+            bar.suspend(feed)
+        } else {
+            feed()
+        }
     }
     pub fn finish_source(&mut self, source: Source) -> Result<()> {
         let index = usize::from(source == Source::Stderr);
+        let console_bar = self
+            .restart_countdown
+            .as_ref()
+            .and_then(|countdown| countdown.console_bar.as_ref())
+            .map(|console| &console.bar);
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[index];
-        self.streams[index]
-            .finish(|text, first, newline| emit(screen, formatting, index, text, first, newline))
+        let stderr_start = &mut self.stderr_start;
+        let underline_content = self.debug.display_content_range;
+        let stream = &mut self.streams[index];
+        let mut finish = || {
+            stream.finish(|text, first, newline| {
+                emit(
+                    screen,
+                    formatting,
+                    stderr_start,
+                    index,
+                    text,
+                    first,
+                    newline,
+                    underline_content,
+                )
+            })
+        };
+        if let Some(bar) = console_bar {
+            bar.suspend(finish)
+        } else {
+            finish()
+        }
     }
     pub fn diagnostic(&mut self, bytes: &[u8], dropped: usize) -> Result<()> {
         if dropped > 0 {
@@ -157,11 +434,45 @@ impl Display {
                 &format!("{dropped} terminal log bytes omitted while output was busy"),
             )?;
         }
+        let console_bar = self
+            .restart_countdown
+            .as_ref()
+            .and_then(|countdown| countdown.console_bar.as_ref())
+            .map(|console| &console.bar);
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[2];
-        self.streams[2].feed(bytes, |text, first, newline| {
-            emit(screen, formatting, 2, text, first, newline)
-        })
+        let stderr_start = &mut self.stderr_start;
+        let stream = &mut self.streams[2];
+        let mut feed = || {
+            stream.feed(bytes, |text, first, newline| {
+                emit(
+                    screen,
+                    formatting,
+                    stderr_start,
+                    2,
+                    text,
+                    first,
+                    newline,
+                    false,
+                )
+            })
+        };
+        if let Some(bar) = console_bar {
+            bar.suspend(feed)
+        } else {
+            feed()
+        }
+    }
+    fn suspend_console_bar<R>(&self, action: impl FnOnce() -> R) -> R {
+        if let Some(console) = self
+            .restart_countdown
+            .as_ref()
+            .and_then(|countdown| countdown.console_bar.as_ref())
+        {
+            console.bar.suspend(action)
+        } else {
+            action()
+        }
     }
     pub fn notice(&mut self, source: &str, message: &str) -> Result<()> {
         let clean = text::clean(message);
@@ -172,14 +483,113 @@ impl Display {
                     Span::raw(line),
                 ]))?;
             } else {
-                let mut output = io::stderr().lock();
-                if !self.stderr_start {
-                    writeln!(output)?;
-                    self.stderr_start = true;
-                }
-                writeln!(output, "[{source}] {line}")?;
-                output.flush()?;
+                let mut stderr_start = self.stderr_start;
+                self.suspend_console_bar(|| -> io::Result<()> {
+                    let mut output = io::stderr().lock();
+                    if !stderr_start {
+                        writeln!(output)?;
+                        stderr_start = true;
+                    }
+                    writeln!(output, "[{source}] {line}")?;
+                    output.flush()
+                })?;
+                self.stderr_start = stderr_start;
             }
+        }
+        Ok(())
+    }
+    pub fn restarting(
+        &mut self,
+        rule: &str,
+        attempt: u32,
+        delay_ms: u64,
+        remaining_ms: u64,
+    ) -> Result<()> {
+        let clean_rule = sanitize_field(rule);
+        if self.raw {
+            let remaining = format_delay_ms(remaining_ms);
+            return self.notice(
+                "restart",
+                &format!(
+                    "Restarting in {remaining} (rule: {clean_rule}, attempt #{attempt}); @stop / @kill / Ctrl+C to cancel"
+                ),
+            );
+        }
+        if self.screen.is_some() {
+            // Inline TUI renders the live Primary-bordered Restart card + smooth Gauge in the viewport.
+            self.restart_countdown = Some(RestartCountdown::new(
+                attempt,
+                clean_rule,
+                delay_ms,
+                remaining_ms,
+                None,
+            ));
+            return Ok(());
+        }
+        // Console mode (--no-ui): print the Primary-bordered card, then drive a smooth stderr bar.
+        self.restart_countdown = None;
+        let lines = restart_info_lines(&clean_rule, delay_ms, true);
+        {
+            let mut output = io::stderr().lock();
+            if !self.stderr_start {
+                writeln!(output)?;
+                self.stderr_start = true;
+            }
+            inline::console_restart_report(
+                &mut output,
+                attempt,
+                lines,
+                terminal_width(),
+                terminal::stderr_color_enabled(),
+            )?;
+            output.flush()?;
+        }
+        let bar = terminal::stderr_is_tty().then(|| ConsoleRestartBar::new(delay_ms));
+        let countdown = RestartCountdown::new(attempt, clean_rule, delay_ms, remaining_ms, bar);
+        countdown.update_console_bar();
+        self.restart_countdown = Some(countdown);
+        Ok(())
+    }
+    pub fn restart_started(&mut self, rule: &str, attempt: u32, delay_ms: u64) -> Result<()> {
+        self.restart_countdown = None;
+        if let Some(screen) = &mut self.screen {
+            let clean_rule = sanitize_field(rule);
+            let lines = restart_info_lines(&clean_rule, delay_ms, false);
+            screen.restart_report(attempt, lines)?;
+        }
+        Ok(())
+    }
+    pub fn exited(&mut self, exit: &ExitReason) -> Result<()> {
+        self.restart_countdown = None;
+        if self.raw {
+            let label = format_exit(exit);
+            let mut output = io::stderr().lock();
+            if !self.stderr_start {
+                writeln!(output)?;
+                self.stderr_start = true;
+            }
+            writeln!(output, "[exit] Java terminated: {label}")?;
+            output.flush()?;
+            return Ok(());
+        }
+        let (title, role, lines) = exit_report(exit);
+        if let Some(screen) = &mut self.screen {
+            screen.exit_report(title, role, lines)?;
+        } else {
+            let mut output = io::stderr().lock();
+            if !self.stderr_start {
+                writeln!(output)?;
+                self.stderr_start = true;
+            }
+            inline::console_exit_report(
+                &mut output,
+                title,
+                role,
+                lines,
+                terminal_width(),
+                terminal::stderr_color_enabled(),
+            )?;
+            output.flush()?;
         }
         Ok(())
     }
@@ -240,17 +650,19 @@ impl Display {
                 if let Some(screen) = &mut self.screen {
                     screen.rcon(label, &name, &origin, &output[start..end], first, last)?;
                 } else {
-                    inline::console_response(
-                        &mut io::stderr().lock(),
-                        label,
-                        &name,
-                        &origin,
-                        &output[start..end],
-                        terminal_width(),
-                        terminal::stderr_color_enabled(),
-                        first,
-                        last,
-                    )?;
+                    self.suspend_console_bar(|| {
+                        inline::console_response(
+                            &mut io::stderr().lock(),
+                            label,
+                            &name,
+                            &origin,
+                            &output[start..end],
+                            terminal_width(),
+                            terminal::stderr_color_enabled(),
+                            first,
+                            last,
+                        )
+                    })?;
                 }
                 if last {
                     break;
@@ -274,36 +686,50 @@ impl Display {
         }
         Ok(())
     }
+    pub fn debug_command(&mut self, args: &str) -> Result<()> {
+        let message = self.debug.apply(args);
+        self.notice("debug", &message)
+    }
     pub fn draw(&mut self, traffic: Option<SessionTrafficStats>) -> Result<()> {
+        let now = Instant::now();
+        let server_status = self.state.server_status();
+        self.confirm.refresh(now, server_status);
         let Some(screen) = &mut self.screen else {
+            if let Some(countdown) = &self.restart_countdown {
+                countdown.update_console_bar();
+            }
             return Ok(());
         };
-        let server_status = match self.server_status {
-            ServerStatus::Unknown => "Unknown",
-            ServerStatus::RconConnected => "RCON Connected",
-        };
-        let status = format!(
-            "Java {:?} · Server {} · {:?} · @detach / Ctrl+D: detach · Ctrl+C: stop / kill",
-            self.state, server_status, self.channel
-        );
+        let restart_view = self.restart_countdown.as_ref().map(|countdown| {
+            inline::RestartView {
+                attempt: countdown.attempt,
+                lines: restart_info_lines(&countdown.rule, countdown.delay_ms, true),
+                ratio: countdown.ratio(),
+                countdown_label: countdown.countdown_label(),
+            }
+        });
+        let status = status_line(&self.state, self.channel);
         let partial = self
             .streams
             .iter()
             .find(|stream| !stream.partial().is_empty())
             .map_or("", text::Stream::partial);
-        screen.draw(
-            &self.draft,
-            self.cursor,
-            &status,
+        screen.draw(inline::DrawFrame {
+            draft: &self.draft,
+            cursor: self.cursor,
+            status,
             partial,
-            self.suggestions.view(&self.draft),
-            speed::lines(traffic, self.speed_full),
-        )?;
+            restart: restart_view,
+            confirmation: self.confirm.view(now),
+            suggestions: self.suggestions.view(&self.draft, server_status),
+            speed: speed::lines(traffic, self.speed_full),
+        })?;
         Ok(())
     }
 }
 impl Drop for Display {
     fn drop(&mut self) {
+        self.restart_countdown = None;
         while let Ok((bytes, dropped)) = self.diagnostics.try_recv() {
             let _ = self.diagnostic(&bytes, dropped);
         }
@@ -311,24 +737,287 @@ impl Drop for Display {
         let _ = self.finish_source(Source::Stderr);
         let screen = &mut self.screen;
         let formatting = &mut self.formatting[2];
-        let _ = self.streams[2]
-            .finish(|text, first, newline| emit(screen, formatting, 2, text, first, newline));
+        let stderr_start = &mut self.stderr_start;
+        let _ = self.streams[2].finish(|text, first, newline| {
+            emit(
+                screen,
+                formatting,
+                stderr_start,
+                2,
+                text,
+                first,
+                newline,
+                false,
+            )
+        });
     }
 }
+/// Formats a classified Java termination reason for attach diagnostics and raw exit notices.
+pub(crate) fn format_exit(exit: &ExitReason) -> String {
+    match exit {
+        ExitReason::KilledByUser => "KilledByUser".into(),
+        ExitReason::KilledByMcpm {
+            exit: LaunchExit::Signal(ExitReason::SIGKILL),
+        } => "KilledByMcpm(SIGKILL)".into(),
+        ExitReason::KilledByMcpm { .. } => "KilledByMcpm".into(),
+        ExitReason::Exited => "EXITED(0)".into(),
+        ExitReason::Crashed {
+            code,
+            crash_report: Some(report),
+        } => {
+            let path = sanitize_field(&report.path);
+            match &report.analysis {
+                Ok(analysis) if analysis.report_type == CrashReportType::Watchdog => {
+                    format!("CRASHED({code}, watchdog, {path})")
+                }
+                Ok(_) | Err(_) => format!("CRASHED({code}, {path})"),
+            }
+        }
+        ExitReason::Crashed {
+            code,
+            crash_report: None,
+        } => format!("CRASHED({code})"),
+    }
+}
+
+fn sanitize_field(value: &str) -> String {
+    text::clean(value)
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .collect()
+}
+
+fn restart_info_lines(rule: &str, delay_ms: u64, waiting: bool) -> Vec<Line<'static>> {
+    let field = |label: &'static str, value: String| {
+        Line::from(vec![
+            Span::styled(format!("{label}: "), style(Role::Muted)),
+            Span::raw(value),
+        ])
+    };
+    let status = if waiting {
+        "Waiting before respawning Java (@stop / @kill / Ctrl+C to cancel)"
+    } else {
+        "Respawning Java"
+    };
+    vec![
+        field("Status", status.into()),
+        field("Rule", rule.to_owned()),
+        field("Delay", format_delay_ms(delay_ms)),
+    ]
+}
+
+fn format_delay_ms(delay_ms: u64) -> String {
+    if delay_ms == 0 {
+        return "0s".into();
+    }
+    if delay_ms < 1_000 {
+        return format!("{delay_ms}ms");
+    }
+    let secs = delay_ms / 1_000;
+    let rem_ms = delay_ms % 1_000;
+    if rem_ms == 0 {
+        format_seconds(secs)
+    } else {
+        format!("{secs}.{:03}s", rem_ms)
+    }
+}
+
+fn format_seconds(total_secs: u64) -> String {
+    if total_secs < 60 {
+        return format!("{total_secs}s");
+    }
+    let mins = total_secs / 60;
+    let secs = total_secs % 60;
+    if mins < 60 {
+        return if secs == 0 {
+            format!("{mins}m")
+        } else {
+            format!("{mins}m{secs}s")
+        };
+    }
+    let hours = mins / 60;
+    let rem_mins = mins % 60;
+    if rem_mins == 0 && secs == 0 {
+        format!("{hours}h")
+    } else if secs == 0 {
+        format!("{hours}h{rem_mins}m")
+    } else {
+        format!("{hours}h{rem_mins}m{secs}s")
+    }
+}
+
+fn exit_report(exit: &ExitReason) -> (&'static str, Role, Vec<Line<'static>>) {
+    let field = |label: &'static str, value: String| {
+        Line::from(vec![
+            Span::styled(format!("{label}: "), style(Role::Muted)),
+            Span::raw(value),
+        ])
+    };
+    match exit {
+        ExitReason::Exited => (
+            "Exited",
+            Role::Success,
+            vec![
+                field("Status", "Java exited cleanly".into()),
+                field("Exit code", "0".into()),
+            ],
+        ),
+        ExitReason::KilledByMcpm { exit: launch_exit } => {
+            let mut lines = vec![field("Status", "Java was force-killed by mcpm".into())];
+            match launch_exit {
+                LaunchExit::Signal(ExitReason::SIGKILL) => {
+                    lines.push(field(
+                        "Signal",
+                        format!(
+                            "SIGKILL ({}) · Exit code {}",
+                            ExitReason::SIGKILL,
+                            exit.shell_code()
+                        ),
+                    ));
+                }
+                LaunchExit::Signal(signal) => {
+                    lines.push(field(
+                        "Signal",
+                        format!("{signal} · Exit code {}", exit.shell_code()),
+                    ));
+                }
+                LaunchExit::Code(code) => {
+                    lines.push(field("Exit code", code.to_string()));
+                }
+            }
+            ("Killed by mcpm", Role::Warning, lines)
+        }
+        ExitReason::KilledByUser => (
+            "Killed by user",
+            Role::Warning,
+            vec![
+                field("Status", "Java was terminated externally (SIGKILL)".into()),
+                field("Exit code", exit.shell_code().to_string()),
+            ],
+        ),
+        ExitReason::Crashed { code, crash_report } => {
+            let mut title = "Crashed";
+            let mut lines = vec![
+                field("Status", "Java crashed unexpectedly".into()),
+                field("Exit code", code.to_string()),
+            ];
+            if let Some(report) = crash_report {
+                match &report.analysis {
+                    Ok(analysis) => {
+                        let crash_type = match analysis.report_type {
+                            CrashReportType::Watchdog => {
+                                title = "Crashed (Watchdog)";
+                                "Watchdog"
+                            }
+                            CrashReportType::Others => "Others",
+                            CrashReportType::Unknown => "Unknown",
+                        };
+                        lines.push(field("Crash type", crash_type.into()));
+                        if let Some(desc) = &analysis.desc {
+                            lines.push(field("Description", sanitize_field(desc)));
+                        }
+                        lines.push(field("Crash report", sanitize_field(&report.path)));
+                    }
+                    Err(error) => {
+                        lines.push(field("Crash report", sanitize_field(&report.path)));
+                        lines.push(Line::from(Span::styled(
+                            "Crash report analysis:",
+                            style(Role::Muted),
+                        )));
+                        for line in crate::display::error::lines(error, false) {
+                            lines.push(Line::from(Span::raw(format!(
+                                "  {}",
+                                sanitize_field(&line)
+                            ))));
+                        }
+                    }
+                }
+            }
+            (title, Role::Danger, lines)
+        }
+    }
+}
+
+fn server_status_badge(server_status: ServerStatus) -> (String, Role) {
+    match server_status {
+        ServerStatus::StartingOrUnknown => ("Starting".to_owned(), Role::Primary),
+        ServerStatus::GeneratingChunks(progress) => {
+            (format!("Generating {progress}%"), Role::Primary)
+        }
+        ServerStatus::Done => ("Done".to_owned(), Role::Success),
+        ServerStatus::Stopping => ("Stopping".to_owned(), Role::Warning),
+        ServerStatus::Exited => ("Exited".to_owned(), Role::Muted),
+    }
+}
+
+fn status_line(state: &State, channel: Channel) -> Line<'static> {
+    let (server_label, server_role) = server_status_badge(state.server_status());
+    match state {
+        State::Restarting { attempt, .. } => Line::from(vec![
+            Span::styled("Java Restarting · Server ", style(Role::Muted)),
+            Span::styled(server_label, style(server_role)),
+            Span::styled(
+                format!(
+                    " · attempt #{attempt} · @stop / @kill / Ctrl+C: cancel · @detach / Ctrl+D: detach"
+                ),
+                style(Role::Muted),
+            ),
+        ]),
+        State::Running { rcon_status, .. } | State::Stopping { rcon_status, .. } => {
+            let (rcon_label, rcon_role) = match rcon_status {
+                RconStatus::Unavailable => ("Unavailable", Role::Muted),
+                RconStatus::Unknown => ("Unknown", Role::Primary),
+                RconStatus::Connected => ("Connected", Role::Success),
+            };
+            Line::from(vec![
+                Span::styled(
+                    format!("Java {} · Server ", state.label()),
+                    style(Role::Muted),
+                ),
+                Span::styled(server_label, style(server_role)),
+                Span::styled(" · RCON ", style(Role::Muted)),
+                Span::styled(rcon_label, style(rcon_role)),
+                Span::styled(
+                    format!(
+                        " · {channel:?} · @detach / Ctrl+D: detach · Ctrl+C: stop / kill"
+                    ),
+                    style(Role::Muted),
+                ),
+            ])
+        }
+        State::Killing | State::Exited { .. } => Line::from(vec![
+            Span::styled(
+                format!("Java {} · Server ", state.label()),
+                style(Role::Muted),
+            ),
+            Span::styled(server_label, style(server_role)),
+            Span::styled(
+                format!(
+                    " · {channel:?} · @detach / Ctrl+D: detach · Ctrl+C: stop / kill"
+                ),
+                style(Role::Muted),
+            ),
+        ]),
+    }
+}
+
 fn terminal_width() -> u16 {
     crossterm::terminal::size().map_or(80, |(width, _)| width.max(3))
 }
+#[allow(clippy::too_many_arguments)]
 fn emit(
     screen: &mut Option<inline::Screen>,
     formatting: &mut log::Formatting,
+    stderr_start: &mut bool,
     origin: usize,
     text: &str,
     first: bool,
     newline: bool,
+    underline_content: bool,
 ) -> Result<()> {
     let fragment = formatting.fragment(text, first && origin < 2, newline);
     if let Some(screen) = screen {
-        let mut line = log::line(text, &fragment);
+        let mut line = log::line(text, &fragment, underline_content);
         if origin == 1 && first {
             line.spans
                 .insert(0, Span::styled("[java stderr] ", style(Role::Muted)));
@@ -341,6 +1030,7 @@ fn emit(
             text,
             &fragment,
             terminal::stdout_color_enabled(),
+            underline_content,
         )?;
         if newline {
             writeln!(output)?;
@@ -356,11 +1046,84 @@ fn emit(
             text,
             &fragment,
             terminal::stderr_color_enabled(),
+            underline_content,
         )?;
         if newline {
             writeln!(output)?;
         }
+        *stderr_start = newline;
         output.flush()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn confirm_guard_requires_uninterrupted_double_submit_within_window() {
+        let mut guard = SendConfirmGuard::default();
+        let t0 = Instant::now();
+        let invalid = suggestions::Suggestions::server_command_recommendation(
+            ServerStatus::StartingOrUnknown,
+        );
+
+        // First attempt holds submission and exposes a countdown view.
+        assert!(matches!(
+            guard.evaluate("list", invalid.clone(), t0),
+            SendDecision::NeedsConfirmation { .. }
+        ));
+        assert_eq!(guard.view(t0).unwrap().remaining_secs, 3);
+        assert_eq!(
+            guard.view(t0 + Duration::from_millis(2_100)).unwrap().remaining_secs,
+            1
+        );
+
+        // Second identical attempt within 3s succeeds and clears the prompt.
+        assert_eq!(
+            guard.evaluate("list", invalid.clone(), t0 + Duration::from_secs(2)),
+            SendDecision::Send
+        );
+        assert!(guard.view(t0 + Duration::from_secs(2)).is_none());
+
+        // Expiration past 3s resets to a fresh first attempt.
+        assert!(matches!(
+            guard.evaluate("@stop", invalid.clone(), t0),
+            SendDecision::NeedsConfirmation { .. }
+        ));
+        assert!(guard.view(t0 + Duration::from_secs(3)).is_none());
+        assert!(matches!(
+            guard.evaluate("@stop", invalid.clone(), t0 + Duration::from_secs(3)),
+            SendDecision::NeedsConfirmation { .. }
+        ));
+
+        // Other input clears the pending confirmation immediately.
+        guard.clear();
+        assert!(guard.view(t0 + Duration::from_secs(3)).is_none());
+
+        // Transitioning to ServerStatus::Done clears pending confirmation and sends immediately.
+        assert!(matches!(
+            guard.evaluate("say hi", invalid, t0),
+            SendDecision::NeedsConfirmation { .. }
+        ));
+        guard.refresh(t0 + Duration::from_secs(1), ServerStatus::GeneratingChunks(55));
+        assert!(
+            guard
+                .view(t0 + Duration::from_secs(1))
+                .unwrap()
+                .reason
+                .contains("55%")
+        );
+        guard.refresh(t0 + Duration::from_secs(1), ServerStatus::Done);
+        assert!(guard.view(t0 + Duration::from_secs(1)).is_none());
+        assert_eq!(
+            guard.evaluate(
+                "say hi",
+                suggestions::Suggestions::server_command_recommendation(ServerStatus::Done),
+                t0 + Duration::from_secs(1),
+            ),
+            SendDecision::Send
+        );
+    }
 }

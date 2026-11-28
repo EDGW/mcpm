@@ -4,7 +4,7 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-version = "0.1.0-rc1"
+version = "0.1.0-rc2"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.104" }
@@ -12,6 +12,7 @@ arboard = { version = "3", default-features = false }
 async-trait = { version = "0.1" }
 blake3 = { version = "1" }
 cafebabe = { version = "0.9" }
+cel = { version = "0.16", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false }
 clap = { version = "4" }
 console = { version = "0.16" }
@@ -50,6 +51,7 @@ textwrap = { version = "0.16" }
 thiserror = { version = "2.0.21" }
 tokio = { version = "1" }
 toml = { version = "1.1.8" }
+toml_edit = { version = "0.25.18" }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", default-features = false }
 unicode-segmentation = { version = "1" }

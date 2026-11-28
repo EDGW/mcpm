@@ -4,6 +4,7 @@ pub(crate) mod backup;
 pub(crate) mod build_info;
 pub(crate) mod cache;
 pub(crate) mod console;
+pub(crate) mod crash_report;
 pub(crate) mod dependency;
 pub(crate) mod digest;
 pub(crate) mod error;

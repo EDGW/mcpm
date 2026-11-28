@@ -4,6 +4,7 @@ use anyhow::Result;
 use mcpm_exec::operation::Registry;
 
 pub mod cache;
+pub mod crashreport;
 pub mod debug;
 pub mod mods;
 pub mod server;
@@ -27,6 +28,7 @@ pub fn registry() -> Result<Registry> {
     registry.register::<server::shim::SubscribeCommands>()?;
     registry.register::<server::shim::Kill>()?;
     registry.register::<server::init::RecognizeServer>()?;
+    registry.register::<server::init::ProbeInitRcon>()?;
     registry.register::<server::init::Init>()?;
     registry.register::<server::loader::AddLoader>()?;
     registry.register::<server::new::New>()?;
@@ -66,5 +68,6 @@ pub fn registry() -> Result<Registry> {
     registry.register::<mods::backup::VerifyWith>()?;
     registry.register::<mods::backup::Delete>()?;
     registry.register::<debug::lock::LockServer>()?;
+    registry.register::<crashreport::Analyse>()?;
     Ok(registry)
 }

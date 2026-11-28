@@ -6,6 +6,7 @@ use crate::local::{
     mc::server::{
         authlib_injector::{self, JarPolicy},
         config::{self, Platform},
+        restart::RestartPolicy,
     },
 };
 use anyhow::{Context, Result, ensure};
@@ -18,7 +19,7 @@ use std::{
 use super::{Event, Stage};
 
 /// Immutable execution input; only backend preparation can construct it.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct LaunchPlan {
     #[serde(with = "native_path")]
     pub(super) executable: PathBuf,
@@ -86,6 +87,14 @@ pub async fn prepare_with_overrides(
     prepare_with_progress(root, overrides, auth_policy, downloader, &|_| Ok(())).await
 }
 
+/// Single-read preparation output pairing the immutable Java execution plan with
+/// the validated supervision restart policy from `conf.toml`.
+#[derive(Debug, Clone)]
+pub struct PreparedLaunch {
+    pub plan: LaunchPlan,
+    pub restart: RestartPolicy,
+}
+
 /// Observes preparation through a caller-owned callback without changing plan ownership.
 pub async fn prepare_with_progress(
     root: &Path,
@@ -94,6 +103,20 @@ pub async fn prepare_with_progress(
     downloader: impl FnOnce() -> Result<Downloader>,
     progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
 ) -> Result<LaunchPlan> {
+    prepare_launch_with_progress(root, overrides, auth_policy, downloader, progress)
+        .await
+        .map(|prepared| prepared.plan)
+}
+
+/// Prepares both the single-run [`LaunchPlan`] and validated [`RestartPolicy`] from one
+/// locked configuration snapshot.
+pub async fn prepare_launch_with_progress(
+    root: &Path,
+    overrides: &config::ConfigurationOverrides,
+    auth_policy: Option<JarPolicy>,
+    downloader: impl FnOnce() -> Result<Downloader>,
+    progress: &(impl Fn(Event<'_>) -> Result<()> + ?Sized),
+) -> Result<PreparedLaunch> {
     progress(Event::Stage(Stage::Configuration))?;
     let root = std::fs::canonicalize(root).context("failed to resolve local server root")?;
     let snapshot = {
@@ -101,7 +124,8 @@ pub async fn prepare_with_progress(
         config::read_snapshot_locked(&root, &lock, overrides)?
     };
     let mut launch = snapshot.launch;
-    let conf = snapshot.conf;
+    let mut conf = snapshot.conf;
+    let restart = std::mem::take(&mut conf.restart_on);
     let revision = snapshot.revision;
     progress(Event::Stage(Stage::LocalChecks))?;
     ensure!(
@@ -182,13 +206,16 @@ pub async fn prepare_with_progress(
         .await?;
     }
     progress(Event::Stage(Stage::Ready))?;
-    Ok(LaunchPlan {
-        executable,
-        directory,
-        environment,
-        command,
-        argument_file,
-        revision,
+    Ok(PreparedLaunch {
+        plan: LaunchPlan {
+            executable,
+            directory,
+            environment,
+            command,
+            argument_file,
+            revision,
+        },
+        restart,
     })
 }
 

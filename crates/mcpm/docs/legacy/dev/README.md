@@ -70,7 +70,7 @@
 - `scripts/build.rs` is the shared authority for CLI, daemon, and execution-layer build identity; `build_info.rs` exposes frontend metadata and `display/build_info.rs` renders the startup warning.
 - The commit ID and worktree state are captured from Git at build time. Only staged or unstaged changes to tracked files count as `modified`; tracked repository files, the Git index, and references are watched to refresh cached metadata.
 - The shared build script appends six commit characters and optional `.modified` to unofficial workspace release versions, using `.unknown` without Git. Clients, links, and daemons compare this complete identity during hello; packaging verifies all executable versions agree.
-- Official builds require all of: the release profile, `MCPM_OFFICIAL_RELEASE=1`, `GITHUB_ACTIONS=true`, repository `EDGW/mcpm`, event `push` or `workflow_dispatch`, a tag reference, and a tag equal to `v<Cargo package version>`.
+- Official builds require all of: the release profile, `MCPM_OFFICIAL_RELEASE=1`, `GITHUB_ACTIONS=true`, repository `hitszosa/mcpm`, event `push` or `workflow_dispatch`, a tag reference, and a tag equal to `v<Cargo package version>`.
 - The release workflow injects the marker for tag builds. Branch, PR, local, and fork builds default to unofficial. Changes to the input environment variables make Cargo regenerate the identity.
 - `official` includes official prereleases; it does not mean stable. This marker is not a source signature.
 - All five executables share version details and the unofficial release startup warning. The warning goes only to stderr and is independent of log filtering.

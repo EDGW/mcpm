@@ -3,12 +3,23 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    fs::{File, OpenOptions},
-    io::{BufRead, BufReader, Cursor, Write},
-    path::Path,
+    fs::{self, File, OpenOptions},
+    io::{self, BufRead, BufReader, Cursor, Write},
+    path::{Component, Path, PathBuf},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
+
+use super::config::LaunchConfig;
+
+/// Parses a strict RCON port value (`1..=65535`, no surrounding whitespace).
+pub fn parse_rcon_port(raw: &str) -> Result<u16> {
+    let port = raw
+        .parse::<u16>()
+        .with_context(|| format!("invalid rcon.port {raw:?}"))?;
+    ensure!(port > 0, "rcon.port must be between 1 and 65535");
+    Ok(port)
+}
 
 /// Minecraft's conventional RCON port.
 pub const DEFAULT_RCON_PORT: u16 = 25575;
@@ -181,6 +192,550 @@ pub fn create_rcon(path: &Path, port: u16, password: &str) -> Result<()> {
     encode_entry(&mut content, "rcon.password", password, b"\n");
     file.write_all(&content)
         .with_context(|| format!("failed to write RCON properties {path:?}"))
+}
+
+/// Returns `true` when a Minecraft version string is known to be at or after `1.9-pre4`
+/// (supports classic `1.x[.y][-preN|-rcN]`, modern year-based `26.x`, and weekly snapshots `YYwWWa`).
+pub fn supports_rcon_properties(version: &str) -> bool {
+    let version = version.trim();
+    if version.is_empty() {
+        return false;
+    }
+    if let Some((year, week)) = parse_weekly_snapshot(version) {
+        return year > 16 || (year == 16 && week >= 14);
+    }
+    let prefix_len = version
+        .find(|ch: char| !ch.is_ascii_digit() && ch != '.')
+        .unwrap_or(version.len());
+    let numeric = &version[..prefix_len];
+    if numeric.is_empty() {
+        return false;
+    }
+    let mut parts = Vec::new();
+    for segment in numeric.split('.') {
+        if segment.is_empty() {
+            return false;
+        }
+        let Ok(value) = segment.parse::<u32>() else {
+            return false;
+        };
+        parts.push(value);
+    }
+    let major = parts[0];
+    if major >= 2 {
+        return true;
+    }
+    if major != 1 || parts.len() < 2 {
+        return false;
+    }
+    let minor = parts[1];
+    if minor >= 10 {
+        return true;
+    }
+    if minor < 9 {
+        return false;
+    }
+    if parts.len() >= 3 {
+        return true;
+    }
+    let suffix = version[prefix_len..].trim();
+    if suffix.is_empty() {
+        return true;
+    }
+    let lower = suffix.to_ascii_lowercase();
+    if let Some(rest) = lower
+        .strip_prefix("-rc")
+        .or_else(|| lower.strip_prefix(" rc"))
+    {
+        let rest = rest.trim_start_matches(['-', ' ']);
+        return !rest.is_empty()
+            && rest.bytes().all(|b| b.is_ascii_digit())
+            && rest.parse::<u32>().is_ok_and(|n| n >= 1);
+    }
+    if let Some(rest) = lower
+        .strip_prefix("-pre-release-")
+        .or_else(|| lower.strip_prefix(" pre-release "))
+        .or_else(|| lower.strip_prefix("-pre"))
+    {
+        let rest = rest.trim_start_matches(['-', ' ']);
+        return !rest.is_empty()
+            && rest.bytes().all(|b| b.is_ascii_digit())
+            && rest.parse::<u32>().is_ok_and(|n| n >= 4);
+    }
+    false
+}
+
+fn parse_weekly_snapshot(version: &str) -> Option<(u32, u32)> {
+    let lower = version.to_ascii_lowercase();
+    let (year_str, rest) = lower.split_once('w')?;
+    if year_str.len() != 2 || !year_str.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let week_len = rest.bytes().take_while(|b| b.is_ascii_digit()).count();
+    if week_len == 0 {
+        return None;
+    }
+    let tail = &rest[week_len..];
+    if tail.is_empty() || !tail.bytes().all(|b| b.is_ascii_alphabetic()) {
+        return None;
+    }
+    Some((year_str.parse().ok()?, rest[..week_len].parse().ok()?))
+}
+
+/// Resolves and validates the `server.properties` path for a server root, optional launch
+/// configuration, and optional trailing application arguments (e.g. from `conf.toml`).
+///
+/// Rejects paths that escape the server root (via absolute paths, `..`, or symlinked ancestors),
+/// target MCPM configuration files, or refer to symlinks/non-regular files.
+pub fn properties_path_from_launch(
+    root: &Path,
+    launch: Option<&LaunchConfig>,
+    extra_app_args: &[String],
+) -> Result<PathBuf> {
+    let canonical_root = fs::canonicalize(root)
+        .with_context(|| format!("failed to canonicalize server root {root:?}"))?;
+
+    let mut rel = PathBuf::new();
+    if let Some(cwd) = launch.and_then(|l| l.process.working_directory.as_deref())
+        && !cwd.is_empty()
+    {
+        append_safe_relative(&mut rel, Path::new(cwd), "process.workingDirectory")?;
+    }
+
+    let launch_args = launch
+        .map(|l| l.application.extra_arguments.as_slice())
+        .unwrap_or(&[]);
+    let config_path = Path::new(properties_argument(
+        launch_args.iter().chain(extra_app_args),
+    )?);
+    ensure!(
+        config_path.file_name().is_some(),
+        "--config requires a file path"
+    );
+    append_safe_relative(&mut rel, config_path, "--config")?;
+
+    ensure!(
+        !is_mcpm_reserved(&rel),
+        "refusing to treat MCPM reserved path {:?} as server.properties",
+        rel
+    );
+
+    let target = canonical_root.join(&rel);
+    ensure_confined_regular_target(&canonical_root, &target)?;
+    Ok(target)
+}
+
+/// Selects the last properties option from application arguments, as Minecraft does.
+pub(super) fn properties_argument<'a>(
+    arguments: impl IntoIterator<Item = &'a String>,
+) -> Result<&'a str> {
+    let mut path = "server.properties";
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
+        if matches!(argument.as_str(), "--config" | "-c") {
+            path = arguments
+                .next()
+                .context("properties option (--config/-c) has no path")?;
+        } else if let Some(value) = argument.strip_prefix("--config=") {
+            path = value;
+        }
+    }
+    Ok(path)
+}
+
+fn append_safe_relative(base: &mut PathBuf, candidate: &Path, label: &str) -> Result<()> {
+    ensure!(
+        !candidate.is_absolute(),
+        "{label} path {candidate:?} must stay within the server directory"
+    );
+    for component in candidate.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => base.push(part),
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                bail!("{label} path {candidate:?} escapes the server directory");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_mcpm_reserved(rel: &Path) -> bool {
+    let mut parts = rel.components();
+    let Some(Component::Normal(first)) = parts.next() else {
+        return false;
+    };
+    if first.eq_ignore_ascii_case(".mcpm") {
+        return true;
+    }
+    parts.next().is_none()
+        && ["mcpm.json", "conf.toml", "launch.toml"]
+            .iter()
+            .any(|name| first.eq_ignore_ascii_case(name))
+}
+
+fn ensure_confined_regular_target(canonical_root: &Path, target: &Path) -> Result<()> {
+    // Verify the deepest existing ancestor stays inside `canonical_root` (blocks symlink escape).
+    let mut cursor = target.parent();
+    while let Some(dir) = cursor {
+        match fs::symlink_metadata(dir) {
+            Ok(_) => {
+                let canonical_dir = fs::canonicalize(dir)
+                    .with_context(|| format!("failed to canonicalize directory {dir:?}"))?;
+                let relative_dir = canonical_dir.strip_prefix(canonical_root).with_context(
+                    || {
+                        format!(
+                            "properties path {target:?} escapes the server directory via symlink"
+                        )
+                    },
+                )?;
+                let resolved = relative_dir.join(target.strip_prefix(dir)?);
+                ensure!(
+                    !is_mcpm_reserved(&resolved),
+                    "refusing to treat MCPM reserved path {resolved:?} as server.properties"
+                );
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                cursor = dir.parent();
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to inspect directory {dir:?}"));
+            }
+        }
+    }
+    // Check target itself if it already exists: refuse symlinks, directories, FIFOs, sockets, etc.
+    match fs::symlink_metadata(target) {
+        Ok(meta) => {
+            ensure!(
+                !meta.file_type().is_symlink(),
+                "refusing to use symlink {target:?} as server.properties"
+            );
+            ensure!(
+                meta.file_type().is_file(),
+                "refusing to use non-regular file {target:?} as server.properties"
+            );
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to inspect {target:?}"));
+        }
+    }
+    Ok(())
+}
+
+/// Read-only inspection of `server.properties` RCON state for `init` Console prompting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InitRconProbe {
+    /// `enable-rcon=true`, valid `rcon.port` (`1..=65535`), and non-empty `rcon.password`.
+    AlreadyComplete,
+    /// RCON is disabled, absent, or enabled with missing/invalid port or password.
+    NeedsPrompt {
+        currently_enabled: bool,
+        existing_port: Option<u16>,
+        has_password: bool,
+        invalid_port: Option<String>,
+    },
+    /// `server.properties` exists but failed to read or parse.
+    ParseFailed { reason: String },
+}
+
+/// Inspects `server.properties` RCON readiness without exposing any existing plaintext password.
+pub fn inspect_rcon_for_init(path: &Path) -> InitRconProbe {
+    let properties = match Properties::read(path) {
+        Ok(Some(properties)) => properties,
+        Ok(None) => {
+            return InitRconProbe::NeedsPrompt {
+                currently_enabled: false,
+                existing_port: None,
+                has_password: false,
+                invalid_port: None,
+            };
+        }
+        Err(error) => {
+            return InitRconProbe::ParseFailed {
+                reason: format!("{error:#}"),
+            };
+        }
+    };
+    let currently_enabled = match properties.get("enable-rcon") {
+        Ok(Some(value)) => value.eq_ignore_ascii_case("true"),
+        Ok(None) => false,
+        Err(error) => {
+            return InitRconProbe::ParseFailed {
+                reason: format!("{error:#}"),
+            };
+        }
+    };
+    let (existing_port, invalid_port) = match properties.get("rcon.port") {
+        Ok(Some(raw)) => {
+            if raw.is_empty() {
+                (None, None)
+            } else if let Ok(port) = parse_rcon_port(&raw) {
+                (Some(port), None)
+            } else {
+                (None, Some(raw))
+            }
+        }
+        Ok(None) => (None, None),
+        Err(error) => {
+            return InitRconProbe::ParseFailed {
+                reason: format!("{error:#}"),
+            };
+        }
+    };
+    let has_password = match properties.get("rcon.password") {
+        Ok(Some(value)) => !value.is_empty(),
+        Ok(None) => false,
+        Err(error) => {
+            return InitRconProbe::ParseFailed {
+                reason: format!("{error:#}"),
+            };
+        }
+    };
+    if currently_enabled && existing_port.is_some() && has_password {
+        InitRconProbe::AlreadyComplete
+    } else {
+        InitRconProbe::NeedsPrompt {
+            currently_enabled,
+            existing_port,
+            has_password,
+            invalid_port,
+        }
+    }
+}
+
+/// Validated write plan for explicit `--rcon` / `--rcon-port` / `--rcon-password` requests.
+/// Captures the exact serialized output from the validated snapshot to avoid read/write TOCTOU.
+/// Deliberately omits `Debug` to avoid leaking plaintext passwords.
+pub enum PreparedRconWrite {
+    Create { port: u16, password: String },
+    Update { final_port: u16, bytes: Vec<u8> },
+}
+
+/// Validates and merges explicit CLI RCON options against a single snapshot of `server.properties`.
+///
+/// Fails if `server.properties` is unreadable/malformed or if either `rcon.port` or
+/// `rcon.password` remains unspecified after applying explicit overrides.
+pub fn prepare_explicit_rcon(
+    path: &Path,
+    port_override: Option<u16>,
+    password_override: Option<String>,
+) -> Result<PreparedRconWrite> {
+    if let Some(port) = port_override {
+        ensure!(port > 0, "RCON port must be between 1 and 65535");
+    }
+    if let Some(password) = &password_override {
+        ensure!(!password.is_empty(), "RCON password must not be empty");
+    }
+    let raw = match fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read RCON properties from {path:?}"));
+        }
+    };
+    let Some(raw) = raw else {
+        let Some(port) = port_override else {
+            bail!("server.properties does not exist at {path:?} and --rcon-port was not provided");
+        };
+        let Some(password) = password_override else {
+            bail!(
+                "server.properties does not exist at {path:?} and --rcon-password was not provided"
+            );
+        };
+        return Ok(PreparedRconWrite::Create { port, password });
+    };
+
+    let properties = parse_bytes(&raw)
+        .with_context(|| format!("failed to parse RCON properties from {path:?}"))?;
+
+    let (final_port, write_port) = match port_override {
+        Some(port) => (port, Some(port)),
+        None => {
+            let raw_port = properties
+                .get("rcon.port")
+                .filter(|value| !value.is_empty())
+                .with_context(|| {
+                    format!(
+                        "rcon.port is not set in {path:?}; pass --rcon-port or configure it in server.properties"
+                    )
+                })?;
+            let port = parse_rcon_port(raw_port).with_context(|| {
+                format!(
+                    "rcon.port in {path:?} is invalid ({raw_port:?}); pass --rcon-port or fix server.properties"
+                )
+            })?;
+            (port, None)
+        }
+    };
+
+    let write_password = match password_override {
+        Some(password) => Some(password),
+        None => {
+            let present = properties
+                .get("rcon.password")
+                .is_some_and(|value| !value.is_empty());
+            ensure!(
+                present,
+                "rcon.password is not set in {path:?}; pass --rcon-password or configure it in server.properties"
+            );
+            None
+        }
+    };
+
+    let mut updated = upsert_key(Some(&raw), "enable-rcon", "true")?;
+    if let Some(port) = write_port {
+        updated = upsert_key(Some(&updated), "rcon.port", &port.to_string())?;
+    }
+    if let Some(password) = write_password {
+        updated = upsert_key(Some(&updated), "rcon.password", &password)?;
+    }
+
+    Ok(PreparedRconWrite::Update {
+        final_port,
+        bytes: updated,
+    })
+}
+
+/// Applies a validated [`PreparedRconWrite`] losslessly, returning the effective RCON port.
+pub fn apply_prepared_rcon(path: &Path, plan: PreparedRconWrite) -> Result<u16> {
+    match plan {
+        PreparedRconWrite::Create { port, password } => {
+            if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create directory {parent:?}"))?;
+            }
+            create_rcon(path, port, &password)?;
+            Ok(port)
+        }
+        PreparedRconWrite::Update { final_port, bytes } => {
+            atomic_write_rcon(path, &bytes, true)?;
+            Ok(final_port)
+        }
+    }
+}
+
+/// Outcome of enabling RCON from the Console interactive prompt.
+pub struct InteractiveRconEnabled {
+    pub port: u16,
+    pub generated_password: Option<String>,
+}
+
+/// Enables RCON from an interactive Console confirmation, creating `server.properties` if absent
+/// or losslessly upserting only the needed keys from a single parsed snapshot if present.
+pub fn apply_interactive_enable(
+    path: &Path,
+    port: Option<u16>,
+    generate_password: bool,
+) -> Result<InteractiveRconEnabled> {
+    if let Some(port) = port {
+        ensure!(port > 0, "RCON port must be between 1 and 65535");
+    }
+    let raw = match fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read existing properties {path:?}"));
+        }
+    };
+    let Some(raw) = raw else {
+        let port = port.unwrap_or(DEFAULT_RCON_PORT);
+        let password = uuid::Uuid::new_v4().to_string();
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create directory {parent:?}"))?;
+        }
+        create_rcon(path, port, &password)?;
+        return Ok(InteractiveRconEnabled {
+            port,
+            generated_password: Some(password),
+        });
+    };
+
+    let properties =
+        parse_bytes(&raw).with_context(|| format!("failed to parse properties {path:?}"))?;
+
+    let (effective_port, write_port) = match port {
+        Some(port) => (port, Some(port)),
+        None => match properties
+            .get("rcon.port")
+            .and_then(|raw| parse_rcon_port(raw).ok())
+        {
+            Some(existing_port) => (existing_port, None),
+            None => (DEFAULT_RCON_PORT, Some(DEFAULT_RCON_PORT)),
+        },
+    };
+    let has_password = properties
+        .get("rcon.password")
+        .is_some_and(|value| !value.is_empty());
+    let generated_password =
+        (generate_password || !has_password).then(|| uuid::Uuid::new_v4().to_string());
+
+    let mut updated = upsert_key(Some(&raw), "enable-rcon", "true")?;
+    if let Some(port) = write_port {
+        updated = upsert_key(Some(&updated), "rcon.port", &port.to_string())?;
+    }
+    if let Some(password) = &generated_password {
+        updated = upsert_key(Some(&updated), "rcon.password", password)?;
+    }
+    atomic_write_rcon(path, &updated, true)?;
+    Ok(InteractiveRconEnabled {
+        port: effective_port,
+        generated_password,
+    })
+}
+
+/// Losslessly sets `enable-rcon=false` on an existing readable `server.properties`.
+pub fn apply_disable_rcon(path: &Path) -> Result<()> {
+    let raw = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read existing properties {path:?}"));
+        }
+    };
+    let _ = parse_bytes(&raw).with_context(|| format!("failed to parse properties {path:?}"))?;
+    let updated = upsert_key(Some(&raw), "enable-rcon", "false")?;
+    atomic_write_rcon(path, &updated, false)
+}
+
+fn atomic_write_rcon(path: &Path, bytes: &[u8], restrict_to_owner: bool) -> Result<()> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let existing_permissions = if restrict_to_owner {
+        None
+    } else {
+        fs::metadata(path).ok().map(|meta| meta.permissions())
+    };
+    let mut temp = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create temporary properties file in {parent:?}"))?;
+    #[cfg(unix)]
+    if restrict_to_owner {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("failed to restrict permissions on {path:?}"))?;
+    }
+    if let Some(permissions) = existing_permissions {
+        let _ = fs::set_permissions(temp.path(), permissions);
+    }
+    temp.write_all(bytes)
+        .with_context(|| format!("failed to write properties {path:?}"))?;
+    temp.flush()
+        .with_context(|| format!("failed to flush properties {path:?}"))?;
+    temp.persist(path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("failed to persist properties {path:?}"))?;
+    Ok(())
 }
 
 fn read_reader(reader: &mut impl BufRead, keys: Option<&[&str]>) -> Result<Properties> {
@@ -565,6 +1120,179 @@ mod tests {
         let encoded = upsert_key(None, key, value)?;
         let parsed = parse_bytes(&encoded)?;
         assert_eq!(parsed.get(key).map(String::as_str), Some(value));
+        Ok(())
+    }
+
+    #[test]
+    fn rcon_version_threshold_matches_1_9_pre4_across_release_formats() {
+        for supported in [
+            "1.9-pre4",
+            "1.9-pre5",
+            "1.9-rc1",
+            "1.9",
+            "1.9.4",
+            "1.12.2",
+            "1.21.11",
+            "26.1",
+            "26.3-snapshot-1",
+            "16w14a",
+            "24w14a",
+        ] {
+            assert!(supports_rcon_properties(supported), "{supported}");
+        }
+        for unsupported in [
+            "1.2.5",
+            "1.7.10",
+            "1.8.9",
+            "1.9-pre1",
+            "1.9-pre3",
+            "1.9-pre4garbage",
+            "1.9-rc1extra",
+            "16w07b",
+            "15w51b",
+            "custom",
+            "",
+        ] {
+            assert!(!supports_rcon_properties(unsupported), "{unsupported}");
+        }
+    }
+
+    #[test]
+    fn properties_path_rejects_escape_reserved_files_and_symlinks() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        let ok = properties_path_from_launch(root.path(), None, &[])?;
+        assert!(ok.ends_with("server.properties"));
+        let mut launch = super::super::config::vanilla_server()?.launch;
+        launch.process.working_directory = Some(".".into());
+        assert_eq!(
+            properties_path_from_launch(root.path(), Some(&launch), &[])?,
+            ok
+        );
+
+        for bad_arg in [
+            "",
+            ".",
+            "../outside.properties",
+            "/etc/passwd",
+            "mcpm.json",
+            ".mcpm/server.json",
+            "conf.toml",
+            "launch.toml",
+        ] {
+            assert!(
+                properties_path_from_launch(
+                    root.path(),
+                    None,
+                    &["--config".into(), bad_arg.into()],
+                )
+                .is_err(),
+                "{bad_arg}"
+            );
+        }
+
+        #[cfg(unix)]
+        {
+            let target = outside.path().join("secret.properties");
+            fs::write(&target, "enable-rcon=true\n")?;
+            std::os::unix::fs::symlink(&target, root.path().join("link.properties"))?;
+            assert!(
+                properties_path_from_launch(
+                    root.path(),
+                    None,
+                    &["--config=link.properties".into()],
+                )
+                .is_err()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn trailing_whitespace_and_zero_ports_are_rejected_consistently() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("server.properties");
+        for bad in ["25575 ", "0"] {
+            fs::write(
+                &path,
+                format!("enable-rcon=true\nrcon.port={bad}\nrcon.password=pw\n"),
+            )?;
+            assert!(matches!(
+                inspect_rcon_for_init(&path),
+                InitRconProbe::NeedsPrompt {
+                    currently_enabled: true,
+                    existing_port: None,
+                    has_password: true,
+                    invalid_port: Some(_),
+                }
+            ));
+            assert!(prepare_explicit_rcon(&path, None, None).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn init_rcon_probe_explicit_and_interactive_flows_preserve_properties() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("server.properties");
+
+        // Missing file -> NeedsPrompt with nothing configured.
+        assert_eq!(
+            inspect_rcon_for_init(&path),
+            InitRconProbe::NeedsPrompt {
+                currently_enabled: false,
+                existing_port: None,
+                has_password: false,
+                invalid_port: None,
+            }
+        );
+
+        // Explicit on missing file fails when port or password is missing, succeeds when both provided.
+        assert!(prepare_explicit_rcon(&path, None, None).is_err());
+        assert!(prepare_explicit_rcon(&path, Some(25580), None).is_err());
+        let plan = prepare_explicit_rcon(&path, Some(25580), Some("s3cr3t".into()))?;
+        assert_eq!(apply_prepared_rcon(&path, plan)?, 25580);
+        assert_eq!(inspect_rcon_for_init(&path), InitRconProbe::AlreadyComplete);
+
+        // Incomplete enable-rcon=true (empty password) -> NeedsPrompt(currently_enabled: true),
+        // and declining sets enable-rcon=false losslessly.
+        fs::write(
+            &path,
+            "# keep me\nenable-rcon=true\nrcon.port=25590\nrcon.password=\n",
+        )?;
+        assert_eq!(
+            inspect_rcon_for_init(&path),
+            InitRconProbe::NeedsPrompt {
+                currently_enabled: true,
+                existing_port: Some(25590),
+                has_password: false,
+                invalid_port: None,
+            }
+        );
+        assert!(prepare_explicit_rcon(&path, None, None).is_err());
+        apply_disable_rcon(&path)?;
+        let after_disable = fs::read_to_string(&path)?;
+        assert!(after_disable.contains("# keep me\n"));
+        assert!(after_disable.contains("enable-rcon=false\n"));
+
+        // Interactive enable reuses existing port and generates UUID password.
+        let enabled = apply_interactive_enable(&path, None, true)?;
+        assert_eq!(enabled.port, 25590);
+        assert!(
+            enabled
+                .generated_password
+                .as_deref()
+                .is_some_and(|p| !p.is_empty())
+        );
+        assert_eq!(inspect_rcon_for_init(&path), InitRconProbe::AlreadyComplete);
+
+        // Malformed file -> ParseFailed on probe and error on explicit.
+        fs::write(&path, "bad=\\uZZZZ\n")?;
+        assert!(matches!(
+            inspect_rcon_for_init(&path),
+            InitRconProbe::ParseFailed { .. }
+        ));
+        assert!(prepare_explicit_rcon(&path, Some(25575), Some("pw".into())).is_err());
         Ok(())
     }
 }

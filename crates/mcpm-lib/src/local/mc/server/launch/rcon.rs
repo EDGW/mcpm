@@ -1,5 +1,6 @@
 //! RCON configuration selection and bounded exchanges; properties grammar has one shared codec.
 
+use super::super::properties;
 use super::LaunchPlan;
 use anyhow::{Context, Result, ensure};
 use bytes::BytesMut;
@@ -37,17 +38,10 @@ pub struct Settings {
 impl Settings {
     /// Only application arguments can select properties, never a similarly named JVM argument.
     pub fn from_plan(plan: &LaunchPlan) -> Result<Option<Self>> {
-        let mut path = "server.properties";
-        let mut arguments = plan.command().application.iter();
-        while let Some(argument) = arguments.next() {
-            if matches!(argument.as_str(), "--config" | "-c") {
-                path = arguments.next().context("properties option has no path")?;
-            } else if let Some(value) = argument.strip_prefix("--config=") {
-                path = value;
-            }
-        }
-        let path = plan.directory().join(path);
-        let Some(properties) = super::super::properties::Properties::read_selected(
+        let path = plan.directory().join(properties::properties_argument(
+            &plan.command().application,
+        )?);
+        let Some(properties) = properties::Properties::read_selected(
             &path,
             &["enable-rcon", "rcon.port", "rcon.password", "server-ip"],
         )?
@@ -58,9 +52,7 @@ impl Settings {
     }
 
     /// Interprets only RCON settings from the shared Java-properties codec.
-    pub fn from_properties(
-        properties: &super::super::properties::Properties,
-    ) -> Result<Option<Self>> {
+    pub fn from_properties(properties: &properties::Properties) -> Result<Option<Self>> {
         if properties
             .get("enable-rcon")?
             .is_none_or(|value| !value.eq_ignore_ascii_case("true"))
@@ -73,8 +65,8 @@ impl Settings {
             .context("RCON enabled but rcon.password is empty")?;
         let port = properties
             .get("rcon.port")?
-            .map_or(Ok(super::super::properties::DEFAULT_RCON_PORT), |value| {
-                value.parse::<u16>()
+            .map_or(Ok(properties::DEFAULT_RCON_PORT), |value| {
+                properties::parse_rcon_port(&value)
             })
             .context("invalid rcon.port")?;
         let host = match properties.get("server-ip")?.as_deref() {

@@ -1,4 +1,5 @@
-//! Frontend history replay: retain logical lines up to an inspect snapshot, then follow the same Channel.
+//! Frontend history replay: retain arrival-ordered logical lines across stdout and stderr
+//! up to an inspect snapshot, then follow the same unified log Channel.
 
 use anyhow::Result;
 use mcpm_backend::operations::server::shim::{
@@ -10,12 +11,12 @@ use std::collections::VecDeque;
 pub(super) struct Opened {
     pub channel: StreamingOutput<LogBatch>,
     pub pending: Option<LogBatch>,
-    pub history: VecDeque<Vec<u8>>,
+    pub history: VecDeque<(Source, Vec<u8>)>,
 }
+
 pub(super) async fn open(
     executor: &Executor,
     reference: &ShimRef,
-    source: Source,
     cursor: Option<u64>,
     range: &CursorRange,
     lines: Option<usize>,
@@ -28,18 +29,13 @@ pub(super) async fn open(
     let mut channel = executor
         .call::<SubscribeLogs>(LogsInput {
             reference: reference.clone(),
-            source,
             cursor: start,
             tail: None,
             max_bytes: MAX_LOG_BLOCK_BYTES,
             max_items: 32,
         })
         .await?;
-    let mut tail = Tail {
-        lines: VecDeque::new(),
-        partial: Vec::new(),
-        limit: lines.unwrap_or(0),
-    };
+    let mut tail = Tail::new(lines.unwrap_or(0));
     let mut position = start.unwrap_or(0);
     let mut pending: Option<LogBatch> = None;
     if lines.is_some_and(|lines| lines > 0) {
@@ -48,6 +44,10 @@ pub(super) async fn open(
                 break;
             };
             let batch = batch?;
+            if batch.gap.is_some() {
+                // Never glue pre-gap partial bytes onto post-gap chunks.
+                tail.finish();
+            }
             let mut live = Vec::new();
             for chunk in batch.batch {
                 let end = range
@@ -55,24 +55,25 @@ pub(super) async fn open(
                     .saturating_sub(chunk.seq)
                     .min(chunk.bytes.len() as u64) as usize;
                 if end > 0 {
-                    tail.push(&chunk.bytes[..end]);
+                    tail.push(chunk.source, &chunk.bytes[..end]);
                 }
                 if end < chunk.bytes.len() {
                     live.push(LogChunk {
                         seq: chunk.seq + end as u64,
+                        source: chunk.source,
                         bytes: chunk.bytes[end..].to_vec(),
                     });
                 }
             }
             position = batch.next_cursor;
-            let gap = pending
-                .as_ref()
-                .and_then(|batch| batch.gap.clone())
-                .or(batch.gap);
+            let live_gap = batch.gap.filter(|gap| gap.to > range.latest);
             pending = Some(LogBatch {
                 batch: live,
                 next_cursor: position,
-                gap,
+                gap: pending
+                    .as_ref()
+                    .and_then(|existing| existing.gap.clone())
+                    .or(live_gap),
                 finished: batch.finished,
             });
             if position >= range.latest || batch.finished {
@@ -89,26 +90,59 @@ pub(super) async fn open(
 }
 
 struct Tail {
-    lines: VecDeque<Vec<u8>>,
-    partial: Vec<u8>,
+    lines: VecDeque<(Source, Vec<u8>)>,
+    partial: [Vec<u8>; 2],
+    last_partial: Option<Source>,
     limit: usize,
 }
+
 impl Tail {
-    fn push(&mut self, bytes: &[u8]) {
+    fn new(limit: usize) -> Self {
+        Self {
+            lines: VecDeque::new(),
+            partial: [Vec::new(), Vec::new()],
+            last_partial: None,
+            limit,
+        }
+    }
+
+    fn push(&mut self, source: Source, bytes: &[u8]) {
+        let idx = usize::from(source == Source::Stderr);
         for part in bytes.split_inclusive(|byte| *byte == b'\n') {
-            self.partial.extend_from_slice(part);
+            self.partial[idx].extend_from_slice(part);
             if part.ends_with(b"\n") {
-                self.finish();
+                self.finish_source(source);
+            } else {
+                self.last_partial = Some(source);
             }
         }
     }
-    fn finish(&mut self) {
-        if self.partial.is_empty() {
+
+    fn finish_source(&mut self, source: Source) {
+        let idx = usize::from(source == Source::Stderr);
+        if self.partial[idx].is_empty() {
             return;
         }
-        self.lines.push_back(std::mem::take(&mut self.partial));
+        let line = std::mem::take(&mut self.partial[idx]);
+        self.lines.push_back((source, line));
         while self.lines.len() > self.limit {
             self.lines.pop_front();
+        }
+        if self.last_partial == Some(source) {
+            self.last_partial = None;
+        }
+    }
+
+    fn finish(&mut self) {
+        match self.last_partial {
+            Some(Source::Stdout) => {
+                self.finish_source(Source::Stderr);
+                self.finish_source(Source::Stdout);
+            }
+            _ => {
+                self.finish_source(Source::Stdout);
+                self.finish_source(Source::Stderr);
+            }
         }
     }
 }
@@ -116,20 +150,22 @@ impl Tail {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn fragments_preserve_last_lines_and_unterminated_raw_bytes() {
-        let mut tail = Tail {
-            lines: VecDeque::new(),
-            partial: Vec::new(),
-            limit: 2,
-        };
-        for part in [b"old\nfir".as_slice(), b"st\r\n\xffpar", b"tial"] {
-            tail.push(part);
-        }
+    fn fragments_preserve_interleaved_sources_and_unterminated_raw_bytes() {
+        let mut tail = Tail::new(3);
+        tail.push(Source::Stdout, b"old\nfir");
+        tail.push(Source::Stderr, b"warn\n");
+        tail.push(Source::Stdout, b"st\r\n\xffpar");
+        tail.push(Source::Stdout, b"tial");
         tail.finish();
         assert_eq!(
             tail.lines.into_iter().collect::<Vec<_>>(),
-            vec![b"first\r\n".to_vec(), b"\xffpartial".to_vec()]
+            vec![
+                (Source::Stderr, b"warn\n".to_vec()),
+                (Source::Stdout, b"first\r\n".to_vec()),
+                (Source::Stdout, b"\xffpartial".to_vec()),
+            ]
         );
     }
 }

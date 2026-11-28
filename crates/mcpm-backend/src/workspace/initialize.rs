@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, ensure};
+use mcpm_exec::error::CombinedError;
 use mcpm_lib::local::{
     mc::server::{
         MinecraftServer, MinecraftServerError, MinecraftServerMetadata,
@@ -14,14 +15,14 @@ use mcpm_lib::local::{
     modloader::BUILTIN_LOADERS,
 };
 
-use super::{Writer, require_current_if_registered, require_local};
+use super::{Writer, append_gitignore, require_current_if_registered, require_local};
 
 /// All identity and configuration decisions are supplied by the caller.
-pub(crate) struct LocalInitialization {
+pub(crate) struct LocalInitialization<'a> {
     pub path: PathBuf,
     pub metadata: MinecraftServerMetadata,
     pub force: bool,
-    pub local: Option<LocalConfiguration>,
+    pub local: Option<&'a LocalConfiguration>,
 }
 
 /// None is an explicit registration-only request, not an instruction to infer an entry.
@@ -43,12 +44,13 @@ pub(crate) struct LocalInitialized<G> {
     pub publication: Option<Published>,
 }
 
-/// Owns the shared write workflow. Git execution is injected so this storage layer
-/// does not depend on operation DTOs, while still running it under the writer lease.
+/// Owns the shared write workflow. Runs caller-provided precommit work and Git setup
+/// under the writer lease before publishing registration.
 pub(crate) fn initialize_local<G>(
-    input: LocalInitialization,
+    input: LocalInitialization<'_>,
     checkpoint: impl Fn() -> Result<()>,
     phase: impl Fn(Phase) -> Result<()>,
+    before_commit: impl FnOnce(&Path) -> Result<()>,
     prepare_git: impl FnOnce(&Path) -> Result<G>,
 ) -> Result<LocalInitialized<G>> {
     checkpoint()?;
@@ -62,27 +64,24 @@ pub(crate) fn initialize_local<G>(
             loader.loader_type
         );
     }
-    let manifest = input.path.join(".mcpm/server.json");
-    match fs::symlink_metadata(&manifest) {
-        Ok(metadata) => {
-            ensure!(
-                input.force,
-                "server configuration already exists at {manifest:?}; use --force to replace it"
-            );
-            ensure!(
-                !metadata.is_dir(),
-                "server configuration path is a directory: {manifest:?}"
-            );
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).context("failed to inspect existing server configuration"),
-    }
+    require_replaceable_registration(&input.path, input.force)?;
     checkpoint()?;
     phase(Phase::Writing)?;
     checkpoint()?;
-    require_current_if_registered(&input.path)?;
-    let writer = Writer::acquire(&input.path)?;
-    require_local(&input.path)?;
+    let writer = Writer::acquire_unprepared(&input.path)?;
+    let precommit = || {
+        require_local(&input.path)?;
+        require_current_if_registered(&input.path)?;
+        require_replaceable_registration(&input.path, input.force)?;
+        before_commit(&input.path)
+    };
+    if let Err(error) = precommit() {
+        return match writer.lock.discard_unpublished_directory() {
+            Ok(()) => Err(error),
+            Err(cleanup) => Err(CombinedError::new(error, cleanup).into()),
+        };
+    }
+    append_gitignore(&input.path)?;
     let git = prepare_git(&input.path)?;
     let publication = input
         .local
@@ -113,4 +112,23 @@ pub(crate) fn initialize_local<G>(
         git,
         publication,
     })
+}
+
+fn require_replaceable_registration(root: &Path, force: bool) -> Result<()> {
+    let manifest = root.join(".mcpm/server.json");
+    match fs::symlink_metadata(&manifest) {
+        Ok(metadata) => {
+            ensure!(
+                force,
+                "server configuration already exists at {manifest:?}; use --force to replace it"
+            );
+            ensure!(
+                !metadata.is_dir(),
+                "server configuration path is a directory: {manifest:?}"
+            );
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).context("failed to inspect existing server configuration"),
+    }
+    Ok(())
 }

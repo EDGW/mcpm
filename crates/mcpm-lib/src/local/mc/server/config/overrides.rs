@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use toml::Value;
 
 /// Launch-only overrides. Scalars are unique; list operations preserve their input order.
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(transparent)]
 pub struct ConfigurationOverrides {
     operations: Vec<Operation>,
@@ -145,7 +145,7 @@ impl<'de> Deserialize<'de> for ConfigurationOverrides {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Operation {
     key: String,
     value: Value,

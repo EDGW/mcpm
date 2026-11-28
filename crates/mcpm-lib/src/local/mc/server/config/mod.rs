@@ -21,6 +21,7 @@ pub use import::{
     ConfigurationDraft, ImportedSetting, ImportedValue, OverwritePolicy, commit_import, draft,
 };
 mod generate;
+mod template;
 pub use generate::vanilla_server;
 mod overrides;
 pub use overrides::{ConfigurationOverrides, ConfigurationShortcut};
@@ -122,6 +123,56 @@ pub struct ConfigurationRevision {
 pub fn read_revision(root: &Path) -> Result<ConfigurationRevision> {
     let lock = ServerLock::acquire_read(root)?;
     read_revision_locked(root, &lock)
+}
+
+/// Computes effective `conf.toml` application extra arguments for a server directory
+/// (combining any retained `conf.toml` with pending `overrides`), without mutating disk.
+pub fn effective_conf_application_args(
+    root: &Path,
+    replace_conf: bool,
+    preserve_conf: bool,
+    overrides: &ConfigurationOverrides,
+) -> Result<Vec<String>> {
+    let conf_path = root.join("conf.toml");
+    let existing = if replace_conf {
+        None
+    } else {
+        match fs::read_to_string(&conf_path) {
+            Ok(text) => Some(text),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to read {conf_path:?}"));
+            }
+        }
+    };
+    let effective = match existing {
+        Some(text) if preserve_conf => decode_conf(&text)?,
+        Some(text) => decode_conf_with_overrides(&text, overrides)?,
+        None => {
+            if overrides.is_empty() {
+                ServerConfig::default()
+            } else {
+                decode_conf_with_overrides(&template::default_template(), overrides)?
+            }
+        }
+    };
+    Ok(effective.application.extra_arguments)
+}
+
+/// Reads `launch.toml` and `conf.toml` when present, returning `(launch, conf_app_args)`
+/// for read-only inspection (such as resolving `server.properties` in `info`).
+pub fn read_properties_context(root: &Path) -> Result<(Option<LaunchConfig>, Vec<String>)> {
+    let launch_path = root.join("launch.toml");
+    let launch = match fs::read_to_string(&launch_path) {
+        Ok(text) => Some(decode_launch(&text)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {launch_path:?}"));
+        }
+    };
+    let conf_args =
+        effective_conf_application_args(root, false, true, &ConfigurationOverrides::default())?;
+    Ok((launch, conf_args))
 }
 
 /// Reads raw registration and launch hashes while the caller holds [`ServerLock`].
@@ -263,6 +314,7 @@ impl ServerConfig {
             auth.validate()?;
             auth.validate_properties(&self.jvm.extra_arguments)?;
         }
+        self.restart_on.validate()?;
         Ok(())
     }
     pub(crate) fn jvm_arguments(&self) -> Result<Vec<String>> {

@@ -10,7 +10,7 @@ The command reference is currently difficult to read and will be improved over t
 
 ## Installation
 
-Install pre-release [v0.1.0-rc1](https://github.com/EDGW/mcpm/releases/tag/v0.1.0-rc1).
+Install pre-release [v0.1.0-rc2](https://github.com/hitszosa/mcpm/releases/tag/v0.1.0-rc2).
 The installer supports **v0.1.0-rc1 and newer**; versions earlier than `v0.1.0-rc1` are not supported and are rejected before downloading.
 All six executables and bundled artifacts are installed together: `mcpm`, `mcpm-server`, `mcpmc`, `mcpm-client`, `mcpm-tools`, and `mcpmd`.
 
@@ -25,13 +25,13 @@ Installation does not require administrator privileges. Configuration, caches, a
 ### Windows (PowerShell 5.1 or later)
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Version v0.1.0-rc1
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hitszosa/mcpm/v0.1.0-rc2/scripts/install.ps1))) -Version v0.1.0-rc2
 ```
 
 Uninstall:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hitszosa/mcpm/v0.1.0-rc2/scripts/install.ps1))) -Uninstall
 ```
 
 PATH changes apply to the current PowerShell session and newly opened terminals. Other existing terminals need to be reopened. Close running mcpm processes before upgrading if Windows reports files in use.
@@ -41,7 +41,7 @@ PATH changes apply to the current PowerShell session and newly opened terminals.
 Requires `curl`, `unzip`, and either `sha256sum` or `shasum`.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- v0.1.0-rc1
+curl -fsSL https://raw.githubusercontent.com/hitszosa/mcpm/v0.1.0-rc2/scripts/install.sh | sh -s -- v0.1.0-rc2
 ```
 
 If `~/.local/bin` is not already on PATH, add the following line to your shell configuration (`~/.zshrc` for zsh or `~/.bashrc` for bash):
@@ -55,7 +55,7 @@ Reload that configuration or open a new terminal. The installer prints this inst
 Uninstall:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EDGW/mcpm/v0.1.0-rc1/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/hitszosa/mcpm/v0.1.0-rc2/scripts/install.sh | sh -s -- --uninstall
 ```
 
 To use a GitHub URL-prefix proxy (`--proxy` / `-Proxy`), see [proxy options](scripts/README.md#github-url-prefix-proxy).
@@ -77,7 +77,7 @@ To use a GitHub URL-prefix proxy (`--proxy` / `-Proxy`), see [proxy options](scr
 
 ### Manual installation
 
-[Release assets](https://github.com/EDGW/mcpm/releases) for the ZIP layout include `bin/` and `manifest.json`:
+[Release assets](https://github.com/hitszosa/mcpm/releases) for the ZIP layout include `bin/` and `manifest.json`:
 
 - macOS/Linux: `mcpm-PLATFORM-ARCH[-LIBC].zip`.
 - Windows: `mcpm-windows-x86_64.zip`.
