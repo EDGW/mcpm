@@ -9,6 +9,7 @@ const GENERATING_CHUNKS_PREFIX: &str = "Preparing spawn area: ";
 const DONE_PREFIX: &str = "Done (";
 const DONE_SUFFIX: &str = r#"s)! For help, type "help""#;
 const DONE_LEGACY_OR_QUESTION: &str = r#" or "?""#;
+const STOPPING_BODY: &str = "Stopping server";
 
 /// Recognized severity level from a Minecraft server log header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,22 +59,27 @@ pub struct LogHeader<'a> {
     pub body: &'a str,
 }
 
-/// Startup progress milestone recognized from a Minecraft server console log line.
+/// Lifecycle milestone recognized from a Minecraft server console log line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerStatusEvent {
     /// Spawn chunk pre-generation progress (`Preparing spawn area: <0..=100>%`).
     GeneratingChunks(u8),
     /// Server startup completion (`Done (<time>s)! For help, type "help"[ or "?"]`).
     Done,
+    /// Server shutdown initiation (`Stopping server`).
+    Stopping,
 }
 
-/// Bounded incremental scanner that extracts [`ServerStatusEvent`] from raw console byte chunks
-/// and permanently stops scanning once [`ServerStatusEvent::Done`] is observed.
+/// Bounded incremental scanner that extracts [`ServerStatusEvent`] from raw console byte chunks.
+///
+/// Once [`ServerStatusEvent::Done`] is observed, subsequent chunk-generation lines are ignored
+/// while scanning continues for [`ServerStatusEvent::Stopping`], which permanently latches scanning.
 #[derive(Debug, Default)]
 pub struct ServerStatusScanner {
     line: Vec<u8>,
     overflow: bool,
     done: bool,
+    stopping: bool,
 }
 
 impl ServerStatusScanner {
@@ -81,10 +87,14 @@ impl ServerStatusScanner {
         self.done
     }
 
-    /// Feeds raw bytes from stdout or stderr and returns the latest recognized status event in
-    /// this chunk (`Done` takes precedence over any earlier progress line in the same chunk).
+    pub fn is_stopping(&self) -> bool {
+        self.stopping
+    }
+
+    /// Feeds raw bytes from stdout or stderr and returns the highest-priority status event
+    /// observed in this chunk (`Stopping` > `Done` > `GeneratingChunks`).
     pub fn feed(&mut self, chunk: &[u8]) -> Option<ServerStatusEvent> {
-        if self.done || chunk.is_empty() {
+        if self.stopping || chunk.is_empty() {
             return None;
         }
         let mut latest = None;
@@ -94,12 +104,25 @@ impl ServerStatusScanner {
                     self.line.extend_from_slice(body);
                     let text = String::from_utf8_lossy(&self.line);
                     if let Some(event) = parse_server_status(&text) {
-                        latest = Some(event);
-                        if event == ServerStatusEvent::Done {
-                            self.done = true;
-                            self.line.clear();
-                            self.overflow = false;
-                            break;
+                        match event {
+                            ServerStatusEvent::Stopping => {
+                                self.stopping = true;
+                                latest = Some(ServerStatusEvent::Stopping);
+                                self.line.clear();
+                                self.overflow = false;
+                                break;
+                            }
+                            ServerStatusEvent::Done => {
+                                if !self.done {
+                                    self.done = true;
+                                    latest = Some(ServerStatusEvent::Done);
+                                }
+                            }
+                            ServerStatusEvent::GeneratingChunks(_) => {
+                                if !self.done && latest != Some(ServerStatusEvent::Done) {
+                                    latest = Some(event);
+                                }
+                            }
                         }
                     }
                 }
@@ -143,9 +166,9 @@ pub fn clean_console_line(line: &str) -> Cow<'_, str> {
     }
 }
 
-/// Recognizes Minecraft's spawn chunk generation progress and startup `Done!` notices via strict
-/// full-line matching on the parsed `INFO` message body across Vanilla, Fabric, Forge, NeoForge,
-/// Spigot, Paper, Purpur, and Folia (`1.2.5–26.3+`).
+/// Recognizes Minecraft's spawn chunk generation progress, startup `Done!` notices, and
+/// `Stopping server` shutdown notices via strict full-line matching on the parsed `INFO` message
+/// body across Vanilla, Fabric, Forge, NeoForge, Spigot, Paper, Purpur, and Folia (`1.2.5–26.3+`).
 pub fn parse_server_status(line: &str) -> Option<ServerStatusEvent> {
     let clean = clean_console_line(line);
     let header = parse_header(&clean)?;
@@ -153,6 +176,9 @@ pub fn parse_server_status(line: &str) -> Option<ServerStatusEvent> {
         return None;
     }
     let body = header.body.trim_end();
+    if body == STOPPING_BODY {
+        return Some(ServerStatusEvent::Stopping);
+    }
     if let Some(progress) = parse_generating_chunks_body(body) {
         return Some(ServerStatusEvent::GeneratingChunks(progress));
     }
@@ -687,6 +713,31 @@ mod tests {
                 r#"[23:31:12 INFO]: Done (0,306s)! For help, type "help" or "?""#,
                 ServerStatusEvent::Done,
             ),
+            // Stopping server across JUL (1.2.5-1.6.4), Vanilla/Fabric, Forge/NeoForge, Paper/Purpur/Folia.
+            (
+                "2026-11-27 21:36:19 [INFO] Stopping server",
+                ServerStatusEvent::Stopping,
+            ),
+            (
+                "[21:38:24] [Server thread/INFO]: Stopping server",
+                ServerStatusEvent::Stopping,
+            ),
+            (
+                "[21:36:47] [Server Shutdown Thread/INFO]: Stopping server",
+                ServerStatusEvent::Stopping,
+            ),
+            (
+                "\x1b[m> \r  \r\x1b[32m[2711月2026 21:45:58.907] [Server thread/INFO] [net.minecraft.server.MinecraftServer/]: Stopping server\r\x1b[m",
+                ServerStatusEvent::Stopping,
+            ),
+            (
+                "> \r  \r[23:31:18 INFO]: Stopping server",
+                ServerStatusEvent::Stopping,
+            ),
+            (
+                "[23:31:01] [Region shutdown thread/INFO]: Stopping server",
+                ServerStatusEvent::Stopping,
+            ),
         ];
         for (line, expected) in cases {
             assert_eq!(parse_server_status(line), Some(expected), "{line:?}");
@@ -703,13 +754,18 @@ mod tests {
             "[21:38:24] [Server thread/INFO]: Preparing spawn area: 05%",
             "[21:38:24] [Server thread/INFO]: Preparing spawn area: 50% extra",
             r#"Done (1.000s)! For help, type "help""#,
+            "[21:38:24] [Server thread/INFO]: <Steve> Stopping server",
+            "[21:38:24] [Server thread/INFO]: Stopping the server",
+            "[21:38:24] [Server thread/WARN]: Stopping server",
+            "[21:38:24] [Server thread/INFO]: Stopping server extra",
+            "Stopping server",
         ] {
             assert_eq!(parse_server_status(rejected), None, "{rejected:?}");
         }
     }
 
     #[test]
-    fn status_scanner_handles_split_chunks_multidim_reset_and_latches_on_done() {
+    fn status_scanner_handles_split_chunks_multidim_reset_and_latches_on_stopping() {
         let mut scanner = ServerStatusScanner::default();
         assert_eq!(scanner.feed(b"[23:29:44 INFO]: Preparing "), None);
         assert_eq!(
@@ -726,7 +782,7 @@ mod tests {
         noisy.push(b'\n');
         assert_eq!(scanner.feed(&noisy), None);
 
-        // Done wins over an earlier progress line in the same chunk and latches permanently.
+        // Done wins over an earlier progress line in the same chunk; later progress lines are ignored.
         assert_eq!(
             scanner.feed(
                 b"[23:30:00 INFO]: Preparing spawn area: 100%\n\
@@ -735,8 +791,20 @@ mod tests {
             Some(ServerStatusEvent::Done)
         );
         assert!(scanner.is_done());
+        assert!(!scanner.is_stopping());
         assert_eq!(
             scanner.feed(b"[23:31:00 INFO]: Preparing spawn area: 10%\n"),
+            None
+        );
+
+        // Scanner continues after Done to recognize Stopping server, then latches permanently.
+        assert_eq!(
+            scanner.feed(b"> \r  \r[23:31:18 INFO]: Stopping server\n"),
+            Some(ServerStatusEvent::Stopping)
+        );
+        assert!(scanner.is_stopping());
+        assert_eq!(
+            scanner.feed(b"[23:31:19 INFO]: Stopping server\n"),
             None
         );
     }

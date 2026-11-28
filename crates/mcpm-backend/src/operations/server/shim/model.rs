@@ -128,9 +128,8 @@ impl State {
             Self::Running { server_status, .. } | Self::Stopping { server_status, .. } => {
                 *server_status
             }
-            Self::Killing | Self::Restarting { .. } | Self::Exited { .. } => {
-                ServerStatus::StartingOrUnknown
-            }
+            Self::Killing => ServerStatus::Stopping,
+            Self::Restarting { .. } | Self::Exited { .. } => ServerStatus::Exited,
         }
     }
 
@@ -355,13 +354,15 @@ pub enum Source {
     Stderr,
 }
 
-/// Best-effort Minecraft startup lifecycle parsed from server console logs.
+/// Best-effort Minecraft server lifecycle parsed from server console logs and process exit state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ServerStatus {
     StartingOrUnknown,
     GeneratingChunks(u8),
     Done,
+    Stopping,
+    Exited,
 }
 
 /// RCON availability and live connection evidence, independent of the launch policy label.

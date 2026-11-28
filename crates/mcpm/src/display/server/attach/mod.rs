@@ -768,29 +768,32 @@ fn exit_report(exit: &ExitReason) -> (&'static str, Role, Vec<Line<'static>>) {
     }
 }
 
-fn status_line(state: &State, channel: Channel) -> Line<'static> {
-    match state {
-        State::Restarting { attempt, .. } => Line::styled(
-            format!(
-                "Java Restarting · attempt #{attempt} · @stop / @kill / Ctrl+C: cancel · @detach / Ctrl+D: detach"
-            ),
-            style(Role::Muted),
-        ),
-        State::Running {
-            server_status,
-            rcon_status,
+fn server_status_badge(server_status: ServerStatus) -> (String, Role) {
+    match server_status {
+        ServerStatus::StartingOrUnknown => ("Starting".to_owned(), Role::Primary),
+        ServerStatus::GeneratingChunks(progress) => {
+            (format!("Generating {progress}%"), Role::Primary)
         }
-        | State::Stopping {
-            server_status,
-            rcon_status,
-        } => {
-            let (server_label, server_role) = match server_status {
-                ServerStatus::StartingOrUnknown => ("Starting".to_owned(), Role::Primary),
-                ServerStatus::GeneratingChunks(progress) => {
-                    (format!("Generating {progress}%"), Role::Primary)
-                }
-                ServerStatus::Done => ("Done".to_owned(), Role::Success),
-            };
+        ServerStatus::Done => ("Done".to_owned(), Role::Success),
+        ServerStatus::Stopping => ("Stopping".to_owned(), Role::Warning),
+        ServerStatus::Exited => ("Exited".to_owned(), Role::Muted),
+    }
+}
+
+fn status_line(state: &State, channel: Channel) -> Line<'static> {
+    let (server_label, server_role) = server_status_badge(state.server_status());
+    match state {
+        State::Restarting { attempt, .. } => Line::from(vec![
+            Span::styled("Java Restarting · Server ", style(Role::Muted)),
+            Span::styled(server_label, style(server_role)),
+            Span::styled(
+                format!(
+                    " · attempt #{attempt} · @stop / @kill / Ctrl+C: cancel · @detach / Ctrl+D: detach"
+                ),
+                style(Role::Muted),
+            ),
+        ]),
+        State::Running { rcon_status, .. } | State::Stopping { rcon_status, .. } => {
             let (rcon_label, rcon_role) = match rcon_status {
                 RconStatus::Unavailable => ("Unavailable", Role::Muted),
                 RconStatus::Unknown => ("Unknown", Role::Primary),
@@ -812,13 +815,19 @@ fn status_line(state: &State, channel: Channel) -> Line<'static> {
                 ),
             ])
         }
-        State::Killing | State::Exited { .. } => Line::styled(
-            format!(
-                "Java {} · {channel:?} · @detach / Ctrl+D: detach · Ctrl+C: stop / kill",
-                state.label()
+        State::Killing | State::Exited { .. } => Line::from(vec![
+            Span::styled(
+                format!("Java {} · Server ", state.label()),
+                style(Role::Muted),
             ),
-            style(Role::Muted),
-        ),
+            Span::styled(server_label, style(server_role)),
+            Span::styled(
+                format!(
+                    " · {channel:?} · @detach / Ctrl+D: detach · Ctrl+C: stop / kill"
+                ),
+                style(Role::Muted),
+            ),
+        ]),
     }
 }
 

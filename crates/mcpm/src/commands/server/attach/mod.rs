@@ -786,21 +786,26 @@ fn spawn_interrupt(
                 })
                 .await?;
             match info.state {
-                State::Running { .. } | State::Restarting { .. } => send_command(
-                    &executor,
-                    &reference,
-                    &listener_id,
-                    id.clone(),
-                    "stop".into(),
-                    CommandVisibility::User,
-                )
-                .await
-                .map(Action::Command),
-                State::Stopping { .. } | State::Killing => {
-                    send_kill(&executor, &reference, &listener_id, id.clone())
-                        .await
-                        .map(Action::Kill)
+                State::Running { .. } | State::Restarting { .. }
+                    if info.state.server_status() != ServerStatus::Stopping =>
+                {
+                    send_command(
+                        &executor,
+                        &reference,
+                        &listener_id,
+                        id.clone(),
+                        "stop".into(),
+                        CommandVisibility::User,
+                    )
+                    .await
+                    .map(Action::Command)
                 }
+                State::Running { .. }
+                | State::Restarting { .. }
+                | State::Stopping { .. }
+                | State::Killing => send_kill(&executor, &reference, &listener_id, id.clone())
+                    .await
+                    .map(Action::Kill),
                 State::Exited { .. } => Ok(Action::Kill(KillResult::AlreadyExited)),
             }
         }

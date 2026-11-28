@@ -189,14 +189,14 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
     });
     let stdout_drained = Arc::new(AtomicBool::new(false));
     let stderr_drained = Arc::new(AtomicBool::new(false));
-    let startup_done = Arc::new(AtomicBool::new(false));
+    let stopping_seen = Arc::new(AtomicBool::new(false));
     drain(
         stdout,
         Source::Stdout,
         0,
         runtime.clone(),
         stdout_drained.clone(),
-        startup_done.clone(),
+        stopping_seen.clone(),
     );
     drain(
         stderr,
@@ -204,7 +204,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
         0,
         runtime.clone(),
         stderr_drained.clone(),
-        startup_done,
+        stopping_seen,
     );
     publish(&directory.join("instance.json"), &record)?;
     let launched = runtime.launched();
@@ -472,7 +472,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                         Ok((mut next_java, stdout, stderr)) => {
                             let stdout_drained = Arc::new(AtomicBool::new(false));
                             let stderr_drained = Arc::new(AtomicBool::new(false));
-                            let startup_done = Arc::new(AtomicBool::new(false));
+                            let stopping_seen = Arc::new(AtomicBool::new(false));
                             let respawned = {
                                 let mut data = runtime.data.lock().unwrap();
                                 if data.restart_cancelled {
@@ -512,7 +512,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                                 generation,
                                 runtime.clone(),
                                 stdout_drained.clone(),
-                                startup_done.clone(),
+                                stopping_seen.clone(),
                             );
                             drain(
                                 stderr,
@@ -520,7 +520,7 @@ pub(super) async fn start(bootstrap: Bootstrap) -> Result<()> {
                                 generation,
                                 runtime.clone(),
                                 stderr_drained.clone(),
-                                startup_done,
+                                stopping_seen,
                             );
                             if runtime.rcon_settings.is_some() {
                                 let runtime = runtime.clone();
@@ -725,7 +725,7 @@ fn drain(
     generation: u64,
     runtime: Arc<Runtime>,
     drained: Arc<AtomicBool>,
-    startup_done: Arc<AtomicBool>,
+    stopping_seen: Arc<AtomicBool>,
 ) {
     std::thread::spawn(move || {
         let mut bytes = vec![0; MAX_LOG_BLOCK_BYTES];
@@ -734,13 +734,13 @@ fn drain(
             match source.read(&mut bytes) {
                 Ok(0) => break,
                 Ok(length) => {
-                    let event = if !startup_done.load(Ordering::Acquire) {
+                    let event = if !stopping_seen.load(Ordering::Acquire) {
                         scanner.feed(&bytes[..length])
                     } else {
                         None
                     };
-                    if event == Some(ServerStatusEvent::Done) {
-                        startup_done.store(true, Ordering::Release);
+                    if event == Some(ServerStatusEvent::Stopping) {
+                        stopping_seen.store(true, Ordering::Release);
                     }
                     let mut status_changed = false;
                     {
@@ -753,20 +753,10 @@ fn drain(
                             && data.generation == generation
                             && !data.reaped
                         {
-                            let next = match event {
-                                ServerStatusEvent::GeneratingChunks(progress) => {
-                                    ServerStatus::GeneratingChunks(progress)
-                                }
-                                ServerStatusEvent::Done => ServerStatus::Done,
-                            };
                             match &mut data.state {
                                 State::Running { server_status, .. }
-                                | State::Stopping { server_status, .. }
-                                    if *server_status != ServerStatus::Done
-                                        && *server_status != next =>
-                                {
-                                    *server_status = next;
-                                    status_changed = true;
+                                | State::Stopping { server_status, .. } => {
+                                    status_changed = advance_server_status(server_status, event);
                                 }
                                 _ => {}
                             }
@@ -790,6 +780,26 @@ fn drain(
         drained.store(true, Ordering::Release);
         runtime.pipe_closed.notify_one();
     });
+}
+
+fn advance_server_status(current: &mut ServerStatus, event: ServerStatusEvent) -> bool {
+    let next = match (*current, event) {
+        (ServerStatus::Stopping | ServerStatus::Exited, _) => return false,
+        (
+            ServerStatus::Done,
+            ServerStatusEvent::GeneratingChunks(_) | ServerStatusEvent::Done,
+        ) => return false,
+        (_, ServerStatusEvent::GeneratingChunks(progress)) => {
+            ServerStatus::GeneratingChunks(progress)
+        }
+        (_, ServerStatusEvent::Done) => ServerStatus::Done,
+        (_, ServerStatusEvent::Stopping) => ServerStatus::Stopping,
+    };
+    if *current == next {
+        return false;
+    }
+    *current = next;
+    true
 }
 
 impl Runtime {
@@ -1178,13 +1188,9 @@ impl Runtime {
             lane.stop_attempted = true;
             self.connected(false);
             let mut data = self.data.lock().unwrap();
-            if let State::Running {
-                server_status,
-                rcon_status,
-            } = data.state
-            {
+            if let State::Running { rcon_status, .. } = data.state {
                 data.state = State::Stopping {
-                    server_status,
+                    server_status: ServerStatus::Stopping,
                     rcon_status,
                 };
                 self.status.send_replace(());

@@ -149,7 +149,7 @@ impl From<RunSnapshotWire> for RunSnapshot {
                 rcon_status: RconStatus::Unknown,
             },
             WireState::Legacy(LegacyState::Stopping) => State::Stopping {
-                server_status: ServerStatus::StartingOrUnknown,
+                server_status: ServerStatus::Stopping,
                 rcon_status: RconStatus::Unknown,
             },
             WireState::Legacy(LegacyState::Killing) => State::Killing,
